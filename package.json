@@ -1,6 +1,6 @@
 {
   "name": "itpay_cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ITPay CLI for buying and installing VoltaGent agent-native model packages.",
   "type": "module",
   "bin": {
