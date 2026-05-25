@@ -54,7 +54,7 @@ test -f "$INSTALLED_SKILL_PATH"
 HOME="$TMP_HOME" "$TMP_PREFIX/bin/itp" skill show | grep -q "VoltaGent / ITPay Agent Runbook"
 HOME="$TMP_HOME" "$ROOT/bin/itp" --help >/dev/null
 HELP=$(HOME="$TMP_HOME" "$ROOT/bin/itp" --help)
-printf '%s' "$HELP" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (!json.commands.includes("keys rotate --grant <grant_id>") || !json.commands.includes("checkout create --plan coding-100 --idempotency-key <uuid>") || !json.commands.includes("checkout list --limit 20") || !json.commands.includes("skill show")) process.exit(1);})'
+printf '%s' "$HELP" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (!json.commands.includes("keys rotate --grant <grant_id>") || !json.commands.includes("checkout create --plan coding-100 --idempotency-key <uuid>") || !json.commands.includes("checkout list --limit 20") || !json.commands.includes("setup --plan coding-100 --target codex --method alipay") || !json.commands.includes("skill show")) process.exit(1);})'
 AUTH_STATUS=$(HOME="$TMP_HOME" "$ROOT/bin/itp" auth status --json)
 printf '%s' "$AUTH_STATUS" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.authenticated !== false) process.exit(1);})'
 BALANCE_NO_SESSION=$(HOME="$TMP_HOME" "$ROOT/bin/itp" balance --json 2>/dev/null || true)

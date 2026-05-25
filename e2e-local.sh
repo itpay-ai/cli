@@ -6,17 +6,21 @@ API_BASE=${VOLTAGENT_API_BASE:-http://localhost:3000}
 NODE=${NODE:-$(command -v node)}
 
 TMP_HOME=$(mktemp -d "${TMPDIR:-/tmp}/voltagent-itp-e2e-home.XXXXXX")
+TMP_SETUP_HOME=$(mktemp -d "${TMPDIR:-/tmp}/voltagent-itp-setup-home.XXXXXX")
+TMP_SETUP_NOWAIT_HOME=$(mktemp -d "${TMPDIR:-/tmp}/voltagent-itp-setup-nowait-home.XXXXXX")
 
 cleanup() {
-  rm -rf "$TMP_HOME"
+  rm -rf "$TMP_HOME" "$TMP_SETUP_HOME" "$TMP_SETUP_NOWAIT_HOME"
 }
 trap cleanup EXIT INT TERM
 
-itp() {
+itp_home() {
+  itp_home_dir="$1"
+  shift
   attempt=0
   while :; do
-    err_file="$TMP_HOME/itp-error.log"
-    if out=$(HOME="$TMP_HOME" PATH=/nonexistent VOLTAGENT_API_BASE="$API_BASE" "$NODE" "$ROOT/bin/itp" "$@" 2>"$err_file"); then
+    err_file="$itp_home_dir/itp-error.log"
+    if out=$(HOME="$itp_home_dir" PATH=/nonexistent VOLTAGENT_API_BASE="$API_BASE" "$NODE" "$ROOT/bin/itp" "$@" 2>"$err_file"); then
       printf '%s' "$out"
       return 0
     fi
@@ -32,6 +36,10 @@ itp() {
   done
 }
 
+itp() {
+  itp_home "$TMP_HOME" "$@"
+}
+
 json_get() {
   "$NODE" -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const v=JSON.parse(d); const path=process.argv[1].split('.'); let cur=v; for (const p of path) cur=cur?.[p]; if (cur === undefined || cur === null) process.exit(2); process.stdout.write(String(cur));})" "$1"
 }
@@ -43,6 +51,16 @@ json_assert() {
 printf 'checking server %s\n' "$API_BASE" >&2
 curl -fsS "$API_BASE/api/status" >/dev/null
 curl -fsS "$API_BASE/api/itp/plans" | json_assert "return v.success === true && v.data.plans.some(p => p.plan_id === 'coding-100')" >/dev/null
+
+printf 'running one-command setup flow\n' >&2
+SETUP=$(itp_home "$TMP_SETUP_HOME" setup --plan coding-100 --target codex --method fake --mock-approve --offline --json)
+printf '%s' "$SETUP" | json_assert "return v.status === 'installed' && v.grant_id && v.base_url && v.openai_base_url && v.auth && v.auth.session_stored === true"
+test -f "$TMP_SETUP_HOME/.codex/config.toml"
+test -f "$TMP_SETUP_HOME/.itp/voltagent.env"
+
+printf 'checking setup no-wait auth handoff\n' >&2
+SETUP_NOWAIT=$(itp_home "$TMP_SETUP_NOWAIT_HOME" setup --plan coding-100 --target codex --method fake --no-wait --json)
+printf '%s' "$SETUP_NOWAIT" | json_assert "return v.status === 'waiting_human_auth' && v.action === 'scan_alipay_auth' && v.auth_id && v.user_code && v.verification_uri_complete"
 
 USERNAME="e2e-$(date +%Y%m%d%H%M%S)-$$"
 printf 'registering %s\n' "$USERNAME" >&2

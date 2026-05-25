@@ -160,7 +160,25 @@ Set API endpoint if not using local backend:
 export VOLTAGENT_API_BASE=https://your-api.example.com
 ```
 
-Start Alipay-bound agent authentication:
+For the agent-native one-command flow, let the CLI authenticate, create the
+checkout, wait for verified payment, install the grant, and write the runtime
+config:
+
+```bash
+itp setup --plan coding-100 --target codex --method alipay --json
+```
+
+With `--no-wait`, setup returns `status=waiting_human_auth` before checkout if
+the machine has no valid session, or `status=waiting_human_payment` after
+checkout creation when a payment scan is still required.
+
+For local fake-auth/fake-payment testing:
+
+```bash
+itp setup --plan coding-100 --target codex --method fake --mock-approve --offline --json
+```
+
+Manual flow starts with Alipay-bound agent authentication:
 
 ```bash
 itp auth register --runtime codex --json

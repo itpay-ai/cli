@@ -24,8 +24,9 @@ credential handling.
 5. Do not invent payment links, QR codes, checkout IDs, order IDs, or grant IDs.
 6. Do not modify, shorten, summarize, re-encode, or rewrite cashier URLs.
 7. Do not trust "I paid" as proof of payment.
-8. Only `itp payment wait <checkout_id> --json` returning `status=grant_issued`
-   or `status=grant_installed` with a `grant_id` means installation may proceed.
+8. Only `itp setup --json` returning `status=installed`, or `itp payment wait
+   <checkout_id> --json` returning `status=grant_issued` / `status=grant_installed`
+   with a `grant_id`, means installation may proceed.
 9. If a command fails, report the failed command and safe error message. Do not
    dump local credential files.
 10. Prefer continuing from existing orders/grants over creating duplicate
@@ -92,7 +93,33 @@ or use:
 npx itpay_cli --version
 ```
 
+## One-Command Setup
+
+For a normal purchase/install request, prefer the high-level setup command:
+
+```bash
+itp setup --plan coding-100 --target <target> --method alipay --json
+```
+
+This command checks the current session, starts Alipay device authentication if
+needed, creates the checkout, waits for verified payment, installs the grant,
+and writes the target runtime config. If it returns `status=installed`, report
+the returned base URL fields and stop.
+
+If setup is intentionally run with `--no-wait`, `status=waiting_human_auth`
+means the user must scan the Alipay auth URL/code before checkout can be
+created, and `status=waiting_human_payment` means the user must scan/pay the
+returned cashier URL before installation can continue.
+
+For local fake-auth/fake-payment testing only:
+
+```bash
+itp setup --plan coding-100 --target <target> --method fake --mock-approve --offline --json
+```
+
 ## Login / Registration
+
+Use this section only if setup needs to be performed manually.
 
 Check auth:
 

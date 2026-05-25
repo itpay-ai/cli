@@ -44,6 +44,10 @@ async function main() {
     await plansList(parseFlags(args.slice(1)));
     return;
   }
+  if (group === "setup" || group === "buy") {
+    await setup(parseFlags(args.slice(1)));
+    return;
+  }
   if (group === "doctor") {
     await doctor(parseFlags(args.slice(1)));
     return;
@@ -153,6 +157,8 @@ async function main() {
           "auth login",
           "auth device start",
           "auth device poll <auth_id>",
+          "setup --plan coding-100 --target codex --method alipay",
+          "setup --plan coding-100 --target codex --method fake --mock-approve",
           "auth status",
           "account show",
           "account login-link",
@@ -193,29 +199,78 @@ async function main() {
 }
 
 async function authRegister(flags) {
-  const start = await startDeviceAuth(flags);
-  if (flags.no_wait) {
-    writeState({ ...readState(), last_auth_id: start.auth_id });
-    output(start);
+  const response = await completeDeviceAuth(flags);
+  output(response);
+}
+
+async function setup(flags) {
+  const target = flags.target || flags.runtime || "codex";
+  const plan = flags.plan || "coding-100";
+  const method = flags.method || "alipay";
+  const setupFlags = { ...flags, runtime: target };
+  const auth = await ensureAuthenticated(setupFlags);
+  if (!auth.authenticated) {
+    output(auth);
     return;
   }
-  if (flags.mock_approve || process.env.ITPAY_MOCK_APPROVE === "true" || process.env.ITPAY_MOCK_APPROVE === "1") {
-    const alipayUserId = flags.alipay_user_id || process.env.ITPAY_MOCK_ALIPAY_USER_ID || `2088${crypto.randomInt(100000000000, 999999999999)}`;
-    await api(`/api/itp/auth/device/${encodeURIComponent(start.auth_id)}/mock-approve`, {
-      method: "POST",
-      body: { alipay_user_id: alipayUserId }
-    }, flags);
-  }
-  const response = await waitDeviceAuth(start.auth_id, flags, start);
-  writeSessionCredentials(response.auth);
-  writeConfig({
-    api_base: apiBase(flags),
-    account_id: response.auth.account_id,
-    device_id: response.auth.device_id,
-    web_console_url: response.auth.web_console_url
+  const checkout = await createCheckoutResult({
+    ...setupFlags,
+    plan,
+    method,
+    idempotency_key: flags.idempotency_key || `setup-${target}-${plan}-${cryptoRandom()}`
   });
-  writeState({ ...readState(), last_auth_id: start.auth_id });
-  output({ ...sanitizeAuthResponse(response.auth), auth_id: start.auth_id, status: response.status });
+
+  if (checkout.payment?.cashier_url) {
+    process.stderr.write(`Open Alipay payment URL: ${checkout.payment.cashier_url}\n`);
+  }
+
+  if (!checkout.grant_id && (flags.no_wait_payment || flags.no_wait)) {
+    output({
+      status: "waiting_human_payment",
+      action: "scan_alipay_payment",
+      account_id: auth.account_id,
+      device_id: auth.device_id,
+      checkout_id: checkout.checkout_id,
+      order_id: checkout.order_id,
+      plan_id: checkout.plan_id || plan,
+      expires_at: checkout.expires_at,
+      payment: checkout.payment,
+      next_action: checkout.next_action
+    });
+    return;
+  }
+
+  const payment = checkout.grant_id
+    ? { status: checkout.status, checkout_id: checkout.checkout_id, order_id: checkout.order_id, grant_id: checkout.grant_id }
+    : await paymentWaitResult(checkout.checkout_id, setupFlags);
+  const grant = await grantsInstallResult(payment.grant_id, { ...setupFlags, target });
+  const runtimeInstall = (flags.no_runtime_install || flags.no_install)
+    ? null
+    : await installRuntimeResult(target, {
+      ...setupFlags,
+      grant: payment.grant_id,
+      no_test: flags.test ? false : true
+    });
+
+  output({
+    status: "installed",
+    account_id: auth.account_id,
+    device_id: auth.device_id,
+    checkout_id: checkout.checkout_id,
+    order_id: checkout.order_id,
+    plan_id: checkout.plan_id || plan,
+    grant_id: payment.grant_id,
+    target,
+    base_url: grant.base_url,
+    openai_base_url: grant.openai_base_url,
+    anthropic_base_url: grant.anthropic_base_url,
+    gemini_base_url: grant.gemini_base_url,
+    auth,
+    checkout,
+    payment,
+    grant_install: grant,
+    runtime_install: runtimeInstall
+  });
 }
 
 async function startDeviceAuth(flags) {
@@ -231,6 +286,79 @@ async function startDeviceAuth(flags) {
         itp_version: VERSION
       }
     }
+  }, flags);
+}
+
+async function completeDeviceAuth(flags) {
+  const start = await startDeviceAuth(flags);
+  if (flags.no_wait) {
+    writeState({ ...readState(), last_auth_id: start.auth_id });
+    return start;
+  }
+  await maybeMockApproveDeviceAuth(start.auth_id, flags);
+  const response = await waitDeviceAuth(start.auth_id, flags, start);
+  if (!response.auth) {
+    throw new Error(`device auth ended without session: ${response.status || "unknown"}`);
+  }
+  writeSessionCredentials(response.auth);
+  writeConfig({
+    api_base: apiBase(flags),
+    account_id: response.auth.account_id,
+    device_id: response.auth.device_id,
+    web_console_url: response.auth.web_console_url
+  });
+  writeState({ ...readState(), last_auth_id: start.auth_id });
+  return { ...sanitizeAuthResponse(response.auth), auth_id: start.auth_id, status: response.status };
+}
+
+async function ensureAuthenticated(flags) {
+  const config = readConfig();
+  const credentials = readCredentials();
+  if (readSessionToken(credentials)) {
+    try {
+      const status = await api("/api/itp/auth/status", { method: "GET" }, flags);
+      if (status.authenticated !== false) {
+        return {
+          authenticated: true,
+          account_id: status.account_id || config.account_id || null,
+          device_id: status.device_id || config.device_id || null,
+          newapi_user_id: status.newapi_user_id || null,
+          session_reused: true
+        };
+      }
+    } catch {
+      deleteSessionCredential(credentials);
+      writeCredentials(credentials);
+    }
+  }
+  if (flags.no_wait || flags.no_wait_auth) {
+    const start = await startDeviceAuth(flags);
+    writeState({ ...readState(), last_auth_id: start.auth_id });
+    return {
+      authenticated: false,
+      status: "waiting_human_auth",
+      action: "scan_alipay_auth",
+      auth_id: start.auth_id,
+      user_code: start.user_code,
+      verification_uri: start.verification_uri,
+      verification_uri_complete: start.verification_uri_complete,
+      alipay_authorization_url: start.alipay_authorization_url,
+      expires_at: start.expires_at,
+      interval: start.interval
+    };
+  }
+  const auth = await completeDeviceAuth(flags);
+  return { ...auth, authenticated: true, session_reused: false };
+}
+
+async function maybeMockApproveDeviceAuth(authId, flags) {
+  if (!(flags.mock_approve || process.env.ITPAY_MOCK_APPROVE === "true" || process.env.ITPAY_MOCK_APPROVE === "1")) {
+    return;
+  }
+  const alipayUserId = flags.alipay_user_id || process.env.ITPAY_MOCK_ALIPAY_USER_ID || `2088${crypto.randomInt(100000000000, 999999999999)}`;
+  await api(`/api/itp/auth/device/${encodeURIComponent(authId)}/mock-approve`, {
+    method: "POST",
+    body: { alipay_user_id: alipayUserId }
   }, flags);
 }
 
@@ -374,6 +502,10 @@ async function plansShow(plan, flags) {
 }
 
 async function checkoutCreate(flags) {
+  output(await createCheckoutResult(flags));
+}
+
+async function createCheckoutResult(flags) {
   const plan = flags.plan || "coding-100";
   const method = flags.method || "alipay";
   const idempotencyKey = flags.idempotency_key || cryptoRandom();
@@ -386,10 +518,14 @@ async function checkoutCreate(flags) {
     }
   }, flags);
   writeState({ ...readState(), last_checkout_id: response.checkout_id, last_grant_id: response.grant_id || null });
-  output(response);
+  return response;
 }
 
 async function paymentWait(checkoutId, flags) {
+  output(await paymentWaitResult(checkoutId, flags));
+}
+
+async function paymentWaitResult(checkoutId, flags) {
   if (!checkoutId) throw new Error("checkout_id is required");
   const started = Date.now();
   const timeoutMs = Number(flags.timeout || 120) * 1000;
@@ -403,8 +539,7 @@ async function paymentWait(checkoutId, flags) {
     }
     if (isSuccessfulCheckout(response)) {
       writeState({ ...readState(), last_checkout_id: checkoutId, last_grant_id: response.grant_id });
-      output({ status: "grant_issued", checkout_id: checkoutId, order_id: response.order_id, grant_id: response.grant_id });
-      return;
+      return { status: "grant_issued", checkout_id: checkoutId, order_id: response.order_id, grant_id: response.grant_id };
     }
     if (shouldRecoverCheckout(response.status) && Date.now() - lastRecoverAt > 5000) {
       lastRecoverAt = Date.now();
@@ -415,8 +550,7 @@ async function paymentWait(checkoutId, flags) {
       }
       if (isSuccessfulCheckout(response)) {
         writeState({ ...readState(), last_checkout_id: checkoutId, last_grant_id: response.grant_id });
-        output({ status: "grant_issued", checkout_id: checkoutId, order_id: response.order_id, grant_id: response.grant_id, recovered: true });
-        return;
+        return { status: "grant_issued", checkout_id: checkoutId, order_id: response.order_id, grant_id: response.grant_id, recovered: true };
       }
     }
     await sleep(2000);
@@ -429,8 +563,7 @@ async function paymentWait(checkoutId, flags) {
     }
     if (isSuccessfulCheckout(response)) {
       writeState({ ...readState(), last_checkout_id: checkoutId, last_grant_id: response.grant_id });
-      output({ status: "grant_issued", checkout_id: checkoutId, order_id: response.order_id, grant_id: response.grant_id, recovered: true });
-      return;
+      return { status: "grant_issued", checkout_id: checkoutId, order_id: response.order_id, grant_id: response.grant_id, recovered: true };
     }
   } catch (error) {
     if (isTerminalCheckoutFailure(lastResponse?.status)) {
@@ -502,6 +635,10 @@ async function grantsShow(grantId, flags) {
 }
 
 async function grantsInstall(grantId, flags) {
+  output(await grantsInstallResult(grantId, flags));
+}
+
+async function grantsInstallResult(grantId, flags) {
   grantId = grantId || readState().last_grant_id;
   if (!grantId) throw new Error("grant_id is required");
   const target = flags.target || "codex";
@@ -537,7 +674,7 @@ async function grantsInstall(grantId, flags) {
   }, null, 2), { mode: 0o600 });
   fs.chmodSync(metadataPath, 0o600);
   writeState({ ...readState(), last_grant_id: grantId });
-  output({
+  return {
     ...response,
     credential: {
       type: response.credential.type,
@@ -545,7 +682,7 @@ async function grantsInstall(grantId, flags) {
       credential_store: storedCredential.credential_store,
       warning: storedCredential.credential_warning || undefined
     }
-  });
+  };
 }
 
 async function grantsRevoke(grantId, flags) {
@@ -562,6 +699,10 @@ async function grantsRevoke(grantId, flags) {
 }
 
 async function installRuntime(target, flags) {
+  output(await installRuntimeResult(target, flags));
+}
+
+async function installRuntimeResult(target, flags) {
   const grantId = flags.grant || readState().last_grant_id;
   if (!grantId) throw new Error("grant id is required");
   const credentials = readGrantCredential(grantId);
@@ -594,7 +735,7 @@ async function installRuntime(target, flags) {
       }
     }, flags);
   }
-  output(result);
+  return result;
 }
 
 function shouldRecoverCheckout(status) {
