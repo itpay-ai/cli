@@ -34,7 +34,9 @@
     "Use --json for every ItPay command.",
     "Search and explain options before buying unless the user already named a variant.",
     "Add the selected UCP Variant.id to cart; do not bypass cart for CORE-028 flows.",
-    "For first purchase, show auth_qr first and wait for provider login/registration consent before payment.",
+    "For first purchase, show auth_qr as the ItPay first-purchase entry: the human first approves provider login/registration/profile sharing, then ItPay should continue the same checkout to payment.",
+    "After showing auth_qr, keep running/resuming the same checkout unless the human explicitly asks you to pause. Do not stop merely because a QR was displayed.",
+    "Use high-level itp buy when possible; it is designed to show the first-purchase entry, wait/resume, continue to payment, wait for verification, and poll delivery.",
     "Show the returned payment QR exactly as provided.",
     "Payment truth comes only from payment_intent.verified.",
     "Secure delivery goes to the human first; report redacted delivery status only."

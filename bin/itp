@@ -526,7 +526,11 @@ async function buyerBuy(flags) {
         checkout,
         human_action: checkout.human_action,
         agent_next_actions: checkout.agent_next_actions || ["wait_human_auth", "poll_checkout"],
-        next: { command: cliCommand("buyer", "checkout", "resume", checkout.checkout_id, "--json"), safe_for_agent: true }
+        next: {
+          command: cliCommand("buyer", "checkout", "resume", checkout.checkout_id, "--json"),
+          safe_for_agent: true,
+          instruction: "After presenting the first-purchase auth-to-payment QR, keep this resume command running/waiting. Do not stop at QR display unless the human explicitly asks you to pause."
+        }
       }));
       return;
     }
@@ -660,7 +664,19 @@ async function buyer(command, rest, flags) {
         if (checkout.next_required_action === "auth_qr" || checkout.identity_status === "waiting_human_auth") {
           await renderHumanAction(checkout.human_action, flags);
         }
-        output(buyerRunOutput({ status: "checkout_created", cart, checkout, agent_next_actions: checkout.agent_next_actions || ["create_payment_intent"] }));
+        output(buyerRunOutput({
+          status: "checkout_created",
+          cart,
+          checkout,
+          agent_next_actions: checkout.agent_next_actions || ["create_payment_intent"],
+          next: checkout.next_required_action === "auth_qr" || checkout.identity_status === "waiting_human_auth"
+            ? {
+              command: cliCommand("buyer", "checkout", "resume", checkout.checkout_id, "--json"),
+              safe_for_agent: true,
+              instruction: "After presenting the first-purchase auth-to-payment QR, keep this resume command running/waiting. Do not stop at QR display unless the human explicitly asks you to pause."
+            }
+            : undefined
+        }));
         return;
       }
       const selectionID = flags.variant || flags.catalog_variant_id || flags.item || flags.catalog_item_id;
@@ -670,33 +686,70 @@ async function buyer(command, rest, flags) {
       if (checkout.next_required_action === "auth_qr" || checkout.identity_status === "waiting_human_auth") {
         await renderHumanAction(checkout.human_action, flags);
       }
-      output(buyerRunOutput({ status: "checkout_created", selection, cart, checkout, agent_next_actions: checkout.agent_next_actions || ["create_payment_intent"] }));
+      output(buyerRunOutput({
+        status: "checkout_created",
+        selection,
+        cart,
+        checkout,
+        agent_next_actions: checkout.agent_next_actions || ["create_payment_intent"],
+        next: checkout.next_required_action === "auth_qr" || checkout.identity_status === "waiting_human_auth"
+          ? {
+            command: cliCommand("buyer", "checkout", "resume", checkout.checkout_id, "--json"),
+            safe_for_agent: true,
+            instruction: "After presenting the first-purchase auth-to-payment QR, keep this resume command running/waiting. Do not stop at QR display unless the human explicitly asks you to pause."
+          }
+          : undefined
+      }));
       return;
     }
     if (subcommand === "status") {
       const checkoutID = flags.checkout || flags.checkout_id || positional(rest, 1) || readState().last_core_checkout_id;
       if (!checkoutID) throw new Error("checkout_id is required");
       const checkout = await getBuyerCheckout(checkoutID, flags);
+      await maybeClaimBuyerSessionForCheckout(checkout, flags);
       output(buyerRunOutput({ status: checkout.delivery_status || checkout.status, checkout, delivery: checkout.delivery, agent_next_actions: checkout.agent_next_actions }));
       return;
     }
     if (subcommand === "resume") {
       const checkoutID = flags.checkout || flags.checkout_id || positional(rest, 1) || readState().last_core_checkout_id;
       if (!checkoutID) throw new Error("checkout_id is required");
-      const checkout = await getBuyerCheckout(checkoutID, flags);
+      let checkout = await getBuyerCheckout(checkoutID, flags);
       if (checkout.next_required_action === "auth_qr" || checkout.identity_status === "waiting_human_auth") {
         await renderHumanAction(checkout.human_action, flags);
-        output(buyerRunOutput({
-          status: "waiting_human_auth",
-          checkout,
-          human_action: checkout.human_action,
-          agent_next_actions: checkout.agent_next_actions || ["wait_human_auth", "poll_checkout"],
-          next: { command: cliCommand("buyer", "checkout", "resume", checkoutID, "--json"), safe_for_agent: true }
-        }));
-        return;
+        if (flags.no_wait || flags.no_wait_auth) {
+          output(buyerRunOutput({
+            status: "waiting_human_auth",
+            checkout,
+            human_action: checkout.human_action,
+            agent_next_actions: checkout.agent_next_actions || ["wait_human_auth", "poll_checkout"],
+            next: {
+              command: cliCommand("buyer", "checkout", "resume", checkoutID, "--json"),
+              safe_for_agent: true,
+              instruction: "Run this resume command and keep it active; do not stop after showing the auth-to-payment QR unless the human explicitly asks you to pause."
+            }
+          }));
+          return;
+        }
+        checkout = await waitBuyerCheckoutAuth(checkout, flags);
+        if (checkout.next_required_action === "auth_qr" || checkout.identity_status === "waiting_human_auth") {
+          output(buyerRunOutput({
+            status: "waiting_human_auth",
+            checkout,
+            human_action: checkout.human_action,
+            agent_next_actions: checkout.agent_next_actions || ["wait_human_auth", "poll_checkout"],
+            next: {
+              command: cliCommand("buyer", "checkout", "resume", checkoutID, "--json"),
+              safe_for_agent: true,
+              instruction: "Auth is still pending. Keep waiting/resuming the same checkout; do not create a new checkout."
+            }
+          }));
+          return;
+        }
       }
+      await maybeClaimBuyerSessionForCheckout(checkout, flags);
       if (checkout.payment_intent_id) {
         const intent = await getBuyerPaymentIntent(checkout.payment_intent_id, flags);
+        await renderItPayPaymentAction(intent, flags);
         output(buyerRunOutput({ status: intent.status === "verified" ? "payment_verified" : "waiting_user_payment", checkout, payment_intent: intent, agent_next_actions: intent.agent_next_actions || checkout.agent_next_actions || ["wait_payment"] }));
         return;
       }
@@ -880,7 +933,7 @@ async function createBuyerCheckoutFromCart(cart, selection = null, flags = {}) {
   if (missing.length) {
     throw new Error(`missing required delivery contact: ${missing.join(", ")}; provide ${missing.map((field) => `--${field} <value>`).join(" ")}`);
   }
-  const checkout = await coreApi("/api/ucp/v1/checkouts", {
+  const request = {
     method: "POST",
     idempotencyKey: flags.checkout_idempotency_key || flags.idempotency_key || `idem_cli_checkout_${cartID}`,
     body: {
@@ -888,8 +941,20 @@ async function createBuyerCheckoutFromCart(cart, selection = null, flags = {}) {
       client_reference_id: flags.checkout_client_reference_id || flags.client_reference_id || `cli_checkout_${cartID}`,
       delivery_contact: deliveryContact
     }
-  }, flags);
+  };
+  let checkout;
+  try {
+    checkout = await coreApi("/api/ucp/v1/checkouts", request, flags);
+  } catch (error) {
+    if (error?.status === 401 && readSessionToken(readCredentials()) && !flags.access_token) {
+      writeCredentials(deleteSessionCredential(readCredentials()));
+      checkout = await coreApi("/api/ucp/v1/checkouts", request, flags);
+    } else {
+      throw error;
+    }
+  }
   writeState({ ...readState(), last_core_cart_id: cartID, last_core_checkout_id: checkout.checkout_id });
+  rememberCoreAuthAction(checkout.checkout_id, checkout.human_action);
   return checkout;
 }
 
@@ -924,8 +989,11 @@ async function waitBuyerCheckoutAuth(checkout, flags = {}) {
   const started = Date.now();
   let lastHeartbeatAt = 0;
   let current = typeof checkout === "string" ? await getBuyerCheckout(checkoutID, flags) : checkout;
+  const authAction = current?.human_action || readCoreAuthAction(checkoutID) || null;
+  rememberCoreAuthAction(checkoutID, authAction);
   while (Date.now() - started < timeoutMs) {
     if (current.payment_intent_id || current.identity_status === "identity_resolved" || current.next_required_action !== "auth_qr") {
+      await maybeClaimBuyerSessionFromAuthAction(authAction, flags);
       return current;
     }
     lastHeartbeatAt = writeWaitHeartbeat({
@@ -941,7 +1009,95 @@ async function waitBuyerCheckoutAuth(checkout, flags = {}) {
     await sleep(Number(flags.auth_poll_ms || flags.poll_ms || 2000));
     current = await getBuyerCheckout(checkoutID, flags);
   }
+  await maybeClaimBuyerSessionFromAuthAction(authAction, flags);
   return current;
+}
+
+async function maybeClaimBuyerSessionFromAuthAction(action, flags = {}) {
+  const parsed = parseBuyerAuthActionURL(action);
+  if (!parsed.authSessionID || !parsed.displayToken) return null;
+  try {
+    const response = await coreApi(`/v1/buyer/auth-sessions/${encodeURIComponent(parsed.authSessionID)}/agent-session?display_token=${encodeURIComponent(parsed.displayToken)}`, {
+      method: "POST"
+    }, flags);
+    const rawToken = response.raw_session_token || response.session_token || response.session?.raw_session_token;
+    if (!rawToken) return response;
+    writeSessionCredentials({
+      account_id: response.buyer_account_id,
+      device_id: response.agent_device_id,
+      session_token: rawToken
+    });
+    writeConfig({
+      api_base: coreApiBase(flags),
+      account_id: response.buyer_account_id,
+      device_id: response.agent_device_id
+    });
+    forgetCoreAuthAction(response.checkout_id);
+    return response;
+  } catch (error) {
+    if (!flags.quiet) {
+      process.stderr.write(`ItPay buyer session claim skipped: ${safeErrorMessage(error)}\n`);
+    }
+    return null;
+  }
+}
+
+async function maybeClaimBuyerSessionForCheckout(checkout, flags = {}) {
+  if (!checkout?.checkout_id) return null;
+  if (readSessionToken()) return null;
+  if (checkout.identity_status !== "identity_resolved" && !checkout.payment_intent_id) return null;
+  const action = checkout.human_action || readCoreAuthAction(checkout.checkout_id);
+  return await maybeClaimBuyerSessionFromAuthAction(action, flags);
+}
+
+function parseBuyerAuthActionURL(action) {
+  const rawURL = action?.url || action?.auth_url || "";
+  if (!rawURL) return {};
+  try {
+    const parsed = new URL(rawURL);
+    const match = parsed.pathname.match(/\/v1\/buyer\/auth-sessions\/([^/]+)$/);
+    return {
+      authSessionID: match ? decodeURIComponent(match[1]) : "",
+      displayToken: parsed.searchParams.get("display_token") || ""
+    };
+  } catch {
+    return {};
+  }
+}
+
+function rememberCoreAuthAction(checkoutID, action) {
+  if (!checkoutID || action?.kind !== "auth_qr") return;
+  const parsed = parseBuyerAuthActionURL(action);
+  if (!parsed.authSessionID || !parsed.displayToken) return;
+  const state = readState();
+  const existing = state.core_auth_actions && typeof state.core_auth_actions === "object" ? state.core_auth_actions : {};
+  const entries = Object.entries(existing).slice(-19);
+  const next = Object.fromEntries(entries);
+  next[checkoutID] = {
+    kind: "auth_qr",
+    id: action.id || action.auth_session_id || parsed.authSessionID,
+    auth_session_id: action.auth_session_id || parsed.authSessionID,
+    url: action.url,
+    web_url: action.web_url || action.url,
+    expires_at: action.expires_at || null,
+    saved_at: new Date().toISOString()
+  };
+  writeState({ ...state, core_auth_actions: next, last_core_auth_checkout_id: checkoutID });
+}
+
+function readCoreAuthAction(checkoutID) {
+  if (!checkoutID) return null;
+  const state = readState();
+  return state.core_auth_actions?.[checkoutID] || null;
+}
+
+function forgetCoreAuthAction(checkoutID) {
+  if (!checkoutID) return;
+  const state = readState();
+  if (!state.core_auth_actions?.[checkoutID]) return;
+  const next = { ...state.core_auth_actions };
+  delete next[checkoutID];
+  writeState({ ...state, core_auth_actions: next });
 }
 
 async function getBuyerCheckout(checkoutID, flags = {}) {
@@ -990,8 +1146,8 @@ async function renderItPayPaymentAction(intent, flags = {}) {
   }
   if (action && (intent?.qr_image_url || intent?.qr?.image_url)) {
     action.qr_image_url = intent.qr_image_url || intent.qr.image_url;
-    action.display_mode = intent.qr?.scan_mode || "provider_qr_image";
-    action.description = action.description || "Scan the ItPay-rendered QR image with the Alipay sandbox app.";
+    action.display_mode = intent.qr?.scan_mode || "itpay_entry_qr";
+    action.description = action.description || "Scan the ItPay payment entry QR; ItPay will safely hand off to Alipay.";
   }
   const result = await renderHumanAction(action, flags);
   if (intent && action) {
@@ -2558,12 +2714,21 @@ async function renderHumanAction(action, flags = {}) {
   const mode = String(flags.display || process.env.ITP_DISPLAY || "").toLowerCase() || "auto";
   annotateHumanActionPresentation(action, qrImageURL);
   if (flags.json || mode === "none" || mode === "json") {
-    if (qrImageURL && shouldPrepareLocalQRForJSON(mode, flags)) {
+    if (qrImageURL && shouldPrepareLocalQRForJSON(mode, flags, action)) {
       const localPath = await prepareLocalQRFile(action, qrImageURL, flags, mode !== "file" && !flags.qr_file && !process.env.ITP_QR_FILE);
       if (localPath) {
         attachAgentQRImage(action, qrImageURL, localPath);
         persistHumanAction(action, flags);
         return { rendered: false, mode: "json-local-qr", outputs: [localPath] };
+      }
+    }
+    if (!qrImageURL && shouldGenerateLocalQRFromActionURL(action) && shouldPrepareLocalQRForJSON(mode, flags, action)) {
+      const localPath = await prepareGeneratedActionQRFile(action, flags, mode !== "file" && !flags.qr_file && !process.env.ITP_QR_FILE);
+      if (localPath) {
+        attachAgentGeneratedQRImage(action, localPath);
+        annotateHumanActionPresentation(action, "");
+        persistHumanAction(action, flags);
+        return { rendered: false, mode: "json-local-auth-qr", outputs: [localPath] };
       }
     }
     return { rendered: false, mode: flags.json ? "json" : mode };
@@ -2666,16 +2831,38 @@ function annotateHumanActionPresentation(action, qrImageURL) {
   if (mobileURL) action.mobile_wallet_url = mobileURL;
   action.agent_display_hint = {
     primary: action.local_qr_path ? "local_qr_path" : (action.qr_png_url ? "qr_png_url" : "preferred_qr_url"),
-    desktop: "Show local_qr_path when present; otherwise show qr_png_url/preferred_qr_url directly. Do not render a new QR from payment_entry_url.",
+    desktop: action.kind === "auth_qr"
+      ? "Show local_qr_path when present; otherwise show the ItPay first-purchase entry URL. This QR starts login/registration/profile authorization and should continue to payment for the same checkout after approval; it is not payment proof."
+      : "Show local_qr_path when present; otherwise show qr_png_url/preferred_qr_url directly. This is an ItPay-controlled entry QR; do not render your own QR from payment_entry_url.",
     mobile: "Show mobile_wallet_url as a clickable human-only fallback when present.",
     proof: "Only payment_intent.verified proves payment. QR display or page open is not payment proof."
   };
   return action;
 }
 
-function shouldPrepareLocalQRForJSON(mode, flags = {}) {
+function shouldPrepareLocalQRForJSON(mode, flags = {}, action = {}) {
   if (mode === "file" || flags.qr_file || process.env.ITP_QR_FILE) return true;
+  if (action?.kind === "auth_qr" && mode !== "none" && mode !== "json") return true;
   return mode === "agent" || mode === "chat";
+}
+
+function shouldGenerateLocalQRFromActionURL(action = {}) {
+  return action?.kind === "auth_qr" && Boolean(action?.url);
+}
+
+async function prepareGeneratedActionQRFile(action, flags = {}, optional = false) {
+  if (!action?.url) return "";
+  const file = flags.qr_file || process.env.ITP_QR_FILE || defaultQRFilePath(action, "");
+  try {
+    await QRCode.toFile(file, action.url, { errorCorrectionLevel: "M", width: 512, margin: 2 });
+  } catch (error) {
+    if (!optional) throw error;
+    action.local_qr_error = safeErrorMessage(error);
+    return "";
+  }
+  action.local_qr_path = file;
+  action.local_qr_mime = "image/png";
+  return file;
 }
 
 async function prepareLocalQRFile(action, qrImageURL, flags = {}, optional = false) {
@@ -2757,7 +2944,23 @@ function attachAgentQRImage(action, qrImageURL, localPath = "") {
       format: qrFileExtension(qrImageURL, action),
       url: qrImageURL,
       local_path: localPath || undefined,
-      instructions: "Render local_path when present; otherwise render this QR image for the human to scan with the Alipay sandbox app. Do not encode the ItPay entry URL or mobile wallet URL as a QR."
+      instructions: "Render local_path when present; otherwise render this ItPay-controlled entry QR image for the human to scan. Do not encode payment_entry_url, mobile_wallet_url, or provider payloads into your own QR."
+    });
+  }
+  return action;
+}
+
+function attachAgentGeneratedQRImage(action, localPath = "") {
+  if (!action || !localPath) return action;
+  if (!Array.isArray(action.display)) {
+    action.display = [];
+  }
+  if (!action.display.some((item) => item?.type === "image" && item?.local_path === localPath)) {
+    action.display.push({
+      type: "image",
+      format: "png",
+      local_path: localPath,
+      instructions: "Render this local ItPay first-purchase entry QR for the human to scan. It starts account login/registration/profile authorization and should continue to payment for the same checkout after approval; it is not payment proof."
     });
   }
   return action;
@@ -2915,6 +3118,14 @@ async function admin(command, rest, flags) {
 
 async function coreApi(pathname, options = {}, flags = {}) {
   const headers = { "Content-Type": "application/json" };
+  const credentials = readCredentials();
+  if (flags.access_token) {
+    const raw = String(flags.access_token);
+    headers.Authorization = raw.toLowerCase().startsWith("bearer ") ? raw : `Bearer ${raw}`;
+  } else {
+    const sessionToken = readSessionToken(credentials);
+    if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+  }
   if (options.idempotencyKey || flags.idempotency_key) {
     headers["Idempotency-Key"] = String(options.idempotencyKey || flags.idempotency_key);
   }
@@ -2957,7 +3168,9 @@ async function coreApi(pathname, options = {}, flags = {}) {
     }
   }
   if (!response.ok || payload.success === false) {
-    throw new Error(payload.error || payload.message || `request failed: ${response.status}`);
+    const error = new Error(payload.error || payload.message || `request failed: ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   return payload.data ?? payload;
 }

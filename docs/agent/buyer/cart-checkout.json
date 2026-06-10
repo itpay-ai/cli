@@ -8,7 +8,7 @@
     "The user selected one public catalog variant.",
     "The agent needs an estimate before checkout.",
     "The agent needs to create a checkout from cart_id.",
-    "A first-time wild agent may receive auth_qr before payment QR."
+    "A first-time wild agent may receive auth_qr as a first-purchase auth-to-payment entry before payment is verified."
   ],
   "required_state": {
     "needs": ["catalog_variant_id", "buyer email for secure delivery"],
@@ -38,9 +38,12 @@
     "Do not override cart line_items during checkout.",
     "If the same cart is retried, expect the same checkout unless contact/client reference changes.",
     "The backend revalidates catalog, price, and delivery requirements.",
-    "For first purchase, auth_qr means provider login/registration consent, not payment.",
+    "For first purchase, auth_qr means the ItPay first-purchase entry: provider login/registration/profile consent first, then ItPay should continue the same checkout to payment.",
+    "After presenting auth_qr, run buyer checkout resume and keep it active/waiting. Do not stop at QR display unless the human explicitly asks you to pause.",
+    "Do not tell the user auth_qr is a completed payment or payment proof.",
     "For first purchase, show the ItPay auth entry as one human orchestration entry; after provider OAuth callback the same checkout exposes payment.",
-    "After showing auth_qr, poll checkout or run buyer checkout resume until identity_status becomes identity_resolved and payment_intent_id appears."
+    "After showing auth_qr, poll checkout or run buyer checkout resume until identity_status becomes identity_resolved and payment_intent_id appears.",
+    "When auth completes, CLI should claim and store the buyer session so a repeat purchase by the same agent/device can skip auth."
   ],
   "forbidden": [
     "Do not call legacy checkout directly for CORE-028 external-agent tests.",
