@@ -7,7 +7,7 @@
   "when_to_use": [
     "The user describes a need but has not chosen a service.",
     "The agent needs product and variant details before recommendation.",
-    "The agent needs to search the CORE-028 PUBG sandbox catalog pack."
+    "The agent needs to search standardized API products such as ItPay enterprise data APIs."
   ],
   "required_state": {
     "needs": ["search query or service intent"],
@@ -16,8 +16,18 @@
   "commands": [
     {
       "intent": "search public catalog by natural language query",
-      "command": "itp buyer catalog search --query \"吃鸡 情侣皮肤\" --json",
+      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --json",
       "success_signal": "response.products contains variants with id, title, price, metadata"
+    },
+    {
+      "intent": "search API services by stable category and safe facets",
+      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --delivery-mode managed_capability --use-case company_lookup --input-facet company_name --json",
+      "success_signal": "response.products only contains products matching the requested category/facets"
+    },
+    {
+      "intent": "search fuzzy company lookup when the user only provides a partial company name",
+      "command": "itp buyer catalog search --query \"企业 模糊 查询 公司简称\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --use-case company_disambiguation --input-facet company_name --json",
+      "success_signal": "response.products includes the fuzzy enterprise search product before precise lookup"
     },
     {
       "intent": "get exact product details for a selected variant",
@@ -33,8 +43,12 @@
   "agent_rules": [
     "Full search is allowed for explicit user search, not as a polling loop.",
     "For repeated discovery, prefer shelf manifest/snapshot/delta.",
+    "For API services, map user intent to category/facet filters before relying on keyword ranking.",
+    "Use stable categories: business_data_api, business_verification_api, identity_verification_api, phone_verification_api, risk_compliance_api, location_weather_api, finance_data_api.",
+    "Use safe facets such as --use-case, --input-facet, --output-facet, --sensitivity-level, --delivery-mode, and --provider.",
     "Use product and variant metadata to explain options in user language.",
-    "Do not create checkout until the user intent maps to one selected variant."
+    "For products with requires_human_input=true, do not ask for identity numbers or phone numbers in chat; rely on ItPay human authorization/input.",
+    "Do not create checkout until the user intent maps to one selected variant or the user confirms a cart."
   ],
   "forbidden": [
     "Do not require login for discovery.",
@@ -53,5 +67,5 @@
       "command": "itp docs show cart-checkout --role buyer --json"
     }
   ],
-  "search_terms": ["catalog", "search", "shelf", "product", "variant", "PUBG", "吃鸡", "情侣皮肤", "十连抽", "搜索", "商品"]
+  "search_terms": ["catalog", "search", "shelf", "product", "variant", "api", "enterprise_data", "category", "facet", "business_data_api", "企业查询", "工商信息", "企业工商数据精准查询", "企业工商数据模糊查询", "搜索", "商品"]
 }

@@ -20,8 +20,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "smoke": "./smoke.sh",
-    "check": "node --check ./bin/itp && ./smoke.sh"
+    "smoke": "sh ./smoke.sh",
+    "check": "node --check ./bin/itp && sh ./smoke.sh"
   },
   "keywords": [
     "itpay",

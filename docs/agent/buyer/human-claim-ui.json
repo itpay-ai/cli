@@ -33,6 +33,11 @@
   ],
   "next_docs": [
     {
+      "condition": "The human wants to view their account or other orders later",
+      "topic": "account-portal",
+      "command": "itp docs show account-portal --role buyer --json"
+    },
+    {
       "condition": "The user asks why this boundary exists",
       "topic": "safety-policy",
       "command": "itp docs show safety-policy --role buyer --json"

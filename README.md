@@ -15,12 +15,12 @@ It does not contain the closed-source SaaS backend, database files, payment keys
 
 ## What This CLI Does
 
-`itp` lets a developer or coding agent discover ItPay services, create cart-first checkouts, show QR payments, wait for verified payment, and report secure human delivery status without exposing raw keys or protected content to the agent. Legacy VoltaGent model-package setup remains available.
+`itp` lets a developer or coding agent discover ItPay services, create cart-first checkouts, show QR payments, wait for verified payment, report secure human delivery status, and create one-time human account portal links without exposing raw keys or protected content to the agent. Legacy VoltaGent model-package setup remains available.
 
 Main flow:
 
 ```text
-public catalog search -> explain/recommend -> UCP cart -> checkout -> QR payment -> wait verified -> redacted secure delivery status
+public catalog search -> explain/recommend -> UCP cart -> checkout -> QR payment -> wait verified -> redacted secure delivery status -> optional human account portal link
 ```
 
 Supported runtime targets:
@@ -95,6 +95,16 @@ If native credential storage is unavailable, the CLI falls back to:
 ```
 
 The fallback file is written with `0600` permissions.
+
+## Human Account Portal Link
+
+After a buyer has completed first-purchase auth and the CLI has a buyer account session, an agent can create a one-time link for the human to view the ItPay account/order portal:
+
+```bash
+itp account login-link --json
+```
+
+The agent should give the returned `login_url` to the human and must not open or scrape it. The portal shows the same redacted order/vault state available through buyer APIs; raw artifact reveal remains a separate human Passkey/WebAuthn flow.
 
 ## Install From npm
 
@@ -231,6 +241,10 @@ For the ItPay sandbox buyer flow, agents should use the public buyer commands:
 ```bash
 itp buyer catalog search --query "吃鸡 情侣皮肤" --json
 itp buyer cart create --variant var_pubg_couple_skin_cny20 --json
+itp buyer cart create --variants var_itpay_enterprise_precise_lookup_cny05,var_itpay_enterprise_fuzzy_search_cny01 --quantities 1,1 --json
+itp buyer cart show <cart_id> --json
+itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --quantity 1 --json
+itp buyer cart remove <cart_id> --line <cart_line_item_id> --json
 itp buyer checkout create --cart <cart_id> --email buyer@example.com --phone +8613800000000 --json
 itp buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json
 itp buyer payment wait <payment_intent_id> --json

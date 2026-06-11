@@ -44,6 +44,11 @@
       "command": "itp docs show human-claim-ui --role buyer --json"
     },
     {
+      "condition": "Human asks to view account or order history",
+      "topic": "account-portal",
+      "command": "itp docs show account-portal --role buyer --json"
+    },
+    {
       "condition": "Delivery is not ready yet",
       "topic": "recovery",
       "command": "itp docs show recovery --role buyer --json"

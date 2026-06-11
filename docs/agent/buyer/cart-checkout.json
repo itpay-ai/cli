@@ -3,15 +3,15 @@
   "role": "buyer",
   "topic": "cart-checkout",
   "title": "Cart-First Checkout",
-  "purpose": "Teach the agent to use the CORE-028 UCP cart handoff instead of bypassing cart.",
+  "purpose": "Teach the agent to use the UCP cart handoff, including CORE-033 multi-item carts, instead of bypassing cart.",
   "when_to_use": [
-    "The user selected one public catalog variant.",
+    "The user selected one or more public catalog variants.",
     "The agent needs an estimate before checkout.",
     "The agent needs to create a checkout from cart_id.",
     "A first-time wild agent may receive auth_qr as a first-purchase auth-to-payment entry before payment is verified."
   ],
   "required_state": {
-    "needs": ["catalog_variant_id", "buyer email for secure delivery"],
+    "needs": ["catalog_variant_id or catalog_variant_ids", "buyer email for secure delivery"],
     "optional": ["buyer phone"],
     "must_not_need": ["catalog version", "expected amount", "ops token"]
   },
@@ -20,6 +20,26 @@
       "intent": "create a cart estimate for the selected UCP Variant.id",
       "command": "itp buyer cart create --variant <variant_id> --json",
       "success_signal": "response.cart.cart_id is present and agent_next_actions includes create_checkout_from_cart"
+    },
+    {
+      "intent": "create a multi-item cart estimate for selected UCP Variant.id values",
+      "command": "itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,2 --json",
+      "success_signal": "response.cart.line_items contains every selected variant and response.cart.amount is the estimated total"
+    },
+    {
+      "intent": "view the current cart state without relying on model memory",
+      "command": "itp buyer cart show <cart_id> --json",
+      "success_signal": "response.cart.line_items and response.cart.totals reflect the server-side cart"
+    },
+    {
+      "intent": "add one more selected UCP Variant.id to an existing cart before checkout",
+      "command": "itp buyer cart add <cart_id> --variant <variant_id> --quantity 1 --json",
+      "success_signal": "response.cart.cart_id is unchanged and response.cart.line_items includes the new line"
+    },
+    {
+      "intent": "remove one line from an existing cart before checkout",
+      "command": "itp buyer cart remove <cart_id> --line <cart_line_item_id> --json",
+      "success_signal": "response.cart.cart_id is unchanged and response.cart.line_items no longer contains that line id"
     },
     {
       "intent": "create checkout from cart_id",
@@ -33,9 +53,12 @@
     }
   ],
   "agent_rules": [
-    "CORE-028 MVP supports exactly one cart line and quantity 1.",
+    "CORE-033 supports multiple cart lines and bounded positive quantities when all items belong to the same supported settlement/provider group.",
     "Use cart_id as the checkout handoff.",
+    "Use buyer cart show whenever you need current cart contents. Do not rely on chat memory for cart state.",
+    "Use buyer cart add/remove before checkout when the user changes their mind. After checkout is created, treat the cart as locked.",
     "Do not override cart line_items during checkout.",
+    "If the user asks for several compatible products, add them to one cart and create one checkout. Do not split into separate checkouts unless ItPay rejects the cart or says split checkout is required.",
     "If the same cart is retried, expect the same checkout unless contact/client reference changes.",
     "The backend revalidates catalog, price, and delivery requirements.",
     "For first purchase, auth_qr means the ItPay first-purchase entry: provider login/registration/profile consent first, then ItPay should continue the same checkout to payment.",

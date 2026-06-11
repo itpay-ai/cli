@@ -7,7 +7,7 @@
   "when_to_use": [
     "The user asks what to buy.",
     "Catalog search returned multiple variants.",
-    "The user's request is fuzzy, such as low budget, premium skin, or ten draw."
+    "The user's request is fuzzy, such as company lookup, identity verification, phone verification, low budget, premium skin, or ten draw."
   ],
   "required_state": {
     "needs": ["catalog product or search result"],
@@ -22,6 +22,9 @@
   ],
   "agent_rules": [
     "Map user intent to the variant description and price.",
+    "For API products, explain what the API checks or returns, quota unit, sensitivity level, required human input, and whether Passkey/WebAuthn reveal is required.",
+    "If metadata says agent_may_view_raw_result=false, tell the user secure delivery/reveal is human-first and do not request the raw result.",
+    "For regulated_identity or personal_sensitive products, do not collect identity numbers or phone numbers in chat; direct the flow through ItPay human authorization/input.",
     "For the CORE-028 PUBG sandbox pack: 20 CNY is low-cost couple skin, 40 CNY is premium skin, 288 CNY is ten-draw supply pack.",
     "Tell the user the service is a sandbox test service when applicable.",
     "Ask for confirmation before buying if the user's intent is ambiguous."
@@ -43,5 +46,5 @@
       "command": "itp docs show catalog-search --role buyer --json"
     }
   ],
-  "search_terms": ["recommend", "compare", "which one", "variant", "option", "推荐", "怎么选", "区别"]
+  "search_terms": ["recommend", "compare", "which one", "variant", "option", "api", "sensitivity", "quota", "passkey", "推荐", "怎么选", "区别", "敏感等级", "查询次数"]
 }

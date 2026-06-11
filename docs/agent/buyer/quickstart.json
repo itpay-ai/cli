@@ -25,6 +25,11 @@
       "success_signal": "response.products contains public products and variants"
     },
     {
+      "intent": "search standardized API services with category/facet filters when intent is clear",
+      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --json",
+      "success_signal": "response.products are narrowed by category/facet before recommendation"
+    },
+    {
       "intent": "buy a selected variant with the high-level cart-first flow",
       "command": "itp buy <variant_id> --sandbox --email <buyer_email> --phone <buyer_phone> --json",
       "success_signal": "response.status becomes waiting_human_auth, waiting_user_payment, payment_verified, or delivery_claimable"
@@ -68,6 +73,11 @@
       "condition": "The agent is unsure what is forbidden",
       "topic": "safety-policy",
       "command": "itp docs show safety-policy --role buyer --json"
+    },
+    {
+      "condition": "The user asks to view their ItPay account or previous orders",
+      "topic": "account-portal",
+      "command": "itp docs show account-portal --role buyer --json"
     }
   ],
   "search_terms": ["start", "quickstart", "first time", "buyer flow", "how to use itpay", "开始", "第一次", "怎么用"]

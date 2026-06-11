@@ -130,6 +130,17 @@ const product = {
         "ai.itpay.catalog_version": "catv_pubg_sandbox_20260609",
         "ai.itpay.required_profile_fields": ["email", "phone"]
       }
+    }, {
+      id: "var_pubg_deluxe_skin_cny40",
+      title: "Deluxe Skin Pack",
+      description: "Higher-value deluxe sandbox pack.",
+      price: {amount: 4000, currency: "CNY"},
+      availability: {status: "available", available: true},
+      metadata: {
+        "ai.itpay.offer_id": "offer_pubg_deluxe_skin_cny40",
+        "ai.itpay.catalog_version": "catv_pubg_sandbox_20260609",
+        "ai.itpay.required_profile_fields": ["email", "phone"]
+      }
     }]
   },
   messages: []
@@ -160,6 +171,40 @@ const cart = {
   checkout_handoff: {cart_id: "cart_mock_pubg", checkout_path: "/api/ucp/v1/checkouts"},
   agent_next_actions: ["create_checkout_from_cart"],
   sensitive_redacted: true
+};
+
+const catalogSearch = {
+  operation: "search_catalog",
+  query: "企业工商信息 查询",
+  products: [{
+    id: "cat_itpay_enterprise_precise_lookup",
+    title: "ItPay 自营企业工商数据精准查询",
+    description: "按完整企业名称或统一社会信用代码查询中国大陆企业工商登记资料。",
+    categories: ["business_data_api", "company_lookup"],
+    price_range: {min: {amount: 50, currency: "CNY"}, max: {amount: 50, currency: "CNY"}},
+    variants: [{
+      id: "var_itpay_enterprise_precise_lookup_cny05",
+      title: "ItPay 自营企业工商数据精准查询 单次查询",
+      price: {amount: 50, currency: "CNY"},
+      availability: {status: "available", available: true},
+      metadata: {
+        "ai.itpay.offer_id": "offer_itpay_enterprise_precise_lookup_cny05",
+        "ai.itpay.catalog_version": "catv_itpay_enterprise_data_001",
+        "ai.itpay.sensitivity_level": "business_sensitive",
+        "ai.itpay.delivery_mode": "managed_capability",
+        "ai.itpay.agent_may_view_raw_result": "false"
+      }
+    }],
+    metadata: {
+      "ai.itpay.taxonomy.category": "business_data_api",
+      "ai.itpay.provider": "itpay_enterprise_data",
+      "ai.itpay.provider_product_id": "81api_company_base_info",
+      "ai.itpay.sensitivity_level": "business_sensitive",
+      "ai.itpay.delivery_mode": "managed_capability"
+    }
+  }],
+  messages: [],
+  pagination: {limit: 10}
 };
 
 const checkout = {
@@ -205,11 +250,24 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
   const body = await readBody(req);
   fs.appendFileSync(logFile, JSON.stringify({method: req.method, path: url.pathname, body}) + "\n");
+  if (req.method === "POST" && url.pathname === "/api/ucp/v1/catalog/search") return writeJSON(res, 200, catalogSearch);
   if (req.method === "POST" && url.pathname === "/api/ucp/v1/catalog/product") return writeJSON(res, 200, product);
   if (req.method === "POST" && url.pathname === "/api/ucp/v1/carts") return writeJSON(res, 201, cart);
   if (req.method === "GET" && url.pathname === "/api/ucp/v1/carts/cart_mock_pubg") return writeJSON(res, 200, cart);
   if (req.method === "POST" && url.pathname === "/api/ucp/v1/checkouts") return writeJSON(res, 202, checkout);
   if (req.method === "POST" && url.pathname === "/v1/checkouts/chk_mock_pubg/payment-intents") return writeJSON(res, 202, intent);
+  if (req.method === "POST" && url.pathname === "/v1/buyer/accounts/ba_mock_0376/portal-login-links") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    return writeJSON(res, 201, {
+      login_link_id: "apl_mock_0376",
+      buyer_account_id: "ba_mock_0376",
+      login_url: "https://itpay.ai/v1/account-portal/login/apl_mock_0376?token=human-only",
+      expires_at: "2026-06-11T16:00:00Z",
+      one_time: true,
+      sensitive_redacted: true,
+      agent_next_actions: ["show_login_link_to_human_only"]
+    });
+  }
   return writeJSON(res, 404, {error: "not found", path: url.pathname});
 });
 
@@ -229,9 +287,34 @@ if [ ! -s "$MOCK_PORT_FILE" ]; then
   exit 1
 fi
 MOCK_PORT=$(cat "$MOCK_PORT_FILE")
+SEARCH_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer catalog search --query "企业工商信息 查询" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --delivery-mode managed_capability --sensitivity-level business_sensitive --use-case company_lookup --input-facet company_name --requires-webauthn-reveal true --json)
+printf '%s' "$SEARCH_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "catalog_search_results" || !json.products.some((product)=>product.id==="cat_itpay_enterprise_precise_lookup")) process.exit(1);})'
 BUY_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json)
 printf '%s' "$BUY_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "waiting_user_payment" || json.cart.cart_id !== "cart_mock_pubg" || json.checkout.checkout_id !== "chk_mock_pubg" || json.payment_intent.payment_intent_id !== "pi_mock_pubg") process.exit(1); if (json.payment_intent.human_action.preferred_qr_url !== "http://127.0.0.1/mock-qr.png") process.exit(1); if (json.payment_intent.human_action.agent_display_hint.primary !== "qr_png_url") process.exit(1); if (json.payment_intent.human_action.mobile_wallet_url !== "http://127.0.0.1/mock-mobile-wallet") process.exit(1); if (!json.docs.some((doc)=>doc.topic==="payment-wait")) process.exit(1); if (JSON.stringify(json).includes("issue_payment_proof")) process.exit(1);})'
+MULTI_CART_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer cart create --variants var_pubg_couple_skin_cny20,var_pubg_deluxe_skin_cny40 --quantities 1,2 --json)
+printf '%s' "$MULTI_CART_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "cart_created" || json.cart.cart_id !== "cart_mock_pubg") process.exit(1);})'
+node - <<'JS' "$TMP_HOME/.itp/config.json" "$TMP_HOME/.itp/credentials.json"
+const fs = require("fs");
+const [configPath, credentialsPath] = process.argv.slice(2);
+fs.writeFileSync(configPath, JSON.stringify({account_id: "ba_mock_0376"}, null, 2), {mode: 0o600});
+const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf8"));
+credentials.session_token = "sess_mock_0376";
+fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), {mode: 0o600});
+JS
+PORTAL_LINK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" account login-link --json)
+printf '%s' "$PORTAL_LINK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "account_portal_login_link_created" || json.portal_login_link.one_time !== true) process.exit(1); if (!json.login_url.includes("/v1/account-portal/login/")) process.exit(1); if (json.next.safe_for_agent !== false || json.next.requires_human !== true || json.next.agent_must_not_open !== true) process.exit(1);})'
+node - <<'JS' "$TMP_HOME/.itp/credentials.json"
+const fs = require("fs");
+const credentialsPath = process.argv[2];
+const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf8"));
+delete credentials.session_token;
+delete credentials.session_token_store;
+delete credentials.session_token_ref;
+fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), {mode: 0o600});
+JS
 node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const has=(m,p)=>rows.some(r=>r.method===m&&r.path===p); if(!has("POST","/api/ucp/v1/catalog/product")||!has("POST","/api/ucp/v1/carts")||!has("POST","/api/ucp/v1/checkouts")||!has("POST","/v1/checkouts/chk_mock_pubg/payment-intents")) process.exit(1); if(has("POST","/v1/checkouts")) process.exit(1);' "$MOCK_LOG"
+node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const multi=rows.find(r=>r.method==="POST"&&r.path==="/api/ucp/v1/carts"&&Array.isArray(r.body.line_items)&&r.body.line_items.length===2); if(!multi) process.exit(1); if(multi.body.line_items[0].item.id!=="var_pubg_couple_skin_cny20"||multi.body.line_items[0].quantity!==1||multi.body.line_items[1].item.id!=="var_pubg_deluxe_skin_cny40"||multi.body.line_items[1].quantity!==2) process.exit(1);' "$MOCK_LOG"
+node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const search=rows.find(r=>r.method==="POST"&&r.path==="/api/ucp/v1/catalog/search"); if(!search) process.exit(1); const f=search.body.filters||{}; if(!Array.isArray(f.categories)||f.categories[0]!=="business_data_api") process.exit(1); if(f["ai.itpay.provider"]!=="itpay_enterprise_data"||f["ai.itpay.service_type"]!=="ai_api"||f["ai.itpay.delivery_mode"]!=="managed_capability"||f["ai.itpay.sensitivity_level"]!=="business_sensitive") process.exit(1); if(!Array.isArray(f["ai.itpay.taxonomy.use_cases"])||f["ai.itpay.taxonomy.use_cases"][0]!=="company_lookup") process.exit(1); if(!Array.isArray(f["ai.itpay.taxonomy.input_facets"])||f["ai.itpay.taxonomy.input_facets"][0]!=="company_name") process.exit(1); if(f["ai.itpay.requires_webauthn_reveal"]!==true) process.exit(1);' "$MOCK_LOG"
 kill "$MOCK_SERVER_PID" >/dev/null 2>&1 || true
 MOCK_SERVER_PID=""
 AGENT_STATUS=$(HOME="$TMP_HOME" "$ROOT/bin/itp" status --json)

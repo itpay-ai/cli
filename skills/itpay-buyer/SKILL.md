@@ -60,8 +60,13 @@ For step-by-step testing:
 
 ```bash
 itp buyer catalog search --query "<user request>" --json
+itp buyer catalog search --query "企业工商信息 查询" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --json
 itp buyer catalog get --variant <variant_id> --json
 itp buyer cart create --variant <variant_id> --json
+itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,1 --json
+itp buyer cart show <cart_id> --json
+itp buyer cart add <cart_id> --variant <variant_id> --quantity 1 --json
+itp buyer cart remove <cart_id> --line <cart_line_item_id> --json
 itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --json
 itp buyer checkout resume <checkout_id> --json
 itp buyer payment wait <payment_intent_id> --json
@@ -73,24 +78,27 @@ itp buyer checkout status <checkout_id> --json
 1. Use `--json` for every ItPay command.
 2. Do not invent service IDs, variant IDs, checkout IDs, payment URLs, QR URLs,
    payment intent IDs, delivery IDs, or claim links.
-3. Do not rewrite, shorten, re-encode, translate, or replace QR URLs. For
+3. When the user asks for several compatible services, create one cart with
+   `--variants` and one checkout. Split only when ItPay rejects the cart or
+   explicitly says split checkout is required.
+4. Do not rewrite, shorten, re-encode, translate, or replace QR URLs. For
    payment QR display, prefer `local_qr_path` when the CLI provides it, then
    `qr_png_url` / `preferred_qr_url`, and use `qr_image_url` only as fallback.
-4. If `human_action.kind=auth_qr`, it is account login/registration consent,
+5. If `human_action.kind=auth_qr`, it is account login/registration consent,
    not payment. Show the ItPay auth entry (`url`, `web_url`, or local/PNG QR)
    as the primary human action, then poll/resume checkout until payment QR
    appears. `oauth_start_url` is provider fallback/debug, not the primary agent
    handoff.
-5. Do not treat QR display, page open, or user text like "I paid" as payment
+6. Do not treat QR display, page open, or user text like "I paid" as payment
    proof. Payment proof for the agent is `payment_intent.verified`.
-6. Do not ask the human to paste raw keys, redeem codes, claim links, claim
+7. Do not ask the human to paste raw keys, redeem codes, claim links, claim
    tokens, session tokens, provider payloads, or secrets into chat.
-7. Do not call ops commands, worker routes, provider query recovery, or fixture
+8. Do not call ops commands, worker routes, provider query recovery, or fixture
    evidence routes from the buyer flow.
-8. Secure delivery is human-first. The agent may report
+9. Secure delivery is human-first. The agent may report
    `delivery_claimable`, `check_email`, and `claim_link_sent`, but must not
    fetch or reveal protected content.
-9. Prefer resume/wait over creating duplicate checkouts.
+10. Prefer resume/wait over creating duplicate checkouts.
 
 ## Docs Directory
 
@@ -105,6 +113,7 @@ itp docs show payment-wait --role buyer --json
 itp docs show qr-refresh --role buyer --json
 itp docs show secure-delivery --role buyer --json
 itp docs show human-claim-ui --role buyer --json
+itp docs show account-portal --role buyer --json
 itp docs show recovery --role buyer --json
 itp docs show safety-policy --role buyer --json
 ```

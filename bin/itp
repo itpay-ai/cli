@@ -204,10 +204,13 @@ async function main() {
           "setup --credits 100 --target codex --method alipay --install-runtime",
           "buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --json",
           "buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json",
-          "buyer catalog search --query 吃鸡 --json",
+          "buyer catalog search --query 企业工商 --category business_data_api --provider itpay_enterprise_data --json",
           "buyer catalog get --variant var_pubg_couple_skin_cny20 --json",
           "buyer cart create --variant var_pubg_couple_skin_cny20 --json",
+          "buyer cart create --variants var_itpay_enterprise_precise_lookup_cny05,var_itpay_enterprise_fuzzy_search_cny01 --quantities 1,1 --json",
           "buyer cart show <cart_id> --json",
+          "buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --quantity 1 --json",
+          "buyer cart remove <cart_id> --line <cart_line_item_id> --json",
           "buyer shelf manifest --json",
           "buyer shelf snapshot --version <catalog_version> --json",
           "buyer shelf delta --since <catalog_version> --json",
@@ -219,6 +222,7 @@ async function main() {
           "buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json",
           "buyer deliveries list --checkout <checkout_id> --json",
           "buyer deliveries show <delivery_id> --checkout <checkout_id> --json",
+          "account login-link --json",
           "ops sandbox worker run-once --json",
           "ops sandbox recover-alipay-once --json",
           "ops sandbox payment query <payment_intent_id> --json",
@@ -579,7 +583,7 @@ async function buyer(command, rest, flags) {
       const query = flags.query || flags.q || "";
       const body = {
         query,
-        filters: {},
+        filters: buyerCatalogSearchFilters(flags),
         context: {},
         pagination: {}
       };
@@ -611,15 +615,47 @@ async function buyer(command, rest, flags) {
   }
   if (command === "cart") {
     if (subcommand === "create") {
-      const selectionID = flags.variant || flags.catalog_variant_id || flags.item || flags.catalog_item_id || positional(rest, 1);
-      const selection = await resolveBuyerCatalogSelection(selectionID, flags);
-      const cart = await createBuyerCart(selection, flags);
+      const selectionIDs = buyerCartSelectionIDs(rest, flags);
+      const selections = await resolveBuyerCatalogSelections(selectionIDs, flags);
+      const cart = await createBuyerCartFromSelections(selections, flags);
       output(buyerRunOutput({
         status: "cart_created",
-        selection,
+        selection: selections.length === 1 ? selections[0] : undefined,
+        selections,
         cart,
         cart_id: cart.cart_id || cart.id,
         agent_next_actions: cart.agent_next_actions || ["create_checkout_from_cart"]
+      }));
+      return;
+    }
+    if (subcommand === "add") {
+      const cartID = flags.cart || flags.cart_id || positional(rest, 1) || readState().last_core_cart_id;
+      if (!cartID) throw new Error("cart_id is required");
+      const selectionIDs = buyerCartSelectionIDs(["add"], flags);
+      const selections = await resolveBuyerCatalogSelections(selectionIDs, flags);
+      if (selections.length !== 1) throw new Error("buyer cart add requires exactly one --variant");
+      const cart = await addBuyerCartLineItem(cartID, selections[0], flags);
+      output(buyerRunOutput({
+        status: "cart_updated",
+        selection: selections[0],
+        cart,
+        cart_id: cart.cart_id || cart.id,
+        agent_next_actions: cart.agent_next_actions || ["view_cart", "create_checkout_from_cart"]
+      }));
+      return;
+    }
+    if (subcommand === "remove" || subcommand === "delete") {
+      const cartID = flags.cart || flags.cart_id || positional(rest, 1) || readState().last_core_cart_id;
+      const lineID = flags.line || flags.line_id || flags.cart_line_item_id || positional(rest, 2);
+      if (!cartID) throw new Error("cart_id is required");
+      if (!lineID) throw new Error("cart_line_item_id is required; run buyer cart show <cart_id> --json first");
+      const cart = await removeBuyerCartLineItem(cartID, lineID, flags);
+      output(buyerRunOutput({
+        status: "cart_updated",
+        cart,
+        cart_id: cart.cart_id || cart.id,
+        removed_line_item_id: lineID,
+        agent_next_actions: cart.agent_next_actions || ["view_cart", "create_checkout_from_cart"]
       }));
       return;
     }
@@ -812,6 +848,10 @@ async function buyer(command, rest, flags) {
       return;
     }
   }
+  if (command === "account" && subcommand === "login-link") {
+    await accountLoginLink(flags);
+    return;
+  }
   if (command === "auth" && subcommand === "status") {
     output({
       schema_version: "itp.buyer.v1",
@@ -823,6 +863,81 @@ async function buyer(command, rest, flags) {
     return;
   }
   throw new Error(`unknown buyer command: ${[command, subcommand].filter(Boolean).join(" ") || ""}`);
+}
+
+function buyerCatalogSearchFilters(flags = {}) {
+  const filters = {};
+  const categories = csvValues(flags.category || flags.categories);
+  if (categories.length) filters.categories = categories;
+
+  const mappings = [
+    ["service_type", "ai.itpay.service_type"],
+    ["delivery_method", "ai.itpay.delivery_method"],
+    ["provider", "ai.itpay.provider"],
+    ["provider_product_id", "ai.itpay.provider_product_id"],
+    ["provider_product", "ai.itpay.provider_product_id"],
+    ["sensitivity_level", "ai.itpay.sensitivity_level"],
+    ["sensitivity", "ai.itpay.sensitivity_level"],
+    ["delivery_mode", "ai.itpay.delivery_mode"],
+    ["settlement_group", "ai.itpay.settlement_group"]
+  ];
+  for (const [flagName, filterName] of mappings) {
+    if (flags[flagName]) filters[filterName] = String(flags[flagName]);
+  }
+
+  const listMappings = [
+    ["use_case", "ai.itpay.taxonomy.use_cases"],
+    ["use_cases", "ai.itpay.taxonomy.use_cases"],
+    ["input_facet", "ai.itpay.taxonomy.input_facets"],
+    ["input_facets", "ai.itpay.taxonomy.input_facets"],
+    ["output_facet", "ai.itpay.taxonomy.output_facets"],
+    ["output_facets", "ai.itpay.taxonomy.output_facets"],
+    ["required_profile_field", "ai.itpay.required_profile_fields"],
+    ["required_profile_fields", "ai.itpay.required_profile_fields"],
+    ["agent_runtime", "ai.itpay.agent_runtimes"],
+    ["agent_runtimes", "ai.itpay.agent_runtimes"]
+  ];
+  for (const [flagName, filterName] of listMappings) {
+    const values = csvValues(flags[flagName]);
+    if (values.length) filters[filterName] = values;
+  }
+
+  const boolMappings = [
+    ["payment_qr_mpm", "ai.itpay.payment.qr_mpm"],
+    ["merchant_verified", "ai.itpay.merchant_verified"],
+    ["requires_human_input", "ai.itpay.requires_human_input"],
+    ["requires_webauthn_reveal", "ai.itpay.requires_webauthn_reveal"],
+    ["agent_may_execute_query", "ai.itpay.agent_may_execute_query"],
+    ["agent_may_view_raw_result", "ai.itpay.agent_may_view_raw_result"]
+  ];
+  for (const [flagName, filterName] of boolMappings) {
+    if (flags[flagName] !== undefined) filters[filterName] = booleanFlag(flags[flagName]);
+  }
+
+  const hasMin = flags.price_min !== undefined || flags.min_price !== undefined;
+  const hasMax = flags.price_max !== undefined || flags.max_price !== undefined;
+  const min = hasMin ? Number(flags.price_min ?? flags.min_price) : NaN;
+  const max = hasMax ? Number(flags.price_max ?? flags.max_price) : NaN;
+  if (Number.isFinite(min) || Number.isFinite(max)) {
+    filters.price = {};
+    if (Number.isFinite(min)) filters.price.min = min;
+    if (Number.isFinite(max)) filters.price.max = max;
+  }
+  return filters;
+}
+
+function csvValues(value) {
+  if (value === undefined || value === null || value === false) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function booleanFlag(value) {
+  if (value === true || value === false) return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  throw new Error(`invalid boolean flag value: ${value}`);
 }
 
 async function ops(command, rest, flags) {
@@ -852,6 +967,16 @@ async function resolveBuyerCatalogSelection(selectionID, flags = {}) {
   return selectionFromUCPProduct(detail, selectionID, flags);
 }
 
+async function resolveBuyerCatalogSelections(selectionIDs, flags = {}) {
+  const ids = selectionIDs.map((id) => String(id).trim()).filter(Boolean);
+  if (!ids.length) throw new Error("at least one catalog variant id is required");
+  const selections = [];
+  for (const id of ids) {
+    selections.push(await resolveBuyerCatalogSelection(id, flags));
+  }
+  return selections;
+}
+
 async function getBuyerUCPProduct(selectionID, flags = {}) {
   if (!selectionID) throw new Error("catalog selection id is required");
   const body = {
@@ -868,8 +993,8 @@ function selectionFromUCPProduct(detail, selectionID, flags = {}) {
   if (!product) throw new Error(`catalog selection not found: ${selectionID}`);
   const variants = Array.isArray(product.variants) ? product.variants : [];
   const selectedVariantID = product.selected?.variant_id || selectionID;
-  const variant = variants.find((candidate) => candidate.id === selectedVariantID) ||
-    variants.find((candidate) => candidate.id === selectionID) ||
+  const variant = variants.find((candidate) => candidate.id === selectionID) ||
+    variants.find((candidate) => candidate.id === selectedVariantID) ||
     variants[0];
   if (!variant) throw new Error(`catalog product has no variants: ${selectionID}`);
   const metadata = {
@@ -899,16 +1024,30 @@ function selectionFromUCPProduct(detail, selectionID, flags = {}) {
 }
 
 async function createBuyerCart(selection, flags = {}) {
-  if (!selection?.purchasable) throw new Error("catalog variant is not purchasable");
-  const body = {
-    line_items: [{
+  return await createBuyerCartFromSelections([selection], flags);
+}
+
+async function createBuyerCartFromSelections(selections, flags = {}) {
+  if (!Array.isArray(selections) || !selections.length) throw new Error("at least one catalog selection is required");
+  const quantities = buyerCartQuantities(selections.length, flags);
+  const lineItems = selections.map((selection, index) => {
+    if (!selection?.purchasable) throw new Error(`catalog variant is not purchasable: ${selection?.catalog_variant_id || selection?.ucp_variant_id || index}`);
+    return {
       item: { id: selection.catalog_variant_id || selection.ucp_variant_id },
-      quantity: 1
-    }],
+      quantity: quantities[index]
+    };
+  });
+  const currencies = new Set(selections.map((selection) => String(flags.currency || selection.currency || "")).filter(Boolean));
+  if (currencies.size > 1) {
+    throw new Error(`selected variants have different currencies: ${Array.from(currencies).join(", ")}`);
+  }
+  const currency = flags.currency || selections[0]?.currency || "";
+  const body = {
+    line_items: lineItems,
     context: {},
     client_reference_id: flags.cart_client_reference_id || flags.client_reference_id || `cli_cart_${Date.now()}`
   };
-  if (selection.currency || flags.currency) body.context.currency = String(flags.currency || selection.currency);
+  if (currency) body.context.currency = String(currency);
   const cart = await coreApi("/api/ucp/v1/carts", {
     method: "POST",
     idempotencyKey: flags.cart_idempotency_key || `idem_cli_cart_${cryptoRandom()}`,
@@ -918,9 +1057,67 @@ async function createBuyerCart(selection, flags = {}) {
   return cart;
 }
 
+function buyerCartSelectionIDs(rest, flags = {}) {
+  const raw = flags.variants || flags.variant_ids || flags.variant || flags.catalog_variant_id || flags.item || flags.catalog_item_id || positional(rest, 1);
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.flatMap((value) => splitCSV(value));
+  return splitCSV(raw);
+}
+
+function buyerCartQuantities(count, flags = {}) {
+  const raw = flags.quantities || flags.quantity || flags.qty;
+  const values = raw === undefined || raw === null || raw === true
+    ? []
+    : splitCSV(raw).map((value) => Number(value));
+  if (values.length && values.length !== count) {
+    throw new Error(`--quantities must provide ${count} value(s), got ${values.length}`);
+  }
+  const quantities = values.length ? values : Array(count).fill(1);
+  for (const quantity of quantities) {
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error(`cart quantity must be a positive integer, got ${quantity}`);
+    }
+  }
+  return quantities;
+}
+
+function splitCSV(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 async function getBuyerCart(cartID, flags = {}) {
   if (!cartID) throw new Error("cart_id is required");
   return await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}`, { method: "GET" }, flags);
+}
+
+async function addBuyerCartLineItem(cartID, selection, flags = {}) {
+  if (!cartID) throw new Error("cart_id is required");
+  if (!selection?.purchasable) throw new Error(`catalog variant is not purchasable: ${selection?.catalog_variant_id || selection?.ucp_variant_id || ""}`);
+  const quantity = buyerCartQuantities(1, flags)[0];
+  const body = {
+    item: { id: selection.catalog_variant_id || selection.ucp_variant_id },
+    quantity
+  };
+  const cart = await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}/line-items`, {
+    method: "POST",
+    idempotencyKey: flags.cart_idempotency_key || `idem_cli_cart_add_${cryptoRandom()}`,
+    body
+  }, flags);
+  writeState({ ...readState(), last_core_cart_id: cart.cart_id || cart.id });
+  return cart;
+}
+
+async function removeBuyerCartLineItem(cartID, lineID, flags = {}) {
+  if (!cartID) throw new Error("cart_id is required");
+  if (!lineID) throw new Error("cart_line_item_id is required");
+  const cart = await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}/line-items/${encodeURIComponent(lineID)}`, {
+    method: "DELETE"
+  }, flags);
+  writeState({ ...readState(), last_core_cart_id: cart.cart_id || cart.id });
+  return cart;
 }
 
 async function createBuyerCheckoutFromCart(cart, selection = null, flags = {}) {
@@ -1625,7 +1822,30 @@ async function accountShow(flags) {
 }
 
 async function accountLoginLink(flags) {
-  output(await api("/api/itp/account/login-link", { method: "POST" }, flags));
+  const config = readConfig();
+  const accountID = flags.account || flags.account_id || flags.buyer_account || flags.buyer_account_id || config.account_id;
+  if (!accountID) {
+    throw new Error("buyer account id is required; complete a buyer purchase first or pass --account-id");
+  }
+  if (!readSessionToken()) {
+    throw new Error("buyer account session is required; complete first-purchase auth or run buyer checkout resume first");
+  }
+  const link = await coreApi(`/v1/buyer/accounts/${encodeURIComponent(accountID)}/portal-login-links`, { method: "POST" }, flags);
+  output(buyerRunOutput({
+    status: "account_portal_login_link_created",
+    account_id: accountID,
+    portal_login_link: link,
+    login_url: link.login_url,
+    expires_at: link.expires_at,
+    agent_next_actions: link.agent_next_actions || ["show_login_link_to_human_only"],
+    next: {
+      type: "human_open_account_portal_link",
+      safe_for_agent: false,
+      requires_human: true,
+      agent_must_not_open: true,
+      instruction: "Give this one-time ItPay account portal link to the human buyer. Do not open it yourself; the human portal is redacted and protected content stays locked until human reveal."
+    }
+  }));
 }
 
 async function accountSetPassword(flags) {
@@ -2237,6 +2457,7 @@ function docTopicOrder(topic) {
     "qr-refresh",
     "secure-delivery",
     "human-claim-ui",
+    "account-portal",
     "recovery",
     "safety-policy"
   ];
