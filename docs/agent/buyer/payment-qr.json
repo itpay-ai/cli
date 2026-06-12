@@ -3,7 +3,7 @@
   "role": "buyer",
   "topic": "payment-qr",
   "title": "Payment QR Display",
-  "purpose": "Teach the agent how to present the returned ItPay-controlled payment entry QR without corrupting or replacing it.",
+  "purpose": "Teach the agent how to present ItPay-hosted human QR images without corrupting or replacing them.",
   "when_to_use": [
     "Checkout returns human_action.kind=auth_qr for the first-purchase auth-to-payment entry.",
     "PaymentIntent has been created.",
@@ -32,15 +32,17 @@
     "For auth_qr, do not call payment-intent creation directly or create a new checkout; poll checkout or run buyer checkout resume until payment_intent_id appears.",
     "Do not stop after showing auth_qr unless the human explicitly asks you to pause. Keep waiting/resuming the same checkout so the post-auth payment handoff can continue.",
     "Do not describe auth_qr as payment success or payment proof. Only payment_intent.verified proves payment.",
-    "Show local_qr_path first when present. If not present, show qr_png_url or preferred_qr_url as the primary scannable QR. This QR is an ItPay payment entry, not a raw provider QR.",
+    "MUST show local_qr_path first when present. Many agent clients do not reliably render remote QR images; local_qr_path is the most reliable desktop/chat display artifact.",
+    "If local_qr_path is not present, show qr_png_url or preferred_qr_url as the primary scannable QR. This is an ItPay-hosted human QR image; it may render the native provider payment code for scanner reliability, but the agent must not request or decode the raw provider payload.",
     "Use qr_image_url/SVG only as a fallback when PNG/local rendering is unavailable.",
     "For mobile users, present mobile_wallet_url as a clickable payment button when present.",
-    "payment_entry_url is the stable ItPay payment entry. The server-rendered QR may encode the corresponding ItPay mobile payment entry so ItPay can refresh and hand off to the provider safely.",
+    "payment_entry_url is the stable ItPay status/payment page. qr_png_url/local_qr_path is usually the better desktop scanner artifact.",
+    "In Alipay sandbox, the provider can briefly show order not found even after precreate succeeded. Tell the human to wait 30-60 seconds and retry the same QR/page. Do not create a new checkout, do not create a new payment intent, and do not repeatedly refresh unless the ItPay page or CLI explicitly asks for recovery.",
     "Opening the payment page must not be treated as paid.",
     "After showing QR, immediately wait for payment verification."
   ],
   "forbidden": [
-    "Do not encode payment_entry_url into a new QR yourself.",
+    "Do not encode payment_entry_url into a new QR yourself when qr_png_url/local_qr_path is available.",
     "Do not encode mobile_wallet_url into a new QR yourself.",
     "Do not request or display raw provider QR payloads.",
     "Do not bypass the ItPay auth orchestration page by making oauth_start_url the primary user-facing link.",
@@ -55,7 +57,7 @@
       "command": "itp docs show payment-wait --role buyer --json"
     },
     {
-      "condition": "Alipay says order not found",
+      "condition": "Alipay sandbox says order not found after waiting on the same QR/page",
       "topic": "qr-refresh",
       "command": "itp docs show qr-refresh --role buyer --json"
     }

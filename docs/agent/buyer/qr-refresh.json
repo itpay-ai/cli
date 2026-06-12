@@ -3,9 +3,9 @@
   "role": "buyer",
   "topic": "qr-refresh",
   "title": "QR Refresh Recovery",
-  "purpose": "Teach the agent how to refresh the display QR for scanner problems without changing payment truth.",
+  "purpose": "Teach the agent how to recover scanner problems without changing payment truth or creating a second order.",
   "when_to_use": [
-    "The human reports Alipay sandbox says order not found.",
+    "The human reports Alipay sandbox says order not found after waiting 30-60 seconds on the same QR/page.",
     "The QR expired or the wallet cannot load it.",
     "The payment intent is still not verified."
   ],
@@ -15,9 +15,9 @@
   },
   "commands": [
     {
-      "intent": "refresh the QR display for the same payment intent",
+      "intent": "ask ItPay for same-intent display recovery",
       "command": "itp buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json",
-      "success_signal": "response.payment_intent.qr_image_url is present"
+      "success_signal": "response.payment_intent.qr_png_url or response.payment_intent.qr_image_url is present"
     },
     {
       "intent": "continue waiting after refresh",
@@ -26,8 +26,9 @@
     }
   ],
   "agent_rules": [
-    "QR refresh is display recovery only.",
+    "QR refresh is display recovery only. ItPay may return the same QR again when the current provider QR is still valid.",
     "Use the same payment_intent_id.",
+    "For Alipay sandbox order-not-found, first ask the human to wait and scan/open the same QR/page again; use refresh only after that wait has failed.",
     "After refresh, continue waiting through the normal wait contract."
   ],
   "forbidden": [

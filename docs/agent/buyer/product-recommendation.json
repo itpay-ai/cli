@@ -10,8 +10,14 @@
     "The user's request is fuzzy, such as company lookup, identity verification, phone verification, low budget, premium skin, or ten draw."
   ],
   "required_state": {
-    "needs": ["catalog product or search result"],
-    "must_not_need": ["buyer profile values", "payment status", "raw delivery content"]
+    "needs": [
+      "catalog product or search result"
+    ],
+    "must_not_need": [
+      "buyer profile values",
+      "payment status",
+      "raw delivery content"
+    ]
   },
   "commands": [
     {
@@ -24,6 +30,9 @@
     "Map user intent to the variant description and price.",
     "For API products, explain what the API checks or returns, quota unit, sensitivity level, required human input, and whether Passkey/WebAuthn reveal is required.",
     "If metadata says agent_may_view_raw_result=false, tell the user secure delivery/reveal is human-first and do not request the raw result.",
+    "For enterprise fuzzy search, tell the user the required input is a company keyword/short name/brand. The user can say something broad like 京东; the service is designed to return candidates.",
+    "For enterprise precise lookup, warn that the input must be the exact registered company name or unified social credit code. If the user is vague, use fuzzy search or other knowledge/search to lock the correct entity before checkout.",
+    "For enterprise precise lookup, examples of acceptable input are 北京京东世纪贸易有限公司 or a unified social credit code; examples of insufficient input are 京东, 那个京东商城, 大众知道那个京东.",
     "For regulated_identity or personal_sensitive products, do not collect identity numbers or phone numbers in chat; direct the flow through ItPay human authorization/input.",
     "For the CORE-028 PUBG sandbox pack: 20 CNY is low-cost couple skin, 40 CNY is premium skin, 288 CNY is ten-draw supply pack.",
     "Tell the user the service is a sandbox test service when applicable.",
@@ -44,7 +53,27 @@
       "condition": "Need to search again",
       "topic": "catalog-search",
       "command": "itp docs show catalog-search --role buyer --json"
+    },
+    {
+      "condition": "Need to know how to pass required API product input into cart",
+      "topic": "cart-checkout",
+      "command": "itp docs show cart-checkout --role buyer --json"
     }
   ],
-  "search_terms": ["recommend", "compare", "which one", "variant", "option", "api", "sensitivity", "quota", "passkey", "推荐", "怎么选", "区别", "敏感等级", "查询次数"]
+  "search_terms": [
+    "recommend",
+    "compare",
+    "which one",
+    "variant",
+    "option",
+    "api",
+    "sensitivity",
+    "quota",
+    "passkey",
+    "推荐",
+    "怎么选",
+    "区别",
+    "敏感等级",
+    "查询次数"
+  ]
 }

@@ -10,7 +10,7 @@
     "The agent is unsure which ItPay buyer command should come first."
   ],
   "required_state": {
-    "needs": ["itp CLI available"],
+    "needs": ["itp CLI available", "buyer delivery email before checkout"],
     "must_not_need": ["ops token", "claim token", "raw key", "provider raw payload"]
   },
   "commands": [
@@ -39,6 +39,8 @@
     "Use --json for every ItPay command.",
     "Search and explain options before buying unless the user already named a variant.",
     "Add the selected UCP Variant.id to cart; do not bypass cart for CORE-028 flows.",
+    "Before checkout, make sure a buyer delivery email is available. If no email is known from the current buyer context, ask the human for it before creating checkout.",
+    "Do not invent, guess, or use a placeholder email. Secure delivery and account/order access depend on the buyer email.",
     "For first purchase, show auth_qr as the ItPay first-purchase entry: the human first approves provider login/registration/profile sharing, then ItPay should continue the same checkout to payment.",
     "After showing auth_qr, keep running/resuming the same checkout unless the human explicitly asks you to pause. Do not stop merely because a QR was displayed.",
     "Use high-level itp buy when possible; it is designed to show the first-purchase entry, wait/resume, continue to payment, wait for verification, and poll delivery.",

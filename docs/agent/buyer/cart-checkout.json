@@ -11,9 +11,19 @@
     "A first-time wild agent may receive auth_qr as a first-purchase auth-to-payment entry before payment is verified."
   ],
   "required_state": {
-    "needs": ["catalog_variant_id or catalog_variant_ids", "buyer email for secure delivery"],
-    "optional": ["buyer phone"],
-    "must_not_need": ["catalog version", "expected amount", "ops token"]
+    "needs": [
+      "catalog_variant_id or catalog_variant_ids",
+      "buyer email for secure delivery",
+      "product-specific required input fields before cart creation"
+    ],
+    "optional": [
+      "buyer phone"
+    ],
+    "must_not_need": [
+      "catalog version",
+      "expected amount",
+      "ops token"
+    ]
   },
   "commands": [
     {
@@ -25,6 +35,16 @@
       "intent": "create a multi-item cart estimate for selected UCP Variant.id values",
       "command": "itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,2 --json",
       "success_signal": "response.cart.line_items contains every selected variant and response.cart.amount is the estimated total"
+    },
+    {
+      "intent": "create an enterprise fuzzy search cart with required query input",
+      "command": "itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json",
+      "success_signal": "response.cart.cart_id is present; the raw provider result is not visible to the agent"
+    },
+    {
+      "intent": "create an enterprise precise lookup cart with exact registered name or credit code",
+      "command": "itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --json",
+      "success_signal": "response.cart.cart_id is present; payment can proceed only after the exact query input is locked into the cart line"
     },
     {
       "intent": "view the current cart state without relying on model memory",
@@ -54,6 +74,11 @@
   ],
   "agent_rules": [
     "CORE-033 supports multiple cart lines and bounded positive quantities when all items belong to the same supported settlement/provider group.",
+    "Before cart creation, inspect product metadata input_schema_json and collect every required input field. Do not wait until after payment to ask for required query inputs.",
+    "Enterprise fuzzy search requires input.company_name. This can be a keyword, brand, short name, or partial company name supplied by the user, such as 京东.",
+    "Enterprise precise lookup requires input.company_name_or_credit_no. This must be a complete China mainland registered company name or unified social credit code. If the user only provides a brand/short name, resolve the exact name first or use fuzzy search before precise lookup.",
+    "Use --input key=value for service-specific inputs. For multiple lines, prefer separate cart add commands when each line needs different input.",
+    "Before checkout create, confirm buyer email is available for secure delivery. If it is missing, ask the human for the email before checkout; do not guess or use a placeholder.",
     "Use cart_id as the checkout handoff.",
     "Use buyer cart show whenever you need current cart contents. Do not rely on chat memory for cart state.",
     "Use buyer cart add/remove before checkout when the user changes their mind. After checkout is created, treat the cart as locked.",
@@ -71,7 +96,9 @@
   "forbidden": [
     "Do not call legacy checkout directly for CORE-028 external-agent tests.",
     "Do not pass a different variant in checkout after cart is created.",
-    "Do not create a second cart/checkout after a retryable timeout unless the user asks to abandon the previous one."
+    "Do not create a second cart/checkout after a retryable timeout unless the user asks to abandon the previous one.",
+    "Do not buy enterprise precise lookup with only a vague brand/short name unless you have resolved the exact registered company name.",
+    "Do not claim enterprise API raw results are visible to the agent; they are delivered to the human Vault/claim UI."
   ],
   "next_docs": [
     {
@@ -90,5 +117,14 @@
       "command": "itp docs show recovery --role buyer --json"
     }
   ],
-  "search_terms": ["cart", "checkout", "cart_id", "line_items", "quantity", "购物车", "下单", "结账"]
+  "search_terms": [
+    "cart",
+    "checkout",
+    "cart_id",
+    "line_items",
+    "quantity",
+    "购物车",
+    "下单",
+    "结账"
+  ]
 }

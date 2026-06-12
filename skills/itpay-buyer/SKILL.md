@@ -40,6 +40,7 @@ read this skill
 -> read quickstart doc
 -> search catalog
 -> explain/recommend a variant
+-> collect required service input and buyer delivery email
 -> create cart with selected UCP Variant.id
 -> create checkout from cart_id
 -> if auth_qr is returned, show it for Alipay login/registration consent
@@ -73,6 +74,21 @@ itp buyer payment wait <payment_intent_id> --json
 itp buyer checkout status <checkout_id> --json
 ```
 
+For API products, read the product metadata input schema before cart creation.
+Enterprise data products require query input at cart time:
+
+```bash
+itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json
+itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --json
+itp buy var_itpay_enterprise_fuzzy_search_cny01 --sandbox --email <buyer_email> --input company_name=京东 --json
+```
+
+Use fuzzy search when the user gives a short name, brand, keyword, or uncertain
+entity. Use precise lookup only after you have the exact China mainland
+registered company name or unified social credit code. If the user says
+"京东" or "那个京东商城", do not buy precise lookup until you resolve the exact
+registered name or run fuzzy search first.
+
 ## Non-Negotiable Rules
 
 1. Use `--json` for every ItPay command.
@@ -81,24 +97,37 @@ itp buyer checkout status <checkout_id> --json
 3. When the user asks for several compatible services, create one cart with
    `--variants` and one checkout. Split only when ItPay rejects the cart or
    explicitly says split checkout is required.
-4. Do not rewrite, shorten, re-encode, translate, or replace QR URLs. For
-   payment QR display, prefer `local_qr_path` when the CLI provides it, then
-   `qr_png_url` / `preferred_qr_url`, and use `qr_image_url` only as fallback.
-5. If `human_action.kind=auth_qr`, it is account login/registration consent,
+4. Before checkout, make sure a buyer delivery email is available. If the CLI
+   has no known buyer email, ask the human for the email; do not invent one,
+   do not use placeholders, and do not proceed to checkout without it. The
+   email is used for human-first secure delivery and account/order access.
+5. Do not rewrite, shorten, re-encode, translate, or replace QR URLs. For
+   payment QR display, you must show `local_qr_path` when the CLI provides it;
+   remote QR images may not render in every agent client. If no local file is
+   present, use `qr_png_url` / `preferred_qr_url`, and use `qr_image_url` only
+   as fallback. These are ItPay-hosted human QR images; they may render a
+   native provider payment code for scanner reliability, but you must not
+   request, decode, or expose the raw provider payload.
+6. If `human_action.kind=auth_qr`, it is account login/registration consent,
    not payment. Show the ItPay auth entry (`url`, `web_url`, or local/PNG QR)
    as the primary human action, then poll/resume checkout until payment QR
    appears. `oauth_start_url` is provider fallback/debug, not the primary agent
    handoff.
-6. Do not treat QR display, page open, or user text like "I paid" as payment
+7. Do not treat QR display, page open, or user text like "I paid" as payment
    proof. Payment proof for the agent is `payment_intent.verified`.
-7. Do not ask the human to paste raw keys, redeem codes, claim links, claim
+8. Do not ask the human to paste raw keys, redeem codes, claim links, claim
    tokens, session tokens, provider payloads, or secrets into chat.
-8. Do not call ops commands, worker routes, provider query recovery, or fixture
+9. Do not call ops commands, worker routes, provider query recovery, or fixture
    evidence routes from the buyer flow.
-9. Secure delivery is human-first. The agent may report
+10. Secure delivery is human-first. The agent may report
    `delivery_claimable`, `check_email`, and `claim_link_sent`, but must not
    fetch or reveal protected content.
-10. Prefer resume/wait over creating duplicate checkouts.
+11. Prefer resume/wait over creating duplicate checkouts.
+12. Do not create a cart for an API service until all required service input
+    fields are known. For enterprise fuzzy search, `company_name` can be a
+    broad keyword. For enterprise precise lookup, `company_name_or_credit_no`
+    must be exact; otherwise warn the user that the query may waste the paid
+    lookup.
 
 ## Docs Directory
 
@@ -135,6 +164,13 @@ For first-purchase auth, treat the returned ItPay authorization entry as a
 single human orchestration entry. It may open Alipay login/registration first
 and then payment after ItPay receives the OAuth callback. Do not call
 `oauth_start_url` directly unless the ItPay auth page asks for fallback.
+If the payment page says the Alipay sandbox entry is stabilizing/preparing,
+or if Alipay sandbox says "order not found", tell the human to wait 30-60
+seconds and use the same page/QR again. Do not ask them to refresh repeatedly,
+and do not create another checkout or payment intent. Use
+`itp buyer payment refresh-qr ... --reason order-not-found` only after the
+same QR/page has been retried and still fails; ItPay may safely return the same
+valid QR rather than creating a new provider order.
 
 ## Safe User Message Pattern
 
@@ -145,7 +181,7 @@ I found the service and selected the matching variant.
 I created the cart and checkout.
 Please open the returned ItPay authorization link and approve Alipay login.
 I am waiting for ItPay account authorization.
-Please scan the returned ItPay QR image with Alipay sandbox.
+Please scan the returned ItPay-hosted QR image with Alipay sandbox.
 I am waiting for ItPay payment verification.
 Payment is verified.
 Delivery is claimable by the human buyer. Please check your email.

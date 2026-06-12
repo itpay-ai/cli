@@ -35,7 +35,10 @@ credential handling.
 6. Do not modify, shorten, summarize, re-encode, or rewrite Alipay payment QR URLs.
    For ItPay Core sandbox payment responses, render `local_qr_path` when present,
    then `qr_png_url` / `preferred_qr_url`, and use `qr_image_url` only as fallback.
-   Do not turn `payment_entry_url` or `mobile_wallet_url` into a QR code.
+   These are ItPay-hosted human QR images and may render native provider payment
+   codes for scanner reliability; do not request, decode, or expose the raw
+   provider payload. Do not turn `payment_entry_url` or `mobile_wallet_url` into
+   a QR code.
 7. Do not trust "I paid" as proof of payment.
 8. Only `itp setup --json` returning `status=grant_ready` / `status=installed`, or `itp payment wait
    <checkout_id> --json` returning `status=grant_issued` / `status=grant_installed`
@@ -259,7 +262,9 @@ itp buyer checkout status <checkout_id> --json
 The payment response contains `payment_entry_url` for browser/status fallback,
 `qr_png_url` / `preferred_qr_url` for the human scanner, and `mobile_wallet_url`
 for a human mobile fallback. Show `local_qr_path` first when the CLI provides it.
-If the Alipay sandbox app reports "order not found", refresh display only:
+If the Alipay sandbox app reports "order not found", first tell the human to
+wait 30-60 seconds and retry the same QR/page. If that still fails, request
+same-intent display recovery only:
 
 ```bash
 itp buyer payment refresh-qr <payment_intent_id> --reason order-not-found --display agent --json

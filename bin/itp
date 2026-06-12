@@ -1034,7 +1034,8 @@ async function createBuyerCartFromSelections(selections, flags = {}) {
     if (!selection?.purchasable) throw new Error(`catalog variant is not purchasable: ${selection?.catalog_variant_id || selection?.ucp_variant_id || index}`);
     return {
       item: { id: selection.catalog_variant_id || selection.ucp_variant_id },
-      quantity: quantities[index]
+      quantity: quantities[index],
+      input: buyerLineInputForSelection(selection, flags, index)
     };
   });
   const currencies = new Set(selections.map((selection) => String(flags.currency || selection.currency || "")).filter(Boolean));
@@ -1081,6 +1082,68 @@ function buyerCartQuantities(count, flags = {}) {
   return quantities;
 }
 
+function buyerLineInputForSelection(selection, flags = {}, index = 0) {
+  const input = parseBuyerInputs(flags, index);
+  const providerProductID = String(selection?.metadata?.["ai.itpay.provider_product_id"] || selection?.variant?.metadata?.["ai.itpay.provider_product_id"] || "");
+  if (providerProductID === "81api_company_fuzzy_search") {
+    if (!input.company_name && flags.company_name) input.company_name = String(flags.company_name).trim();
+    if (!input.company_name && flags.keyword) input.company_name = String(flags.keyword).trim();
+    if (!input.PageNum && flags.page_num) input.PageNum = String(flags.page_num).trim();
+    if (!input.PageNum) input.PageNum = "1";
+    if (!input.company_name) {
+      throw new Error("企业工商数据模糊查询 requires --input company_name=<关键词> or --company-name <关键词>. Ask the user for a company keyword/short name before checkout.");
+    }
+  }
+  if (providerProductID === "81api_company_base_info") {
+    if (!input.company_name_or_credit_no && flags.company_name_or_credit_no) input.company_name_or_credit_no = String(flags.company_name_or_credit_no).trim();
+    if (!input.company_name_or_credit_no && flags.company_name) input.company_name_or_credit_no = String(flags.company_name).trim();
+    if (!input.isRaiseErrorCode && flags.is_raise_error_code !== undefined) input.isRaiseErrorCode = String(flags.is_raise_error_code).trim();
+    if (!input.isRaiseErrorCode) input.isRaiseErrorCode = "0";
+    if (!input.company_name_or_credit_no) {
+      throw new Error("企业工商数据精准查询 requires --input company_name_or_credit_no=<完整企业名称或统一社会信用代码>. If the user only gave a brand/short name, run fuzzy search first or resolve the exact registered company name before checkout.");
+    }
+  }
+  return input;
+}
+
+function parseBuyerInputs(flags = {}, index = 0) {
+  const input = {};
+  const rawValues = [];
+  for (const key of ["input", "inputs"]) {
+    const raw = flags[key];
+    if (Array.isArray(raw)) rawValues.push(...raw);
+    else if (raw !== undefined && raw !== true) rawValues.push(raw);
+  }
+  for (const raw of rawValues) {
+    for (const part of splitInputParts(raw)) {
+      const eq = part.indexOf("=");
+      if (eq <= 0) throw new Error(`invalid --input ${part}; expected key=value`);
+      const key = part.slice(0, eq).trim();
+      const value = part.slice(eq + 1).trim();
+      if (key) input[key] = value;
+    }
+  }
+  const indexed = flags[`input_${index + 1}`] || flags[`inputs_${index + 1}`];
+  if (indexed && indexed !== true) {
+    for (const part of splitInputParts(indexed)) {
+      const eq = part.indexOf("=");
+      if (eq <= 0) throw new Error(`invalid indexed input ${part}; expected key=value`);
+      input[part.slice(0, eq).trim()] = part.slice(eq + 1).trim();
+    }
+  }
+  return input;
+}
+
+function splitInputParts(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  if (text.startsWith("{")) {
+    const parsed = JSON.parse(text);
+    return Object.entries(parsed).map(([key, value]) => `${key}=${value}`);
+  }
+  return text.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
 function splitCSV(value) {
   return String(value || "")
     .split(",")
@@ -1099,7 +1162,8 @@ async function addBuyerCartLineItem(cartID, selection, flags = {}) {
   const quantity = buyerCartQuantities(1, flags)[0];
   const body = {
     item: { id: selection.catalog_variant_id || selection.ucp_variant_id },
-    quantity
+    quantity,
+    input: buyerLineInputForSelection(selection, flags, 0)
   };
   const cart = await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}/line-items`, {
     method: "POST",
@@ -3054,7 +3118,7 @@ function annotateHumanActionPresentation(action, qrImageURL) {
     primary: action.local_qr_path ? "local_qr_path" : (action.qr_png_url ? "qr_png_url" : "preferred_qr_url"),
     desktop: action.kind === "auth_qr"
       ? "Show local_qr_path when present; otherwise show the ItPay first-purchase entry URL. This QR starts login/registration/profile authorization and should continue to payment for the same checkout after approval; it is not payment proof."
-      : "Show local_qr_path when present; otherwise show qr_png_url/preferred_qr_url directly. This is an ItPay-controlled entry QR; do not render your own QR from payment_entry_url.",
+      : "Show local_qr_path when present; otherwise show qr_png_url/preferred_qr_url directly. This is an ItPay-hosted human QR image and may render the native provider payment code; do not render your own QR from payment_entry_url.",
     mobile: "Show mobile_wallet_url as a clickable human-only fallback when present.",
     proof: "Only payment_intent.verified proves payment. QR display or page open is not payment proof."
   };
@@ -3063,6 +3127,7 @@ function annotateHumanActionPresentation(action, qrImageURL) {
 
 function shouldPrepareLocalQRForJSON(mode, flags = {}, action = {}) {
   if (mode === "file" || flags.qr_file || process.env.ITP_QR_FILE) return true;
+  if (action?.qr_png_url || action?.preferred_qr_url || action?.qr_image_url) return true;
   if (action?.kind === "auth_qr" && mode !== "none" && mode !== "json") return true;
   return mode === "agent" || mode === "chat";
 }
@@ -3165,7 +3230,7 @@ function attachAgentQRImage(action, qrImageURL, localPath = "") {
       format: qrFileExtension(qrImageURL, action),
       url: qrImageURL,
       local_path: localPath || undefined,
-      instructions: "Render local_path when present; otherwise render this ItPay-controlled entry QR image for the human to scan. Do not encode payment_entry_url, mobile_wallet_url, or provider payloads into your own QR."
+      instructions: "Render local_path when present; otherwise render this ItPay-hosted QR image for the human to scan. ItPay may render a native provider payment code inside the image, but the agent must not request, decode, or expose provider payloads. Do not encode payment_entry_url or mobile_wallet_url into your own QR."
     });
   }
   return action;
