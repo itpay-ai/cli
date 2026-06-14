@@ -38,6 +38,7 @@
   "agent_rules": [
     "Only read through `buyer vault` commands after the human has explicitly approved the agent grant in the ItPay portal.",
     "Prefer `itp buyer vault grants list --checkout <checkout_id> --json`; the CLI can automatically restore the buyer agent session from the checkout auth handoff when possible.",
+    "If the response includes buyer_session.status=buyer_session_saved, continue directly to `buyer vault grants read <agent_read_grant_id> --json`; do not ask the human for session tokens, auth IDs, or grant IDs.",
     "Do not ask the human to copy or paste `agent_read_grant_id`; discover it with `buyer vault grants list`.",
     "If no grant is returned, tell the human to open their ItPay account portal, reveal with Passkey, choose fields, and confirm one-key agent authorization.",
     "Use only fields returned in the grant view. Do not infer that unreturned fields are accessible.",

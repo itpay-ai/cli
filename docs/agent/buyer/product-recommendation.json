@@ -28,6 +28,7 @@
   ],
   "agent_rules": [
     "Map user intent to the variant description and price.",
+    "Catalog JSON money fields use minor units. For CNY, amount=10 means CNY 0.10 and amount=50 means CNY 0.50. Use display_amount when present, or divide by 100 before explaining price to the user.",
     "For API products, explain what the API checks or returns, quota unit, sensitivity level, required human input, and whether Passkey/WebAuthn reveal is required.",
     "If metadata says agent_may_view_raw_result=false, tell the user secure delivery/reveal is human-first and do not request the raw result.",
     "For enterprise fuzzy search, tell the user the required input is a company keyword/short name/brand. The user can say something broad like 京东; the service is designed to return candidates.",

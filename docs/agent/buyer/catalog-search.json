@@ -47,6 +47,7 @@
     "Use stable categories: business_data_api, business_verification_api, identity_verification_api, phone_verification_api, risk_compliance_api, location_weather_api, finance_data_api.",
     "Use safe facets such as --use-case, --input-facet, --output-facet, --sensitivity-level, --delivery-mode, and --provider.",
     "Use product and variant metadata to explain options in user language.",
+    "Money values from catalog JSON use minor units. For CNY, amount=10 means CNY 0.10, not CNY 10. Prefer display_amount when present, or divide amount/amount_minor by 100 before telling the user.",
     "For products with requires_human_input=true, do not ask for identity numbers or phone numbers in chat; rely on ItPay human authorization/input.",
     "Do not create checkout until the user intent maps to one selected variant or the user confirms a cart."
   ],

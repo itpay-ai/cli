@@ -34,15 +34,17 @@ openclaw
 Default API endpoint:
 
 ```text
-http://localhost:3000
+https://dev.api.itpay.ai
 ```
 
-Override it for ItPay staging or production:
+Override it for local development, staging, or production:
 
 ```bash
-export ITPAY_API_BASE=https://your-itpay-core.example.com
-export ITPAY_CORE_BASE_URL=https://your-itpay-core.example.com
+export ITPAY_API_BASE=http://127.0.0.1:18080
+export ITPAY_CORE_API_BASE=http://127.0.0.1:18080
 ```
+
+Production release will switch the package default to `https://api.itpay.ai`.
 
 ## Repository Layout
 
@@ -184,10 +186,11 @@ node ./bin/itp --version
 
 ## Basic User Flow
 
-Set API endpoint if not using local backend:
+The default endpoint is the AWS dev backend. Set API endpoint only when testing
+local or another environment:
 
 ```bash
-export ITPAY_API_BASE=https://your-itpay-core.example.com
+export ITPAY_API_BASE=http://127.0.0.1:18080
 ```
 
 For the current buyer commerce flow, search the catalog, create a cart/checkout,

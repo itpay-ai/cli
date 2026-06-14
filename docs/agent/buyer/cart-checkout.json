@@ -53,8 +53,8 @@
     },
     {
       "intent": "add one more selected UCP Variant.id to an existing cart before checkout",
-      "command": "itp buyer cart add <cart_id> --variant <variant_id> --quantity 1 --json",
-      "success_signal": "response.cart.cart_id is unchanged and response.cart.line_items includes the new line"
+      "command": "itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --json",
+      "success_signal": "response.cart.cart_id is unchanged; response.cart.line_items either includes a new line for different input/settings or increments quantity for an identical line"
     },
     {
       "intent": "remove one line from an existing cart before checkout",
@@ -77,12 +77,15 @@
     "Before cart creation, inspect product metadata input_schema_json and collect every required input field. Do not wait until after payment to ask for required query inputs.",
     "Enterprise fuzzy search requires input.company_name. This can be a keyword, brand, short name, or partial company name supplied by the user, such as 京东.",
     "Enterprise precise lookup requires input.company_name_or_credit_no. This must be a complete China mainland registered company name or unified social credit code. If the user only provides a brand/short name, resolve the exact name first or use fuzzy search before precise lookup.",
-    "Use --input key=value for service-specific inputs. For multiple lines, prefer separate cart add commands when each line needs different input.",
+    "Use --input key=value for service-specific inputs. For multiple query lines, prefer separate cart add commands so each line locks its own input.",
+    "Cart line identity includes variant, offer, price, provider product, and normalized input. Only a completely identical line should merge by increasing quantity.",
+    "If the same variant has a different company_name, company_name_or_credit_no, page number, setting, or any other input value, it must remain a separate cart line.",
     "Before checkout create, confirm buyer email is available for secure delivery. If it is missing, ask the human for the email before checkout; do not guess or use a placeholder.",
     "Use cart_id as the checkout handoff.",
-    "Use buyer cart show whenever you need current cart contents. Do not rely on chat memory for cart state.",
+    "Use buyer cart show before changing an existing cart and whenever you need current cart contents. Do not rely on chat memory for cart state.",
     "Use buyer cart add/remove before checkout when the user changes their mind. After checkout is created, treat the cart as locked.",
     "Do not override cart line_items during checkout.",
+    "Cart, checkout, and catalog JSON money fields use minor units. For CNY, amount=10 or expected_amount=10 means CNY 0.10. Tell humans the display_amount or converted major-unit amount, never interpret amount as yuan.",
     "If the user asks for several compatible products, add them to one cart and create one checkout. Do not split into separate checkouts unless ItPay rejects the cart or says split checkout is required.",
     "If the same cart is retried, expect the same checkout unless contact/client reference changes.",
     "The backend revalidates catalog, price, and delivery requirements.",
@@ -91,7 +94,8 @@
     "Do not tell the user auth_qr is a completed payment or payment proof.",
     "For first purchase, show the ItPay auth entry as one human orchestration entry; after provider OAuth callback the same checkout exposes payment.",
     "After showing auth_qr, poll checkout or run buyer checkout resume until identity_status becomes identity_resolved and payment_intent_id appears.",
-    "When auth completes, CLI should claim and store the buyer session so a repeat purchase by the same agent/device can skip auth."
+    "When auth completes, CLI should claim and store the buyer session so a repeat purchase by the same agent/device can skip auth.",
+    "If checkout status/resume returns buyer_session.status=buyer_session_saved, the agent is now bound to that buyer account on this device. Continue with payment, delivery polling, or buyer vault commands; do not ask the human for a buyer session token."
   ],
   "forbidden": [
     "Use the UCP cart and buyer checkout commands for external-agent tests.",

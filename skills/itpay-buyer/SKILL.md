@@ -67,7 +67,7 @@ itp buyer catalog get --variant <variant_id> --json
 itp buyer cart create --variant <variant_id> --json
 itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,1 --json
 itp buyer cart show <cart_id> --json
-itp buyer cart add <cart_id> --variant <variant_id> --quantity 1 --json
+itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --json
 itp buyer cart remove <cart_id> --line <cart_line_item_id> --json
 itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --json
 itp buyer checkout resume <checkout_id> --json
@@ -82,9 +82,17 @@ Enterprise data products require query input at cart time:
 
 ```bash
 itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json
+itp buyer cart show <cart_id> --json
+itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --json
 itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --json
 itp buy var_itpay_enterprise_fuzzy_search_cny01 --sandbox --email <buyer_email> --input company_name=京东 --json
 ```
+
+For cart edits, always read the server cart first with `buyer cart show`.
+Cart line identity includes the variant, offer, price, provider product, and
+normalized input. A fully identical line increments quantity; a different
+company name, exact name, page number, setting, or other input must stay as a
+separate line.
 
 Use fuzzy search when the user gives a short name, brand, keyword, or uncertain
 entity. Use precise lookup only after you have the exact China mainland
@@ -97,9 +105,11 @@ registered name or run fuzzy search first.
 1. Use `--json` for every ItPay command.
 2. Do not invent service IDs, variant IDs, checkout IDs, payment URLs, QR URLs,
    payment intent IDs, delivery IDs, or claim links.
-3. When the user asks for several compatible services, create one cart with
-   `--variants` and one checkout. Split only when ItPay rejects the cart or
-   explicitly says split checkout is required.
+3. When the user asks for several compatible services, use one cart and one
+   checkout. Prefer `buyer cart create` for the first line, then `buyer cart
+   show` and `buyer cart add` for each additional query line so each service
+   input is locked to the correct cart line. Split only when ItPay rejects the
+   cart or explicitly says split checkout is required.
 4. Before checkout, make sure a buyer delivery email is available. If the CLI
    has no known buyer email, ask the human for the email; do not invent one,
    do not use placeholders, and do not proceed to checkout without it. The
@@ -130,7 +140,10 @@ registered name or run fuzzy search first.
     session IDs, display tokens, or grant IDs. Run
     `itp buyer vault grants list ...` and then `itp buyer vault read ...`.
     The CLI automatically restores the buyer agent session from the checkout
-    auth handoff when possible. Use only the fields returned by that command.
+    auth handoff when possible. If the JSON includes
+    `buyer_session.status=buyer_session_saved`, continue with the returned
+    grants; the session token is intentionally stored locally and not printed.
+    Use only the fields returned by that command.
 12. If the user asks you to analyze, compare, summarize, install, or otherwise
     use a delivered result, you may ask them to open the ItPay claim/account
     page, click "Give to Agent / 一键给 Agent", choose fields, and confirm with

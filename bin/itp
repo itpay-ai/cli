@@ -8,8 +8,8 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import QRCode from "qrcode";
 
-const VERSION = "0.1.2";
-const DEFAULT_API_BASE = process.env.ITPAY_API_BASE || process.env.ITPAY_CORE_BASE_URL || "http://localhost:3000";
+const VERSION = "0.1.4";
+const DEFAULT_API_BASE = process.env.ITPAY_API_BASE || process.env.ITPAY_CORE_API_BASE || process.env.ITPAY_CORE_BASE_URL || "https://dev.api.itpay.ai";
 const CONFIG_DIR = path.join(os.homedir(), ".itp");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
 const STATE_PATH = path.join(CONFIG_DIR, "state.json");
@@ -198,9 +198,9 @@ async function main() {
           "buyer catalog search --query 企业工商 --category business_data_api --provider itpay_enterprise_data --json",
           "buyer catalog get --variant var_pubg_couple_skin_cny20 --json",
           "buyer cart create --variant var_pubg_couple_skin_cny20 --json",
-          "buyer cart create --variants var_itpay_enterprise_precise_lookup_cny05,var_itpay_enterprise_fuzzy_search_cny01 --quantities 1,1 --json",
+          "buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json",
           "buyer cart show <cart_id> --json",
-          "buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --quantity 1 --json",
+          "buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --quantity 1 --json",
           "buyer cart remove <cart_id> --line <cart_line_item_id> --json",
           "buyer shelf manifest --json",
           "buyer shelf snapshot --version <catalog_version> --json",
@@ -715,11 +715,12 @@ async function buyer(command, rest, flags) {
       const checkoutID = flags.checkout || flags.checkout_id || positional(rest, 1) || readState().last_core_checkout_id;
       if (!checkoutID) throw new Error("checkout_id is required");
       const checkout = await getBuyerCheckout(checkoutID, flags);
-      await maybeClaimBuyerSessionForCheckout(checkout, flags);
+      const claimedSession = await maybeClaimBuyerSessionForCheckout(checkout, flags);
       output(buyerRunOutput({
         status: checkout.delivery_status || checkout.status,
         checkout,
         delivery: checkout.delivery,
+        buyer_session: buyerSessionClaimStatus(claimedSession),
         agent_next_actions: deliveryAwareAgentNextActions(checkout),
         optional_agent_read_grant: optionalAgentReadGrantHint(checkout.checkout_id, checkout)
       }));
@@ -759,15 +760,21 @@ async function buyer(command, rest, flags) {
             }
           }));
           return;
+          }
         }
-      }
-      await maybeClaimBuyerSessionForCheckout(checkout, flags);
-      if (checkout.payment_intent_id) {
-        const intent = await getBuyerPaymentIntent(checkout.payment_intent_id, flags);
-        await renderItPayPaymentAction(intent, flags);
-        output(buyerRunOutput({ status: intent.status === "verified" ? "payment_verified" : "waiting_user_payment", checkout, payment_intent: intent, agent_next_actions: intent.agent_next_actions || checkout.agent_next_actions || ["wait_payment"] }));
-        return;
-      }
+        const claimedSession = await maybeClaimBuyerSessionForCheckout(checkout, flags);
+        if (checkout.payment_intent_id) {
+          const intent = await getBuyerPaymentIntent(checkout.payment_intent_id, flags);
+          await renderItPayPaymentAction(intent, flags);
+          output(buyerRunOutput({
+            status: intent.status === "verified" ? "payment_verified" : "waiting_user_payment",
+            checkout,
+            payment_intent: intent,
+            buyer_session: buyerSessionClaimStatus(claimedSession),
+            agent_next_actions: intent.agent_next_actions || checkout.agent_next_actions || ["wait_payment"]
+          }));
+          return;
+        }
       if (checkout.agent_next_actions?.includes("create_payment_intent") || checkout.next_required_action === "create_payment_intent") {
         const intent = await createBuyerPaymentIntent(checkout.checkout_id, flags);
         await renderItPayPaymentAction(intent, flags);
@@ -778,6 +785,7 @@ async function buyer(command, rest, flags) {
         status: checkout.delivery_status || checkout.status,
         checkout,
         delivery: checkout.delivery,
+        buyer_session: buyerSessionClaimStatus(claimedSession),
         agent_next_actions: deliveryAwareAgentNextActions(checkout),
         optional_agent_read_grant: optionalAgentReadGrantHint(checkout.checkout_id, checkout)
       }));
@@ -838,11 +846,12 @@ async function buyer(command, rest, flags) {
     if (subcommand === "grants") {
       const action = rest[1] && !String(rest[1]).startsWith("--") ? rest[1] : "list";
       if (action === "list") {
-        await ensureBuyerSessionForVaultAccess(flags);
+        const claimedSession = await ensureBuyerSessionForVaultAccess(flags);
         const grants = await listBuyerAgentReadGrants(flags);
         output(buyerRunOutput({
           status: "agent_read_grants",
           ...grants,
+          buyer_session: buyerSessionClaimStatus(claimedSession),
           agent_next_actions: grants.agent_readable_grants?.length ? ["read_agent_grant_view"] : ["wait_for_human_agent_read_grant"]
         }));
         return;
@@ -1320,6 +1329,20 @@ async function maybeClaimBuyerSessionFromAuthAction(action, flags = {}) {
   }
 }
 
+function buyerSessionClaimStatus(claimed = null) {
+  const config = readConfig();
+  const hasSession = Boolean(readSessionToken());
+  if (!claimed && !hasSession) return undefined;
+  return {
+    status: "buyer_session_saved",
+    session_stored: true,
+    buyer_account_id: claimed?.buyer_account_id || config.account_id || null,
+    agent_device_id: claimed?.agent_device_id || config.device_id || null,
+    token_included: false,
+    agent_next_actions: ["reuse_buyer_session", "list_agent_read_grants"]
+  };
+}
+
 async function maybeClaimBuyerSessionForCheckout(checkout, flags = {}) {
   if (!checkout?.checkout_id) return null;
   if (readSessionToken()) return null;
@@ -1358,18 +1381,46 @@ async function ensureBuyerSessionForVaultAccess(flags = {}) {
 }
 
 function parseBuyerAuthActionURL(action) {
-  const rawURL = action?.url || action?.auth_url || "";
-  if (!rawURL) return {};
-  try {
-    const parsed = new URL(rawURL);
-    const match = parsed.pathname.match(/\/v1\/buyer\/auth-sessions\/([^/]+)$/);
-    return {
-      authSessionID: match ? decodeURIComponent(match[1]) : "",
-      displayToken: parsed.searchParams.get("display_token") || ""
-    };
-  } catch {
-    return {};
+  if (!action || typeof action !== "object") return {};
+  let authSessionID = String(action.auth_session_id || "").trim();
+  if (!authSessionID && String(action.id || "").startsWith("auth_")) {
+    authSessionID = String(action.id).trim();
   }
+  let displayToken = "";
+  let sourceURL = "";
+  for (const rawURL of buyerAuthActionCandidateURLs(action)) {
+    try {
+      const parsed = new URL(rawURL);
+      const token = parsed.searchParams.get("display_token") || "";
+      if (token && !displayToken) displayToken = token;
+      const match = parsed.pathname.match(/(?:^|\/)(?:v1\/buyer\/auth-sessions|auth)\/([^/?#]+)(?:\/|$)/);
+      if (match && !authSessionID) authSessionID = decodeURIComponent(match[1]);
+      if (!sourceURL && (match || token)) sourceURL = rawURL;
+      if (authSessionID && displayToken) break;
+    } catch {
+      // Ignore non-URL display entries.
+    }
+  }
+  return { authSessionID, displayToken, sourceURL };
+}
+
+function buyerAuthActionCandidateURLs(action) {
+  const urls = [];
+  for (const key of ["url", "web_url", "auth_url", "oauth_start_url", "mobile_wallet_url"]) {
+    if (action?.[key]) urls.push(String(action[key]));
+  }
+  const presentationDisplay = action?.presentation?.display;
+  if (Array.isArray(presentationDisplay)) {
+    for (const entry of presentationDisplay) {
+      if (entry?.url) urls.push(String(entry.url));
+    }
+  }
+  if (Array.isArray(action?.display)) {
+    for (const entry of action.display) {
+      if (entry?.url) urls.push(String(entry.url));
+    }
+  }
+  return urls;
 }
 
 function rememberCoreAuthAction(checkoutID, action) {
@@ -1383,9 +1434,9 @@ function rememberCoreAuthAction(checkoutID, action) {
   next[checkoutID] = {
     kind: "auth_qr",
     id: action.id || action.auth_session_id || parsed.authSessionID,
-    auth_session_id: action.auth_session_id || parsed.authSessionID,
-    url: action.url,
-    web_url: action.web_url || action.url,
+    auth_session_id: parsed.authSessionID,
+    url: action.url || parsed.sourceURL,
+    web_url: action.web_url || action.url || parsed.sourceURL,
     expires_at: action.expires_at || null,
     saved_at: new Date().toISOString()
   };
@@ -1519,7 +1570,7 @@ function isBuyerDeliveryComplete(result) {
 }
 
 function buyerRunOutput(value = {}) {
-  return stripInternalBuyerFields({
+  return normalizeBuyerMoneyFields(stripInternalBuyerFields({
     schema_version: "itp.buyer.v1",
     docs: value.docs || buyerDocsFor(value),
     ...value,
@@ -1528,7 +1579,29 @@ function buyerRunOutput(value = {}) {
       claim_token_included: false,
       provider_raw_payload_included: false
     }
-  });
+  }));
+}
+
+function normalizeBuyerMoneyFields(value) {
+  if (Array.isArray(value)) return value.map((item) => normalizeBuyerMoneyFields(item));
+  if (!value || typeof value !== "object") return value;
+  const next = {};
+  for (const [key, item] of Object.entries(value)) {
+    next[key] = normalizeBuyerMoneyFields(item);
+  }
+  if (
+    typeof next.amount === "number" &&
+    Number.isFinite(next.amount) &&
+    typeof next.currency === "string" &&
+    next.currency.trim()
+  ) {
+    const currency = next.currency.trim().toUpperCase();
+    next.amount_minor = Number.isInteger(next.amount) ? next.amount : Math.round(next.amount);
+    next.amount_major = Number((next.amount_minor / 100).toFixed(2));
+    next.display_amount = `${currency} ${(next.amount_minor / 100).toFixed(2)}`;
+    next.amount_unit = "minor";
+  }
+  return next;
 }
 
 function buyerDocsFor(value = {}) {
@@ -3634,7 +3707,7 @@ function coreURL(pathname, flags = {}) {
 }
 
 function coreApiBase(flags = {}) {
-  const base = flags.api_base || flags.core_api_base || process.env.ITPAY_API_BASE || process.env.ITPAY_CORE_API_BASE || process.env.ITPAY_CORE_BASE_URL || "http://127.0.0.1:18080";
+  const base = flags.api_base || flags.core_api_base || process.env.ITPAY_API_BASE || process.env.ITPAY_CORE_API_BASE || process.env.ITPAY_CORE_BASE_URL || "https://dev.api.itpay.ai";
   return String(base).replace(/\/$/, "");
 }
 
