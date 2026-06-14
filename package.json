@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ItPay CLI, buyer skill, and agent-readable docs for agent-native commerce.",
   "type": "module",
   "bin": {
