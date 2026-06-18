@@ -563,7 +563,7 @@ async function buyer(command, rest, flags) {
       if (flags.currency) body.context.currency = String(flags.currency);
       if (flags.page_size || flags.limit) body.pagination.limit = Number(flags.page_size || flags.limit);
       if (flags.cursor) body.pagination.cursor = String(flags.cursor);
-      const catalog = await coreApi("/api/ucp/v1/catalog/search", { method: "POST", body }, flags);
+      const catalog = await coreApi("/v1/catalog/search", { method: "POST", body }, flags);
       output(buyerRunOutput({
         status: "catalog_search_results",
         catalog,
@@ -647,20 +647,20 @@ async function buyer(command, rest, flags) {
   }
   if (command === "shelf") {
     if (subcommand === "manifest") {
-      output(await coreApi("/v1/public/shelf/manifest", { method: "GET" }, flags));
+      output(await coreApi("/v1/catalog/manifests/current", { method: "GET" }, flags));
       return;
     }
     if (subcommand === "snapshot") {
       const version = flags.version || positional(rest, 1);
       if (!version) throw new Error("snapshot version is required");
-      output(await coreApi(`/v1/public/shelf/snapshots/${encodeURIComponent(version)}`, { method: "GET" }, flags));
+      output(await coreApi(`/v1/catalog/snapshots/${encodeURIComponent(version)}`, { method: "GET" }, flags));
       return;
     }
     if (subcommand === "delta") {
       const since = flags.since || positional(rest, 1);
       if (!since) throw new Error("delta --since version is required");
       const params = new URLSearchParams({ since });
-      output(await coreApi(`/v1/public/shelf/delta?${params.toString()}`, { method: "GET" }, flags));
+      output(await coreApi(`/v1/catalog/delta?${params.toString()}`, { method: "GET" }, flags));
       return;
     }
   }
@@ -1011,7 +1011,7 @@ async function getBuyerUCPProduct(selectionID, flags = {}) {
     context: {}
   };
   if (flags.currency) body.context.currency = String(flags.currency);
-  return await coreApi("/api/ucp/v1/catalog/product", { method: "POST", body }, flags);
+  return await coreApi("/v1/catalog/selections/resolve", { method: "POST", body }, flags);
 }
 
 function selectionFromUCPProduct(detail, selectionID, flags = {}) {
@@ -1075,7 +1075,7 @@ async function createBuyerCartFromSelections(selections, flags = {}) {
     client_reference_id: flags.cart_client_reference_id || flags.client_reference_id || `cli_cart_${Date.now()}`
   };
   if (currency) body.context.currency = String(currency);
-  const cart = await coreApi("/api/ucp/v1/carts", {
+  const cart = await coreApi("/v1/carts", {
     method: "POST",
     idempotencyKey: flags.cart_idempotency_key || `idem_cli_cart_${cryptoRandom()}`,
     body
@@ -1179,7 +1179,7 @@ function splitCSV(value) {
 
 async function getBuyerCart(cartID, flags = {}) {
   if (!cartID) throw new Error("cart_id is required");
-  return await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}`, { method: "GET" }, flags);
+  return await coreApi(`/v1/carts/${encodeURIComponent(cartID)}`, { method: "GET" }, flags);
 }
 
 async function addBuyerCartLineItem(cartID, selection, flags = {}) {
@@ -1191,7 +1191,7 @@ async function addBuyerCartLineItem(cartID, selection, flags = {}) {
     quantity,
     input: buyerLineInputForSelection(selection, flags, 0)
   };
-  const cart = await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}/line-items`, {
+  const cart = await coreApi(`/v1/carts/${encodeURIComponent(cartID)}/line-items`, {
     method: "POST",
     idempotencyKey: flags.cart_idempotency_key || `idem_cli_cart_add_${cryptoRandom()}`,
     body
@@ -1203,7 +1203,7 @@ async function addBuyerCartLineItem(cartID, selection, flags = {}) {
 async function removeBuyerCartLineItem(cartID, lineID, flags = {}) {
   if (!cartID) throw new Error("cart_id is required");
   if (!lineID) throw new Error("cart_line_item_id is required");
-  const cart = await coreApi(`/api/ucp/v1/carts/${encodeURIComponent(cartID)}/line-items/${encodeURIComponent(lineID)}`, {
+  const cart = await coreApi(`/v1/carts/${encodeURIComponent(cartID)}/line-items/${encodeURIComponent(lineID)}`, {
     method: "DELETE"
   }, flags);
   writeState({ ...readState(), last_core_cart_id: cart.cart_id || cart.id });
@@ -1231,11 +1231,11 @@ async function createBuyerCheckoutFromCart(cart, selection = null, flags = {}) {
   };
   let checkout;
   try {
-    checkout = await coreApi("/api/ucp/v1/checkouts", request, flags);
+    checkout = await coreApi("/v1/checkouts", request, flags);
   } catch (error) {
     if (error?.status === 401 && readSessionToken(readCredentials()) && !flags.access_token) {
       writeCredentials(deleteSessionCredential(readCredentials()));
-      checkout = await coreApi("/api/ucp/v1/checkouts", request, flags);
+      checkout = await coreApi("/v1/checkouts", request, flags);
     } else {
       throw error;
     }
@@ -1304,7 +1304,7 @@ async function maybeClaimBuyerSessionFromAuthAction(action, flags = {}) {
   const parsed = parseBuyerAuthActionURL(action);
   if (!parsed.authSessionID || !parsed.displayToken) return null;
   try {
-    const response = await coreApi(`/v1/buyer/auth-sessions/${encodeURIComponent(parsed.authSessionID)}/agent-session?display_token=${encodeURIComponent(parsed.displayToken)}`, {
+    const response = await coreApi(`/v1/session-exchanges/auth-sessions/${encodeURIComponent(parsed.authSessionID)}/agent-session?display_token=${encodeURIComponent(parsed.displayToken)}`, {
       method: "POST"
     }, flags);
     const rawToken = response.raw_session_token || response.session_token || response.session?.raw_session_token;
@@ -1393,7 +1393,7 @@ function parseBuyerAuthActionURL(action) {
       const parsed = new URL(rawURL);
       const token = parsed.searchParams.get("display_token") || "";
       if (token && !displayToken) displayToken = token;
-      const match = parsed.pathname.match(/(?:^|\/)(?:v1\/buyer\/auth-sessions|auth)\/([^/?#]+)(?:\/|$)/);
+      const match = parsed.pathname.match(/(?:^|\/)v1\/session-exchanges\/auth-sessions\/([^/?#]+)(?:\/|$)/);
       if (match && !authSessionID) authSessionID = decodeURIComponent(match[1]);
       if (!sourceURL && (match || token)) sourceURL = rawURL;
       if (authSessionID && displayToken) break;
@@ -1685,7 +1685,7 @@ async function buyerAuthStatusOutput(flags = {}) {
   const token = readSessionToken(credentials);
   if (token && config.account_id) {
     try {
-      const status = await coreApi(`/v1/buyer/accounts/${encodeURIComponent(config.account_id)}/auth/status`, { method: "GET" }, flags);
+      const status = await coreApi("/v1/me/auth/status", { method: "GET" }, flags);
       return buyerRunOutput({
         status: "authenticated_buyer_session",
         authenticated: true,
@@ -1735,12 +1735,12 @@ async function listBuyerAgentReadGrants(flags = {}) {
     }
   }
   const query = params.toString();
-  return await coreApi(`/v1/vault/agent-read-grants${query ? `?${query}` : ""}`, { method: "GET" }, flags);
+  return await coreApi(`/v1/me/agent-grants${query ? `?${query}` : ""}`, { method: "GET" }, flags);
 }
 
 async function readBuyerAgentReadGrant(grantID, flags = {}) {
   if (!grantID) throw new Error("agent_read_grant_id is required");
-  return await coreApi(`/v1/vault/agent-read-grants/${encodeURIComponent(grantID)}/view`, { method: "GET" }, flags);
+  return await coreApi(`/v1/me/agent-grants/${encodeURIComponent(grantID)}/view`, { method: "GET" }, flags);
 }
 
 async function readBuyerVaultArtifactGrant(flags = {}) {
@@ -2120,7 +2120,7 @@ async function accountLoginLink(flags) {
   if (!readSessionToken()) {
     throw new Error("buyer account session is required; complete first-purchase auth or run buyer checkout resume first");
   }
-  const link = await coreApi(`/v1/buyer/accounts/${encodeURIComponent(accountID)}/portal-login-links`, { method: "POST" }, flags);
+  const link = await coreApi("/v1/me/portal-login-links", { method: "POST" }, flags);
   output(buyerRunOutput({
     status: "account_portal_login_link_created",
     account_id: accountID,
