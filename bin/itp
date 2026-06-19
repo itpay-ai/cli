@@ -3233,15 +3233,6 @@ async function renderHumanAction(action, flags = {}) {
         return { rendered: false, mode: "json-local-qr", outputs: [localPath] };
       }
     }
-    if (!qrImageURL && shouldGenerateLocalQRFromActionURL(action) && shouldPrepareLocalQRForJSON(mode, flags, action)) {
-      const localPath = await prepareGeneratedActionQRFile(action, flags, mode !== "file" && !flags.qr_file && !process.env.ITP_QR_FILE);
-      if (localPath) {
-        attachAgentGeneratedQRImage(action, localPath);
-        annotateHumanActionPresentation(action, "");
-        persistHumanAction(action, flags);
-        return { rendered: false, mode: "json-local-auth-qr", outputs: [localPath] };
-      }
-    }
     return { rendered: false, mode: flags.json ? "json" : mode };
   }
   const host = String(process.env.ITP_HOST || flags.host || "").toLowerCase();
@@ -3255,9 +3246,9 @@ async function renderHumanAction(action, flags = {}) {
       persistHumanAction(action, flags);
       return { rendered: false, mode: localPath ? "agent-local-image-qr" : "agent-image-qr", host, outputs: [localPath || "preferred_qr_url"] };
     }
-    await attachAgentTextQR(action, flags);
+    process.stderr.write(`No QR image available. Open payment URL: ${action.url}\n`);
     persistHumanAction(action, flags);
-    return { rendered: false, mode: "agent-text-qr", host, outputs: ["agent_text_qr"] };
+    return { rendered: false, mode: "agent-url-fallback", host, outputs: ["payment_url"] };
   }
 
   const renderResult = { rendered: false, mode, outputs: [] };
@@ -3276,15 +3267,13 @@ async function renderHumanAction(action, flags = {}) {
       await downloadQRImage(qrImageURL, file, flags);
       action.local_qr_path = file;
       action.local_qr_mime = qrMimeType(qrImageURL, action);
+      process.stderr.write(`Alipay QR image: ${file}\n`);
+      renderResult.rendered = true;
+      renderResult.outputs.push(file);
+      if (mode === "file") return renderResult;
     } else {
-      await QRCode.toFile(file, action.url, { errorCorrectionLevel: "M", width: 512, margin: 2 });
-      action.local_qr_path = file;
-      action.local_qr_mime = "image/png";
+      process.stderr.write(`No QR image available. Open payment URL: ${action.url}\n`);
     }
-    process.stderr.write(`Alipay QR image: ${file}\n`);
-    renderResult.rendered = true;
-    renderResult.outputs.push(file);
-    if (mode === "file") return renderResult;
   }
 
   if (qrImageURL) {
@@ -3354,27 +3343,7 @@ function annotateHumanActionPresentation(action, qrImageURL) {
 function shouldPrepareLocalQRForJSON(mode, flags = {}, action = {}) {
   if (mode === "file" || flags.qr_file || process.env.ITP_QR_FILE) return true;
   if (action?.qr_png_url || action?.preferred_qr_url || action?.qr_image_url) return true;
-  if (action?.kind === "auth_qr" && mode !== "none" && mode !== "json") return true;
-  return mode === "agent" || mode === "chat";
-}
-
-function shouldGenerateLocalQRFromActionURL(action = {}) {
-  return action?.kind === "auth_qr" && Boolean(action?.url);
-}
-
-async function prepareGeneratedActionQRFile(action, flags = {}, optional = false) {
-  if (!action?.url) return "";
-  const file = flags.qr_file || process.env.ITP_QR_FILE || defaultQRFilePath(action, "");
-  try {
-    await QRCode.toFile(file, action.url, { errorCorrectionLevel: "M", width: 512, margin: 2 });
-  } catch (error) {
-    if (!optional) throw error;
-    action.local_qr_error = safeErrorMessage(error);
-    return "";
-  }
-  action.local_qr_path = file;
-  action.local_qr_mime = "image/png";
-  return file;
+  return false;
 }
 
 async function prepareLocalQRFile(action, qrImageURL, flags = {}, optional = false) {
@@ -3457,57 +3426,6 @@ function attachAgentQRImage(action, qrImageURL, localPath = "") {
       url: qrImageURL,
       local_path: localPath || undefined,
       instructions: "Render local_path when present; otherwise render this ItPay-hosted QR image for the human to scan. ItPay may render a native provider payment code inside the image, but the agent must not request, decode, or expose provider payloads. Do not encode payment_entry_url or mobile_wallet_url into your own QR."
-    });
-  }
-  return action;
-}
-
-function attachAgentGeneratedQRImage(action, localPath = "") {
-  if (!action || !localPath) return action;
-  if (!Array.isArray(action.display)) {
-    action.display = [];
-  }
-  if (!action.display.some((item) => item?.type === "image" && item?.local_path === localPath)) {
-    action.display.push({
-      type: "image",
-      format: "png",
-      local_path: localPath,
-      instructions: "Render this local ItPay first-purchase entry QR for the human to scan. It starts account login/registration/profile authorization and should continue to payment for the same checkout after approval; it is not payment proof."
-    });
-  }
-  return action;
-}
-
-async function attachAgentTextQR(action, flags = {}) {
-  if (!action?.url || action.agent_text_qr) return action;
-  const qr = await QRCode.toString(action.url, {
-    type: "utf8",
-    small: true,
-    errorCorrectionLevel: "M"
-  });
-  const lines = qr.replace(/\s+$/g, "").split(/\r?\n/);
-  const text = lines.join("\n");
-  const sha256 = crypto.createHash("sha256").update(text).digest("hex");
-  action.agent_text_qr = {
-    type: "terminal_text",
-    format: "unicode",
-    lines,
-    text,
-    fenced_text: `\`\`\`text\n${text}\n\`\`\``,
-    line_count: lines.length,
-    sha256,
-    url: action.url,
-    allowed_characters: "Only U+2588 FULL BLOCK, U+2580 UPPER HALF BLOCK, U+2584 LOWER HALF BLOCK, spaces, and newlines are valid inside the QR body.",
-    instructions: "Paste fenced_text verbatim into the normal assistant message, not the shell panel. Do not retype, translate, add line numbers, or add words inside the QR body. If any letters, digits, or Chinese characters appear inside the QR body, discard it and use the QR image URL/fallback link instead."
-  };
-  if (!Array.isArray(action.display)) {
-    action.display = [];
-  }
-  if (!action.display.some((item) => item?.type === "terminal_text")) {
-    action.display.push({
-      type: "terminal_text",
-      format: "unicode",
-      lines
     });
   }
   return action;
