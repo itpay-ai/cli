@@ -8,7 +8,6 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import QRCode from "qrcode";
 
-const VERSION = "0.1.5";
 const DEFAULT_API_BASE = process.env.ITPAY_API_BASE || process.env.ITPAY_CORE_API_BASE || process.env.ITPAY_CORE_BASE_URL || "https://dev.api.itpay.ai";
 const CONFIG_DIR = path.join(os.homedir(), ".itp");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
@@ -19,6 +18,7 @@ const LOCK_PATH = path.join(CONFIG_DIR, "state.lock");
 const CLI_FILE = fileURLToPath(import.meta.url);
 const CLI_DIR = path.dirname(CLI_FILE);
 const PACKAGE_ROOT = path.dirname(CLI_DIR);
+const VERSION = packageVersion();
 
 main().catch((error) => {
   outputError(error);
@@ -3867,6 +3867,14 @@ function apiBase(flags = {}, config = readConfig()) {
 
 function readConfig() {
   return readJSON(CONFIG_PATH, {});
+}
+
+function packageVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")).version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
 }
 
 function writeConfig(value) {
