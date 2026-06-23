@@ -322,6 +322,32 @@ const server = http.createServer(async (req, res) => {
       sensitive_redacted: true
     });
   }
+  if (req.method === "GET" && url.pathname === "/v1/me") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 200, {
+      authenticated: false,
+      actor_kind: "public",
+      backend_version: "mock",
+      environment: "local",
+      frontend_mode: "external_amplify"
+    });
+    return writeJSON(res, 200, {
+      authenticated: true,
+      actor_kind: "account_session",
+      backend_version: "mock",
+      environment: "local",
+      frontend_mode: "external_amplify",
+      buyer_account_id: "ba_mock_0376",
+      agent_device_id: "ad_mock_0376",
+      linked_providers: ["alipay", "wechat"],
+      order_count: 12,
+      created_at: "2026-06-23T09:00:00Z",
+      device: {
+        agent_device_id: "ad_mock_0376",
+        display_name: "Codex on MacBook-Pro",
+        status: "active"
+      }
+    });
+  }
   if (req.method === "GET" && url.pathname === "/v1/me/orders/ord_mock_038c") {
     if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
     return writeJSON(res, 200, {
@@ -516,6 +542,13 @@ PORTAL_LINK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOC
 printf '%s' "$PORTAL_LINK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "account_portal_login_link_created" || json.portal_login_link.one_time !== true) process.exit(1); if (!json.login_url.includes("/v1/account-portal/login/")) process.exit(1); if (json.next.safe_for_agent !== false || json.next.requires_human !== true || json.next.agent_must_not_open !== true) process.exit(1);})'
 BUYER_AUTH_WITH_SESSION=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer auth status --json)
 printf '%s' "$BUYER_AUTH_WITH_SESSION" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "authenticated_buyer_session" || json.authenticated !== true || json.buyer_account_id !== "ba_mock_0376" || json.agent_device_id !== "ad_mock_0376") process.exit(1);})'
+STATUS_TEXT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" status)
+printf '%s' "$STATUS_TEXT" | grep -q "Account:  ba_mock_0376"
+printf '%s' "$STATUS_TEXT" | grep -q "Linked:   alipay, wechat"
+printf '%s' "$STATUS_TEXT" | grep -q "Orders:   12"
+printf '%s' "$STATUS_TEXT" | grep -q "Device:   Codex on MacBook-Pro (active)"
+STATUS_JSON=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" status --json)
+printf '%s' "$STATUS_JSON" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "idle" || json.buyer_account_id !== "ba_mock_0376" || json.order_count !== 12 || !json.linked_providers.includes("wechat")) process.exit(1);})'
 REFUND_CREATE_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_mock_038c --amount-minor 1000 --currency CNY --reason buyer_requested --json)
 printf '%s' "$REFUND_CREATE_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "requested" || json.refund.refund_id !== "rf_mock_r9" || json.refund.amount_minor !== 1000 || json.secrets.provider_raw_payload_included !== false) process.exit(1);})'
 REFUND_POLICY_RISK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_claimed --amount-minor 1000 --currency CNY --reason buyer_requested --json)

@@ -1952,33 +1952,111 @@ async function agentStatus(flags) {
   const runId = flags.run_id || readState().current_run_id;
   const run = readRun(runId);
   if (!run) {
-    const config = readConfig();
-    const credentials = readCredentials();
-    let auth = { authenticated: Boolean(readSessionToken(credentials)), account_id: config.account_id || null, device_id: config.device_id || null };
-    if (auth.authenticated && flags.refresh) {
-      try {
-        auth = await api("/api/itp/auth/status", { method: "GET" }, flags);
-      } catch (error) {
-        auth = { authenticated: false, account_id: config.account_id || null, error: error.message };
-      }
-    }
-      output({
-        schema_version: "itp.agent.v1",
-        status: auth.authenticated ? "idle" : "unauthenticated",
-      phase: auth.authenticated ? "idle" : "unauthenticated",
-      authenticated: Boolean(auth.authenticated),
-        account_id: auth.account_id || null,
-        device_id: auth.device_id || null,
-        next: auth.authenticated
-          ? { type: "choose_credits_or_plan", command: cliCommand("plans", "--json"), safe_for_agent: true }
-          : { type: "start_auth", command: cliCommand("setup", "--plan", "credit-300", "--method", "alipay", "--json"), safe_for_agent: true },
-        secrets: { raw_key_included: false, session_token_included: false }
-      });
+    const status = await accountOverviewStatus(flags);
+    outputStatus(status, flags);
     return;
   }
   const refreshed = flags.refresh ? await refreshRun(run, flags) : run;
   writeRun(refreshed);
   output(agentRunResponse(refreshed));
+}
+
+async function accountOverviewStatus(flags = {}) {
+  const config = readConfig();
+  const credentials = readCredentials();
+  const sessionToken = readSessionToken(credentials);
+  const hasAuth = Boolean(sessionToken || flags.access_token);
+  const base = {
+    schema_version: "itp.agent.v1",
+    status: hasAuth ? "account_status_unavailable" : "unauthenticated",
+    phase: hasAuth ? "account_status_unavailable" : "unauthenticated",
+    authenticated: false,
+    account_id: config.account_id || null,
+    buyer_account_id: config.account_id || null,
+    device_id: config.device_id || null,
+    agent_device_id: config.device_id || null,
+    linked_providers: [],
+    order_count: 0,
+    created_at: null,
+    device: config.device_id ? { agent_device_id: config.device_id } : null,
+    next: hasAuth
+      ? { type: "retry_status", command: cliCommand("status", "--json"), safe_for_agent: true }
+      : { type: "start_auth", command: cliCommand("setup", "--plan", "credit-300", "--method", "alipay", "--json"), safe_for_agent: true },
+    secrets: { raw_key_included: false, session_token_included: false }
+  };
+  if (!hasAuth) {
+    return base;
+  }
+  try {
+    const me = await coreApi("/v1/me", { method: "GET" }, flags);
+    const accountID = me.buyer_account_id || config.account_id || null;
+    const deviceID = me.agent_device_id || me.device?.agent_device_id || config.device_id || null;
+    return {
+      ...base,
+      status: me.authenticated ? "idle" : "unauthenticated",
+      phase: me.authenticated ? "idle" : "unauthenticated",
+      authenticated: Boolean(me.authenticated),
+      account_id: accountID,
+      buyer_account_id: accountID,
+      device_id: deviceID,
+      agent_device_id: deviceID,
+      linked_providers: Array.isArray(me.linked_providers) ? me.linked_providers : [],
+      order_count: Number.isFinite(Number(me.order_count)) ? Number(me.order_count) : 0,
+      created_at: me.created_at || null,
+      device: me.device || (deviceID ? { agent_device_id: deviceID } : null),
+      next: me.authenticated
+        ? { type: "view_orders_or_buy", command: cliCommand("buyer", "checkout", "status", "<checkout_id>", "--json"), safe_for_agent: true }
+        : base.next,
+      backend: {
+        environment: me.environment || null,
+        backend_version: me.backend_version || null
+      }
+    };
+  } catch (error) {
+    return {
+      ...base,
+      error: safeErrorMessage(error)
+    };
+  }
+}
+
+function outputStatus(status, flags = {}) {
+  if (flags.json) {
+    output(status);
+    return;
+  }
+  console.log(formatStatusText(status));
+}
+
+function formatStatusText(status = {}) {
+  if (!status.authenticated) {
+    const lines = [
+      `Account:  ${status.account_id ? `${status.account_id} (unverified)` : "not signed in"}`,
+      "Linked:   -",
+      "Orders:   -",
+      `Device:   ${formatDeviceLine(status.device, status.device_id) || "-"}`
+    ];
+    if (status.error) lines.push(`Error:    ${status.error}`);
+    return lines.join("\n");
+  }
+  const linked = Array.isArray(status.linked_providers) && status.linked_providers.length
+    ? status.linked_providers.join(", ")
+    : "-";
+  return [
+    `Account:  ${status.buyer_account_id || status.account_id || "-"}`,
+    `Linked:   ${linked}`,
+    `Orders:   ${Number.isFinite(Number(status.order_count)) ? Number(status.order_count) : 0}`,
+    `Device:   ${formatDeviceLine(status.device, status.device_id) || "-"}`
+  ].join("\n");
+}
+
+function formatDeviceLine(device, fallbackID = "") {
+  const displayName = String(device?.display_name || "").trim();
+  const deviceID = String(device?.agent_device_id || fallbackID || "").trim();
+  const label = displayName || deviceID;
+  if (!label) return "";
+  const status = String(device?.status || "").trim();
+  return status ? `${label} (${status})` : label;
 }
 
 async function resume(flags) {

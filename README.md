@@ -158,6 +158,19 @@ Before starting a new purchase, agents should inspect recoverable local state:
 itp status --json
 ```
 
+Humans can use the default account overview:
+
+```bash
+itp status
+```
+
+```text
+Account:  buyer_7xK2mP9vQ4
+Linked:   alipay, wechat
+Orders:   12
+Device:   Codex on MacBook-Pro (active)
+```
+
 If an unfinished run exists, continue it:
 
 ```bash
