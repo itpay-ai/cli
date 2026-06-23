@@ -213,13 +213,14 @@ async function main() {
           "buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json",
           "buyer deliveries list --checkout <checkout_id> --json",
           "buyer deliveries show <delivery_id> --checkout <checkout_id> --json",
+          "buyer refund create --order <order_id> --amount-minor 1000 --currency CNY --reason buyer_requested --json",
+          "buyer refund list --order <order_id> --json",
+          "buyer refund show <refund_id> --json",
+          "buyer refund cancel <refund_id> --reason buyer_changed_mind --json",
           "buyer vault grants list --checkout <checkout_id> --json",
           "buyer vault grants read <agent_read_grant_id> --json",
           "buyer vault read --order <order_id> --artifact <vault_artifact_id> --json",
           "account login-link --json",
-          "ops sandbox worker run-once --json",
-          "ops sandbox recover-alipay-once --json",
-          "ops sandbox payment query <payment_intent_id> --json",
           "status --json",
           "docs list --role buyer --json",
           "docs show quickstart --role buyer --json",
@@ -842,6 +843,58 @@ async function buyer(command, rest, flags) {
       return;
     }
   }
+  if (command === "refund") {
+    if (subcommand === "create") {
+      const orderID = flags.order || flags.order_id || positional(rest, 1);
+      if (!orderID) throw new Error("order_id is required");
+      const refund = await createBuyerRefund(orderID, flags);
+      if (refund.status === "policy_risk_confirmation_required") {
+        output(buyerRunOutput(refund));
+        return;
+      }
+      output(buyerRunOutput({
+        status: refund.status || "refund_requested",
+        refund,
+        refund_eligibility: refund.refund_eligibility || null,
+        agent_next_actions: ["watch_refund_status", "explain_refund_policy"]
+      }));
+      return;
+    }
+    if (subcommand === "list") {
+      const orderID = flags.order || flags.order_id || positional(rest, 1);
+      if (!orderID) throw new Error("order_id is required");
+      const refunds = await listBuyerRefunds(orderID, flags);
+      output(buyerRunOutput({
+        status: "refunds",
+        order_id: orderID,
+        ...refunds,
+        agent_next_actions: ["show_refund_status"]
+      }));
+      return;
+    }
+    if (subcommand === "show") {
+      const refundID = flags.refund || flags.refund_id || positional(rest, 1);
+      if (!refundID) throw new Error("refund_id is required");
+      const refund = await getBuyerRefund(refundID, flags);
+      output(buyerRunOutput({
+        status: refund.status || "refund",
+        refund,
+        agent_next_actions: ["show_refund_status"]
+      }));
+      return;
+    }
+    if (subcommand === "cancel") {
+      const refundID = flags.refund || flags.refund_id || positional(rest, 1);
+      if (!refundID) throw new Error("refund_id is required");
+      const refund = await cancelBuyerRefund(refundID, flags);
+      output(buyerRunOutput({
+        status: refund.status || "refund_canceled",
+        refund,
+        agent_next_actions: ["show_refund_status", "claim_delivery_if_still_needed"]
+      }));
+      return;
+    }
+  }
   if (command === "vault") {
     if (subcommand === "grants") {
       const action = rest[1] && !String(rest[1]).startsWith("--") ? rest[1] : "list";
@@ -966,6 +1019,12 @@ function booleanFlag(value) {
   throw new Error(`invalid boolean flag value: ${value}`);
 }
 
+function intFlag(value, name) {
+  const number = Number(value);
+  if (!Number.isInteger(number)) throw new Error(`${name} must be an integer`);
+  return number;
+}
+
 async function ops(command, rest, flags) {
   if (command !== "sandbox") throw new Error(`unknown ops command: ${command || ""}`);
   const area = rest[0];
@@ -982,6 +1041,75 @@ async function ops(command, rest, flags) {
     const paymentIntentID = flags.payment_intent || flags.payment_intent_id || positional(rest, 2);
     if (!paymentIntentID) throw new Error("payment_intent_id is required");
     output(await coreApi(`/v1/payment-intents/${encodeURIComponent(paymentIntentID)}/alipay-sandbox-query`, { method: "POST", ops: true }, flags));
+    return;
+  }
+  if (area === "refund") {
+    const refundID = flags.refund || flags.refund_id || positional(rest, 2);
+    if (!refundID) throw new Error("refund_id is required");
+    if (action === "show") {
+      output(await coreApi(`/v1/sandbox/ops/refunds/${encodeURIComponent(refundID)}`, { method: "GET", ops: true }, flags));
+      return;
+    }
+    if (action === "approve" || action === "reject") {
+      output(await coreApi(`/v1/sandbox/ops/refunds/${encodeURIComponent(refundID)}/${action}`, {
+        method: "POST",
+        ops: true,
+        idempotencyKey: flags.idempotency_key || `idem_cli_refund_${action}_${refundID}`,
+        body: {
+          reason_code: flags.reason || flags.reason_code || (action === "approve" ? "approved_by_ops" : "not_eligible"),
+          note: flags.note || ""
+        }
+      }, flags));
+      return;
+    }
+    if (action === "execute") {
+      output(await coreApi(`/v1/sandbox/ops/refunds/${encodeURIComponent(refundID)}/execute`, {
+        method: "POST",
+        ops: true,
+        idempotencyKey: flags.idempotency_key || `idem_cli_refund_execute_${refundID}`
+      }, flags));
+      return;
+    }
+  }
+  if (area === "ledger" && action === "entries") {
+    const params = new URLSearchParams();
+    if (flags.order || flags.order_id) params.set("order_id", String(flags.order || flags.order_id));
+    if (flags.refund || flags.refund_id) params.set("refund_id", String(flags.refund || flags.refund_id));
+    if (flags.payment_intent || flags.payment_intent_id) params.set("payment_intent_id", String(flags.payment_intent || flags.payment_intent_id));
+    if ([...params.keys()].length === 0) {
+      throw new Error("ledger filter is required: use --order, --refund, or --payment-intent");
+    }
+    output(await coreApi(`/v1/sandbox/ops/ledger/entries${queryString(params)}`, { method: "GET", ops: true }, flags));
+    return;
+  }
+  if (area === "reconciliation") {
+    if (action === "run") {
+      output(await coreApi("/v1/sandbox/ops/reconciliation-runs", {
+        method: "POST",
+        ops: true,
+        idempotencyKey: flags.idempotency_key || `idem_cli_reconciliation_${cryptoRandom()}`,
+        body: {
+          reconciliation_run_id: flags.reconciliation_run_id || flags.run_id || "",
+          status: flags.status || "matched",
+          expected_amount_minor: intFlag(flags.expected_amount_minor || flags.expected || 0, "expected_amount_minor"),
+          observed_amount_minor: intFlag(flags.observed_amount_minor || flags.observed || 0, "observed_amount_minor"),
+          currency: flags.currency || "CNY",
+          raw_statement_ref: flags.raw_statement_ref || flags.statement_ref || ""
+        }
+      }, flags));
+      return;
+    }
+    if (action === "show") {
+      const runID = flags.reconciliation_run_id || flags.run_id || positional(rest, 2);
+      if (!runID) throw new Error("reconciliation_run_id is required");
+      output(await coreApi(`/v1/sandbox/ops/reconciliation-runs/${encodeURIComponent(runID)}`, { method: "GET", ops: true }, flags));
+      return;
+    }
+  }
+  if (area === "settlement" && action === "show") {
+    const settlementBatchID = flags.settlement_batch || flags.settlement_batch_id || positional(rest, 2);
+    if (!settlementBatchID) throw new Error("settlement_batch_id is required");
+    output(await coreApi(`/v1/sandbox/ops/settlement-batches/${encodeURIComponent(settlementBatchID)}`, { method: "GET", ops: true }, flags));
     return;
   }
   throw new Error(`unknown ops sandbox command: ${rest.join(" ")}`);
@@ -1460,6 +1588,67 @@ function forgetCoreAuthAction(checkoutID) {
 
 async function getBuyerCheckout(checkoutID, flags = {}) {
   return await coreApi(`/v1/checkouts/${encodeURIComponent(checkoutID)}`, { method: "GET" }, flags);
+}
+
+async function createBuyerRefund(orderID, flags = {}) {
+  if (flags.amount !== undefined) {
+    throw new Error("use --amount-minor for refund amount");
+  }
+  if (flags.refund_scope && flags.refund_scope !== "order") {
+    throw new Error("unsupported_refund_scope");
+  }
+  const order = await getBuyerOrderDetail(orderID, flags);
+  const eligibility = order.refund_eligibility || order.order_detail?.refund_eligibility || null;
+  if (eligibility && eligibility.likely_refundable === false && !booleanFlag(flags.confirm_policy_risk || false)) {
+    return {
+      status: "policy_risk_confirmation_required",
+      order_id: orderID,
+      refund_eligibility: eligibility,
+      agent_next_actions: [
+        "explain_refund_policy",
+        "ask_human_to_confirm_policy_risk",
+        `retry_with_${cliCommand("buyer", "refund", "create", orderID, "--confirm-policy-risk", "true", "--json")}`
+      ],
+      submitted: false
+    };
+  }
+  return await coreApi(`/v1/me/orders/${encodeURIComponent(orderID)}/refunds`, {
+    method: "POST",
+    headers: { "X-ItPay-Client-Surface": "cli" },
+    idempotencyKey: flags.idempotency_key || `idem_cli_refund_create_${orderID}`,
+    body: {
+      refund_scope: flags.refund_scope || "order",
+      order_line_item_ids: csvValues(flags.order_line_item_ids || flags.line_ids || flags.line_id),
+      amount_minor: intFlag(flags.amount_minor, "amount_minor"),
+      currency: flags.currency || "CNY",
+      reason_code: flags.reason || flags.reason_code || "buyer_requested",
+      reason_note: flags.note || flags.reason_note || ""
+    }
+  }, flags);
+}
+
+async function getBuyerOrderDetail(orderID, flags = {}) {
+  return await coreApi(`/v1/me/orders/${encodeURIComponent(orderID)}`, { method: "GET" }, flags);
+}
+
+async function listBuyerRefunds(orderID, flags = {}) {
+  return await coreApi(`/v1/me/orders/${encodeURIComponent(orderID)}/refunds`, { method: "GET" }, flags);
+}
+
+async function getBuyerRefund(refundID, flags = {}) {
+  return await coreApi(`/v1/me/refunds/${encodeURIComponent(refundID)}`, { method: "GET" }, flags);
+}
+
+async function cancelBuyerRefund(refundID, flags = {}) {
+  return await coreApi(`/v1/me/refunds/${encodeURIComponent(refundID)}/cancel`, {
+    method: "POST",
+    headers: { "X-ItPay-Client-Surface": "cli" },
+    idempotencyKey: flags.idempotency_key || `idem_cli_refund_cancel_${refundID}`,
+    body: {
+      reason_code: flags.reason || flags.reason_code || "buyer_changed_mind",
+      reason_note: flags.note || flags.reason_note || ""
+    }
+  }, flags);
 }
 
 async function getBuyerPaymentIntent(paymentIntentID, flags = {}) {
@@ -3566,6 +3755,7 @@ async function coreApi(pathname, options = {}, flags = {}) {
   if (options.ops) {
     headers["X-ItPay-Ops-Token"] = sandboxOpsToken(flags);
   }
+  Object.assign(headers, options.headers || {});
   if (flags.request_id) headers["X-Request-ID"] = String(flags.request_id);
   if (flags.correlation_id) headers["X-Correlation-ID"] = String(flags.correlation_id);
   const targetURL = coreURL(pathname, flags);
