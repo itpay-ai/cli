@@ -59,7 +59,7 @@ HOME="$TMP_HOME" "$TMP_PREFIX/bin/itp" skill show --role buyer | grep -q "ItPay 
 HOME="$TMP_HOME" "$ROOT/bin/itp" --help >/dev/null
 HELP=$(HOME="$TMP_HOME" "$ROOT/bin/itp" --help)
 printf '%s' "$HELP" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.commands.some((command)=>command.startsWith("setup ") || command.startsWith("grants ") || command.startsWith("token ") || command.startsWith("keys "))) process.exit(1); if (!json.commands.includes("status --json") || !json.commands.includes("resume --json") || !json.commands.includes("skill show") || !json.commands.includes("buyer catalog search --query 企业工商 --category business_data_api --provider itpay_enterprise_data --json") || !json.commands.includes("buyer vault grants list --checkout <checkout_id> --json")) process.exit(1);})'
-printf '%s' "$HELP" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); for (const command of ["buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --json","buyer cart create --variant var_pubg_couple_skin_cny20 --json","buyer checkout create --cart <cart_id> --method alipay --email buyer@example.com --phone +8613800000000 --json","buyer payment wait <payment_intent_id> --json","buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json","buyer deliveries list --checkout <checkout_id> --json","buyer vault grants list --checkout <checkout_id> --json","buyer vault grants read <agent_read_grant_id> --json","buyer vault read --order <order_id> --artifact <vault_artifact_id> --json","docs show quickstart --role buyer --json","ops sandbox worker run-once --json"]) { if (!json.commands.includes(command)) process.exit(1); }})'
+printf '%s' "$HELP" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); for (const command of ["buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --json","buyer cart create --variant var_pubg_couple_skin_cny20 --json","buyer checkout create --cart <cart_id> --method alipay --email buyer@example.com --phone +8613800000000 --json","buyer payment wait <payment_intent_id> --json","buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json","buyer deliveries list --checkout <checkout_id> --json","buyer refund create --order <order_id> --amount-minor 1000 --currency CNY --reason buyer_requested --json","buyer refund cancel <refund_id> --reason buyer_changed_mind --json","buyer vault grants list --checkout <checkout_id> --json","buyer vault grants read <agent_read_grant_id> --json","buyer vault read --order <order_id> --artifact <vault_artifact_id> --json","docs show quickstart --role buyer --json"]) { if (!json.commands.includes(command)) process.exit(1); } if (json.commands.some((command)=>command.startsWith("ops sandbox "))) process.exit(1);})'
 DOCS_LIST=$(HOME="$TMP_HOME" "$ROOT/bin/itp" docs list --role buyer --json)
 printf '%s' "$DOCS_LIST" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.schema_version !== "itp.agent_doc_index.v1" || !json.topics.some((topic)=>topic.topic==="cart-checkout")) process.exit(1);})'
 DOCS_SHOW=$(HOME="$TMP_HOME" "$ROOT/bin/itp" docs show quickstart --role buyer --json)
@@ -166,7 +166,7 @@ const cart = {
     amount: 2000,
     currency: "CNY"
   }],
-  checkout_handoff: {cart_id: "cart_mock_pubg", checkout_path: "/api/ucp/v1/checkouts"},
+  checkout_handoff: {cart_id: "cart_mock_pubg", checkout_path: "/v1/checkouts"},
   agent_next_actions: ["create_checkout_from_cart"],
   sensitive_redacted: true
 };
@@ -283,7 +283,7 @@ const intent = {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
   const body = await readBody(req);
-  fs.appendFileSync(logFile, JSON.stringify({method: req.method, path: url.pathname, body}) + "\n");
+  fs.appendFileSync(logFile, JSON.stringify({method: req.method, path: url.pathname, query: url.search, headers: req.headers, body}) + "\n");
   if (req.method === "GET" && url.pathname === "/api/itp/plans") return writeJSON(res, 200, plans);
   if (req.method === "POST" && url.pathname === "/v1/catalog/search") return writeJSON(res, 200, catalogSearch);
   if (req.method === "POST" && url.pathname === "/v1/catalog/selections/resolve") return writeJSON(res, 200, product);
@@ -321,6 +321,118 @@ const server = http.createServer(async (req, res) => {
       account_status: "active",
       sensitive_redacted: true
     });
+  }
+  if (req.method === "GET" && url.pathname === "/v1/me/orders/ord_mock_038c") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    return writeJSON(res, 200, {
+      order_id: "ord_mock_038c",
+      refund_eligibility: {
+        likely_refundable: true,
+        can_submit: true,
+        reason_code: "before_claim_window",
+        policy: {policy_id: "claim_before_reveal_refund", summary: "未领取安全交付内容前通常可申请退款"},
+        agent_guidance: ["explain_refund_policy"],
+        sensitive_redacted: true
+      },
+      sensitive_redacted: true
+    });
+  }
+  if (req.method === "GET" && url.pathname === "/v1/me/orders/ord_claimed") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    return writeJSON(res, 200, {
+      order_id: "ord_claimed",
+      refund_eligibility: {
+        likely_refundable: false,
+        can_submit: true,
+        reason_code: "delivery_already_claimed",
+        policy: {policy_id: "claim_before_reveal_refund", summary: "内容已领取后通常需要人工审核，且可能被拒绝。"},
+        agent_guidance: ["ask_human_to_confirm_policy_risk"],
+        sensitive_redacted: true
+      },
+      sensitive_redacted: true
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/v1/me/orders/ord_mock_038c/refunds") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    if (!req.headers["idempotency-key"]) return writeJSON(res, 400, {error: "missing idempotency key"});
+    return writeJSON(res, 201, {
+      refund_id: "rf_mock_r9",
+      order_id: "ord_mock_038c",
+      refund_scope: body.refund_scope,
+      amount_minor: body.amount_minor,
+      currency: body.currency,
+      status: "requested",
+      display_status: "manual_review",
+      sensitive_content_redacted: true
+    });
+  }
+  if (req.method === "GET" && url.pathname === "/v1/me/orders/ord_mock_038c/refunds") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    return writeJSON(res, 200, {
+      refunds: [{
+        refund_id: "rf_mock_r9",
+        order_id: "ord_mock_038c",
+        amount_minor: 1000,
+        currency: "CNY",
+        status: "requested",
+        sensitive_content_redacted: true
+      }],
+      sensitive_redacted: true
+    });
+  }
+  if (req.method === "GET" && url.pathname === "/v1/me/refunds/rf_mock_r9") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    return writeJSON(res, 200, {
+      refund_id: "rf_mock_r9",
+      order_id: "ord_mock_038c",
+      amount_minor: 1000,
+      currency: "CNY",
+      status: "requested",
+      sensitive_content_redacted: true
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/v1/me/refunds/rf_mock_r9/cancel") {
+    if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
+    if (!req.headers["idempotency-key"]) return writeJSON(res, 400, {error: "missing idempotency key"});
+    return writeJSON(res, 200, {
+      refund_id: "rf_mock_r9",
+      order_id: "ord_mock_038c",
+      amount_minor: 1000,
+      currency: "CNY",
+      status: "canceled",
+      sensitive_content_redacted: true
+    });
+  }
+  if (url.pathname.startsWith("/v1/sandbox/ops/")) {
+    if (req.headers["x-itpay-ops-token"] !== "ops_mock_r9") return writeJSON(res, 401, {error: "ops token required"});
+  }
+  if (req.method === "GET" && url.pathname === "/v1/sandbox/ops/refunds/rf_mock_r9") {
+    return writeJSON(res, 200, {refund_id: "rf_mock_r9", status: "requested", sensitive_redacted: true});
+  }
+  if (req.method === "POST" && url.pathname === "/v1/sandbox/ops/refunds/rf_mock_r9/approve") {
+    if (!req.headers["idempotency-key"]) return writeJSON(res, 400, {error: "missing idempotency key"});
+    return writeJSON(res, 200, {refund_id: "rf_mock_r9", status: "approved", sensitive_redacted: true});
+  }
+  if (req.method === "POST" && url.pathname === "/v1/sandbox/ops/refunds/rf_mock_r9/reject") {
+    if (!req.headers["idempotency-key"]) return writeJSON(res, 400, {error: "missing idempotency key"});
+    return writeJSON(res, 200, {refund_id: "rf_mock_r9", status: "rejected", sensitive_redacted: true});
+  }
+  if (req.method === "POST" && url.pathname === "/v1/sandbox/ops/refunds/rf_mock_r9/execute") {
+    if (!req.headers["idempotency-key"]) return writeJSON(res, 400, {error: "missing idempotency key"});
+    return writeJSON(res, 200, {refund_id: "rf_mock_r9", status: "completed", sensitive_redacted: true});
+  }
+  if (req.method === "GET" && url.pathname === "/v1/sandbox/ops/ledger/entries") {
+    return writeJSON(res, 200, {entries: [{ledger_entry_id: "le_mock_r9", refund_id: url.searchParams.get("refund_id") || "", sensitive_redacted: true}], sensitive_redacted: true});
+  }
+  if (req.method === "POST" && url.pathname === "/v1/sandbox/ops/reconciliation-runs") {
+    if (!req.headers["idempotency-key"]) return writeJSON(res, 400, {error: "missing idempotency key"});
+    return writeJSON(res, 201, {reconciliation_run_id: body.reconciliation_run_id || "rr_mock_r9", status: body.status || "matched", sensitive_redacted: true});
+  }
+  if (req.method === "GET" && url.pathname === "/v1/sandbox/ops/reconciliation-runs/rr_mock_r9") {
+    return writeJSON(res, 200, {reconciliation_run_id: "rr_mock_r9", status: "matched", sensitive_redacted: true});
+  }
+  if (req.method === "GET" && url.pathname === "/v1/sandbox/ops/settlement-batches/set_mock_r9") {
+    return writeJSON(res, 200, {settlement_batch_id: "set_mock_r9", status: "open", sensitive_redacted: true});
   }
   if (req.method === "GET" && url.pathname === "/v1/me/agent-grants") {
     if (req.headers.authorization !== "Bearer sess_mock_0376") return writeJSON(res, 401, {error: "missing buyer session"});
@@ -404,6 +516,44 @@ PORTAL_LINK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOC
 printf '%s' "$PORTAL_LINK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "account_portal_login_link_created" || json.portal_login_link.one_time !== true) process.exit(1); if (!json.login_url.includes("/v1/account-portal/login/")) process.exit(1); if (json.next.safe_for_agent !== false || json.next.requires_human !== true || json.next.agent_must_not_open !== true) process.exit(1);})'
 BUYER_AUTH_WITH_SESSION=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer auth status --json)
 printf '%s' "$BUYER_AUTH_WITH_SESSION" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "authenticated_buyer_session" || json.authenticated !== true || json.buyer_account_id !== "ba_mock_0376" || json.agent_device_id !== "ad_mock_0376") process.exit(1);})'
+REFUND_CREATE_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_mock_038c --amount-minor 1000 --currency CNY --reason buyer_requested --json)
+printf '%s' "$REFUND_CREATE_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "requested" || json.refund.refund_id !== "rf_mock_r9" || json.refund.amount_minor !== 1000 || json.secrets.provider_raw_payload_included !== false) process.exit(1);})'
+REFUND_POLICY_RISK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_claimed --amount-minor 1000 --currency CNY --reason buyer_requested --json)
+printf '%s' "$REFUND_POLICY_RISK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "policy_risk_confirmation_required" || json.submitted !== false || json.refund_eligibility.reason_code !== "delivery_already_claimed") process.exit(1);})'
+if HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_mock_038c --amount 1000 --currency CNY --reason buyer_requested --json >/dev/null 2>&1; then
+  echo "buyer refund create accepted legacy --amount" >&2
+  exit 1
+fi
+if HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_mock_038c --refund-scope line_items --amount-minor 100 --currency CNY --reason buyer_requested --json >/dev/null 2>&1; then
+  echo "buyer refund create accepted line_items scope" >&2
+  exit 1
+fi
+REFUND_LIST_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund list --order ord_mock_038c --json)
+printf '%s' "$REFUND_LIST_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "refunds" || json.refunds[0].refund_id !== "rf_mock_r9") process.exit(1);})'
+REFUND_SHOW_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund show rf_mock_r9 --json)
+printf '%s' "$REFUND_SHOW_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "requested" || json.refund.refund_id !== "rf_mock_r9") process.exit(1);})'
+REFUND_CANCEL_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund cancel rf_mock_r9 --reason buyer_changed_mind --json)
+printf '%s' "$REFUND_CANCEL_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "canceled" || json.refund.refund_id !== "rf_mock_r9") process.exit(1);})'
+OPS_REFUND_SHOW=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox refund show rf_mock_r9 --json)
+printf '%s' "$OPS_REFUND_SHOW" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.refund_id !== "rf_mock_r9") process.exit(1);})'
+OPS_REFUND_APPROVE=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox refund approve rf_mock_r9 --reason approved_by_ops --json)
+printf '%s' "$OPS_REFUND_APPROVE" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "approved") process.exit(1);})'
+OPS_REFUND_REJECT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox refund reject rf_mock_r9 --reason not_eligible --json)
+printf '%s' "$OPS_REFUND_REJECT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "rejected") process.exit(1);})'
+OPS_REFUND_EXECUTE=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox refund execute rf_mock_r9 --json)
+printf '%s' "$OPS_REFUND_EXECUTE" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "completed") process.exit(1);})'
+if HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox ledger entries --json >/dev/null 2>&1; then
+  echo "ops ledger entries accepted missing filter" >&2
+  exit 1
+fi
+OPS_LEDGER=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox ledger entries --refund rf_mock_r9 --json)
+printf '%s' "$OPS_LEDGER" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.entries[0].refund_id !== "rf_mock_r9") process.exit(1);})'
+OPS_RECON_RUN=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox reconciliation run --reconciliation-run-id rr_mock_r9 --expected-amount-minor 1000 --observed-amount-minor 1000 --currency CNY --json)
+printf '%s' "$OPS_RECON_RUN" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.reconciliation_run_id !== "rr_mock_r9") process.exit(1);})'
+OPS_RECON_SHOW=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox reconciliation show rr_mock_r9 --json)
+printf '%s' "$OPS_RECON_SHOW" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.reconciliation_run_id !== "rr_mock_r9") process.exit(1);})'
+OPS_SETTLEMENT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox settlement show set_mock_r9 --json)
+printf '%s' "$OPS_SETTLEMENT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.settlement_batch_id !== "set_mock_r9") process.exit(1);})'
 GRANTS_LIST_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer vault grants list --checkout chk_mock_pubg --json)
 printf '%s' "$GRANTS_LIST_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "agent_read_grants" || !Array.isArray(json.agent_readable_grants) || json.agent_readable_grants[0].agent_read_grant_id !== "arg_mock_038c") process.exit(1); if (json.buyer_session.status !== "buyer_session_saved" || json.buyer_session.session_stored !== true || json.buyer_session.token_included !== false) process.exit(1); if (!json.docs.some((doc)=>doc.topic==="vault-agent-read")) process.exit(1); if (data.includes("北京赢在未来") || data.includes("storage_ref")) process.exit(1);})'
 GRANT_READ_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer vault grants read arg_mock_038c --json)
@@ -441,6 +591,7 @@ JS
 node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const has=(m,p)=>rows.some(r=>r.method===m&&r.path===p); if(!has("POST","/v1/catalog/selections/resolve")||!has("POST","/v1/carts")||!has("POST","/v1/checkouts")||!has("POST","/v1/checkouts/chk_mock_pubg/payment-intents")) process.exit(1); if(has("POST","/api/ucp/v1/checkouts")) process.exit(1);' "$MOCK_LOG"
 node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const multi=rows.find(r=>r.method==="POST"&&r.path==="/v1/carts"&&Array.isArray(r.body.line_items)&&r.body.line_items.length===2); if(!multi) process.exit(1); if(multi.body.line_items[0].item.id!=="var_pubg_couple_skin_cny20"||multi.body.line_items[0].quantity!==1||multi.body.line_items[1].item.id!=="var_pubg_deluxe_skin_cny40"||multi.body.line_items[1].quantity!==2) process.exit(1);' "$MOCK_LOG"
 node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const search=rows.find(r=>r.method==="POST"&&r.path==="/v1/catalog/search"); if(!search) process.exit(1); const f=search.body.filters||{}; if(!Array.isArray(f.categories)||f.categories[0]!=="business_data_api") process.exit(1); if(f["ai.itpay.provider"]!=="itpay_enterprise_data"||f["ai.itpay.service_type"]!=="ai_api"||f["ai.itpay.delivery_mode"]!=="managed_capability"||f["ai.itpay.sensitivity_level"]!=="business_sensitive") process.exit(1); if(!Array.isArray(f["ai.itpay.taxonomy.use_cases"])||f["ai.itpay.taxonomy.use_cases"][0]!=="company_lookup") process.exit(1); if(!Array.isArray(f["ai.itpay.taxonomy.input_facets"])||f["ai.itpay.taxonomy.input_facets"][0]!=="company_name") process.exit(1); if(f["ai.itpay.requires_webauthn_reveal"]!==true) process.exit(1);' "$MOCK_LOG"
+node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).map(JSON.parse); const create=rows.find(r=>r.method==="POST"&&r.path==="/v1/me/orders/ord_mock_038c/refunds"); if(!create||create.headers.authorization!=="Bearer sess_mock_0376"||!create.headers["idempotency-key"]||create.headers["x-itpay-client-surface"]!=="cli"||create.body.reason_code!=="buyer_requested") process.exit(1); const cancel=rows.find(r=>r.method==="POST"&&r.path==="/v1/me/refunds/rf_mock_r9/cancel"); if(!cancel||cancel.headers.authorization!=="Bearer sess_mock_0376"||!cancel.headers["idempotency-key"]||cancel.headers["x-itpay-client-surface"]!=="cli"||cancel.body.reason_code!=="buyer_changed_mind") process.exit(1); const approve=rows.find(r=>r.method==="POST"&&r.path==="/v1/sandbox/ops/refunds/rf_mock_r9/approve"); if(!approve||approve.headers["x-itpay-ops-token"]!=="ops_mock_r9"||!approve.headers["idempotency-key"]||approve.body.reason_code!=="approved_by_ops") process.exit(1); const ledger=rows.find(r=>r.method==="GET"&&r.path==="/v1/sandbox/ops/ledger/entries"); if(!ledger||ledger.query!=="?refund_id=rf_mock_r9"||ledger.headers["x-itpay-ops-token"]!=="ops_mock_r9") process.exit(1); const recon=rows.find(r=>r.method==="POST"&&r.path==="/v1/sandbox/ops/reconciliation-runs"); if(!recon||recon.headers["x-itpay-ops-token"]!=="ops_mock_r9"||!recon.headers["idempotency-key"]) process.exit(1);' "$MOCK_LOG"
 PLANS_ALIAS=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" plans --json)
 printf '%s' "$PLANS_ALIAS" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (!Array.isArray(json.plans)) process.exit(1);})'
 kill "$MOCK_SERVER_PID" >/dev/null 2>&1 || true

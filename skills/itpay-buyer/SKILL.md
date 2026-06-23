@@ -73,6 +73,10 @@ itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_
 itp buyer checkout resume <checkout_id> --json
 itp buyer payment wait <payment_intent_id> --json
 itp buyer checkout status <checkout_id> --json
+itp buyer refund create --order <order_id> --amount-minor <minor_units> --currency CNY --reason buyer_requested --json
+itp buyer refund list --order <order_id> --json
+itp buyer refund show <refund_id> --json
+itp buyer refund cancel <refund_id> --reason buyer_changed_mind --json
 itp buyer vault grants list --checkout <checkout_id> --json
 itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --json
 ```
@@ -99,6 +103,15 @@ entity. Use precise lookup only after you have the exact China mainland
 registered company name or unified social credit code. If the user says
 "京东" or "那个京东商城", do not buy precise lookup until you resolve the exact
 registered name or run fuzzy search first.
+
+Refund commands use ItPay shared order state. If `itp buyer refund create`
+returns `policy_risk_confirmation_required`, explain the returned
+`refund_eligibility.policy` and `agent_guidance` to the human first. Only retry
+with `--confirm-policy-risk true` after explicit human confirmation.
+Current buyer refunds are whole-order only; do not use line-item refund scope.
+If the human cancels a refund before provider or money movement starts, use
+`buyer refund cancel <refund_id> --json`; after cancel, the delivery claim can
+be unlocked again by the ItPay backend.
 
 ## Non-Negotiable Rules
 

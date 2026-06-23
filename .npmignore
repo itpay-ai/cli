@@ -1,0 +1,5 @@
+OPS_ADMIN.md
+.github/
+e2e-local.sh
+smoke.sh
+node_modules/
