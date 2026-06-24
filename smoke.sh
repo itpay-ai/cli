@@ -227,6 +227,32 @@ const checkout = {
   agent_next_actions: ["create_payment_intent"]
 };
 
+const authCheckout = {
+  checkout_id: "chk_mock_auth",
+  cart_id: "cart_mock_auth",
+  status: "waiting_human_auth",
+  identity_status: "waiting_human_auth",
+  next_required_action: "auth_qr",
+  amount: 2000,
+  currency: "CNY",
+  delivery: {status: "not_ready", sensitive_content_redacted: true},
+  agent_next_actions: ["wait_human_auth", "poll_checkout"],
+  human_action: {
+    kind: "auth_qr",
+    id: "auth_mock_url_only",
+    auth_session_id: "auth_mock_url_only",
+    url: "https://frontend.itpay.ai/checkouts/chk_mock_auth?api_base=http%3A%2F%2F127.0.0.1%2Fv1&display_token=display_mock_url_only",
+    web_url: "https://frontend.itpay.ai/checkouts/chk_mock_auth?api_base=http%3A%2F%2F127.0.0.1%2Fv1&display_token=display_mock_url_only",
+    presentation: {
+      display: [{
+        role: "human_provider_auth_entry",
+        type: "web_url",
+        url: "https://frontend.itpay.ai/checkouts/chk_mock_auth?api_base=http%3A%2F%2F127.0.0.1%2Fv1&display_token=display_mock_url_only"
+      }]
+    }
+  }
+};
+
 const deliveredCheckout = {
   ...checkout,
   status: "paid",
@@ -289,7 +315,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/v1/catalog/selections/resolve") return writeJSON(res, 200, product);
   if (req.method === "POST" && url.pathname === "/v1/carts") return writeJSON(res, 201, cart);
   if (req.method === "GET" && url.pathname === "/v1/carts/cart_mock_pubg") return writeJSON(res, 200, cart);
-  if (req.method === "POST" && url.pathname === "/v1/checkouts") return writeJSON(res, 202, checkout);
+  if (req.method === "GET" && url.pathname === "/v1/carts/cart_mock_auth") return writeJSON(res, 200, {...cart, cart_id: "cart_mock_auth", id: "cart_mock_auth"});
+  if (req.method === "POST" && url.pathname === "/v1/checkouts") return writeJSON(res, 202, body.cart_id === "cart_mock_auth" ? authCheckout : checkout);
   if (req.method === "GET" && url.pathname === "/v1/checkouts/chk_mock_pubg") return writeJSON(res, 200, deliveredCheckout);
   if (req.method === "POST" && url.pathname === "/v1/checkouts/chk_mock_pubg/payment-intents") return writeJSON(res, 202, intent);
   if (req.method === "POST" && url.pathname === "/v1/session-exchanges/auth-sessions/auth_mock_0376/agent-session") {
@@ -502,6 +529,8 @@ SEARCH_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$
 printf '%s' "$SEARCH_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "catalog_search_results" || !json.products.some((product)=>product.id==="cat_itpay_enterprise_precise_lookup")) process.exit(1);})'
 BUY_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json)
 printf '%s' "$BUY_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "waiting_user_payment" || json.cart.cart_id !== "cart_mock_pubg" || json.checkout.checkout_id !== "chk_mock_pubg" || json.payment_intent.payment_intent_id !== "pi_mock_pubg") process.exit(1); if (json.payment_intent.human_action.preferred_qr_url !== "http://127.0.0.1/mock-qr.png") process.exit(1); if (json.payment_intent.human_action.agent_display_hint.primary !== "qr_png_url") process.exit(1); if (json.payment_intent.human_action.mobile_wallet_url !== "http://127.0.0.1/mock-mobile-wallet") process.exit(1); if (!json.docs.some((doc)=>doc.topic==="payment-wait")) process.exit(1); if (JSON.stringify(json).includes("issue_payment_proof")) process.exit(1);})'
+AUTH_QR_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer checkout create --cart cart_mock_auth --json)
+printf '%s' "$AUTH_QR_OUTPUT" | node -e 'const fs=require("fs");let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); const action=json.checkout && json.checkout.human_action; if (json.status !== "checkout_created" || !action || action.kind !== "auth_qr") process.exit(1); if (!action.local_qr_path || !fs.existsSync(action.local_qr_path)) process.exit(1); if (action.local_qr_mime !== "image/png") process.exit(1); if (action.agent_display_hint.primary !== "local_qr_path") process.exit(1); if (action.qr_png_url || action.qr_image_url || action.preferred_qr_url) process.exit(1);})'
 MULTI_CART_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer cart create --variants var_pubg_couple_skin_cny20,var_pubg_deluxe_skin_cny40 --quantities 1,2 --json)
 printf '%s' "$MULTI_CART_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "cart_created" || json.cart.cart_id !== "cart_mock_pubg") process.exit(1);})'
 node - <<'JS' "$TMP_HOME/.itp/config.json" "$TMP_HOME/.itp/credentials.json"

@@ -3422,6 +3422,15 @@ async function renderHumanAction(action, flags = {}) {
         return { rendered: false, mode: "json-local-qr", outputs: [localPath] };
       }
     }
+    if (!qrImageURL && shouldGenerateLocalQRFromActionURL(action, mode, flags)) {
+      const localPath = await prepareLocalQRFromActionURL(action, flags, mode !== "file" && !flags.qr_file && !process.env.ITP_QR_FILE);
+      if (localPath) {
+        attachAgentLocalQR(action, localPath);
+        annotateHumanActionPresentation(action, "");
+        persistHumanAction(action, flags);
+        return { rendered: false, mode: "json-local-url-qr", outputs: [localPath] };
+      }
+    }
     return { rendered: false, mode: flags.json ? "json" : mode };
   }
   const host = String(process.env.ITP_HOST || flags.host || "").toLowerCase();
@@ -3435,9 +3444,18 @@ async function renderHumanAction(action, flags = {}) {
       persistHumanAction(action, flags);
       return { rendered: false, mode: localPath ? "agent-local-image-qr" : "agent-image-qr", host, outputs: [localPath || "preferred_qr_url"] };
     }
-    process.stderr.write(`No QR image available. Open payment URL: ${action.url}\n`);
+    if (shouldGenerateLocalQRFromActionURL(action, mode, flags)) {
+      const localPath = await prepareLocalQRFromActionURL(action, flags, true);
+      if (localPath) {
+        attachAgentLocalQR(action, localPath);
+        annotateHumanActionPresentation(action, "");
+        persistHumanAction(action, flags);
+        return { rendered: false, mode: "agent-local-url-qr", host, outputs: [localPath] };
+      }
+    }
+    process.stderr.write(`No QR image available. Open action URL: ${action.url}\n`);
     persistHumanAction(action, flags);
-    return { rendered: false, mode: "agent-url-fallback", host, outputs: ["payment_url"] };
+    return { rendered: false, mode: "agent-url-fallback", host, outputs: ["action_url"] };
   }
 
   const renderResult = { rendered: false, mode, outputs: [] };
@@ -3461,7 +3479,19 @@ async function renderHumanAction(action, flags = {}) {
       renderResult.outputs.push(file);
       if (mode === "file") return renderResult;
     } else {
-      process.stderr.write(`No QR image available. Open payment URL: ${action.url}\n`);
+      const localPath = shouldGenerateLocalQRFromActionURL(action, mode, flags)
+        ? await prepareLocalQRFromActionURL(action, flags, false)
+        : "";
+      if (localPath) {
+        attachAgentLocalQR(action, localPath);
+        annotateHumanActionPresentation(action, "");
+        process.stderr.write(`Alipay action QR image: ${localPath}\n`);
+        renderResult.rendered = true;
+        renderResult.outputs.push(localPath);
+        if (mode === "file") return renderResult;
+      } else {
+        process.stderr.write(`No QR image available. Open action URL: ${action.url}\n`);
+      }
     }
   }
 
@@ -3535,6 +3565,12 @@ function shouldPrepareLocalQRForJSON(mode, flags = {}, action = {}) {
   return false;
 }
 
+function shouldGenerateLocalQRFromActionURL(action = {}, mode = "", flags = {}) {
+  if (!action?.url) return false;
+  if (action.kind === "auth_qr") return true;
+  return mode === "file" || Boolean(flags.qr_file || process.env.ITP_QR_FILE);
+}
+
 async function prepareLocalQRFile(action, qrImageURL, flags = {}, optional = false) {
   if (!qrImageURL) return "";
   const file = flags.qr_file || process.env.ITP_QR_FILE || defaultQRFilePath(action, qrImageURL);
@@ -3550,9 +3586,35 @@ async function prepareLocalQRFile(action, qrImageURL, flags = {}, optional = fal
   return file;
 }
 
+async function prepareLocalQRFromActionURL(action, flags = {}, optional = false) {
+  if (!action?.url) return "";
+  const file = flags.qr_file || process.env.ITP_QR_FILE || defaultGeneratedQRFilePath(action);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    await QRCode.toFile(file, action.url, {
+      type: "png",
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 512
+    });
+  } catch (error) {
+    if (!optional) throw error;
+    action.local_qr_error = safeErrorMessage(error);
+    return "";
+  }
+  action.local_qr_path = file;
+  action.local_qr_mime = "image/png";
+  return file;
+}
+
 function defaultQRFilePath(action, qrImageURL) {
   const id = sanitizeFilename(action?.payment_intent_id || action?.id || "qr");
   return path.join(os.tmpdir(), `itp-${id}.${qrFileExtension(qrImageURL, action)}`);
+}
+
+function defaultGeneratedQRFilePath(action) {
+  const id = sanitizeFilename(action?.payment_intent_id || action?.id || "qr");
+  return path.join(os.tmpdir(), `itp-${id}.png`);
 }
 
 function qrFileExtension(qrImageURL, action = {}) {
@@ -3615,6 +3677,22 @@ function attachAgentQRImage(action, qrImageURL, localPath = "") {
       url: qrImageURL,
       local_path: localPath || undefined,
       instructions: "Render local_path when present; otherwise render this ItPay-hosted QR image for the human to scan. ItPay may render a native provider payment code inside the image, but the agent must not request, decode, or expose provider payloads. Do not encode payment_entry_url or mobile_wallet_url into your own QR."
+    });
+  }
+  return action;
+}
+
+function attachAgentLocalQR(action, localPath = "") {
+  if (!action || !localPath) return action;
+  if (!Array.isArray(action.display)) {
+    action.display = [];
+  }
+  if (!action.display.some((item) => item?.type === "image" && item?.local_path === localPath)) {
+    action.display.push({
+      type: "image",
+      format: "png",
+      local_path: localPath,
+      instructions: "Render this local QR image for the human to scan. It encodes the ItPay human action URL, not a provider raw QR payload."
     });
   }
   return action;
