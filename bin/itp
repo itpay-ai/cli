@@ -3519,38 +3519,10 @@ async function renderHumanAction(action, flags = {}) {
   }
 
   const renderResult = { rendered: false, mode, outputs: [] };
+  const terminalQRAllowed = shouldRenderTerminalQR(host, mode);
   writeHumanActionSummary(action);
-  if ((mode === "auto" || mode === "browser") && shouldOpenBrowser(flags)) {
-    if (openBrowser(action.mobile_wallet_url || qrImageURL || action.url)) {
-      renderResult.rendered = true;
-      renderResult.outputs.push("browser");
-    }
-    if (mode === "browser") return renderResult;
-  }
 
-  if (mode === "file" || flags.qr_file || process.env.ITP_QR_FILE) {
-    const file = flags.qr_file || process.env.ITP_QR_FILE || defaultQRFilePath(action, qrImageURL);
-    if (qrImageURL) {
-      await downloadQRImage(qrImageURL, file, flags);
-      action.local_qr_path = file;
-      action.local_qr_mime = qrMimeType(qrImageURL, action);
-      process.stderr.write(`Alipay QR image: ${file}\n`);
-      renderResult.rendered = true;
-      renderResult.outputs.push(file);
-      if (mode === "file") return renderResult;
-    } else {
-      process.stderr.write(`No QR image available. Open payment URL: ${action.url}\n`);
-    }
-  }
-
-  if (qrImageURL) {
-    process.stderr.write(`Alipay QR image URL: ${qrImageURL}\n`);
-    if (action.mobile_wallet_url) process.stderr.write(`Mobile wallet link: ${action.mobile_wallet_url}\n`);
-    renderResult.outputs.push("preferred_qr_url");
-    return renderResult;
-  }
-
-  if ((mode === "auto" || mode === "terminal") && shouldRenderTerminalQR(host)) {
+  if ((mode === "auto" || mode === "terminal") && terminalQRAllowed) {
     const qr = await QRCode.toString(action.url, {
       type: terminalQRType(flags, host),
       small: true,
@@ -3563,6 +3535,36 @@ async function renderHumanAction(action, flags = {}) {
     if (action.expires_at) process.stderr.write(`Expires at: ${formatActionTime(action.expires_at)}\n`);
     renderResult.rendered = true;
     renderResult.outputs.push("terminal");
+    return renderResult;
+  }
+
+  if ((mode === "auto" || mode === "browser") && shouldOpenBrowser(flags)) {
+    if (openBrowser(qrImageURL || action.mobile_wallet_url || action.url)) {
+      renderResult.rendered = true;
+      renderResult.outputs.push("browser");
+    }
+    if (mode === "browser") return renderResult;
+  }
+
+  if (mode === "file" || flags.qr_file || process.env.ITP_QR_FILE) {
+    const file = flags.qr_file || process.env.ITP_QR_FILE || defaultQRFilePath(action, qrImageURL);
+    if (qrImageURL) {
+      await downloadQRImage(qrImageURL, file, flags);
+      action.local_qr_path = file;
+      action.local_qr_mime = qrMimeType(qrImageURL, action);
+      process.stderr.write(`Alipay branded QR image: ${file}\n`);
+      renderResult.rendered = true;
+      renderResult.outputs.push(file);
+      if (mode === "file") return renderResult;
+    } else {
+      process.stderr.write(`No branded QR image available. Open payment URL: ${action.url}\n`);
+    }
+  }
+
+  if (qrImageURL) {
+    process.stderr.write(`Alipay branded QR image URL: ${qrImageURL}\n`);
+    if (action.mobile_wallet_url) process.stderr.write(`Mobile wallet link: ${action.mobile_wallet_url}\n`);
+    renderResult.outputs.push("preferred_qr_url");
     return renderResult;
   }
 
@@ -3728,16 +3730,22 @@ function persistHumanAction(action, flags = {}) {
   writeRun(mergeRun(run, { human_action: action }));
 }
 
-function shouldRenderTerminalQR(host) {
+function shouldRenderTerminalQR(host, mode = "auto") {
+  if (["terminal", "tty"].includes(mode)) return true;
+  if (mode && !["auto", ""].includes(mode)) return false;
   if (process.stderr.isTTY) return true;
-  return ["gemini", "gemini-cli"].includes(host);
+  return terminalQRHostAliases().has(String(host || "").toLowerCase());
+}
+
+function terminalQRHostAliases() {
+  return new Set(["terminal", "tty", "bash", "zsh", "sh", "shell", "iterm", "iterm2"]);
 }
 
 function terminalQRType(flags = {}, host = "") {
   const requested = String(flags.qr_format || process.env.ITP_QR_FORMAT || "").toLowerCase();
   if (requested === "unicode" || requested === "utf8") return "utf8";
   if (requested === "ansi" || requested === "terminal") return "terminal";
-  if (["gemini", "gemini-cli"].includes(host)) return "utf8";
+  if (terminalQRHostAliases().has(String(host || "").toLowerCase())) return "utf8";
   return "terminal";
 }
 
