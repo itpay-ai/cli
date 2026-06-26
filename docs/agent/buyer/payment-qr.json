@@ -30,6 +30,7 @@
     "If human_action.kind is auth_qr, present the ItPay first-purchase entry URL/QR and explain it starts account login/registration/profile authorization and should continue to payment for the same checkout after approval.",
     "For auth_qr, the ItPay auth entry is the primary handoff. oauth_start_url is fallback/debug and should not replace the ItPay orchestration page.",
     "For auth_qr, do not call payment-intent creation directly or create a new checkout; poll checkout or run buyer checkout resume until payment_intent_id appears.",
+    "Payment QR display requires both a valid/saved buyer session and payment_intent_id. If payment_intent_id appears before buyer_session is saved, run buyer checkout resume/status instead of showing payment QR.",
     "Do not stop after showing auth_qr unless the human explicitly asks you to pause. Keep waiting/resuming the same checkout so the post-auth payment handoff can continue.",
     "Do not describe auth_qr as payment success or payment proof. Only payment_intent.verified proves payment.",
     "MUST show local_qr_path first when present. Many agent clients do not reliably render remote QR images; local_qr_path is the most reliable desktop/chat display artifact.",

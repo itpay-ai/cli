@@ -17,7 +17,7 @@
     {
       "intent": "verify whether this agent/device already has a server-valid buyer session",
       "command": "itp status --refresh --json",
-      "success_signal": "response.status is idle when authenticated, or response.next.command tells the agent how to start human auth"
+      "success_signal": "response.status is idle when authenticated, or response.next.command tells the agent how to start human auth; if response.recoverable_context.found is true, compare it with the current user intent before continuing or ignoring it"
     },
     {
       "intent": "list the available agent docs topics",
@@ -27,7 +27,7 @@
     {
       "intent": "search the public catalog for the current user request",
       "command": "itp buyer catalog search --query \"<user request>\" --json",
-      "success_signal": "response.products contains public products and variants"
+      "success_signal": "response.products contains public services and purchase options; response.catalog_guidance tells the agent how to compare and when to ask the human"
     },
     {
       "intent": "search standardized API services with category/facet filters when intent is clear",
@@ -43,7 +43,9 @@
   "agent_rules": [
     "Use --json for every ItPay command.",
     "Use `itp status --refresh --json` before account, order, refund, or repeat-purchase decisions. Plain local memory is not identity.",
-    "Search and explain options before buying unless the user already named a variant.",
+    "If `status --refresh` returns `recoverable_context.found=true`, do not blindly resume or blindly ignore it. Decide whether the old task is related to the current user intent; continue related tasks, ignore clearly unrelated tasks, and ask the human when unsure.",
+    "If the catalog is unclear, read catalog-search docs and use buyer shelf manifest/snapshot as the shopping-list view before guessing keywords.",
+    "Search and explain purchase options before buying unless the user already named a purchase option ID.",
     "Add the selected UCP Variant.id to cart; do not bypass cart for CORE-028 flows.",
     "When explaining prices, remember ItPay JSON money fields use minor units. For CNY, amount=10 means CNY 0.10. Prefer display_amount when present.",
     "Before checkout, make sure a buyer delivery email is available. If no email is known from the current buyer context, ask the human for it before creating checkout.",

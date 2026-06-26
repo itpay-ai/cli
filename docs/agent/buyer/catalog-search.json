@@ -3,10 +3,10 @@
   "role": "buyer",
   "topic": "catalog-search",
   "title": "Catalog Search For Buyer Agents",
-  "purpose": "Help the agent find public ItPay services without login and without expensive repeated full searches.",
+  "purpose": "Help the agent read the service shelf, search the public ItPay service catalog, and choose a purchase option without guessing.",
   "when_to_use": [
     "The user describes a need but has not chosen a service.",
-    "The agent needs product and variant details before recommendation.",
+    "The agent needs service and purchase option details before recommendation.",
     "The agent needs to search standardized API products such as ItPay enterprise data APIs."
   ],
   "required_state": {
@@ -15,9 +15,14 @@
   },
   "commands": [
     {
+      "intent": "inspect the service shelf before guessing keywords or facets",
+      "command": "itp buyer shelf manifest --json",
+      "success_signal": "response.snapshot_version and response.snapshot_url are present; use snapshot/delta when the agent needs a shopping-list view of available services"
+    },
+    {
       "intent": "search public catalog by natural language query",
       "command": "itp buyer catalog search --query \"企业工商信息 查询\" --json",
-      "success_signal": "response.products contains variants with id, title, price, metadata"
+      "success_signal": "response.products contains services with purchase options, id, title, price, metadata, and response.catalog_guidance explains how to choose safely"
     },
     {
       "intent": "search API services by stable category and safe facets",
@@ -30,43 +35,45 @@
       "success_signal": "response.products includes the fuzzy enterprise search product before precise lookup"
     },
     {
-      "intent": "get exact product details for a selected variant",
+      "intent": "get exact service details for a selected purchase option",
       "command": "itp buyer catalog get --variant <variant_id> --json",
-      "success_signal": "response.selection.catalog_variant_id matches the selected variant"
-    },
-    {
-      "intent": "discover low-cost shelf sync endpoints for repeated reads",
-      "command": "itp buyer shelf manifest --json",
-      "success_signal": "response.snapshot_version and response.snapshot_url are present"
+      "success_signal": "response.selection.catalog_variant_id matches the selected purchase option and response.catalog_guidance says to explain before cart creation"
     }
   ],
   "agent_rules": [
+    "Terminology: product means 服务, variant means 购买选项, variant_id means 购买选项 ID, catalog means 服务目录, shelf means 目录清单.",
+    "Before searching, remember the local agent does not know the current service catalog. Use this doc and the shelf manifest/snapshot as the shopping-list view when keywords or facets are unclear.",
+    "Catalog search is structured ItPay catalog search, not general web search. Convert the user's request into query plus category/provider/use-case/input-facet filters.",
     "Full search is allowed for explicit user search, not as a polling loop.",
     "For repeated discovery, prefer shelf manifest/snapshot/delta.",
     "For API services, map user intent to category/facet filters before relying on keyword ranking.",
     "Use stable categories: business_data_api, business_verification_api, identity_verification_api, phone_verification_api, risk_compliance_api, location_weather_api, finance_data_api.",
     "Use safe facets such as --use-case, --input-facet, --output-facet, --sensitivity-level, --delivery-mode, and --provider.",
-    "Use product and variant metadata to explain options in user language.",
+    "Use service and purchase option metadata to explain options in user language.",
+    "If search returns zero products, do not invent a service or conclude too early. Loosen filters, change query terms, or go back to the shelf.",
+    "If search returns many products, narrow with category/provider/use-case/input-facet before recommending.",
+    "If search returns a small set, compare service description, price, required input, sensitivity level, and delivery mode.",
     "Money values from catalog JSON use minor units. For CNY, amount=10 means CNY 0.10, not CNY 10. Prefer display_amount when present, or divide amount/amount_minor by 100 before telling the user.",
     "For products with requires_human_input=true, do not ask for identity numbers or phone numbers in chat; rely on ItPay human authorization/input.",
-    "Do not create checkout until the user intent maps to one selected variant or the user confirms a cart."
+    "Selecting a service is not buying. Explain the selected service and purchase option to the human, then ask for confirmation before cart creation.",
+    "Do not create checkout until the user intent maps to one selected purchase option and the user confirms the purchase."
   ],
   "forbidden": [
     "Do not require login for discovery.",
-    "Do not invent catalog items or variant IDs.",
+    "Do not invent catalog items, services, purchase options, or variant IDs.",
     "Do not assume search result order means the user has approved purchase."
   ],
   "next_docs": [
     {
-      "condition": "Need to recommend among variants",
+      "condition": "Need to recommend among services or purchase options",
       "topic": "product-recommendation",
       "command": "itp docs show product-recommendation --role buyer --json"
     },
     {
-      "condition": "The user has chosen a variant",
+      "condition": "The user has chosen and confirmed a purchase option",
       "topic": "cart-checkout",
       "command": "itp docs show cart-checkout --role buyer --json"
     }
   ],
-  "search_terms": ["catalog", "search", "shelf", "product", "variant", "api", "enterprise_data", "category", "facet", "business_data_api", "企业查询", "工商信息", "企业工商数据精准查询", "企业工商数据模糊查询", "搜索", "商品"]
+  "search_terms": ["catalog", "search", "shelf", "product", "variant", "purchase option", "api", "enterprise_data", "category", "facet", "business_data_api", "企业查询", "工商信息", "企业工商数据精准查询", "企业工商数据模糊查询", "搜索", "商品", "服务目录", "目录清单", "购买选项"]
 }
