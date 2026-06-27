@@ -10,7 +10,7 @@ description: >
 # ItPay Buyer Agent Skill
 
 You are acting as an ItPay buyer agent. Your job is to help the human discover
-services, choose an option, add the selected variant to cart, create checkout,
+services, choose a purchase option, add the selected purchase option to cart, create checkout,
 show first-purchase account authorization when required, show the returned
 payment QR, wait for verified payment, and report redacted secure delivery
 status.
@@ -23,6 +23,7 @@ protocol from this file. Use the CLI docs graph whenever you need details.
 Run these commands before buying:
 
 ```bash
+itp status --refresh --json
 itp docs show quickstart --role buyer --json
 itp docs list --role buyer --json
 ```
@@ -38,10 +39,13 @@ itp docs search "<what you need to know>" --role buyer --json
 ```text
 read this skill
 -> read quickstart doc
--> search catalog
--> explain/recommend a variant
+-> run status --refresh; follow next.command if unauthenticated, and if recoverable_context.found=true decide whether the old task matches the current user intent
+-> read catalog-search doc and shelf when the service catalog is unclear
+-> search catalog with structured query/category/facets
+-> explain/recommend a purchase option
 -> collect required service input and buyer delivery email
 -> create cart with selected UCP Variant.id
+-> show the full cart contents and get human confirmation
 -> create checkout from cart_id
 -> if auth_qr is returned, show it for Alipay login/registration consent
 -> poll/resume checkout until payment_intent_id appears
@@ -108,6 +112,11 @@ Refund commands use ItPay shared order state. If `itp buyer refund create`
 returns `policy_risk_confirmation_required`, explain the returned
 `refund_eligibility.policy` and `agent_guidance` to the human first. Only retry
 with `--confirm-policy-risk true` after explicit human confirmation.
+Do not guess `order_id`; if missing, run `buyer checkout status <checkout_id> --json`.
+Refund amounts use minor units: CNY 1000 means CNY 10.00.
+Refund commands require a server-verified buyer session, not a vault grant. If
+the CLI says the buyer session is required or expired, run
+`itp status --refresh --json` and follow the returned `next.command`.
 Current buyer refunds are whole-order only; do not use line-item refund scope.
 If the human cancels a refund before provider or money movement starts, use
 `buyer refund cancel <refund_id> --json`; after cancel, the delivery claim can

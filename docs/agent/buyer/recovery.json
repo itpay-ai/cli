@@ -34,7 +34,10 @@
   "agent_rules": [
     "Prefer resume over creating a new checkout.",
     "A timeout does not prove failure.",
+    "Network failure, broken connection, no response, or interrupted agent run does not prove payment failure.",
     "Use the same checkout_id/cart_id/payment_intent_id whenever possible.",
+    "For payment recovery, first retry payment wait or checkout status/resume with the same IDs. Escalate to QR refresh only for display/scanner problems.",
+    "If payment status is unknown, say it is unknown and keep checking the same payment/checkout; do not guess paid/unpaid.",
     "Report safe error messages only."
   ],
   "forbidden": [

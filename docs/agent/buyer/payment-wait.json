@@ -27,9 +27,13 @@
     }
   ],
   "agent_rules": [
+    "Payment wait is a recovery loop around the same payment_intent_id, not a one-shot command.",
     "wait.timeout is a heartbeat, not a payment failure.",
-    "Continue waiting with the same payment_intent_id unless the command reaches its overall timeout or the user cancels.",
+    "Continue waiting with the same payment_intent_id unless the user explicitly cancels.",
+    "If the network drops, the process is interrupted, or there is no response, rerun payment wait with the same payment_intent_id or run checkout status/resume with the same checkout_id.",
+    "If status is unclear, tell the human it is unclear and continue querying the same payment_intent_id/checkout_id. Do not create a new checkout.",
     "Payment success is payment_intent.verified only.",
+    "Human text such as 'I paid' is not proof; continue waiting until payment_intent.verified.",
     "After verified, poll checkout or delivery status."
   ],
   "forbidden": [

@@ -5,7 +5,7 @@
   "title": "Cart-First Checkout",
   "purpose": "Teach the agent to use the UCP cart handoff, including CORE-033 multi-item carts, instead of bypassing cart.",
   "when_to_use": [
-    "The user selected one or more public catalog variants.",
+    "The user selected one or more public catalog purchase options.",
     "The agent needs an estimate before checkout.",
     "The agent needs to create a checkout from cart_id.",
     "A first-time wild agent may receive auth_qr as a first-purchase auth-to-payment entry before payment is verified."
@@ -14,7 +14,7 @@
     "needs": [
       "catalog_variant_id or catalog_variant_ids",
       "buyer email for secure delivery",
-      "product-specific required input fields before cart creation"
+      "service-declared required input fields before cart creation"
     ],
     "optional": [
       "buyer phone"
@@ -27,14 +27,14 @@
   },
   "commands": [
     {
-      "intent": "create a cart estimate for the selected UCP Variant.id",
+      "intent": "create a cart estimate for the selected purchase option",
       "command": "itp buyer cart create --variant <variant_id> --json",
-      "success_signal": "response.cart.cart_id is present and agent_next_actions includes create_checkout_from_cart"
+      "success_signal": "response.cart.cart_id is present and response.cart_guidance tells the agent to show the cart to the human before checkout"
     },
     {
-      "intent": "create a multi-item cart estimate for selected UCP Variant.id values",
+      "intent": "create a multi-item cart estimate for selected purchase options",
       "command": "itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,2 --json",
-      "success_signal": "response.cart.line_items contains every selected variant and response.cart.amount is the estimated total"
+      "success_signal": "response.cart.line_items contains every selected purchase option and response.cart_guidance.double_check_required is true"
     },
     {
       "intent": "create an enterprise fuzzy search cart with required query input",
@@ -49,7 +49,7 @@
     {
       "intent": "view the current cart state without relying on model memory",
       "command": "itp buyer cart show <cart_id> --json",
-      "success_signal": "response.cart.line_items and response.cart.totals reflect the server-side cart"
+      "success_signal": "response.cart.line_items and response.cart.totals reflect the server-side cart; show these fields to the human before checkout"
     },
     {
       "intent": "add one more selected UCP Variant.id to an existing cart before checkout",
@@ -74,15 +74,19 @@
   ],
   "agent_rules": [
     "CORE-033 supports multiple cart lines and bounded positive quantities when all items belong to the same supported settlement/provider group.",
-    "Before cart creation, inspect product metadata input_schema_json and collect every required input field. Do not wait until after payment to ask for required query inputs.",
-    "Enterprise fuzzy search requires input.company_name. This can be a keyword, brand, short name, or partial company name supplied by the user, such as 京东.",
-    "Enterprise precise lookup requires input.company_name_or_credit_no. This must be a complete China mainland registered company name or unified social credit code. If the user only provides a brand/short name, resolve the exact name first or use fuzzy search before precise lookup.",
+    "Before cart creation, inspect product/selection metadata and input_schema_json. The service provider declares whether input is fuzzy, exact, or human/sensitive; the agent must not guess.",
+    "If service metadata says fuzzy input is allowed, collect the declared field, for example input.company_name can be a keyword, brand, short name, or partial company name such as 京东.",
+    "If service metadata says exact input is required, collect the declared exact field, for example input.company_name_or_credit_no must be a complete China mainland registered company name or unified social credit code.",
+    "If service metadata says input is sensitive, personal, or human-authorized, do not collect it in chat. Continue through the ItPay human authorization/input flow.",
     "Use --input key=value for service-specific inputs. For multiple query lines, prefer separate cart add commands so each line locks its own input.",
     "Cart line identity includes variant, offer, price, provider product, and normalized input. Only a completely identical line should merge by increasing quantity.",
     "If the same variant has a different company_name, company_name_or_credit_no, page number, setting, or any other input value, it must remain a separate cart line.",
     "Before checkout create, confirm buyer email is available for secure delivery. If it is missing, ask the human for the email before checkout; do not guess or use a placeholder.",
     "Use cart_id as the checkout handoff.",
     "Use buyer cart show before changing an existing cart and whenever you need current cart contents. Do not rely on chat memory for cart state.",
+    "After cart create/add/remove/show, present the cart contents to the human: service, purchase option, each input, quantity, price, and delivery mode.",
+    "If the cart has more than one line item, double-check every line with the human unless the user's prompt was already explicit and the server cart exactly matches it.",
+    "Cart confirmation is mandatory before checkout create. Selected service is not the same as confirmed cart.",
     "Use buyer cart add/remove before checkout when the user changes their mind. After checkout is created, treat the cart as locked.",
     "Do not override cart line_items during checkout.",
     "Cart, checkout, and catalog JSON money fields use minor units. For CNY, amount=10 or expected_amount=10 means CNY 0.10. Tell humans the display_amount or converted major-unit amount, never interpret amount as yuan.",
@@ -90,16 +94,21 @@
     "If the same cart is retried, expect the same checkout unless contact/client reference changes.",
     "The backend revalidates catalog, price, and delivery requirements.",
     "For first purchase, auth_qr means the ItPay first-purchase entry: provider login/registration/profile consent first, then ItPay should continue the same checkout to payment.",
+    "If this agent/device already has a valid buyer session token, checkout should skip auth_qr and can continue toward payment_intent_id.",
     "After presenting auth_qr, run buyer checkout resume and keep it active/waiting. Do not stop at QR display unless the human explicitly asks you to pause.",
     "Do not tell the user auth_qr is a completed payment or payment proof.",
     "For first purchase, show the ItPay auth entry as one human orchestration entry; after provider OAuth callback the same checkout exposes payment.",
     "After showing auth_qr, poll checkout or run buyer checkout resume until identity_status becomes identity_resolved and payment_intent_id appears.",
     "When auth completes, CLI should claim and store the buyer session so a repeat purchase by the same agent/device can skip auth.",
-    "If checkout status/resume returns buyer_session.status=buyer_session_saved, the agent is now bound to that buyer account on this device. Continue with payment, delivery polling, or buyer vault commands; do not ask the human for a buyer session token."
+    "If checkout status/resume returns buyer_session.status=buyer_session_saved, the agent is now bound to that buyer account on this device. Continue with payment, delivery polling, or buyer vault commands; do not ask the human for a buyer session token.",
+    "Do not enter payment unless both conditions are true: a valid/saved buyer session exists and payment_intent_id exists.",
+    "If payment_intent_id exists but buyer_session is missing, do not show payment QR. Resume/status the same checkout until the buyer session is saved or verified."
   ],
   "forbidden": [
     "Use the UCP cart and buyer checkout commands for external-agent tests.",
     "Do not pass a different variant in checkout after cart is created.",
+    "Do not create checkout before showing the cart contents and getting confirmation.",
+    "Do not show a payment QR when buyer_session is missing, even if payment_intent_id is present.",
     "Do not create a second cart/checkout after a retryable timeout unless the user asks to abandon the previous one.",
     "Do not buy enterprise precise lookup with only a vague brand/short name unless you have resolved the exact registered company name.",
     "Do not claim enterprise API raw results are visible to the agent; they are delivered to the human Vault/claim UI."

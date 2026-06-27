@@ -155,7 +155,7 @@ from the current state.
 Before starting a new purchase, agents should inspect recoverable local state:
 
 ```bash
-itp status --json
+itp status --refresh --json
 ```
 
 Humans can use the default account overview:
@@ -253,6 +253,15 @@ itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --json
 
 Agents must not ask humans to paste claim links, claim tokens, raw API results,
 provider keys, or grant ids into chat.
+
+Order/account/refund commands require a server-verified buyer session, not a
+vault grant. If they fail with a buyer session error, run:
+
+```bash
+itp status --refresh --json
+```
+
+Then follow the returned `next.command`.
 
 ## Agent Skill And Docs
 

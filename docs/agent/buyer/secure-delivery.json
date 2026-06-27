@@ -35,7 +35,9 @@
     "Agent-visible status may say delivery_claimable/check_email/claim_link_sent.",
     "Raw protected content is human-first unless the human later shares it outside ItPay.",
     "If the user wants analysis, comparison, installation help, or structured use of the delivered result, you may ask the human to use the ItPay page's 'Give to Agent / 一键给 Agent' Passkey flow.",
+    "When guiding the human, be concrete: open the delivery email or ItPay order page, click Give to Agent / 一键给 Agent, choose fields, and confirm with Passkey/WebAuthn.",
     "If the human uses the portal's one-key agent authorization, discover the resulting grant with buyer vault commands; do not ask the human to paste content or grant IDs.",
+    "If no grant appears, explain that authorization may not be completed, may not have synced, may target a different checkout/order, or may have expired/revoked.",
     "Do not ask the human to paste the key into chat."
   ],
   "forbidden": [

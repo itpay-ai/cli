@@ -15,6 +15,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$TMP_HOME/.itp"
+cat >"$TMP_HOME/.itp/config.json" <<'JSON'
+{
+  "api_base": "https://sandbox.itpay.ai"
+}
+JSON
 cat >"$TMP_HOME/.itp/credentials.json" <<'JSON'
 {
   "grant_gr_test": {
@@ -68,6 +73,8 @@ DOCS_SEARCH=$(HOME="$TMP_HOME" "$ROOT/bin/itp" docs search "付款 等待" --rol
 printf '%s' "$DOCS_SEARCH" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (!json.matches.some((match)=>match.topic==="payment-wait")) process.exit(1);})'
 BUYER_AUTH_STATUS=$(HOME="$TMP_HOME" "$ROOT/bin/itp" buyer auth status --json)
 printf '%s' "$BUYER_AUTH_STATUS" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.schema_version !== "itp.buyer.v1" || json.auth_required_for_discovery !== false) process.exit(1); if (data.toLowerCase().includes("ops-token") || data.toLowerCase().includes("sandbox_ops_token")) process.exit(1);})'
+DOCTOR_OUTPUT=$(HOME="$TMP_HOME" "$ROOT/bin/itp" doctor --json)
+printf '%s' "$DOCTOR_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.api_base !== "https://dev.api.itpay.ai") process.exit(1);})'
 SNAPSHOT_VERSION_TRAP=$(HOME="$TMP_HOME" "$ROOT/bin/itp" buyer shelf snapshot --version dummy --json 2>/dev/null || true)
 if printf '%s' "$SNAPSHOT_VERSION_TRAP" | grep -q '"version"'; then
   echo "buyer shelf snapshot --version was intercepted by top-level version handler" >&2
@@ -227,6 +234,32 @@ const checkout = {
   agent_next_actions: ["create_payment_intent"]
 };
 
+const authCheckout = {
+  checkout_id: "chk_mock_auth",
+  cart_id: "cart_mock_auth",
+  status: "waiting_human_auth",
+  identity_status: "waiting_human_auth",
+  next_required_action: "auth_qr",
+  amount: 2000,
+  currency: "CNY",
+  delivery: {status: "not_ready", sensitive_content_redacted: true},
+  agent_next_actions: ["wait_human_auth", "poll_checkout"],
+  human_action: {
+    kind: "auth_qr",
+    id: "auth_mock_url_only",
+    auth_session_id: "auth_mock_url_only",
+    url: "https://frontend.itpay.ai/checkouts/chk_mock_auth?api_base=http%3A%2F%2F127.0.0.1%2Fv1&display_token=display_mock_url_only",
+    web_url: "https://frontend.itpay.ai/checkouts/chk_mock_auth?api_base=http%3A%2F%2F127.0.0.1%2Fv1&display_token=display_mock_url_only",
+    presentation: {
+      display: [{
+        role: "human_provider_auth_entry",
+        type: "web_url",
+        url: "https://frontend.itpay.ai/checkouts/chk_mock_auth?api_base=http%3A%2F%2F127.0.0.1%2Fv1&display_token=display_mock_url_only"
+      }]
+    }
+  }
+};
+
 const deliveredCheckout = {
   ...checkout,
   status: "paid",
@@ -289,9 +322,12 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/v1/catalog/selections/resolve") return writeJSON(res, 200, product);
   if (req.method === "POST" && url.pathname === "/v1/carts") return writeJSON(res, 201, cart);
   if (req.method === "GET" && url.pathname === "/v1/carts/cart_mock_pubg") return writeJSON(res, 200, cart);
-  if (req.method === "POST" && url.pathname === "/v1/checkouts") return writeJSON(res, 202, checkout);
+  if (req.method === "GET" && url.pathname === "/v1/carts/cart_mock_auth") return writeJSON(res, 200, {...cart, cart_id: "cart_mock_auth", id: "cart_mock_auth"});
+  if (req.method === "POST" && url.pathname === "/v1/checkouts") return writeJSON(res, 202, body.cart_id === "cart_mock_auth" ? authCheckout : checkout);
   if (req.method === "GET" && url.pathname === "/v1/checkouts/chk_mock_pubg") return writeJSON(res, 200, deliveredCheckout);
   if (req.method === "POST" && url.pathname === "/v1/checkouts/chk_mock_pubg/payment-intents") return writeJSON(res, 202, intent);
+  if (req.method === "GET" && url.pathname === "/v1/payment-intents/pi_mock_pubg") return writeJSON(res, 200, intent);
+  if (req.method === "GET" && url.pathname === "/v1/payment-intents/pi_mock_pubg/events/wait") return writeJSON(res, 200, {event_type: "wait.timeout", payment_intent_id: "pi_mock_pubg", cursor: "1", agent_next_actions: ["wait_payment"]});
   if (req.method === "POST" && url.pathname === "/v1/session-exchanges/auth-sessions/auth_mock_0376/agent-session") {
     if (url.searchParams.get("display_token") !== "display_mock_0376") return writeJSON(res, 403, {error: "invalid display token"});
     return writeJSON(res, 200, {
@@ -526,8 +562,10 @@ fi
 MOCK_PORT=$(cat "$MOCK_PORT_FILE")
 SEARCH_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer catalog search --query "企业工商信息 查询" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --delivery-mode managed_capability --sensitivity-level business_sensitive --use-case company_lookup --input-facet company_name --requires-webauthn-reveal true --json)
 printf '%s' "$SEARCH_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "catalog_search_results" || !json.products.some((product)=>product.id==="cat_itpay_enterprise_precise_lookup")) process.exit(1);})'
-BUY_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json)
-printf '%s' "$BUY_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "waiting_user_payment" || json.cart.cart_id !== "cart_mock_pubg" || json.checkout.checkout_id !== "chk_mock_pubg" || json.payment_intent.payment_intent_id !== "pi_mock_pubg") process.exit(1); if (json.payment_intent.human_action.preferred_qr_url !== "http://127.0.0.1/mock-qr.png") process.exit(1); if (json.payment_intent.human_action.agent_display_hint.primary !== "qr_png_url") process.exit(1); if (json.payment_intent.human_action.mobile_wallet_url !== "http://127.0.0.1/mock-mobile-wallet") process.exit(1); if (!json.docs.some((doc)=>doc.topic==="payment-wait")) process.exit(1); if (JSON.stringify(json).includes("issue_payment_proof")) process.exit(1);})'
+BUY_BLOCKED_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json)
+printf '%s' "$BUY_BLOCKED_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "buyer_session_required_before_payment" || json.checkout.checkout_id !== "chk_mock_pubg" || !json.next.command.includes("buyer checkout resume chk_mock_pubg")) process.exit(1); if (json.payment_intent || JSON.stringify(json).includes("mock-qr.png")) process.exit(1);})'
+AUTH_QR_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer checkout create --cart cart_mock_auth --json)
+printf '%s' "$AUTH_QR_OUTPUT" | node -e 'const fs=require("fs");let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); const action=json.checkout && json.checkout.human_action; if (json.status !== "checkout_created" || !action || action.kind !== "auth_qr") process.exit(1); if (!action.local_qr_path || !fs.existsSync(action.local_qr_path)) process.exit(1); if (action.local_qr_mime !== "image/png") process.exit(1); if (action.agent_display_hint.primary !== "local_qr_path") process.exit(1); if (action.qr_png_url || action.qr_image_url || action.preferred_qr_url) process.exit(1);})'
 MULTI_CART_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer cart create --variants var_pubg_couple_skin_cny20,var_pubg_deluxe_skin_cny40 --quantities 1,2 --json)
 printf '%s' "$MULTI_CART_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "cart_created" || json.cart.cart_id !== "cart_mock_pubg") process.exit(1);})'
 node - <<'JS' "$TMP_HOME/.itp/config.json" "$TMP_HOME/.itp/credentials.json"
@@ -538,6 +576,10 @@ const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf8"));
 credentials.session_token = "sess_mock_0376";
 fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), {mode: 0o600});
 JS
+BUY_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json)
+printf '%s' "$BUY_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "waiting_user_payment" || json.cart.cart_id !== "cart_mock_pubg" || json.checkout.checkout_id !== "chk_mock_pubg" || json.payment_intent.payment_intent_id !== "pi_mock_pubg") process.exit(1); if (json.payment_intent.human_action.preferred_qr_url !== "http://127.0.0.1/mock-qr.png") process.exit(1); if (json.payment_intent.human_action.agent_display_hint.primary !== "qr_png_url") process.exit(1); if (json.payment_intent.human_action.mobile_wallet_url !== "http://127.0.0.1/mock-mobile-wallet") process.exit(1); if (!json.docs.some((doc)=>doc.topic==="payment-wait")) process.exit(1); if (JSON.stringify(json).includes("issue_payment_proof")) process.exit(1);})'
+PAYMENT_WAIT_OUTPUT=$(HOME="$TMP_HOME" ITPAY_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer payment wait pi_mock_pubg --timeout 1 --json)
+printf '%s' "$PAYMENT_WAIT_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (!json.payment_guidance || json.payment_guidance.payment_intent_id !== "pi_mock_pubg" || !json.payment_guidance.do_not.includes("不要因为 timeout、断网或没回应创建新 checkout。")) process.exit(1);})'
 PORTAL_LINK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" account login-link --json)
 printf '%s' "$PORTAL_LINK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "account_portal_login_link_created" || json.portal_login_link.one_time !== true) process.exit(1); if (!json.login_url.includes("/v1/account-portal/login/")) process.exit(1); if (json.next.safe_for_agent !== false || json.next.requires_human !== true || json.next.agent_must_not_open !== true) process.exit(1);})'
 BUYER_AUTH_WITH_SESSION=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer auth status --json)
@@ -550,9 +592,9 @@ printf '%s' "$STATUS_TEXT" | grep -q "Device:   Codex on MacBook-Pro (active)"
 STATUS_JSON=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" status --json)
 printf '%s' "$STATUS_JSON" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "idle" || json.buyer_account_id !== "ba_mock_0376" || json.order_count !== 12 || !json.linked_providers.includes("wechat")) process.exit(1);})'
 REFUND_CREATE_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_mock_038c --amount-minor 1000 --currency CNY --reason buyer_requested --json)
-printf '%s' "$REFUND_CREATE_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "requested" || json.refund.refund_id !== "rf_mock_r9" || json.refund.amount_minor !== 1000 || json.secrets.provider_raw_payload_included !== false) process.exit(1);})'
+printf '%s' "$REFUND_CREATE_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "requested" || json.refund.refund_id !== "rf_mock_r9" || json.refund.amount_minor !== 1000 || json.secrets.provider_raw_payload_included !== false) process.exit(1); if (!json.refund_guidance || !json.refund_guidance.amount_rule.includes("--amount-minor")) process.exit(1);})'
 REFUND_POLICY_RISK_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_claimed --amount-minor 1000 --currency CNY --reason buyer_requested --json)
-printf '%s' "$REFUND_POLICY_RISK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "policy_risk_confirmation_required" || json.submitted !== false || json.refund_eligibility.reason_code !== "delivery_already_claimed") process.exit(1);})'
+printf '%s' "$REFUND_POLICY_RISK_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "policy_risk_confirmation_required" || json.submitted !== false || json.refund_eligibility.reason_code !== "delivery_already_claimed") process.exit(1); if (!json.refund_guidance || !json.refund_guidance.next_step.includes("--confirm-policy-risk true")) process.exit(1);})'
 if HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer refund create --order ord_mock_038c --amount 1000 --currency CNY --reason buyer_requested --json >/dev/null 2>&1; then
   echo "buyer refund create accepted legacy --amount" >&2
   exit 1
@@ -588,9 +630,9 @@ printf '%s' "$OPS_RECON_SHOW" | node -e 'let data="";process.stdin.on("data",c=>
 OPS_SETTLEMENT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" ITPAY_SANDBOX_OPS_TOKEN=ops_mock_r9 "$ROOT/bin/itp" ops sandbox settlement show set_mock_r9 --json)
 printf '%s' "$OPS_SETTLEMENT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.settlement_batch_id !== "set_mock_r9") process.exit(1);})'
 GRANTS_LIST_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer vault grants list --checkout chk_mock_pubg --json)
-printf '%s' "$GRANTS_LIST_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "agent_read_grants" || !Array.isArray(json.agent_readable_grants) || json.agent_readable_grants[0].agent_read_grant_id !== "arg_mock_038c") process.exit(1); if (json.buyer_session.status !== "buyer_session_saved" || json.buyer_session.session_stored !== true || json.buyer_session.token_included !== false) process.exit(1); if (!json.docs.some((doc)=>doc.topic==="vault-agent-read")) process.exit(1); if (data.includes("北京赢在未来") || data.includes("storage_ref")) process.exit(1);})'
+printf '%s' "$GRANTS_LIST_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "agent_read_grants" || !Array.isArray(json.agent_readable_grants) || json.agent_readable_grants[0].agent_read_grant_id !== "arg_mock_038c") process.exit(1); if (json.buyer_session.status !== "buyer_session_saved" || json.buyer_session.session_stored !== true || json.buyer_session.token_included !== false) process.exit(1); if (!json.vault_guidance || json.vault_guidance.status !== "agent_read_grant_available") process.exit(1); if (!json.docs.some((doc)=>doc.topic==="vault-agent-read")) process.exit(1); if (data.includes("北京赢在未来") || data.includes("storage_ref")) process.exit(1);})'
 GRANT_READ_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer vault grants read arg_mock_038c --json)
-printf '%s' "$GRANT_READ_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "agent_read_grant_view" || json.grant.selected_fields["result.data.name"] !== "北京赢在未来科技有限公司") process.exit(1); if (data.includes("storage_ref")) process.exit(1);})'
+printf '%s' "$GRANT_READ_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "agent_read_grant_view" || json.grant.selected_fields["result.data.name"] !== "北京赢在未来科技有限公司") process.exit(1); if (!json.vault_guidance || json.vault_guidance.readable_scope.indexOf("已授权字段") === -1) process.exit(1); if (data.includes("storage_ref")) process.exit(1);})'
 VAULT_READ_OUTPUT=$(HOME="$TMP_HOME" ITPAY_CORE_API_BASE="http://127.0.0.1:$MOCK_PORT" "$ROOT/bin/itp" buyer vault read --order ord_mock_038c --artifact vault_mock_038c --json)
 printf '%s' "$VAULT_READ_OUTPUT" | node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{const json=JSON.parse(data); if (json.status !== "agent_read_grant_view" || json.grant.discovered_grant.agent_read_grant_id !== "arg_mock_038c" || json.grant.selected_fields["result.data.name"] !== "北京赢在未来科技有限公司") process.exit(1);})'
 node - <<'JS' "$TMP_HOME/.itp/credentials.json"
