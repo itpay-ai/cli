@@ -18,7 +18,7 @@
     {
       "intent": "create payment intent through the high-level buy flow",
       "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
-      "success_signal": "response.human_visible_markdown and response.next.command are present"
+      "success_signal": "response.status is payment_handoff_required; response.human_visible_markdown is present; response.after_human_visible_markdown.command is the wait command to run after showing the QR/link"
     },
     {
       "intent": "recover a scanner order-not-found display problem",
@@ -33,8 +33,9 @@
     "Payment QR display requires both a valid/saved buyer session and payment_intent_id. If payment_intent_id appears before buyer_session is saved, run buyer checkout resume/status instead of showing payment QR.",
     "Do not stop after showing auth_qr unless the human explicitly asks you to pause. Keep waiting/resuming the same checkout so the post-auth payment handoff can continue.",
     "Do not describe auth_qr as payment success or payment proof. Only payment_intent.verified proves payment.",
-    "In Codex or Claude Code app clients, the default UX is show-then-wait: send response.human_visible_markdown to the human first, then run response.next.command.",
+    "In Codex or Claude Code app clients, the default UX is show-then-wait: send response.human_visible_markdown to the human first, then run response.after_human_visible_markdown.command.",
     "For Telegram-style message clients, show response.human_visible_markdown and stop unless the human asks you to keep waiting or returns with a payment question.",
+    "When response.status is payment_handoff_required, response.next is the human reply step, not payment wait.",
     "MUST show local_qr_path first when present. Many agent clients do not reliably render remote QR images; local_qr_path is the most reliable desktop/chat display artifact.",
     "If local_qr_path is not present, show qr_png_url or preferred_qr_url as the primary scannable QR. This is an ItPay-hosted human QR image; it may render the native provider payment code for scanner reliability, but the agent must not request or decode the raw provider payload.",
     "Use qr_image_url/SVG only as a fallback when PNG/local rendering is unavailable.",
@@ -42,8 +43,8 @@
     "payment_entry_url is the stable ItPay status/payment page. qr_png_url/local_qr_path is usually the better desktop scanner artifact.",
     "The provider can briefly show order not found even after precreate succeeded. Tell the human to wait 30-60 seconds and retry the same QR/page. Do not create a new checkout, do not create a new payment intent, and do not repeatedly refresh unless the ItPay page or CLI explicitly asks for recovery.",
     "Opening the payment page must not be treated as paid.",
-    "Do not run payment wait before the QR/link has been sent to the human.",
-    "After showing QR, run next.command or buyer payment wait for the same payment_intent_id."
+    "Do not run payment wait before the QR/link has been sent to the human. If you accidentally do, CLI returns payment_handoff_required instead of blocking.",
+    "After showing QR, run after_human_visible_markdown.command or buyer payment wait <payment_intent_id> --qr-shown for the same payment_intent_id."
   ],
   "forbidden": [
     "Do not encode payment_entry_url into a new QR yourself when qr_png_url/local_qr_path is available.",

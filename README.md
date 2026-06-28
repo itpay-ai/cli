@@ -239,7 +239,8 @@ Payment QR rules:
 - Otherwise render the ItPay-hosted `qr_png_url` / `preferred_qr_url`.
 - Use `mobile_wallet_url` only as a human mobile fallback.
 - Do not generate your own QR from payment URLs.
-- In agent app clients, send `human_visible_markdown` to the human first, then run `next.command`.
+- In agent app clients, send `human_visible_markdown` to the human first, then run `after_human_visible_markdown.command`.
+- If status is `payment_handoff_required`, `next` is the human reply step, not payment wait.
 - Treat only `payment_intent.verified` as payment success.
 
 If the human wants the agent to analyze delivered content, the human must reveal

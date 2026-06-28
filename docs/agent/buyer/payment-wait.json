@@ -17,7 +17,7 @@
   "commands": [
     {
       "intent": "wait for payment verified event",
-      "command": "itp buyer payment wait <payment_intent_id> --json",
+      "command": "itp buyer payment wait <payment_intent_id> --qr-shown --json",
       "success_signal": "response.payment_event.event_type == payment_intent.verified"
     },
     {
@@ -27,7 +27,8 @@
     }
   ],
   "agent_rules": [
-    "Start payment wait only after the QR image/link has already been sent to the human.",
+    "Start payment wait only after the QR image/link has already been sent to the human; use --qr-shown to confirm that step is complete.",
+    "If you run payment wait without --qr-shown while payment is still pending, CLI returns payment_handoff_required and human_visible_markdown instead of long-polling.",
     "Payment wait is a recovery loop around the same payment_intent_id, not a one-shot command.",
     "wait.timeout is a heartbeat, not a payment failure.",
     "In Codex or Claude Code app clients, after showing QR, wait online for a short visible cycle first. If the human still has not paid, explain that the same QR/link remains valid and pause for their reply.",

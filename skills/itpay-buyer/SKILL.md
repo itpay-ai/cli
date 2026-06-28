@@ -213,9 +213,14 @@ This keeps JSON output machine-readable while allowing the CLI to prepare a
 local QR image path for clients that cannot render remote SVG reliably. In
 Codex or Claude Code app clients, prefer `--no-wait-payment`: send
 `human_visible_markdown` to the human first, then run
-`next.command`. If the human is on mobile, present
+`after_human_visible_markdown.command`. If the human is on mobile, present
 `mobile_wallet_url` as a clickable human-only fallback; do not convert it into a
 QR.
+
+If a response has `status=payment_handoff_required`, `next` is the user-visible
+reply step, not payment wait. Do not run `buyer payment wait` until the QR/link
+has been sent to the human; then use the returned
+`after_human_visible_markdown.command` with `--qr-shown`.
 
 For first-purchase auth, treat the returned ItPay authorization entry as a
 single human orchestration entry. It may open Alipay login/registration first
