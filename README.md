@@ -221,7 +221,7 @@ itp buyer checkout status <checkout_id> --json
 For the one-command buyer helper:
 
 ```bash
-itp buy var_itpay_enterprise_fuzzy_search_cny01 --email buyer@example.com --input company_name=阿里 --json
+itp buy var_itpay_enterprise_fuzzy_search_cny01 --email buyer@example.com --input company_name=阿里 --display agent --no-wait-payment --json
 ```
 
 For multi-item cart tests:
@@ -239,6 +239,7 @@ Payment QR rules:
 - Otherwise render the ItPay-hosted `qr_png_url` / `preferred_qr_url`.
 - Use `mobile_wallet_url` only as a human mobile fallback.
 - Do not generate your own QR from payment URLs.
+- In agent app clients, send `payment_handoff.markdown` to the human first, then run `payment_handoff.wait_command`.
 - Treat only `payment_intent.verified` as payment success.
 
 If the human wants the agent to analyze delivered content, the human must reveal

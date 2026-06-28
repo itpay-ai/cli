@@ -27,9 +27,11 @@
     }
   ],
   "agent_rules": [
+    "Start payment wait only after the QR image/link has already been sent to the human.",
     "Payment wait is a recovery loop around the same payment_intent_id, not a one-shot command.",
     "wait.timeout is a heartbeat, not a payment failure.",
-    "Continue waiting with the same payment_intent_id unless the user explicitly cancels.",
+    "In Codex or Claude Code app clients, after showing QR, wait online for a short visible cycle first. If the human still has not paid, explain that the same QR/link remains valid and pause for their reply.",
+    "Continue waiting with the same payment_intent_id unless the user explicitly cancels or asks you to pause.",
     "If the network drops, the process is interrupted, or there is no response, rerun payment wait with the same payment_intent_id or run checkout status/resume with the same checkout_id.",
     "If status is unclear, tell the human it is unclear and continue querying the same payment_intent_id/checkout_id. Do not create a new checkout.",
     "Payment success is payment_intent.verified only.",
