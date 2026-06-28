@@ -239,9 +239,9 @@ Payment QR rules:
 - Otherwise render the ItPay-hosted `qr_png_url` / `preferred_qr_url`.
 - Use `mobile_wallet_url` only as a human mobile fallback.
 - Do not generate your own QR from payment URLs.
-- In agent app clients, execute `render_plan.selected` first. Send its media, text/markdown, real links, and native buttons when the adapter supports them.
-- In OpenClaw Telegram, send `render_plan.selected.openclaw_message` with OpenClaw `message send --media ... --presentation ...`; do not put legacy inline media directives inside human prose.
-- Do not rewrite `render_plan.selected` into a custom table or omit the real URL.
+- If you know the current chat channel and `render_plan.platforms.<channel>` exists, use that branch before `render_plan.selected`.
+- In OpenClaw Telegram, send `render_plan.platforms.telegram.openclaw_message` with OpenClaw `message send --media ... --presentation ...`; do not put legacy inline media directives inside human prose.
+- If the channel is unsupported, use `render_plan.selected.fallback` / plain chat. Do not rewrite the chosen plan into a custom table or omit the real URL.
 - If status is `payment_handoff_required`, `next` is the human reply step, not payment wait.
 - Treat only `payment_intent.verified` as payment success.
 

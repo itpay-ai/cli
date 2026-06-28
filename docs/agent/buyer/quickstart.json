@@ -68,7 +68,7 @@
     "Show the returned payment QR exactly as provided before starting payment wait.",
     "Payment truth comes only from payment_intent.verified.",
     "Secure delivery goes to the human first; report redacted delivery status only.",
-    "When a response includes render_plan.selected, execute that selected plan first; do not make the model choose a different platform branch or rewrite the payment/auth UI. In OpenClaw Telegram, use selected.openclaw_message instead of handwritten legacy media directive prose."
+    "When a response includes render_plan, first use render_plan.platforms.<current channel> if it exists. If selected.platform is current_channel_required, selected.fallback is only for unsupported plain chat. In OpenClaw Telegram, use render_plan.platforms.telegram.openclaw_message instead of handwritten legacy media directive prose."
   ],
   "forbidden": [
     "Do not call ops commands from the buyer path.",

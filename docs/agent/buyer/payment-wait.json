@@ -35,7 +35,7 @@
     }
   ],
   "agent_rules": [
-    "If payment wait returns payment_handoff_required, render response.render_plan.selected to the human before running any later status check.",
+    "If payment wait returns payment_handoff_required, render response.render_plan.platforms.<current channel> when available; otherwise use response.render_plan.selected/fallback before running any later status check.",
     "Start payment status checks only after the QR image/link has already been sent to the human or the human asks to check status.",
     "If you run payment wait without a short timeout while payment is still pending, CLI returns payment_handoff_required and human_visible_markdown instead of long-polling.",
     "Payment wait/status check is a recovery loop around the same payment_intent_id, not a one-shot command.",
