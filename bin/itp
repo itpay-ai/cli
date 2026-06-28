@@ -93,8 +93,8 @@ async function main() {
       output({
         version: VERSION,
         commands: [
-          "buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --display agent --no-wait-payment --json",
-          "buy var_pubg_couple_skin_cny20 --sandbox --email buyer@example.com --phone +8613800000000 --no-wait --json",
+          "buy var_pubg_couple_skin_cny20 --email <buyer_email> --phone +8613800000000 --display agent --no-wait-payment --json",
+          "buy var_pubg_couple_skin_cny20 --email <buyer_email> --phone +8613800000000 --no-wait --json",
           "buyer catalog search --query 企业工商 --category business_data_api --provider itpay_enterprise_data --json",
           "buyer catalog get --variant var_pubg_couple_skin_cny20 --json",
           "buyer cart create --variant var_pubg_couple_skin_cny20 --json",
@@ -105,7 +105,7 @@ async function main() {
           "buyer shelf manifest --json",
           "buyer shelf snapshot --version <catalog_version> --json",
           "buyer shelf delta --since <catalog_version> --json",
-          "buyer checkout create --cart <cart_id> --method alipay --email buyer@example.com --phone +8613800000000 --json",
+          "buyer checkout create --cart <cart_id> --method alipay --email <buyer_email> --phone +8613800000000 --json",
           "buyer checkout status <checkout_id> --json",
           "buyer checkout resume <checkout_id> --json",
           "buyer auth status --json",

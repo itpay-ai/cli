@@ -36,8 +36,8 @@
     },
     {
       "intent": "buy a selected variant with the high-level cart-first flow",
-      "command": "itp buy <variant_id> --sandbox --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
-      "success_signal": "response.status becomes waiting_human_auth or waiting_user_payment; if waiting_user_payment, response.payment_handoff contains markdown and wait_command"
+      "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
+      "success_signal": "response.status becomes waiting_human_auth or waiting_user_payment; if waiting_user_payment, response.human_visible_markdown and response.next.command are present"
     }
   ],
   "agent_rules": [
@@ -54,8 +54,8 @@
     "After showing auth_qr, keep running/resuming the same checkout unless the human explicitly asks you to pause. Do not stop merely because a QR was displayed.",
     "When a buyer command returns buyer_session.status=buyer_session_saved, the CLI has stored the buyer account session for this agent device. You may continue with checkout/payment or `buyer vault` commands without asking the human for a token.",
     "Vault grants are only for reading approved delivered artifacts. They are not buyer session credentials and do not authorize refunds or account/order management.",
-    "Use high-level itp buy when possible, but in agent app clients split payment into two visible steps: first return and show payment_handoff, then run payment_handoff.wait_command.",
-    "If response.payment_handoff.markdown is present, send it to the human immediately in the same user-visible message. It includes the QR image and payment link.",
+    "Use high-level itp buy when possible, but in agent app clients split payment into two visible steps: first return and show human_visible_markdown, then run next.command.",
+    "If response.human_visible_markdown is present, send it to the human immediately in the same user-visible message. It includes the QR image and payment link.",
     "Show the returned payment QR exactly as provided before starting payment wait.",
     "Payment truth comes only from payment_intent.verified.",
     "Secure delivery goes to the human first; report redacted delivery status only."

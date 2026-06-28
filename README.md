@@ -213,7 +213,7 @@ redacted secure delivery status:
 ```bash
 itp buyer catalog search --query 企业工商 --json
 itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=阿里 --json
-itp buyer checkout create --cart <cart_id> --email buyer@example.com --json
+itp buyer checkout create --cart <cart_id> --email <buyer_email> --json
 itp buyer payment wait <payment_intent_id> --json
 itp buyer checkout status <checkout_id> --json
 ```
@@ -221,7 +221,7 @@ itp buyer checkout status <checkout_id> --json
 For the one-command buyer helper:
 
 ```bash
-itp buy var_itpay_enterprise_fuzzy_search_cny01 --email buyer@example.com --input company_name=阿里 --display agent --no-wait-payment --json
+itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=阿里 --display agent --no-wait-payment --json
 ```
 
 For multi-item cart tests:
@@ -239,7 +239,7 @@ Payment QR rules:
 - Otherwise render the ItPay-hosted `qr_png_url` / `preferred_qr_url`.
 - Use `mobile_wallet_url` only as a human mobile fallback.
 - Do not generate your own QR from payment URLs.
-- In agent app clients, send `payment_handoff.markdown` to the human first, then run `payment_handoff.wait_command`.
+- In agent app clients, send `human_visible_markdown` to the human first, then run `next.command`.
 - Treat only `payment_intent.verified` as payment success.
 
 If the human wants the agent to analyze delivered content, the human must reveal

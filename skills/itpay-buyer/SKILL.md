@@ -59,7 +59,7 @@ read this skill
 The high-level command can wrap this flow:
 
 ```bash
-itp buy <variant_id> --sandbox --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json
+itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json
 ```
 
 For step-by-step testing:
@@ -93,7 +93,7 @@ itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input 
 itp buyer cart show <cart_id> --json
 itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --json
 itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --json
-itp buy var_itpay_enterprise_fuzzy_search_cny01 --sandbox --email <buyer_email> --input company_name=京东 --display agent --no-wait-payment --json
+itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=京东 --display agent --no-wait-payment --json
 ```
 
 For cart edits, always read the server cart first with `buyer cart show`.
@@ -206,14 +206,14 @@ Each docs page includes `next_docs`. Follow those links as the state changes.
 For payment creation in an agent/chat client, prefer:
 
 ```bash
-itp buy <variant_id> --sandbox --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json
+itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json
 ```
 
 This keeps JSON output machine-readable while allowing the CLI to prepare a
 local QR image path for clients that cannot render remote SVG reliably. In
 Codex or Claude Code app clients, prefer `--no-wait-payment`: send
-`payment_handoff.markdown` to the human first, then run
-`payment_handoff.wait_command`. If the human is on mobile, present
+`human_visible_markdown` to the human first, then run
+`next.command`. If the human is on mobile, present
 `mobile_wallet_url` as a clickable human-only fallback; do not convert it into a
 QR.
 
@@ -221,8 +221,8 @@ For first-purchase auth, treat the returned ItPay authorization entry as a
 single human orchestration entry. It may open Alipay login/registration first
 and then payment after ItPay receives the OAuth callback. Do not call
 `oauth_start_url` directly unless the ItPay auth page asks for fallback.
-If the payment page says the Alipay sandbox entry is stabilizing/preparing,
-or if Alipay sandbox says "order not found", tell the human to wait 30-60
+If the payment page says provider entry is stabilizing/preparing,
+or if the payment provider says "order not found", tell the human to wait 30-60
 seconds and use the same page/QR again. Do not ask them to refresh repeatedly,
 and do not create another checkout or payment intent. Use
 `itp buyer payment refresh-qr ... --reason order-not-found` only after the
@@ -238,7 +238,7 @@ I found the service and selected the matching variant.
 I created the cart and checkout.
 Please open the returned ItPay authorization link and approve Alipay login.
 I am waiting for ItPay account authorization.
-Please scan the returned ItPay-hosted QR image with Alipay sandbox.
+Please scan the returned ItPay-hosted QR image with the payment provider.
 I am waiting for ItPay payment verification.
 Payment is verified.
 Delivery is claimable by the human buyer. Please check your email.

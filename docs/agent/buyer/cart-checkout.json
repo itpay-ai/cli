@@ -68,7 +68,7 @@
     },
     {
       "intent": "do both steps through the high-level command",
-      "command": "itp buy <variant_id> --sandbox --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
+      "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
       "success_signal": "response.status is waiting_human_auth, waiting_user_payment, payment_verified, or delivery_claimable"
     }
   ],
