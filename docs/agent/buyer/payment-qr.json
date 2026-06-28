@@ -46,7 +46,7 @@
     "Do not rewrite the chosen render plan into a custom table. Use its text/markdown, media, links, and buttons as provided.",
     "If selected.links exists, include the real URL. Do not only show the link label.",
     "If selected.buttons exists but the current adapter cannot render native buttons, degrade to selected.links plus short text; do not fake payment success or skip the status check.",
-    "In OpenClaw Telegram, prefer response.render_plan.platforms.telegram.openclaw_message: send its message/media/presentation through OpenClaw message send. Do not place legacy inline media directives inside prose; that fallback cannot render inline buttons.",
+    "In OpenClaw Telegram, prefer response.render_plan.platforms.telegram.openclaw_message.command_args with openclaw message send. Its presentation.blocks[].buttons[] uses native text/url/callback_data; do not simulate buttons in normal prose.",
     "In Codex or Claude Code app clients, send response.human_visible_markdown or response.render_plan.platforms.codex_app.markdown to the human first. Do not start a hidden long wait before the human-visible message is sent.",
     "For Telegram-style message clients, use response.render_plan.platforms.telegram: send photo media first, include links, and expose native buttons for refresh/status when the adapter supports them.",
     "For plain chat clients, show response.human_visible_markdown and stop unless the human asks you to check status or returns with a payment question.",

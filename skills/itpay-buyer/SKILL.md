@@ -214,8 +214,9 @@ local QR image path for clients that cannot render remote SVG reliably. In
 agent/chat clients, prefer `--no-wait-payment`: if you know the current channel
 and `render_plan.platforms.<channel>` exists, use that branch first. In Codex
 or Claude Code app clients, send the platform markdown exactly. In OpenClaw
-Telegram, use `render_plan.platforms.telegram.openclaw_message` so media and
-native buttons are sent through the adapter. If `selected.platform` is
+Telegram, pass `render_plan.platforms.telegram.openclaw_message.command_args`
+to `openclaw message send` so media and native `text/url/callback_data` buttons
+are sent through the adapter. If `selected.platform` is
 `current_channel_required`, `selected.fallback` is only for unsupported plain
 chat clients. Do not invent a table or rewrite the UI plan.
 

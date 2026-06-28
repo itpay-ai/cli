@@ -240,7 +240,7 @@ Payment QR rules:
 - Use `mobile_wallet_url` only as a human mobile fallback.
 - Do not generate your own QR from payment URLs.
 - If you know the current chat channel and `render_plan.platforms.<channel>` exists, use that branch before `render_plan.selected`.
-- In OpenClaw Telegram, send `render_plan.platforms.telegram.openclaw_message` with OpenClaw `message send --media ... --presentation ...`; do not put legacy inline media directives inside human prose.
+- In OpenClaw Telegram, send `render_plan.platforms.telegram.openclaw_message.command_args` with `openclaw message send`; its `presentation.blocks[].buttons[]` uses native `text/url/callback_data`.
 - If the channel is unsupported, use `render_plan.selected.fallback` / plain chat. Do not rewrite the chosen plan into a custom table or omit the real URL.
 - If status is `payment_handoff_required`, `next` is the human reply step, not payment wait.
 - Treat only `payment_intent.verified` as payment success.
