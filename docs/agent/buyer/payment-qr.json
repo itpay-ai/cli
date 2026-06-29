@@ -26,7 +26,7 @@
     {
       "intent": "create payment intent through the high-level buy flow",
       "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json",
-      "success_signal": "response.status is payment_handoff_required; for OpenClaw Telegram, send response.agent_instruction.openclaw_message.command_args with openclaw message send before any status check"
+      "success_signal": "response.status is payment_handoff_required; for OpenClaw Telegram, execute response.agent_action.command or response.agent_action.argv before any normal reply or status check"
     },
     {
       "intent": "recover a scanner order-not-found display problem",
@@ -43,8 +43,10 @@
     "Payment QR display requires both a valid/saved buyer session and payment_intent_id. If payment_intent_id appears before buyer_session is saved, run buyer checkout resume/status instead of showing payment QR.",
     "Do not stop after showing auth_qr unless the human explicitly asks you to pause. Keep waiting/resuming the same checkout so the post-auth payment handoff can continue.",
     "Do not describe auth_qr as payment success or payment proof. Only payment_intent.verified proves payment.",
-    "If response.agent_instruction is present, it is the mandatory execution path. Use it before any next ItPay command.",
-    "In OpenClaw Telegram, use response.agent_instruction.openclaw_message.command_args with openclaw message send. Do not rewrite it into a custom table. Use its target, message, media, and presentation as provided.",
+    "If response.agent_action is present, it is the mandatory execution path. Execute response.agent_action.command or response.agent_action.argv before any normal prose reply or next ItPay command.",
+    "In OpenClaw Telegram, response.agent_action is already the exact openclaw message send command. Do not rebuild it, do not summarize it, and do not rewrite it into a custom table.",
+    "If response.agent_action cannot be executed, stop and tell the human this agent lacks OpenClaw native message-send capability. Do not fall back to Markdown.",
+    "response.agent_instruction is natural-language reinforcement for the agent; it does not replace response.agent_action.",
     "Telegram native buttons require openclaw message send --presentation; presentation.blocks[].type=\"buttons\" uses native text/url/callback_data. Do not simulate buttons in normal prose.",
     "If agent_instruction links/buttons include URLs, include the real URL. Do not only show the link label.",
     "In Codex or Claude Code app clients, send response.agent_instruction.markdown first. Do not start a hidden long wait before the human-visible message is sent.",

@@ -245,7 +245,7 @@ Payment QR rules:
 - Otherwise render the ItPay-hosted `qr_png_url` / `preferred_qr_url`.
 - Use `mobile_wallet_url` only as a human mobile fallback.
 - Do not generate your own QR from payment URLs.
-- In OpenClaw Telegram, use root `agent_instruction.openclaw_message.command_args` with `openclaw message send`; do not simulate buttons in normal prose.
+- In OpenClaw Telegram, run root `agent_action.command` or `agent_action.argv` before replying; do not simulate buttons in normal prose.
 - Telegram native buttons require `presentation.blocks[].type="buttons"` with `text/url/callback_data`.
 - For Codex/Claude Code, send root `agent_instruction.markdown` before any next ItPay command.
 - If status is `payment_handoff_required`, `next` is the human reply step, not payment wait.

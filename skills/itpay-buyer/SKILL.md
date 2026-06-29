@@ -35,7 +35,13 @@ OpenClaw Telegram private/group chat: --host telegram --target <inbound_meta.cha
 For Telegram groups or @mention flows, use the same OpenClaw inbound
 `chat_id` as the target, for example `--target telegram:-1001234567890`.
 OpenClaw owns group allowlists and mention policy; ItPay only echoes the target
-into `openclaw message send`.
+into the returned `agent_action`.
+
+If a response contains `agent_action`, run `agent_action.command` or
+`agent_action.argv` before writing any normal reply. Do not summarize it, do
+not rewrite it as Markdown, and do not run wait/status first. If the command
+cannot run, stop and tell the human the agent lacks the required OpenClaw
+message tool.
 
 Run these commands before buying:
 
@@ -229,13 +235,12 @@ itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent
 This keeps JSON output machine-readable while allowing the CLI to prepare a
 local QR image path for clients that cannot render remote SVG reliably. In
 agent/chat clients, prefer `--no-wait-payment`. In OpenClaw Telegram, if
-`agent_instruction` is present, call `openclaw message send` with
-`agent_instruction.openclaw_message.command_args`. The `target` field is the
-OpenClaw chat target, `media` is the QR image, `message` is the exact human text, and
-`presentation.blocks[].type="buttons"` creates Telegram native inline buttons.
-Do not rewrite it as a table or normal prose. In Codex or Claude Code app
-clients, send `agent_instruction.markdown` exactly before any next ItPay
-command.
+`agent_action` is present, execute `agent_action.command` or `agent_action.argv`
+exactly. It already contains `openclaw message send`, the chat target, QR
+media, exact human text, and `presentation.blocks[].type="buttons"` for
+Telegram native inline buttons. Do not rewrite it as a table or normal prose.
+In Codex or Claude Code app clients, send `agent_instruction.markdown` exactly
+before any next ItPay command.
 
 If a response has `status=payment_handoff_required`, `next` is the user-visible
 reply step, not payment wait. Do not run `buyer payment wait` until the human

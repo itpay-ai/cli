@@ -45,14 +45,14 @@
     {
       "intent": "buy a selected variant with the high-level cart-first flow",
       "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json",
-      "success_signal": "response.status becomes waiting_human_auth or payment_handoff_required; in OpenClaw Telegram, if agent_instruction is present, send response.agent_instruction.openclaw_message.command_args before any payment status check"
+      "success_signal": "response.status becomes waiting_human_auth or payment_handoff_required; in OpenClaw Telegram, if agent_action is present, execute response.agent_action.command or response.agent_action.argv before any normal reply or payment status check"
     }
   ],
   "agent_rules": [
     "Use --json for every ItPay command.",
     "Every non-doc ItPay command must include the current client context: --host codex, --host claude-code, --host terminal, --host plain-chat, or for OpenClaw/Telegram use --host telegram --target <inbound_meta.chat_id>.",
     "Do not rely on the CLI to guess Telegram, Discord, WhatsApp, Codex, or Claude Code. If ItPay returns client_context_required or client_target_required, rerun the same command with the required --host/--target fields before continuing.",
-    "For Telegram group chat or @mention flows, pass the group/private chat target from OpenClaw inbound metadata, for example --target telegram:-1001234567890. ItPay only echoes the target into openclaw message send; OpenClaw owns group allowlist/mention policy.",
+    "For Telegram group chat or @mention flows, pass the group/private chat target from OpenClaw inbound metadata, for example --target telegram:-1001234567890. ItPay only echoes the target into agent_action; OpenClaw owns group allowlist/mention policy.",
     "Use `itp status --refresh --host <client> --json` before account, order, refund, or repeat-purchase decisions. Plain local memory is not identity.",
     "If `status --refresh` returns `recoverable_context.found=true`, do not blindly resume or blindly ignore it. Decide whether the old task is related to the current user intent; continue related tasks, ignore clearly unrelated tasks, and ask the human when unsure.",
     "If the catalog is unclear, read catalog-search docs and use buyer shelf manifest/snapshot as the shopping-list view before guessing keywords.",
@@ -66,13 +66,15 @@
     "When a buyer command returns buyer_session.status=buyer_session_saved, the CLI has stored the buyer account session for this agent device. You may continue with checkout/payment or `buyer vault` commands without asking the human for a token.",
     "Vault grants are only for reading approved delivered artifacts. They are not buyer session credentials and do not authorize refunds or account/order management.",
     "Use high-level itp buy when possible, but in agent app clients split payment into two visible steps: first return and send the human handoff instruction, then only check status after the human responds or uses a platform button.",
-    "If response.agent_instruction is present, it is the mandatory execution path for the current client. Do not use fallback fields or handwritten prose instead.",
-    "In OpenClaw Telegram, call openclaw message send with response.agent_instruction.openclaw_message.command_args. It includes target, QR media, exact message, and native button presentation.",
+    "If response.agent_action is present, it is the mandatory execution path for the current client. Execute response.agent_action.command or response.agent_action.argv before any normal prose reply.",
+    "In OpenClaw Telegram, response.agent_action is already the exact openclaw message send command. It includes target, QR media, exact message, and native button presentation.",
+    "If response.agent_action cannot be executed, stop and tell the human this agent lacks OpenClaw native message-send capability. Do not fall back to Markdown or handwritten prose.",
+    "response.agent_instruction is natural-language reinforcement for the agent; it does not replace response.agent_action.",
     "If response.status is payment_handoff_required, do not run payment wait from next.command; next is the human-visible reply. Only after the human asks to check payment should you run after_human_response.check_payment_command.",
     "Show the returned payment QR exactly as provided before starting payment wait.",
     "Payment truth comes only from payment_intent.verified.",
     "Secure delivery goes to the human first; report redacted delivery status only.",
-    "For OpenClaw Telegram, root agent_instruction is the execution path. Do not use handwritten prose when agent_instruction.openclaw_message.command_args is present."
+    "For OpenClaw Telegram, root agent_action is the execution path. Do not use handwritten prose when agent_action is present."
   ],
   "forbidden": [
     "Do not call ops commands from the buyer path.",

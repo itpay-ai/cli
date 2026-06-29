@@ -36,7 +36,7 @@
   ],
   "agent_rules": [
     "Every payment wait/status command must include the same client context as the handoff command. For OpenClaw Telegram, keep --host telegram --target <same chat_id>.",
-    "If payment wait returns payment_handoff_required with response.agent_instruction, send response.agent_instruction before running any later status check.",
+    "If payment wait returns payment_handoff_required with response.agent_action, execute response.agent_action.command or response.agent_action.argv before any later status check. If only response.agent_instruction is present, follow it exactly before any later status check.",
     "Start payment status checks only after the QR image/link has already been sent to the human or the human asks to check status.",
     "If you run payment wait without a short timeout while payment is still pending, CLI returns payment_handoff_required and the human handoff instruction instead of long-polling.",
     "Payment wait/status check is a recovery loop around the same payment_intent_id, not a one-shot command.",
