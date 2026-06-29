@@ -20,10 +20,27 @@ protocol from this file. Use the CLI docs graph whenever you need details.
 
 ## Start Here
 
+Every non-doc ItPay command must include the current client context. The CLI
+will stop with `client_context_required` or `client_target_required` rather
+than guess.
+
+```text
+Codex app:        --host codex
+Claude Code app:  --host claude-code
+Terminal:         --host terminal
+Plain chat:       --host plain-chat
+OpenClaw Telegram private/group chat: --host telegram --target <inbound_meta.chat_id>
+```
+
+For Telegram groups or @mention flows, use the same OpenClaw inbound
+`chat_id` as the target, for example `--target telegram:-1001234567890`.
+OpenClaw owns group allowlists and mention policy; ItPay only echoes the target
+into `openclaw message send`.
+
 Run these commands before buying:
 
 ```bash
-itp status --refresh --json
+itp status --refresh --host <client> --json
 itp docs show quickstart --role buyer --json
 itp docs list --role buyer --json
 ```
@@ -59,41 +76,41 @@ read this skill
 The high-level command can wrap this flow:
 
 ```bash
-itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json
+itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json
 ```
 
 For step-by-step testing:
 
 ```bash
-itp buyer catalog search --query "<user request>" --json
-itp buyer catalog search --query "企业工商信息 查询" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --json
-itp buyer catalog get --variant <variant_id> --json
-itp buyer cart create --variant <variant_id> --json
-itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,1 --json
-itp buyer cart show <cart_id> --json
-itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --json
-itp buyer cart remove <cart_id> --line <cart_line_item_id> --json
-itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --json
-itp buyer checkout resume <checkout_id> --json
-itp buyer payment wait <payment_intent_id> --timeout 1 --json
-itp buyer checkout status <checkout_id> --json
-itp buyer refund create --order <order_id> --amount-minor <minor_units> --currency CNY --reason buyer_requested --json
-itp buyer refund list --order <order_id> --json
-itp buyer refund show <refund_id> --json
-itp buyer refund cancel <refund_id> --reason buyer_changed_mind --json
-itp buyer vault grants list --checkout <checkout_id> --json
-itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --json
+itp buyer catalog search --query "<user request>" --host <client> --json
+itp buyer catalog search --query "企业工商信息 查询" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --host <client> --json
+itp buyer catalog get --variant <variant_id> --host <client> --json
+itp buyer cart create --variant <variant_id> --host <client> --json
+itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,1 --host <client> --json
+itp buyer cart show <cart_id> --host <client> --json
+itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --host <client> --json
+itp buyer cart remove <cart_id> --line <cart_line_item_id> --host <client> --json
+itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --host <client> --json
+itp buyer checkout resume <checkout_id> --host <client> --json
+itp buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json
+itp buyer checkout status <checkout_id> --host <client> --json
+itp buyer refund create --order <order_id> --amount-minor <minor_units> --currency CNY --reason buyer_requested --host <client> --json
+itp buyer refund list --order <order_id> --host <client> --json
+itp buyer refund show <refund_id> --host <client> --json
+itp buyer refund cancel <refund_id> --reason buyer_changed_mind --host <client> --json
+itp buyer vault grants list --checkout <checkout_id> --host <client> --json
+itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --host <client> --json
 ```
 
 For API products, read the product metadata input schema before cart creation.
 Enterprise data products require query input at cart time:
 
 ```bash
-itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json
-itp buyer cart show <cart_id> --json
-itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --json
-itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --json
-itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=京东 --display agent --no-wait-payment --json
+itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --host <client> --json
+itp buyer cart show <cart_id> --host <client> --json
+itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --host <client> --json
+itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --host <client> --json
+itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=京东 --display agent --no-wait-payment --host <client> --json
 ```
 
 For cart edits, always read the server cart first with `buyer cart show`.
@@ -112,19 +129,19 @@ Refund commands use ItPay shared order state. If `itp buyer refund create`
 returns `policy_risk_confirmation_required`, explain the returned
 `refund_eligibility.policy` and `agent_guidance` to the human first. Only retry
 with `--confirm-policy-risk true` after explicit human confirmation.
-Do not guess `order_id`; if missing, run `buyer checkout status <checkout_id> --json`.
+Do not guess `order_id`; if missing, run `buyer checkout status <checkout_id> --host <client> --json`.
 Refund amounts use minor units: CNY 1000 means CNY 10.00.
 Refund commands require a server-verified buyer session, not a vault grant. If
 the CLI says the buyer session is required or expired, run
-`itp status --refresh --json` and follow the returned `next.command`.
+`itp status --refresh --host <client> --json` and follow the returned `next.command`.
 Current buyer refunds are whole-order only; do not use line-item refund scope.
 If the human cancels a refund before provider or money movement starts, use
-`buyer refund cancel <refund_id> --json`; after cancel, the delivery claim can
+`buyer refund cancel <refund_id> --host <client> --json`; after cancel, the delivery claim can
 be unlocked again by the ItPay backend.
 
 ## Non-Negotiable Rules
 
-1. Use `--json` for every ItPay command.
+1. Use `--json` and current client context for every non-doc ItPay command. Use `--host codex`, `--host claude-code`, `--host terminal`, `--host plain-chat`, or for OpenClaw Telegram use `--host telegram --target <inbound_meta.chat_id>`.
 2. Do not invent service IDs, variant IDs, checkout IDs, payment URLs, QR URLs,
    payment intent IDs, delivery IDs, or claim links.
 3. When the user asks for several compatible services, use one cart and one
@@ -206,19 +223,19 @@ Each docs page includes `next_docs`. Follow those links as the state changes.
 For payment creation in an agent/chat client, prefer:
 
 ```bash
-itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json
+itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json
 ```
 
 This keeps JSON output machine-readable while allowing the CLI to prepare a
 local QR image path for clients that cannot render remote SVG reliably. In
 agent/chat clients, prefer `--no-wait-payment`. In OpenClaw Telegram, if
 `agent_instruction` is present, call `openclaw message send` with
-`agent_instruction.openclaw_message.command_args`. The `media` field is the QR
-image, `message` is the exact human text, and
+`agent_instruction.openclaw_message.command_args`. The `target` field is the
+OpenClaw chat target, `media` is the QR image, `message` is the exact human text, and
 `presentation.blocks[].type="buttons"` creates Telegram native inline buttons.
 Do not rewrite it as a table or normal prose. In Codex or Claude Code app
-clients, if `human_output_required=true`, send `human_output.markdown` exactly
-before any next ItPay command.
+clients, send `agent_instruction.markdown` exactly before any next ItPay
+command.
 
 If a response has `status=payment_handoff_required`, `next` is the user-visible
 reply step, not payment wait. Do not run `buyer payment wait` until the human

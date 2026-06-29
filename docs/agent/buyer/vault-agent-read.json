@@ -10,35 +10,45 @@
     "A checkout/order has delivered a vault artifact and the human granted agent-readable access."
   ],
   "required_state": {
-    "needs": ["checkout_id or authenticated buyer account session", "current agent device binding", "order_id or checkout_id or vault_artifact_id"],
-    "must_not_need": ["human portal token", "claim token", "passkey credential", "raw protected payload", "grant id copied by the human"]
+    "needs": [
+      "checkout_id or authenticated buyer account session",
+      "current agent device binding",
+      "order_id or checkout_id or vault_artifact_id"
+    ],
+    "must_not_need": [
+      "human portal token",
+      "claim token",
+      "passkey credential",
+      "raw protected payload",
+      "grant id copied by the human"
+    ]
   },
   "commands": [
     {
       "intent": "check whether this agent has active human-approved grants for a checkout",
-      "command": "itp buyer vault grants list --checkout <checkout_id> --json",
+      "command": "itp buyer vault grants list --checkout <checkout_id> --host <client> --json",
       "success_signal": "response.agent_readable_grants is an array; count > 0 means the human has granted this exact agent access"
     },
     {
       "intent": "check whether this agent has active human-approved grants for one order or artifact",
-      "command": "itp buyer vault grants list --order <order_id> --artifact <vault_artifact_id> --json",
+      "command": "itp buyer vault grants list --order <order_id> --artifact <vault_artifact_id> --host <client> --json",
       "success_signal": "only grants scoped to this logged-in agent device are returned"
     },
     {
       "intent": "read a discovered grant view",
-      "command": "itp buyer vault grants read <agent_read_grant_id> --json",
+      "command": "itp buyer vault grants read <agent_read_grant_id> --host <client> --json",
       "success_signal": "response.grant contains selected_fields, structured_view, or summary according to the human-approved scope"
     },
     {
       "intent": "convenience read by order/artifact without asking the human for grant id",
-      "command": "itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --json",
+      "command": "itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --host <client> --json",
       "success_signal": "the CLI discovers the active grant and reads its scoped view"
     }
   ],
   "agent_rules": [
     "Only read through `buyer vault` commands after the human has explicitly approved the agent grant in the ItPay portal.",
-    "Prefer `itp buyer vault grants list --checkout <checkout_id> --json`; the CLI can automatically restore the buyer agent session from the checkout auth handoff when possible.",
-    "If the response includes buyer_session.status=buyer_session_saved, continue directly to `buyer vault grants read <agent_read_grant_id> --json`; do not ask the human for session tokens, auth IDs, or grant IDs.",
+    "Prefer `itp buyer vault grants list --checkout <checkout_id> --host <client> --json`; the CLI can automatically restore the buyer agent session from the checkout auth handoff when possible.",
+    "If the response includes buyer_session.status=buyer_session_saved, continue directly to `buyer vault grants read <agent_read_grant_id> --host <client> --json`; do not ask the human for session tokens, auth IDs, or grant IDs.",
     "Do not ask the human to copy or paste `agent_read_grant_id`; discover it with `buyer vault grants list`.",
     "If no grant is returned, tell the human to open their ItPay account portal, reveal with Passkey, choose fields, and confirm one-key agent authorization.",
     "If no grant is returned, explain likely causes: the human has not authorized yet, selected the wrong order/page, authorization has not synced yet, checkout/order/artifact does not match, buyer session expired, or the grant expired/revoked.",
@@ -46,7 +56,7 @@
     "Use only fields returned in the grant view. Do not infer that unreturned fields are accessible.",
     "When a grant view is returned, tell the user which fields are readable. If expires_at, ttl, or valid_until is present, tell the user the time limit; if no expiry is returned, say the response did not include an explicit expiry.",
     "If the returned fields are not enough for the user's task, ask the human to reopen Give to Agent and add the needed fields. Do not ask them to paste the missing raw content.",
-    "If the command still returns 401 or buyer_session_invalid after using `--checkout`, run `itp buyer checkout status <checkout_id> --json`, then retry `itp buyer vault grants list --checkout <checkout_id> --json`. Ask the human to reauthorize only if the checkout/auth handoff has expired."
+    "If the command still returns 401 or buyer_session_invalid after using `--checkout`, run `itp buyer checkout status <checkout_id> --host <client> --json`, then retry `itp buyer vault grants list --checkout <checkout_id> --host <client> --json`. Ask the human to reauthorize only if the checkout/auth handoff has expired."
   ],
   "forbidden": [
     "Do not open, click through, scrape, or automate the human web UI yourself.",
@@ -72,5 +82,14 @@
       "command": "itp docs show safety-policy --role buyer --json"
     }
   ],
-  "search_terms": ["vault", "agent read", "passkey grant", "one key agent", "授权给 agent", "可读授权", "字段授权", "查看报告"]
+  "search_terms": [
+    "vault",
+    "agent read",
+    "passkey grant",
+    "one key agent",
+    "授权给 agent",
+    "可读授权",
+    "字段授权",
+    "查看报告"
+  ]
 }

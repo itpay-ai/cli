@@ -25,17 +25,18 @@
   "commands": [
     {
       "intent": "wait for payment verified event",
-      "command": "itp buyer payment wait <payment_intent_id> --timeout 1 --json",
+      "command": "itp buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json",
       "success_signal": "response.payment_event.event_type is payment_intent.verified or wait.timeout"
     },
     {
       "intent": "resume checkout after verified event",
-      "command": "itp buyer checkout status <checkout_id> --json",
+      "command": "itp buyer checkout status <checkout_id> --host <client> --json",
       "success_signal": "response.delivery.status or response.checkout.status is returned"
     }
   ],
   "agent_rules": [
-    "If payment wait returns payment_handoff_required with response.agent_instruction, send response.agent_instruction.openclaw_message.command_args before running any later status check.",
+    "Every payment wait/status command must include the same client context as the handoff command. For OpenClaw Telegram, keep --host telegram --target <same chat_id>.",
+    "If payment wait returns payment_handoff_required with response.agent_instruction, send response.agent_instruction before running any later status check.",
     "Start payment status checks only after the QR image/link has already been sent to the human or the human asks to check status.",
     "If you run payment wait without a short timeout while payment is still pending, CLI returns payment_handoff_required and the human handoff instruction instead of long-polling.",
     "Payment wait/status check is a recovery loop around the same payment_intent_id, not a one-shot command.",

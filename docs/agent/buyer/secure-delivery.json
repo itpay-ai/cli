@@ -10,23 +10,30 @@
     "The user asks where the purchased key/content is."
   ],
   "required_state": {
-    "needs": ["checkout_id"],
-    "must_not_need": ["claim token", "claim link", "raw key", "storage ref"]
+    "needs": [
+      "checkout_id"
+    ],
+    "must_not_need": [
+      "claim token",
+      "claim link",
+      "raw key",
+      "storage ref"
+    ]
   },
   "commands": [
     {
       "intent": "check redacted delivery status",
-      "command": "itp buyer checkout status <checkout_id> --json",
+      "command": "itp buyer checkout status <checkout_id> --host <client> --json",
       "success_signal": "delivery.sensitive_content_redacted == true"
     },
     {
       "intent": "list agent-safe delivery state",
-      "command": "itp buyer deliveries list --checkout <checkout_id> --json",
+      "command": "itp buyer deliveries list --checkout <checkout_id> --host <client> --json",
       "success_signal": "response.deliveries contains no raw content or claim token"
     },
     {
       "intent": "after the human says they granted agent access, discover the current agent's grants",
-      "command": "itp buyer vault grants list --checkout <checkout_id> --json",
+      "command": "itp buyer vault grants list --checkout <checkout_id> --host <client> --json",
       "success_signal": "response.agent_readable_grants contains only grants for this exact agent device"
     }
   ],
@@ -68,5 +75,16 @@
       "command": "itp docs show recovery --role buyer --json"
     }
   ],
-  "search_terms": ["delivery", "claim", "email", "key", "redeem", "secure delivery", "交付", "邮件", "领取", "密钥"]
+  "search_terms": [
+    "delivery",
+    "claim",
+    "email",
+    "key",
+    "redeem",
+    "secure delivery",
+    "交付",
+    "邮件",
+    "领取",
+    "密钥"
+  ]
 }

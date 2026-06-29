@@ -10,33 +10,39 @@
     "The agent needs to search standardized API products such as ItPay enterprise data APIs."
   ],
   "required_state": {
-    "needs": ["search query or service intent"],
-    "must_not_need": ["buyer login", "payment intent", "ops token"]
+    "needs": [
+      "search query or service intent"
+    ],
+    "must_not_need": [
+      "buyer login",
+      "payment intent",
+      "ops token"
+    ]
   },
   "commands": [
     {
       "intent": "inspect the service shelf before guessing keywords or facets",
-      "command": "itp buyer shelf manifest --json",
+      "command": "itp buyer shelf manifest --host <client> --json",
       "success_signal": "response.snapshot_version and response.snapshot_url are present; use snapshot/delta when the agent needs a shopping-list view of available services"
     },
     {
       "intent": "search public catalog by natural language query",
-      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --json",
+      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --host <client> --json",
       "success_signal": "response.products contains services with purchase options, id, title, price, metadata, and response.catalog_guidance explains how to choose safely"
     },
     {
       "intent": "search API services by stable category and safe facets",
-      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --delivery-mode managed_capability --use-case company_lookup --input-facet company_name --json",
+      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --delivery-mode managed_capability --use-case company_lookup --input-facet company_name --host <client> --json",
       "success_signal": "response.products only contains products matching the requested category/facets"
     },
     {
       "intent": "search fuzzy company lookup when the user only provides a partial company name",
-      "command": "itp buyer catalog search --query \"企业 模糊 查询 公司简称\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --use-case company_disambiguation --input-facet company_name --json",
+      "command": "itp buyer catalog search --query \"企业 模糊 查询 公司简称\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --use-case company_disambiguation --input-facet company_name --host <client> --json",
       "success_signal": "response.products includes the fuzzy enterprise search product before precise lookup"
     },
     {
       "intent": "get exact service details for a selected purchase option",
-      "command": "itp buyer catalog get --variant <variant_id> --json",
+      "command": "itp buyer catalog get --variant <variant_id> --host <client> --json",
       "success_signal": "response.selection.catalog_variant_id matches the selected purchase option and response.catalog_guidance says to explain before cart creation"
     }
   ],
@@ -75,5 +81,26 @@
       "command": "itp docs show cart-checkout --role buyer --json"
     }
   ],
-  "search_terms": ["catalog", "search", "shelf", "product", "variant", "purchase option", "api", "enterprise_data", "category", "facet", "business_data_api", "企业查询", "工商信息", "企业工商数据精准查询", "企业工商数据模糊查询", "搜索", "商品", "服务目录", "目录清单", "购买选项"]
+  "search_terms": [
+    "catalog",
+    "search",
+    "shelf",
+    "product",
+    "variant",
+    "purchase option",
+    "api",
+    "enterprise_data",
+    "category",
+    "facet",
+    "business_data_api",
+    "企业查询",
+    "工商信息",
+    "企业工商数据精准查询",
+    "企业工商数据模糊查询",
+    "搜索",
+    "商品",
+    "服务目录",
+    "目录清单",
+    "购买选项"
+  ]
 }

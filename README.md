@@ -85,7 +85,7 @@ Non-interactive agent hosts such as Codex automatically use file storage to
 avoid OS keychain prompts. To force file storage anywhere:
 
 ```bash
-ITP_CREDENTIAL_STORE=file itp buyer auth status --json
+ITP_CREDENTIAL_STORE=file itp buyer auth status --host <client> --json
 ```
 
 If native credential storage is unavailable, the CLI falls back to:
@@ -101,7 +101,7 @@ The fallback file is written with `0600` permissions.
 After a buyer has completed first-purchase auth and the CLI has a buyer account session, an agent can create a one-time link for the human to view the ItPay account/order portal:
 
 ```bash
-itp account login-link --json
+itp account login-link --host <client> --json
 ```
 
 The agent should give the returned `login_url` to the human and must not open or scrape it. The portal shows the same redacted order/vault state available through buyer APIs; raw artifact reveal remains a separate human Passkey/WebAuthn flow.
@@ -155,8 +155,14 @@ from the current state.
 Before starting a new purchase, agents should inspect recoverable local state:
 
 ```bash
-itp status --refresh --json
+itp status --refresh --host <client> --json
 ```
+
+Every non-doc command needs a client context. Use `--host codex`,
+`--host claude-code`, `--host terminal`, or `--host plain-chat`. For OpenClaw
+Telegram private/group chat, use `--host telegram --target <inbound_meta.chat_id>`.
+If the CLI returns `client_context_required` or `client_target_required`, rerun
+the same command with the requested fields.
 
 Humans can use the default account overview:
 
@@ -174,7 +180,7 @@ Device:   Codex on MacBook-Pro (active)
 If an unfinished run exists, continue it:
 
 ```bash
-itp resume --run-id <run_id> --json
+itp resume --run-id <run_id> --host <client> --json
 ```
 
 ## Install From This Repo
@@ -211,26 +217,26 @@ show the human QR/payment entry, wait for verified payment, and report only
 redacted secure delivery status:
 
 ```bash
-itp buyer catalog search --query 企业工商 --json
-itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=阿里 --json
-itp buyer checkout create --cart <cart_id> --email <buyer_email> --json
-itp buyer payment wait <payment_intent_id> --timeout 1 --json
-itp buyer checkout status <checkout_id> --json
+itp buyer catalog search --query 企业工商 --host <client> --json
+itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=阿里 --host <client> --json
+itp buyer checkout create --cart <cart_id> --email <buyer_email> --host <client> --json
+itp buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json
+itp buyer checkout status <checkout_id> --host <client> --json
 ```
 
 For the one-command buyer helper:
 
 ```bash
-itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=阿里 --display agent --no-wait-payment --json
+itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=阿里 --display agent --no-wait-payment --host <client> --json
 ```
 
 For multi-item cart tests:
 
 ```bash
-itp buyer cart create --variants var_itpay_enterprise_precise_lookup_cny05,var_itpay_enterprise_fuzzy_search_cny01 --quantities 1,1 --json
-itp buyer cart show <cart_id> --json
-itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --quantity 1 --json
-itp buyer cart remove <cart_id> --line <cart_line_item_id> --json
+itp buyer cart create --variants var_itpay_enterprise_precise_lookup_cny05,var_itpay_enterprise_fuzzy_search_cny01 --quantities 1,1 --host <client> --json
+itp buyer cart show <cart_id> --host <client> --json
+itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --quantity 1 --host <client> --json
+itp buyer cart remove <cart_id> --line <cart_line_item_id> --host <client> --json
 ```
 
 Payment QR rules:
@@ -241,7 +247,7 @@ Payment QR rules:
 - Do not generate your own QR from payment URLs.
 - In OpenClaw Telegram, use root `agent_instruction.openclaw_message.command_args` with `openclaw message send`; do not simulate buttons in normal prose.
 - Telegram native buttons require `presentation.blocks[].type="buttons"` with `text/url/callback_data`.
-- If `human_output_required=true` appears for another client, send root `human_output` before any next ItPay command.
+- For Codex/Claude Code, send root `agent_instruction.markdown` before any next ItPay command.
 - If status is `payment_handoff_required`, `next` is the human reply step, not payment wait.
 - Treat only `payment_intent.verified` as payment success.
 
@@ -250,9 +256,9 @@ the artifact in the ItPay account portal with Passkey and choose "Give to
 Agent". The agent then discovers the approved grant itself:
 
 ```bash
-itp buyer vault grants list --checkout <checkout_id> --json
-itp buyer vault grants read <agent_read_grant_id> --json
-itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --json
+itp buyer vault grants list --checkout <checkout_id> --host <client> --json
+itp buyer vault grants read <agent_read_grant_id> --host <client> --json
+itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --host <client> --json
 ```
 
 Agents must not ask humans to paste claim links, claim tokens, raw API results,
@@ -262,7 +268,7 @@ Order/account/refund commands require a server-verified buyer session, not a
 vault grant. If they fail with a buyer session error, run:
 
 ```bash
-itp status --refresh --json
+itp status --refresh --host <client> --json
 ```
 
 Then follow the returned `next.command`.

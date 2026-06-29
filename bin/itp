@@ -4,6 +4,7 @@ import { output, outputError, parseFlags, readState, VERSION } from "../lib/env.
 import { docs, skill } from "../lib/docs.js";
 import { ops, admin } from "../lib/ops.js";
 import { buyer, buyerBuy } from "../lib/buyer.js";
+import { clientContextGate } from "../lib/client-context.js";
 import {
   accountLoginLink, accountSetPassword, accountShow, agentStatus, authDevice, authLogin, authRegister, authStatus, balance,
   checkoutCreate, checkoutList, checkoutOpen, checkoutQR, checkoutRecover, doctor, grantsInstall, grantsList, grantsRevoke,
@@ -23,6 +24,11 @@ async function main() {
   }
 
   const [group, command, ...rest] = args;
+  const contextGate = clientContextGate(args);
+  if (contextGate) {
+    output(contextGate);
+    return;
+  }
   const flags = parseFlags(rest);
 
   if (group === "usage") return usage(parseFlags(args.slice(1)));
@@ -93,41 +99,41 @@ async function main() {
       output({
         version: VERSION,
         commands: [
-          "buy var_pubg_couple_skin_cny20 --email <buyer_email> --phone +8613800000000 --display agent --no-wait-payment --json",
-          "buy var_pubg_couple_skin_cny20 --email <buyer_email> --phone +8613800000000 --no-wait --json",
-          "buyer catalog search --query 企业工商 --category business_data_api --provider itpay_enterprise_data --json",
-          "buyer catalog get --variant var_pubg_couple_skin_cny20 --json",
-          "buyer cart create --variant var_pubg_couple_skin_cny20 --json",
-          "buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json",
-          "buyer cart show <cart_id> --json",
-          "buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --quantity 1 --json",
-          "buyer cart remove <cart_id> --line <cart_line_item_id> --json",
-          "buyer shelf manifest --json",
-          "buyer shelf snapshot --version <catalog_version> --json",
-          "buyer shelf delta --since <catalog_version> --json",
-          "buyer checkout create --cart <cart_id> --method alipay --email <buyer_email> --phone +8613800000000 --json",
-          "buyer checkout status <checkout_id> --json",
-          "buyer checkout resume <checkout_id> --json",
-          "buyer auth status --json",
-          "buyer payment wait <payment_intent_id> --timeout 1 --json",
-          "buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json",
-          "buyer deliveries list --checkout <checkout_id> --json",
-          "buyer deliveries show <delivery_id> --checkout <checkout_id> --json",
-          "buyer refund create --order <order_id> --amount-minor 1000 --currency CNY --reason buyer_requested --json",
-          "buyer refund list --order <order_id> --json",
-          "buyer refund show <refund_id> --json",
-          "buyer refund cancel <refund_id> --reason buyer_changed_mind --json",
-          "buyer vault grants list --checkout <checkout_id> --json",
-          "buyer vault grants read <agent_read_grant_id> --json",
-          "buyer vault read --order <order_id> --artifact <vault_artifact_id> --json",
-          "account login-link --json",
-          "status --json",
-          "status --refresh --json",
+          "buy var_pubg_couple_skin_cny20 --email <buyer_email> --phone +8613800000000 --display agent --no-wait-payment --host <client> --json",
+          "buy var_pubg_couple_skin_cny20 --email <buyer_email> --phone +8613800000000 --no-wait --host <client> --json",
+          "buyer catalog search --query 企业工商 --category business_data_api --provider itpay_enterprise_data --host <client> --json",
+          "buyer catalog get --variant var_pubg_couple_skin_cny20 --host <client> --json",
+          "buyer cart create --variant var_pubg_couple_skin_cny20 --host <client> --json",
+          "buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --host <client> --json",
+          "buyer cart show <cart_id> --host <client> --json",
+          "buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=美团 --quantity 1 --host <client> --json",
+          "buyer cart remove <cart_id> --line <cart_line_item_id> --host <client> --json",
+          "buyer shelf manifest --host <client> --json",
+          "buyer shelf snapshot --version <catalog_version> --host <client> --json",
+          "buyer shelf delta --since <catalog_version> --host <client> --json",
+          "buyer checkout create --cart <cart_id> --method alipay --email <buyer_email> --phone +8613800000000 --host <client> --json",
+          "buyer checkout status <checkout_id> --host <client> --json",
+          "buyer checkout resume <checkout_id> --host <client> --json",
+          "buyer auth status --host <client> --json",
+          "buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json",
+          "buyer payment refresh-qr <payment_intent_id> --reason order-not-found --host <client> --json",
+          "buyer deliveries list --checkout <checkout_id> --host <client> --json",
+          "buyer deliveries show <delivery_id> --checkout <checkout_id> --host <client> --json",
+          "buyer refund create --order <order_id> --amount-minor 1000 --currency CNY --reason buyer_requested --host <client> --json",
+          "buyer refund list --order <order_id> --host <client> --json",
+          "buyer refund show <refund_id> --host <client> --json",
+          "buyer refund cancel <refund_id> --reason buyer_changed_mind --host <client> --json",
+          "buyer vault grants list --checkout <checkout_id> --host <client> --json",
+          "buyer vault grants read <agent_read_grant_id> --host <client> --json",
+          "buyer vault read --order <order_id> --artifact <vault_artifact_id> --host <client> --json",
+          "account login-link --host <client> --json",
+          "status --host <client> --json",
+          "status --refresh --host <client> --json",
           "docs list --role buyer --json",
           "docs show quickstart --role buyer --json",
           "docs search <question> --role buyer --json",
-          "resume --json",
-          "resume --run-id <run_id> --host gemini --display none --json",
+          "resume --host <client> --json",
+          "resume --run-id <run_id> --host codex --display none --json",
           "runs list|current|show <run_id>|forget <run_id>",
           "account login-link",
           "skill show",

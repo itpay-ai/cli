@@ -10,18 +10,24 @@
     "The payment intent is still not verified."
   ],
   "required_state": {
-    "needs": ["payment_intent_id"],
-    "must_not_need": ["ops token", "provider query", "new checkout"]
+    "needs": [
+      "payment_intent_id"
+    ],
+    "must_not_need": [
+      "ops token",
+      "provider query",
+      "new checkout"
+    ]
   },
   "commands": [
     {
       "intent": "ask ItPay for same-intent display recovery",
-      "command": "itp buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json",
+      "command": "itp buyer payment refresh-qr <payment_intent_id> --reason order-not-found --host <client> --json",
       "success_signal": "response.payment_intent.qr_png_url or response.payment_intent.qr_image_url is present"
     },
     {
       "intent": "continue waiting after refresh",
-      "command": "itp buyer payment wait <payment_intent_id> --timeout 1 --json",
+      "command": "itp buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json",
       "success_signal": "payment_event.event_type == payment_intent.verified"
     }
   ],
@@ -50,5 +56,12 @@
       "command": "itp docs show recovery --role buyer --json"
     }
   ],
-  "search_terms": ["refresh", "order not found", "expired qr", "qr unavailable", "刷新", "订单不存在"]
+  "search_terms": [
+    "refresh",
+    "order not found",
+    "expired qr",
+    "qr unavailable",
+    "刷新",
+    "订单不存在"
+  ]
 }

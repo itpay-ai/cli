@@ -28,47 +28,47 @@
   "commands": [
     {
       "intent": "create a cart estimate for the selected purchase option",
-      "command": "itp buyer cart create --variant <variant_id> --json",
+      "command": "itp buyer cart create --variant <variant_id> --host <client> --json",
       "success_signal": "response.cart.cart_id is present and response.cart_guidance tells the agent to show the cart to the human before checkout"
     },
     {
       "intent": "create a multi-item cart estimate for selected purchase options",
-      "command": "itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,2 --json",
+      "command": "itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,2 --host <client> --json",
       "success_signal": "response.cart.line_items contains every selected purchase option and response.cart_guidance.double_check_required is true"
     },
     {
       "intent": "create an enterprise fuzzy search cart with required query input",
-      "command": "itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --json",
+      "command": "itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --host <client> --json",
       "success_signal": "response.cart.cart_id is present; the raw provider result is not visible to the agent"
     },
     {
       "intent": "create an enterprise precise lookup cart with exact registered name or credit code",
-      "command": "itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --json",
+      "command": "itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --host <client> --json",
       "success_signal": "response.cart.cart_id is present; payment can proceed only after the exact query input is locked into the cart line"
     },
     {
       "intent": "view the current cart state without relying on model memory",
-      "command": "itp buyer cart show <cart_id> --json",
+      "command": "itp buyer cart show <cart_id> --host <client> --json",
       "success_signal": "response.cart.line_items and response.cart.totals reflect the server-side cart; show these fields to the human before checkout"
     },
     {
       "intent": "add one more selected UCP Variant.id to an existing cart before checkout",
-      "command": "itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --json",
+      "command": "itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --host <client> --json",
       "success_signal": "response.cart.cart_id is unchanged; response.cart.line_items either includes a new line for different input/settings or increments quantity for an identical line"
     },
     {
       "intent": "remove one line from an existing cart before checkout",
-      "command": "itp buyer cart remove <cart_id> --line <cart_line_item_id> --json",
+      "command": "itp buyer cart remove <cart_id> --line <cart_line_item_id> --host <client> --json",
       "success_signal": "response.cart.cart_id is unchanged and response.cart.line_items no longer contains that line id"
     },
     {
       "intent": "create checkout from cart_id",
-      "command": "itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --json",
+      "command": "itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --host <client> --json",
       "success_signal": "response.checkout.checkout_id is present; if response.checkout.next_required_action is auth_qr, show response.checkout.human_action and poll/resume until payment_intent_id appears"
     },
     {
       "intent": "do both steps through the high-level command",
-      "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
+      "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json",
       "success_signal": "response.status is waiting_human_auth, payment_handoff_required, payment_verified, or delivery_claimable"
     }
   ],

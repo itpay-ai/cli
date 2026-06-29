@@ -10,8 +10,13 @@
     "The agent is deciding between buyer and ops commands."
   ],
   "required_state": {
-    "needs": ["role=buyer"],
-    "must_not_need": ["ops token", "raw secret access"]
+    "needs": [
+      "role=buyer"
+    ],
+    "must_not_need": [
+      "ops token",
+      "raw secret access"
+    ]
   },
   "commands": [
     {
@@ -52,5 +57,14 @@
       "command": "itp docs show secure-delivery --role buyer --json"
     }
   ],
-  "search_terms": ["policy", "forbidden", "security", "secret", "ops", "安全", "禁止", "权限"]
+  "search_terms": [
+    "policy",
+    "forbidden",
+    "security",
+    "secret",
+    "ops",
+    "安全",
+    "禁止",
+    "权限"
+  ]
 }

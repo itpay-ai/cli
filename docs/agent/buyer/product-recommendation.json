@@ -22,7 +22,7 @@
   "commands": [
     {
       "intent": "refresh exact product detail before recommendation",
-      "command": "itp buyer catalog get --variant <variant_id> --json",
+      "command": "itp buyer catalog get --variant <variant_id> --host <client> --json",
       "success_signal": "response.product.variants includes current price and availability"
     }
   ],

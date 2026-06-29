@@ -11,23 +11,29 @@
     "Checkout or delivery is pending."
   ],
   "required_state": {
-    "needs": ["last known checkout_id, payment_intent_id, or variant_id"],
-    "must_not_need": ["ops token", "provider raw payload", "claim token"]
+    "needs": [
+      "last known checkout_id, payment_intent_id, or variant_id"
+    ],
+    "must_not_need": [
+      "ops token",
+      "provider raw payload",
+      "claim token"
+    ]
   },
   "commands": [
     {
       "intent": "resume checkout state",
-      "command": "itp buyer checkout resume <checkout_id> --json",
+      "command": "itp buyer checkout resume <checkout_id> --host <client> --json",
       "success_signal": "response.status and agent_next_actions describe the safe next action"
     },
     {
       "intent": "wait again on the same payment intent",
-      "command": "itp buyer payment wait <payment_intent_id> --timeout 1 --json",
+      "command": "itp buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json",
       "success_signal": "response.payment_event.event_type is payment_intent.verified or still waiting"
     },
     {
       "intent": "refresh display QR only",
-      "command": "itp buyer payment refresh-qr <payment_intent_id> --reason order-not-found --json",
+      "command": "itp buyer payment refresh-qr <payment_intent_id> --reason order-not-found --host <client> --json",
       "success_signal": "response.payment_intent.qr_image_url is present"
     }
   ],
@@ -62,5 +68,18 @@
       "command": "itp docs show secure-delivery --role buyer --json"
     }
   ],
-  "search_terms": ["recover", "resume", "timeout", "lost", "retry", "stuck", "恢复", "重试", "卡住", "没返回", "断了", "找不到"]
+  "search_terms": [
+    "recover",
+    "resume",
+    "timeout",
+    "lost",
+    "retry",
+    "stuck",
+    "恢复",
+    "重试",
+    "卡住",
+    "没返回",
+    "断了",
+    "找不到"
+  ]
 }
