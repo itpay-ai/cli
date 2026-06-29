@@ -20,9 +20,12 @@ protocol from this file. Use the CLI docs graph whenever you need details.
 
 ## Start Here
 
-Every non-doc ItPay command must include the current client context. The CLI
-will stop with `client_context_required` or `client_target_required` rather
-than guess.
+Every non-doc ItPay command must include the current client context. `--host`
+means the human-visible client/surface, not where the shell command runs. In
+Codex desktop chat use `--host codex` even when calling `itp` through shell;
+use `--host terminal` only when the human is directly reading a terminal. The
+CLI will stop with `client_context_required` or `client_target_required`
+rather than guess.
 
 ```text
 Codex app:        --host codex
@@ -37,11 +40,11 @@ For Telegram groups or @mention flows, use the same OpenClaw inbound
 OpenClaw owns group allowlists and mention policy; ItPay only echoes the target
 into the returned `agent_action`.
 
-If a response contains `agent_action`, run `agent_action.command` or
-`agent_action.argv` before writing any normal reply. Do not summarize it, do
-not rewrite it as Markdown, and do not run wait/status first. If the command
-cannot run, stop and tell the human the agent lacks the required OpenClaw
-message tool.
+If a response contains `agent_action`, execute that action before writing any
+normal reply or running wait/status. For Telegram/terminal this may be
+`agent_action.command` or `agent_action.argv`; for Codex/Claude Code this may
+be `agent_action.markdown`, which must be sent exactly to the current chat.
+If the action cannot be made visible to the human, stop and say why.
 
 Run these commands before buying:
 
@@ -147,7 +150,7 @@ be unlocked again by the ItPay backend.
 
 ## Non-Negotiable Rules
 
-1. Use `--json` and current client context for every non-doc ItPay command. Use `--host codex`, `--host claude-code`, `--host terminal`, `--host plain-chat`, or for OpenClaw Telegram use `--host telegram --target <inbound_meta.chat_id>`.
+1. Use `--json` and current client context for every non-doc ItPay command. Use `--host codex`, `--host claude-code`, `--host terminal`, `--host plain-chat`, or for OpenClaw Telegram use `--host telegram --target <inbound_meta.chat_id>`. `--host` is the human-visible client, not the shell execution environment.
 2. Do not invent service IDs, variant IDs, checkout IDs, payment URLs, QR URLs,
    payment intent IDs, delivery IDs, or claim links.
 3. When the user asks for several compatible services, use one cart and one
@@ -234,18 +237,19 @@ itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent
 
 This keeps JSON output machine-readable while allowing the CLI to prepare a
 local QR image path for clients that cannot render remote SVG reliably. In
-agent/chat clients, prefer `--no-wait-payment`. In OpenClaw Telegram, if
-`agent_action` is present, execute `agent_action.command` or `agent_action.argv`
-exactly. It already contains `openclaw message send`, the chat target, QR
-media, exact human text, and `presentation.blocks[].type="buttons"` for
-Telegram native inline buttons. Do not rewrite it as a table or normal prose.
-In Codex or Claude Code app clients, send `agent_instruction.markdown` exactly
-before any next ItPay command.
+agent/chat clients, prefer `--no-wait-payment`. If `agent_action` is present,
+execute it exactly before normal prose. In OpenClaw Telegram it contains
+`openclaw message send`, the chat target, QR media, exact human text, and
+`presentation.blocks[].type="buttons"` for Telegram native inline buttons. In
+Codex or Claude Code app clients, send `agent_action.markdown` exactly to the
+current chat. In terminal, run `agent_action.command` only when the human is
+directly watching that terminal.
 
 If a response has `status=payment_handoff_required`, `next` is the user-visible
 reply step, not payment wait. Do not run `buyer payment wait` until the human
-has seen the QR/link and asks to check status; then use
-`after_human_response.check_payment_command`.
+has seen the QR/link. If `after_visible_action.command` exists and you can
+confirm the handoff is visible, you may run it once; if unsure, stop and wait
+for the human.
 
 For first-purchase auth, treat the returned ItPay authorization entry as a
 single human orchestration entry. It may open Alipay login/registration first

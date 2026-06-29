@@ -158,9 +158,12 @@ Before starting a new purchase, agents should inspect recoverable local state:
 itp status --refresh --host <client> --json
 ```
 
-Every non-doc command needs a client context. Use `--host codex`,
-`--host claude-code`, `--host terminal`, or `--host plain-chat`. For OpenClaw
-Telegram private/group chat, use `--host telegram --target <inbound_meta.chat_id>`.
+Every non-doc command needs a client context. `--host` means the
+human-visible client/surface, not where the shell command runs. Use
+`--host codex` in Codex desktop chat even when you call `itp` through shell;
+use `--host terminal` only when the human is directly reading a terminal. For
+OpenClaw Telegram private/group chat, use
+`--host telegram --target <inbound_meta.chat_id>`.
 If the CLI returns `client_context_required` or `client_target_required`, rerun
 the same command with the requested fields.
 
@@ -247,7 +250,8 @@ Payment QR rules:
 - Do not generate your own QR from payment URLs.
 - In OpenClaw Telegram, run root `agent_action.command` or `agent_action.argv` before replying; do not simulate buttons in normal prose.
 - Telegram native buttons require `presentation.blocks[].type="buttons"` with `text/url/callback_data`.
-- For Codex/Claude Code, send root `agent_instruction.markdown` before any next ItPay command.
+- For Codex/Claude Code app clients, send root `agent_action.markdown` before any next ItPay command. If you can confirm it is visible to the human, you may then run `after_visible_action.command`; if unsure, stop.
+- For terminal clients, run root `agent_action.command` only when the human is directly watching that terminal. Do not use `--host terminal` merely because you invoke `itp` through shell.
 - If status is `payment_handoff_required`, `next` is the human reply step, not payment wait.
 - Treat only `payment_intent.verified` as payment success.
 

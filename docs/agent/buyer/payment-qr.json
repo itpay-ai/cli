@@ -35,7 +35,7 @@
     }
   ],
   "agent_rules": [
-    "Every non-doc ItPay command must include current client context. Use --host codex/claude-code/terminal/plain-chat, or for OpenClaw Telegram use --host telegram --target <inbound_meta.chat_id>.",
+    "Every non-doc ItPay command must include current client context. Use --host codex/claude-code/terminal/plain-chat, or for OpenClaw Telegram use --host telegram --target <inbound_meta.chat_id>. --host is the human-visible client/surface, not where the shell command runs; in Codex desktop chat use --host codex even when calling itp through shell.",
     "If ItPay returns client_context_required or client_target_required, rerun the same command with the requested --host/--target before doing anything else.",
     "If human_action.kind is auth_qr, present the ItPay first-purchase entry URL/QR and explain it starts account login/registration/profile authorization and should continue to payment for the same checkout after approval.",
     "For auth_qr, the ItPay auth entry is the primary handoff. oauth_start_url is fallback/debug and should not replace the ItPay orchestration page.",
@@ -43,13 +43,13 @@
     "Payment QR display requires both a valid/saved buyer session and payment_intent_id. If payment_intent_id appears before buyer_session is saved, run buyer checkout resume/status instead of showing payment QR.",
     "Do not stop after showing auth_qr unless the human explicitly asks you to pause. Keep waiting/resuming the same checkout so the post-auth payment handoff can continue.",
     "Do not describe auth_qr as payment success or payment proof. Only payment_intent.verified proves payment.",
-    "If response.agent_action is present, it is the mandatory execution path. Execute response.agent_action.command or response.agent_action.argv before any normal prose reply or next ItPay command.",
+    "If response.agent_action is present, it is the mandatory execution path. Execute it before any normal prose reply or next ItPay command: command/argv for Telegram or terminal, markdown for Codex/Claude Code app clients.",
     "In OpenClaw Telegram, response.agent_action is already the exact openclaw message send command. Do not rebuild it, do not summarize it, and do not rewrite it into a custom table.",
-    "If response.agent_action cannot be executed, stop and tell the human this agent lacks OpenClaw native message-send capability. Do not fall back to Markdown.",
+    "If response.agent_action cannot be executed or made visible to the human, stop and tell the human what capability is missing. Do not fall back to handmade prose.",
     "response.agent_instruction is natural-language reinforcement for the agent; it does not replace response.agent_action.",
     "Telegram native buttons require openclaw message send --presentation; presentation.blocks[].type=\"buttons\" uses native text/url/callback_data. Do not simulate buttons in normal prose.",
     "If agent_instruction links/buttons include URLs, include the real URL. Do not only show the link label.",
-    "In Codex or Claude Code app clients, send response.agent_instruction.markdown first. Do not start a hidden long wait before the human-visible message is sent.",
+    "In Codex or Claude Code app clients, send response.agent_action.markdown first. Do not start a hidden long wait before the human-visible message is sent.",
     "For Telegram-style message clients, send photo media first, include links, and expose native buttons for refresh/status when the adapter supports them.",
     "For plain chat clients, show response.agent_instruction.message/links and stop unless the human asks you to check status or returns with a payment question.",
     "When response.status is payment_handoff_required, response.next is the human reply step, not payment wait.",
@@ -60,7 +60,7 @@
     "payment_entry_url is the stable ItPay status/payment page. qr_png_url/local_qr_path is usually the better desktop scanner artifact.",
     "The provider can briefly show order not found even after precreate succeeded. Tell the human to wait 30-60 seconds and retry the same QR/page. Do not create a new checkout, do not create a new payment intent, and do not repeatedly refresh unless the ItPay page or CLI explicitly asks for recovery.",
     "Opening the payment page must not be treated as paid.",
-    "Do not run payment wait before the QR/link has been sent to the human. Without an explicit short timeout, CLI returns payment_handoff_required instead of blocking.",
+    "Do not run payment wait before the QR/link has been sent to the human. If after_visible_action.command exists and you can confirm the handoff is visible, you may run it once; if unsure, stop and wait for the human.",
     "After the human says they paid or clicks a platform status button, run response.after_human_response.check_payment_command for the same payment_intent_id."
   ],
   "forbidden": [
