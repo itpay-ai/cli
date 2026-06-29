@@ -211,13 +211,14 @@ itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent
 
 This keeps JSON output machine-readable while allowing the CLI to prepare a
 local QR image path for clients that cannot render remote SVG reliably. In
-agent/chat clients, prefer `--no-wait-payment`: if `human_output_required=true`,
-send root `human_output` before any next ItPay command. In Codex or Claude Code
-app clients, send `human_output.markdown` exactly. In OpenClaw Telegram, pass
-`human_output.message/media/presentation` to `openclaw message send` so media
-and native `text/url/callback_data` buttons are sent through the adapter.
-`render_plan` is diagnostic/compatibility detail. Do not invent a table or
-rewrite the UI plan.
+agent/chat clients, prefer `--no-wait-payment`. In OpenClaw Telegram, if
+`agent_instruction` is present, call `openclaw message send` with
+`agent_instruction.openclaw_message.command_args`. The `media` field is the QR
+image, `message` is the exact human text, and
+`presentation.blocks[].type="buttons"` creates Telegram native inline buttons.
+Do not rewrite it as a table or normal prose. In Codex or Claude Code app
+clients, if `human_output_required=true`, send `human_output.markdown` exactly
+before any next ItPay command.
 
 If a response has `status=payment_handoff_required`, `next` is the user-visible
 reply step, not payment wait. Do not run `buyer payment wait` until the human

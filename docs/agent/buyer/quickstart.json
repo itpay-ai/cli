@@ -45,7 +45,7 @@
     {
       "intent": "buy a selected variant with the high-level cart-first flow",
       "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --json",
-      "success_signal": "response.status becomes waiting_human_auth or payment_handoff_required; if human_output_required is true, send response.human_output before any payment status check"
+      "success_signal": "response.status becomes waiting_human_auth or payment_handoff_required; in OpenClaw Telegram, if agent_instruction is present, send response.agent_instruction.openclaw_message.command_args before any payment status check"
     }
   ],
   "agent_rules": [
@@ -62,13 +62,13 @@
     "After showing auth_qr, keep running/resuming the same checkout unless the human explicitly asks you to pause. Do not stop merely because a QR was displayed.",
     "When a buyer command returns buyer_session.status=buyer_session_saved, the CLI has stored the buyer account session for this agent device. You may continue with checkout/payment or `buyer vault` commands without asking the human for a token.",
     "Vault grants are only for reading approved delivered artifacts. They are not buyer session credentials and do not authorize refunds or account/order management.",
-    "Use high-level itp buy when possible, but in agent app clients split payment into two visible steps: first return and send human_output, then only check status after the human responds or uses a platform button.",
-    "If response.human_output_required is true, send response.human_output immediately in the same user-visible message. It includes the QR image/link/buttons.",
+    "Use high-level itp buy when possible, but in agent app clients split payment into two visible steps: first return and send the human handoff instruction, then only check status after the human responds or uses a platform button.",
+    "In OpenClaw Telegram, if response.agent_instruction is present, call openclaw message send with response.agent_instruction.openclaw_message.command_args. It includes the QR media, exact message, and native button presentation.",
     "If response.status is payment_handoff_required, do not run payment wait from next.command; next is the human-visible reply. Only after the human asks to check payment should you run after_human_response.check_payment_command.",
     "Show the returned payment QR exactly as provided before starting payment wait.",
     "Payment truth comes only from payment_intent.verified.",
     "Secure delivery goes to the human first; report redacted delivery status only.",
-    "When response.human_output_required is true, root human_output is the execution path. render_plan is diagnostic/compatibility detail. In OpenClaw Telegram, pass human_output.message/media/presentation to openclaw message send instead of handwritten prose."
+    "For OpenClaw Telegram, root agent_instruction is the execution path. Do not use handwritten prose when agent_instruction.openclaw_message.command_args is present."
   ],
   "forbidden": [
     "Do not call ops commands from the buyer path.",

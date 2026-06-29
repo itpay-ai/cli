@@ -35,9 +35,9 @@
     }
   ],
   "agent_rules": [
-    "If payment wait returns payment_handoff_required, send response.human_output before running any later status check.",
+    "If payment wait returns payment_handoff_required with response.agent_instruction, send response.agent_instruction.openclaw_message.command_args before running any later status check.",
     "Start payment status checks only after the QR image/link has already been sent to the human or the human asks to check status.",
-    "If you run payment wait without a short timeout while payment is still pending, CLI returns payment_handoff_required and human_visible_markdown instead of long-polling.",
+    "If you run payment wait without a short timeout while payment is still pending, CLI returns payment_handoff_required and the human handoff instruction instead of long-polling.",
     "Payment wait/status check is a recovery loop around the same payment_intent_id, not a one-shot command.",
     "wait.timeout is a heartbeat, not a payment failure.",
     "In Codex or Claude Code app clients, after showing QR, use a short status check first. If the human still has not paid, explain that the same QR/link remains valid and pause for their reply.",
