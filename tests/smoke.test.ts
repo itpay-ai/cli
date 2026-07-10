@@ -91,7 +91,7 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("prerelease backend is the package default", () => {
+test("test backend is the package default", () => {
   assert.equal(DEFAULT_BASE_URL, "https://test.itpay.ai");
 });
 

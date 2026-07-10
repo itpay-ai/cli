@@ -29,7 +29,7 @@
   "env_vars": {
     "ITPAY_BACKEND_URL": {
       "required": false,
-      "description": "Optional V3 backend override. This prerelease defaults to https://test.itpay.ai.",
+      "description": "Optional V3 backend override. This test release defaults to https://test.itpay.ai.",
       "examples": ["http://localhost:18080", "https://test.itpay.ai"]
     },
     "ITPAY_BEARER_TOKEN": {
@@ -63,7 +63,7 @@
     "lark": "Use --host lark --target <open_id>. Same as feishu format."
   },
   "agent_rules": [
-    "Use the built-in https://test.itpay.ai prerelease default; override ITPAY_BACKEND_URL only for another deliberate environment.",
+    "Use the built-in https://test.itpay.ai test-release default; override ITPAY_BACKEND_URL only for another deliberate environment.",
     "Install globally with npm install -g @itpay/cli for all hosts.",
     "Identify the real runtime with --agent-type or ITPAY_AGENT_TYPE; do not invent a new type to obtain quota.",
     "Run `itpay install` without arguments to see all supported targets.",
