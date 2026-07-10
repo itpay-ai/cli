@@ -1,0 +1,76 @@
+{
+  "schema_version": "itp.agent_doc.v1",
+  "role": "buyer",
+  "topic": "orders-refunds",
+  "title": "Orders, Payment Escape Hatch, And Refund Requests",
+  "purpose": "Teach the agent how to inspect orders and create refund requests with the current V3 CLI package.",
+  "when_to_use": [
+    "The user wants to inspect one order.",
+    "The agent needs to list orders for an account-scoped bearer session.",
+    "The user wants to request a refund.",
+    "The checkout page is unavailable and the operator needs the payment-intent escape hatch."
+  ],
+  "required_state": {
+    "needs": [
+      "order_id for order or refund flows",
+      "payment_intent_id for refund flows"
+    ],
+    "optional": [
+      "ITPAY_BEARER_TOKEN for account order listing"
+    ]
+  },
+  "commands": [
+    {
+      "intent": "read one canonical order by id",
+      "command": "itpay order <order_id>",
+      "success_signal": "order details and a status hint are printed"
+    },
+    {
+      "intent": "list account-visible orders",
+      "command": "ITPAY_BEARER_TOKEN=<account_scoped_token> itpay orders --limit 20",
+      "success_signal": "orders are listed, or the CLI prints that no orders were found"
+    },
+    {
+      "intent": "create a payment intent only when the normal checkout page cannot do it",
+      "command": "itpay pay --checkout <checkout_id> --method alipay",
+      "success_signal": "payment_intent_id and current payment state are printed"
+    },
+    {
+      "intent": "request a refund for an order",
+      "command": "itpay refund --order <order_id> --payment-intent <payment_intent_id> --amount-minor <n> --currency CNY --reason buyer_requested",
+      "success_signal": "refund request id and refund status are printed"
+    }
+  ],
+  "agent_rules": [
+    "Use itpay order when you already know the exact order id.",
+    "Use itpay orders only with an account-scoped bearer token. Missing or wrong scope should be surfaced as an error, not guessed away.",
+    "Treat itpay pay as an operator escape hatch. The checkout handoff remains the preferred path.",
+    "Refund amounts are minor units. For CNY, 100 means CNY 1.00.",
+    "The refund response is the current source of truth; do not assume success locally."
+  ],
+  "forbidden": [
+    "Do not fabricate bearer tokens.",
+    "Do not create a payment intent first if normal checkout rendering is available.",
+    "Do not claim a refund succeeded before the backend response says so."
+  ],
+  "next_docs": [
+    {
+      "condition": "Need the initial buyer flow",
+      "topic": "quickstart",
+      "file": "docs/agent/buyer/quickstart.json"
+    },
+    {
+      "condition": "Need host-specific render behavior for checkout handoff",
+      "topic": "render-hosts",
+      "file": "docs/agent/buyer/render-hosts.json"
+    }
+  ],
+  "search_terms": [
+    "order",
+    "orders",
+    "refund",
+    "payment intent",
+    "退款",
+    "订单"
+  ]
+}

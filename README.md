@@ -1,451 +1,152 @@
-# ITPay CLI
+# ItPay CLI
 
-Open-source command line client, buyer skill, and agent-readable docs for ItPay agent-native commerce.
-
-This repository is intentionally small. It contains only the public local tooling needed by users and agents:
-
-- `itp` CLI
-- npm package metadata
-- install scripts
-- smoke and local E2E scripts
-- ItPay buyer skill prompt
-- agent-readable CLI docs graph
-
-It does not contain the closed-source SaaS backend, database files, payment keys, model provider keys, user credentials, or deployment secrets.
-
-## What This CLI Does
-
-`itp` lets a developer or coding agent discover ItPay services, create cart-first checkouts, show QR payments, wait for verified payment, report secure human delivery status, create one-time human account portal links, and read human-approved Vault grants without exposing raw keys or protected content to the agent.
-
-Main flow:
-
-```text
-public catalog search -> explain/recommend -> UCP cart -> checkout -> QR payment -> wait verified -> redacted secure delivery status -> optional human account portal link
-```
-
-Supported runtime targets:
-
-```text
-codex
-claude-code
-openclaw
-```
-
-Default API endpoint:
-
-```text
-https://dev.api.itpay.ai
-```
-
-Override it for local development, staging, or production:
-
-```bash
-export ITPAY_API_BASE=http://127.0.0.1:18080
-export ITPAY_CORE_API_BASE=http://127.0.0.1:18080
-```
-
-Production release will switch the package default to `https://api.itpay.ai`.
-
-## Repository Layout
-
-```text
-.
-├── bin/itp                         # Node.js CLI entrypoint
-├── skills/itpay-buyer/SKILL.md     # Buyer agent quick-start skill
-├── docs/agent/buyer/*.json         # Agent-readable docs graph
-├── install.sh                      # Unix user-level installer
-├── install.ps1                     # Windows PowerShell installer
-├── smoke.sh                        # Local CLI smoke test
-├── e2e-local.sh                    # Local backend E2E test
-├── package.json                    # npm package metadata
-├── README.md                       # This maintenance guide
-├── LICENSE                         # MIT
-└── .gitignore
-```
-
-## Prerequisites
-
-For local development:
-
-```text
-Node.js >= 18
-npm
-curl
-git
-```
-
-Optional native credential stores:
-
-```text
-macOS: security / Keychain
-Linux: secret-tool
-```
-
-Non-interactive agent hosts such as Codex automatically use file storage to
-avoid OS keychain prompts. To force file storage anywhere:
-
-```bash
-ITP_CREDENTIAL_STORE=file itp buyer auth status --host <client> --json
-```
-
-If native credential storage is unavailable, the CLI falls back to:
-
-```text
-~/.itp/credentials.json
-```
-
-The fallback file is written with `0600` permissions.
-
-## Human Account Portal Link
-
-After a buyer has completed first-purchase auth and the CLI has a buyer account session, an agent can create a one-time link for the human to view the ItPay account/order portal:
-
-```bash
-itp account login-link --host <client> --json
-```
-
-The agent should give the returned `login_url` to the human and must not open or scrape it. The portal shows the same redacted order/vault state available through buyer APIs; raw artifact reveal remains a separate human Passkey/WebAuthn flow.
-
-## Install From npm
+The V3 terminal and agent-facing CLI for ItPay commerce.
 
 ```bash
 npm install -g @itpay/cli
+itpay readyz
+itpay docs show quickstart
 ```
 
-Verify all command aliases:
-
-```bash
-itp --version
-itpay --version
-itpay_cli --version
-```
-
-Run without installing globally:
-
-```bash
-npx @itpay/cli --version
-```
-
-## Agent First Step
-
-If you are an AI agent, read the packaged buyer skill before searching,
-creating carts, asking the user to pay, or reporting delivery:
-
-```bash
-itp skill show --role buyer --json
-```
-
-Then load the quickstart docs page:
-
-```bash
-itp docs show quickstart --role buyer --json
-```
-
-If confused, search the agent docs instead of guessing:
-
-```bash
-itp docs search "<question>" --role buyer --json
-```
-
-The skill is a quick-start directory and safety boundary. Detailed flow guidance
-lives in `itp docs ... --role buyer --json`. Each docs page contains
-`next_docs`, so an agent can read one small guide, act, then load the next guide
-from the current state.
-
-Before starting a new purchase, agents should inspect recoverable local state:
-
-```bash
-itp status --refresh --host <client> --json
-```
-
-Every non-doc command needs a client context. `--host` means the
-human-visible client/surface, not where the shell command runs. Use
-`--host codex` in Codex desktop chat even when you call `itp` through shell;
-use `--host terminal` only when the human is directly reading a terminal. For
-OpenClaw Telegram private/group chat, use
-`--host telegram --target <inbound_meta.chat_id>`.
-If the CLI returns `client_context_required` or `client_target_required`, rerun
-the same command with the requested fields.
-
-Humans can use the default account overview:
-
-```bash
-itp status
-```
-
-```text
-Account:  buyer_7xK2mP9vQ4
-Linked:   alipay, wechat
-Orders:   12
-Device:   Codex on MacBook-Pro (active)
-```
-
-If an unfinished run exists, continue it:
-
-```bash
-itp resume --run-id <run_id> --host <client> --json
-```
-
-## Install From This Repo
-
-```bash
-git clone <this-repo-url>
-cd itpay_cli
-npm run check
-```
-
-User-level install:
-
-```bash
-./install.sh
-```
-
-Or use the script directly:
-
-```bash
-node ./bin/itp --version
-```
-
-## Basic User Flow
-
-The default endpoint is the AWS dev backend. Set API endpoint only when testing
-local or another environment:
-
-```bash
-export ITPAY_API_BASE=http://127.0.0.1:18080
-```
-
-For the current buyer commerce flow, search the catalog, create a cart/checkout,
-show the human QR/payment entry, wait for verified payment, and report only
-redacted secure delivery status:
-
-```bash
-itp buyer catalog search --query 企业工商 --host <client> --json
-itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=阿里 --host <client> --json
-itp buyer checkout create --cart <cart_id> --email <buyer_email> --host <client> --json
-itp buyer payment wait <payment_intent_id> --timeout 1 --host <client> --json
-itp buyer checkout status <checkout_id> --host <client> --json
-```
-
-For the one-command buyer helper:
-
-```bash
-itp buy var_itpay_enterprise_fuzzy_search_cny01 --email <buyer_email> --input company_name=阿里 --display agent --no-wait-payment --host <client> --json
-```
-
-For multi-item cart tests:
-
-```bash
-itp buyer cart create --variants var_itpay_enterprise_precise_lookup_cny05,var_itpay_enterprise_fuzzy_search_cny01 --quantities 1,1 --host <client> --json
-itp buyer cart show <cart_id> --host <client> --json
-itp buyer cart add <cart_id> --variant var_itpay_enterprise_fuzzy_search_cny01 --quantity 1 --host <client> --json
-itp buyer cart remove <cart_id> --line <cart_line_item_id> --host <client> --json
-```
-
-Payment QR rules:
-
-- Show `local_qr_path` first when the CLI provides it.
-- Otherwise render the ItPay-hosted `qr_png_url` / `preferred_qr_url`.
-- Use `mobile_wallet_url` only as a human mobile fallback.
-- Do not generate your own QR from payment URLs.
-- In OpenClaw Telegram, run root `agent_action.command` or `agent_action.argv` before replying; do not simulate buttons in normal prose.
-- Telegram native buttons require `presentation.blocks[].type="buttons"` with `text/url/callback_data`.
-- For Codex/Claude Code app clients, send root `agent_action.markdown` first; once it is visible in the current chat, run `after_visible_action.command` once by default. Stop only if visibility is uncertain.
-- For terminal clients, run root `agent_action.command` only when the human is directly watching that terminal. Do not use `--host terminal` merely because you invoke `itp` through shell.
-- If status is `payment_handoff_required`, follow `next.type`: Codex/Claude app clients normally send-to-human then wait once; plain chat stops for the human.
-- Treat only `payment_intent.verified` as payment success.
-
-If the human wants the agent to analyze delivered content, the human must reveal
-the artifact in the ItPay account portal with Passkey and choose "Give to
-Agent". The agent then discovers the approved grant itself:
-
-```bash
-itp buyer vault grants list --checkout <checkout_id> --host <client> --json
-itp buyer vault grants read <agent_read_grant_id> --host <client> --json
-itp buyer vault read --order <order_id> --artifact <vault_artifact_id> --host <client> --json
-```
-
-Agents must not ask humans to paste claim links, claim tokens, raw API results,
-provider keys, or grant ids into chat.
-
-Order/account/refund commands require a server-verified buyer session, not a
-vault grant. If they fail with a buyer session error, run:
-
-```bash
-itp status --refresh --host <client> --json
-```
-
-Then follow the returned `next.command`.
-
-## Agent Skill And Docs
-
-Installed agents can read the buyer skill and docs graph at any time:
-
-```bash
-itp skill show --role buyer --json
-itp skill path --role buyer
-itp docs list --role buyer --json
-itp docs show quickstart --role buyer --json
-itp docs search "<question>" --role buyer --json
-```
-
-Repository files:
-
-```text
-skills/itpay-buyer/SKILL.md
-docs/agent/buyer/*.json
-```
-
-Agents should use the buyer skill when the user asks to search, buy, pay, or receive an ItPay service.
-
-The skill rules are strict:
-
-- Do not invent payment links.
-- Do not ask users to paste API keys, claim links, claim tokens, redeem codes, or raw keys into chat.
-- Use `--json` for agent-run commands.
-- Use UCP cart-first checkout for CORE-028 buyer tests.
-- Treat only `payment_intent.verified` as payment success.
-- Report secure delivery as redacted status only.
-
-## Local Backend E2E
-
-When a local ItPay backend is running on `http://localhost:3000`:
-
-```bash
-ITPAY_API_BASE=http://localhost:3000 ./e2e-local.sh
-```
-
-The E2E script uses a temporary HOME, so it does not touch your real:
-
-```text
-~/.itp
-~/.codex
-```
-
-The script covers the current buyer CLI smoke path and local backend contracts.
-
-## Development Checks
-
-Run before committing:
-
-```bash
-npm run check
-npm pack --dry-run
-```
-
-Expected `npm pack --dry-run` files:
-
-```text
-LICENSE
-README.md
-bin/itp
-e2e-local.sh
-install.ps1
-install.sh
-package.json
-skills/itpay-buyer/SKILL.md
-docs/agent/buyer/*.json
-smoke.sh
-```
-
-## npm Publish
-
-Check login:
-
-```bash
-npm whoami
-```
-
-If needed:
-
-```bash
-npm login
-```
-
-Check package name:
-
-```bash
-npm view @itpay/cli name
-```
-
-If the package is not published yet, npm returns a not-found error.
-
-Publish:
-
-```bash
-npm publish --access public
-```
-
-Post-publish install test:
-
-```bash
-TMP_PREFIX=$(mktemp -d)
-npm install -g --prefix "$TMP_PREFIX" @itpay/cli
-"$TMP_PREFIX/bin/itp" --version
-"$TMP_PREFIX/bin/itp" skill show --role buyer --json
-"$TMP_PREFIX/bin/itp" docs show quickstart --role buyer --json
-"$TMP_PREFIX/bin/itpay" --version
-"$TMP_PREFIX/bin/itpay_cli" --version
-```
-
-## Safety and Secrets
-
-Never commit:
-
-```text
-.env
-.npmrc with auth token
-~/.itp
-~/.codex
-credentials.json
-itpay.env
-*.pem
-*.key
-*.p12
-*.pfx
-database files
-npm tarballs
-```
-
-The repository `.gitignore` excludes these by default, including `**/.DS_Store`.
-
-Before pushing or publishing, run:
-
-```bash
-git status --short
-npm pack --dry-run
-npm run check
-```
-
-## Maintainer Workflow
-
-Typical update flow:
-
-```bash
-git pull
-npm run check
-# edit bin/itp, skills/itpay-buyer/SKILL.md, or docs/agent/buyer/*.json
-npm run check
-npm pack --dry-run
-git status --short
-git add .
-git commit -m "Describe the CLI change"
-git push
-```
-
-For behavior changes, update both:
-
-```text
-bin/itp
-docs/agent/buyer/*.json
-skills/itpay-buyer/SKILL.md
-```
-
-If the backend contract changes, update:
-
-```text
-README.md
-e2e-local.sh
-docs/agent/buyer/*.json
-skills/itpay-buyer/SKILL.md
-```
+This prerelease defaults to `https://test.itpay.ai`. Set
+`ITPAY_BACKEND_URL` only when intentionally using another backend.
+
+## Commands
+
+- `itpay readyz` — `GET /v1/readyz`
+- `itpay next [--json]` — show the next recommended agent action from remembered server handles
+- `itpay cart add --item <id> --variant <id> --offer <id> [--quantity 1] [--input <json>] [--host <host>] [--json]` — create/update the canonical server cart; service-backed lines return `service_execution_id`
+- `itpay cart next [--json]` — show the next recommended action for the remembered canonical server cart
+- `itpay cart add --local ...` — explicit local draft compatibility mode only, not valid for service-backed flows
+- `itpay cart remove --line <cart_item_id>` — soft-remove an active line from the canonical server cart; quote-locked or checkout-bound lines are rejected
+- `itpay cart remove --local --variant <id> --offer <id>` — drop a local draft line
+- `itpay cart show` — print the canonical server cart, or local draft fallback when no server cart handle exists
+- `itpay cart clear` — abandon the canonical server cart and clear local handles
+- `itpay cart clear --local` — clear local handles/draft only
+- `itpay buy --cart <cart_id> --host <host> [--target <target>] [--qr-format ...] [--qr-file <path>]` — create checkout from a canonical server cart and render the branded checkout QR for the host
+- `itpay buy --host <host> [--target <target>] [--item ... --variant ... --offer ...] [--quantity 1]` — compatibility one-shot cart + checkout path
+- `itpay services start <service_id>` — start a generic Service Execution run
+- `itpay services invoke <service_execution_id> --capability <capability_id> --input key=value` — invoke an agent-visible capability
+- `itpay services action <service_execution_id> --action <action_type> [--result-item <id>]` — record a human/agent service action
+- `itpay services checkout <service_execution_id> --capability <capability_id> --email <email> [--host <host>] [--json]` — create quote lock from Service Execution state, bind it to the server cart item when present, persist the handoff, and render the branded ItPay checkout
+- `itpay services checkout <service_execution_id> --resume --json` — reissue a lost or expired handoff for the same unpaid checkout without asking for contact information again
+- `itpay services next <service_execution_id> [--json]` — show the next recommended action from the Service Execution read model
+- `itpay services get <service_execution_id>` / `itpay services events <service_execution_id>` — read the redacted Service Execution timeline
+- `itpay checkout --id <checkout_id> --token <display_token>` — read canonical checkout presentation
+- `itpay pay --checkout <id> --method alipay|wechatpay` — CLI escape hatch for operator/manual testing only; normal buyer flow opens the ItPay checkout page first
+- `itpay order <order_id>` — read one V3 order
+- `itpay orders [--limit 20] [--status <status>]` — list account-scoped orders (requires `ITPAY_BEARER_TOKEN`)
+- `itpay refund --order <id> --payment-intent <id> --amount-minor <n> --currency <code>` — request a refund
+
+## Hosts
+
+The CLI dispatches to a per-host renderer based on `--host`:
+
+| `--host` | Renderer | Native UI |
+| --- | --- | --- |
+| `terminal` | `render/terminal.ts` | terminal QR + summary |
+| `codex`, `claude-code` | `render/markdown.ts` | markdown image + links |
+| `telegram` | `render/telegram.ts` | openclaw `message send` with inline buttons |
+| `feishu`, `lark` | `render/feishu.ts` | Feishu/Lark interactive card (url + callback) |
+| `discord`, `whatsapp`, `plain-chat` | `render/plain_chat.ts` | text + links, no native buttons |
+
+Aliases: `tg` and `openclaw-telegram` map to `telegram`; `feishu_im` and `fs` map to `feishu`.
+
+## Environment
+
+- `ITPAY_BACKEND_URL` — optional backend override (prerelease default `https://test.itpay.ai`)
+- `ITPAY_BEARER_TOKEN` — account-scoped session token (only needed for `orders`)
+- `ITPAY_AGENT_DEVICE_ID` — agent device id, used for cart/service execution quota identity and `client_context`
+- `ITPAY_CURRENCY` — checkout currency (default `CNY`)
+- `ITPAY_IDEMPOTENCY_KEY` — `Idempotency-Key` for pay/refund requests (auto-generated if unset)
+- `ITPAY_IDE_IMAGE_ATTACH` — set to `0` to disable the IDE image-attach contract (e.g. read-only runner FS). Default `1`.
+- `ITPAY_IDE_IMAGE_DIR_OVERRIDE` — override the canonical IDE image directory instead of `$TMPDIR/itpay-v3-qr`. Useful when the IDE file panel only knows one path.
+
+## Agent next actions
+
+Service-backed flows return progressive guidance for agents:
+
+- `itpay cart add --json`, `itpay services start`, `itpay services invoke`,
+  `itpay services action`, `itpay services get`, and
+  `itpay services checkout --json` include top-level `next_actions`.
+- `itpay next`, `itpay cart next`, and `itpay services next <id>` print only
+  the next recommended command and recovery commands.
+- The guidance is derived from server cart and Service Execution read models.
+  Local `~/.itpay-v3/cart.json` only stores handles such as `cart_id`,
+  `service_execution_id`, `checkout_id`, and `display_token`.
+
+Agents should prefer `next_actions` over hardcoded service-specific flows.
+For example, a service-backed cart add can return an invoke command for an
+agent-visible free capability, while a quote-locked execution can return the
+checkout handoff command.
+
+## IDE image attach
+
+Every `itpay buy`, `itpay services checkout` (and `itpay checkout`,
+`itpay order`) downloads the
+brand checkout QR from the backend and writes it to a stable local
+file the agent can hand to the IDE image viewer (Trae `Read` tool,
+Codex, Claude Code). The contract is:
+
+- canonical file: `<os.tmpdir()>/itpay-v3-qr/itpay-v3-<kind>-<id>.png`
+  (override with `ITPAY_IDE_IMAGE_DIR_OVERRIDE`)
+- when `/tmp/itpay-v3-qr` is a separate, writable location it gets a
+  mirror of the same file under the same name
+- filename is stable per checkout, so re-runs overwrite the same
+  local file rather than scattering copies across the scratch dir
+
+Outputs that carry the IDE image attach:
+
+- `itpay buy --json` — fields `brand_qr_local_path`, `brand_qr_mirrors`,
+  `brand_qr_stable_name`, `brand_qr_status` (`downloaded` / `failed`
+  / `disabled` / `fallback`), `brand_qr_error`, `brand_qr_data_url`,
+  `brand_qr_must_render_reason`, `brand_qr_render_action`. Read the
+  path with the IDE's `Read` tool so the human sees the picture.
+- `itpay services checkout --json` — same brand QR fields, plus
+  `next_action: "open_human_checkout"` and the checkout-scoped
+  `display_token`. Agents must show this ItPay checkout QR/URL to the
+  human and must not call `itpay pay` for the normal buyer flow.
+- Markdown (Trae / Codex / Claude Code) — inlines a `data:image/png;base64,...`
+  copy of the picture plus a `[ATTACH] IDE image` reference block that
+  points at the canonical local path and mirrors.
+- Terminal — prints `Branded QR: /path/...png` and `QR mirrors: ...`;
+  iTerm inline image renders the same file when the session supports it.
+- Telegram — the `ide_image_attach` block on `presentation.ide_image_attach`
+  carries `status`, `local_path`, `mirrors`, `mime_type`, `source`,
+  `caption`, `error` (when failed), `must_render_reason`, and a
+  step-by-step `instructions` array.
+- Feishu / Lark — same `ide_image_attach` block on the
+  `message.ide_image_attach` envelope.
+
+Disable the contract with `ITPAY_IDE_IMAGE_ATTACH=0` for runners on a
+read-only filesystem. The plan carries `status: "disabled"` instead
+of `status: "downloaded"` and no PNG is downloaded.
+
+## Layout
+
+- `src/main.ts` — `commander` entrypoint, command registration
+- `src/client/` — HTTP/JSON client and DTOs
+- `src/commands/` — one file per command family
+- `src/render/` — terminal formatting
+  - `plan.ts` — `RenderPlan` contract shared by all renderers
+  - `qr.ts` — local QR + format selection
+  - `terminal.ts`, `markdown.ts`, `plain_chat.ts`, `telegram.ts`, `feishu.ts` — per-host renderers
+  - `index.ts` — `dispatchRender()` picks the right renderer
+  - `sink.ts` — `OutputSink` so tests can silence stdout
+- `src/state/` — local CLI config, cart session, client context
+- `tests/` — node:test smoke test + in-process mock backend
+
+## Rules
+
+- commands orchestrate user intent only
+- render code must not issue HTTP calls
+- keep API access under `src/client/`
+- persist checkout-scoped `display_token` and last server handles only in the owner-only local cart session file
+- the default `buy` command must not create a payment intent unless `--pay` is explicit
+- the default `services checkout` command must render the ItPay
+  checkout handoff; provider payment intents are created by the human
+  checkout page, not by the agent
+- a renderer must consume the brand QR the V3 backend hands back
+  (`qr_payload` / `qr_png_url` / `mobile_wallet_url`) and only
+  self-generate a QR for `auth_qr` / `checkout_qr` with the explicit
+  `--qr-file` opt-in

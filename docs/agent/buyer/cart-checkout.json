@@ -2,142 +2,104 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "cart-checkout",
-  "title": "Cart-First Checkout",
-  "purpose": "Teach the agent to use the UCP cart handoff, including CORE-033 multi-item carts, instead of bypassing cart.",
+  "title": "V3 Cart-First Checkout",
+  "purpose": "Teach the agent to use the current V3 canonical server cart flow without treating local CLI state as business truth.",
   "when_to_use": [
-    "The user selected one or more public catalog purchase options.",
-    "The agent needs an estimate before checkout.",
-    "The agent needs to create a checkout from cart_id.",
-    "A first-time wild agent may receive auth_qr as a first-purchase auth-to-payment entry before payment is verified."
+    "The user already chose a catalog item, variant, and offer.",
+    "The agent needs to add a catalog item to a server cart before checkout.",
+    "The agent wants to understand how service-backed cart items create or resume Service Execution."
   ],
   "required_state": {
     "needs": [
-      "catalog_variant_id or catalog_variant_ids",
-      "buyer email for secure delivery",
-      "service-declared required input fields before cart creation"
+      "catalog_item_id",
+      "catalog_variant_id",
+      "offer_id"
     ],
     "optional": [
-      "buyer phone"
+      "quantity",
+      "contact email",
+      "contact phone",
+      "agent_device_id for service-backed items"
     ],
     "must_not_need": [
-      "catalog version",
-      "expected amount",
-      "ops token"
+      "catalog search support from this CLI"
     ]
   },
   "commands": [
     {
-      "intent": "create a cart estimate for the selected purchase option",
-      "command": "itp buyer cart create --variant <variant_id> --host <client> --json",
-      "success_signal": "response.cart.cart_id is present and response.cart_guidance tells the agent to show the cart to the human before checkout"
+      "intent": "add the first line to the canonical server cart",
+      "command": "itpay cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --quantity 1 --host <client> --json",
+      "success_signal": "JSON includes cart_id and cart_item_id; service-backed lines also include service_execution_id and top-level next_actions"
     },
     {
-      "intent": "create a multi-item cart estimate for selected purchase options",
-      "command": "itp buyer cart create --variants <variant_id_1>,<variant_id_2> --quantities 1,2 --host <client> --json",
-      "success_signal": "response.cart.line_items contains every selected purchase option and response.cart_guidance.double_check_required is true"
+      "intent": "recover the next step for the current cart",
+      "command": "itpay cart next --json",
+      "success_signal": "JSON includes next_actions derived from the canonical server cart and Service Execution read model"
     },
     {
-      "intent": "create an enterprise fuzzy search cart with required query input",
-      "command": "itp buyer cart create --variant var_itpay_enterprise_fuzzy_search_cny01 --input company_name=京东 --host <client> --json",
-      "success_signal": "response.cart.cart_id is present; the raw provider result is not visible to the agent"
+      "intent": "inspect the current canonical server cart before checkout",
+      "command": "itpay cart show",
+      "success_signal": "server cart lines, checkout readiness, and service refs are printed"
     },
     {
-      "intent": "create an enterprise precise lookup cart with exact registered name or credit code",
-      "command": "itp buyer cart create --variant var_itpay_enterprise_precise_lookup_cny05 --input company_name_or_credit_no=北京京东世纪贸易有限公司 --host <client> --json",
-      "success_signal": "response.cart.cart_id is present; payment can proceed only after the exact query input is locked into the cart line"
+      "intent": "soft-remove one active line from the canonical server cart",
+      "command": "itpay cart remove --line <cart_item_id>",
+      "success_signal": "the line is removed from the server cart; quote-locked or checkout-bound lines return a conflict"
     },
     {
-      "intent": "view the current cart state without relying on model memory",
-      "command": "itp buyer cart show <cart_id> --host <client> --json",
-      "success_signal": "response.cart.line_items and response.cart.totals reflect the server-side cart; show these fields to the human before checkout"
+      "intent": "abandon the canonical server cart",
+      "command": "itpay cart clear",
+      "success_signal": "the server cart is abandoned, active lines are soft-removed, and local handles are cleared"
     },
     {
-      "intent": "add one more selected UCP Variant.id to an existing cart before checkout",
-      "command": "itp buyer cart add <cart_id> --variant <variant_id> --input key=value --quantity 1 --host <client> --json",
-      "success_signal": "response.cart.cart_id is unchanged; response.cart.line_items either includes a new line for different input/settings or increments quantity for an identical line"
+      "intent": "create checkout from a server cart that is ready for checkout",
+      "command": "itpay buy --cart <cart_id> --host <client> [--contact-email <email>] [--contact-phone <phone>]",
+      "success_signal": "the CLI either renders checkout_qr or emits an interaction request for missing contact data"
     },
     {
-      "intent": "remove one line from an existing cart before checkout",
-      "command": "itp buyer cart remove <cart_id> --line <cart_line_item_id> --host <client> --json",
-      "success_signal": "response.cart.cart_id is unchanged and response.cart.line_items no longer contains that line id"
+      "intent": "create quote lock and checkout for a service-backed cart item",
+      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> --email <email> --json",
+      "success_signal": "the quote lock is bound to the original server cart item when present; JSON includes checkout_id and display_token"
     },
     {
-      "intent": "create checkout from cart_id",
-      "command": "itp buyer checkout create --cart <cart_id> --email <buyer_email> --phone <buyer_phone> --host <client> --json",
-      "success_signal": "response.checkout.checkout_id is present; if response.checkout.next_required_action is auth_qr, show response.checkout.human_action and poll/resume until payment_intent_id appears"
-    },
-    {
-      "intent": "do both steps through the high-level command",
-      "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json",
-      "success_signal": "response.status is waiting_human_auth, payment_handoff_required, payment_verified, or delivery_claimable"
+      "intent": "read the next Service Execution action",
+      "command": "itpay services next <service_execution_id> --json",
+      "success_signal": "JSON includes next_actions such as invoke capability, select result item, or checkout"
     }
   ],
   "agent_rules": [
-    "CORE-033 supports multiple cart lines and bounded positive quantities when all items belong to the same supported settlement/provider group.",
-    "Before cart creation, inspect product/selection metadata and input_schema_json. The service provider declares whether input is fuzzy, exact, or human/sensitive; the agent must not guess.",
-    "If service metadata says fuzzy input is allowed, collect the declared field, for example input.company_name can be a keyword, brand, short name, or partial company name such as 京东.",
-    "If service metadata says exact input is required, collect the declared exact field, for example input.company_name_or_credit_no must be a complete China mainland registered company name or unified social credit code.",
-    "If service metadata says input is sensitive, personal, or human-authorized, do not collect it in chat. Continue through the ItPay human authorization/input flow.",
-    "Use --input key=value for service-specific inputs. For multiple query lines, prefer separate cart add commands so each line locks its own input.",
-    "Cart line identity includes variant, offer, price, provider product, and normalized input. Only a completely identical line should merge by increasing quantity.",
-    "If the same variant has a different company_name, company_name_or_credit_no, page number, setting, or any other input value, it must remain a separate cart line.",
-    "Before checkout create, confirm buyer email is available for secure delivery. If it is missing, ask the human for the email before checkout; do not guess or use a placeholder.",
-    "Use cart_id as the checkout handoff.",
-    "Use buyer cart show before changing an existing cart and whenever you need current cart contents. Do not rely on chat memory for cart state.",
-    "After cart create/add/remove/show, present the cart contents to the human: service, purchase option, each input, quantity, price, and delivery mode.",
-    "If the cart has more than one line item, double-check every line with the human unless the user's prompt was already explicit and the server cart exactly matches it.",
-    "Cart confirmation is mandatory before checkout create. Selected service is not the same as confirmed cart.",
-    "Use buyer cart add/remove before checkout when the user changes their mind. After checkout is created, treat the cart as locked.",
-    "Do not override cart line_items during checkout.",
-    "Cart, checkout, and catalog JSON money fields use minor units. For CNY, amount=10 or expected_amount=10 means CNY 0.10. Tell humans the display_amount or converted major-unit amount, never interpret amount as yuan.",
-    "If the user asks for several compatible products, add them to one cart and create one checkout. Do not split into separate checkouts unless ItPay rejects the cart or says split checkout is required.",
-    "If the same cart is retried, expect the same checkout unless contact/client reference changes.",
-    "The backend revalidates catalog, price, and delivery requirements.",
-    "For first purchase, auth_qr means the ItPay first-purchase entry: provider login/registration/profile consent first, then ItPay should continue the same checkout to payment.",
-    "If this agent/device already has a valid buyer session token, checkout should skip auth_qr and can continue toward payment_intent_id.",
-    "After presenting auth_qr, run buyer checkout resume and keep it active/waiting. Do not stop at QR display unless the human explicitly asks you to pause.",
-    "Do not tell the user auth_qr is a completed payment or payment proof.",
-    "For first purchase, show the ItPay auth entry as one human orchestration entry; after provider OAuth callback the same checkout exposes payment.",
-    "After showing auth_qr, poll checkout or run buyer checkout resume until identity_status becomes identity_resolved and payment_intent_id appears.",
-    "When auth completes, CLI should claim and store the buyer session so a repeat purchase by the same agent/device can skip auth.",
-    "If checkout status/resume returns buyer_session.status=buyer_session_saved, the agent is now bound to that buyer account on this device. Continue with payment, delivery polling, or buyer vault commands; do not ask the human for a buyer session token.",
-    "Do not enter payment unless both conditions are true: a valid/saved buyer session exists and payment_intent_id exists.",
-    "If payment_intent_id exists but buyer_session is missing, do not show payment QR. Resume/status the same checkout until the buyer session is saved or verified."
+    "The current V3 CLI uses server cart as the business source of truth. Local ~/.itpay-v3/cart.json only caches last ids and explicit local drafts.",
+    "Prefer top-level next_actions and itpay next/cart next/services next over hardcoded service-specific flows.",
+    "Use cart add/show/remove/clear before checkout. Remove and clear are server-side soft state changes, not hard deletes.",
+    "For service-backed items, use service_execution_id from cart add/show as the canonical handle for services invoke/action/checkout.",
+    "Do not call buy --cart on a service-backed cart item until the required service action and quote lock are complete.",
+    "Do not remove quote-locked or checkout-bound cart lines. Continue checkout/payment or use refund/cancel owner flow after payment.",
+    "If required contact data is missing, prefer --require-contact so the CLI can emit a structured interaction request.",
+    "Do not invent buyer email or phone values; let the human provide them when required.",
+    "The happy-path buy flow creates cart and checkout, then renders checkout_qr. It should not create a payment intent first."
   ],
   "forbidden": [
-    "Use the UCP cart and buyer checkout commands for external-agent tests.",
-    "Do not pass a different variant in checkout after cart is created.",
-    "Do not create checkout before showing the cart contents and getting confirmation.",
-    "Do not show a payment QR when buyer_session is missing, even if payment_intent_id is present.",
-    "Do not create a second cart/checkout after a retryable timeout unless the user asks to abandon the previous one.",
-    "Do not buy enterprise precise lookup with only a vague brand/short name unless you have resolved the exact registered company name.",
-    "Do not claim enterprise API raw results are visible to the agent; they are delivered to the human Vault/claim UI."
+    "Do not treat local cart files as durable business truth.",
+    "Do not create duplicate checkout commands if the first handoff is still usable.",
+    "Do not treat QR display as proof of payment."
   ],
   "next_docs": [
     {
-      "condition": "Checkout returns auth_qr",
-      "topic": "payment-qr",
-      "command": "itp docs show payment-qr --role buyer --json"
+      "condition": "Need host rendering details after checkout is created",
+      "topic": "render-hosts",
+      "file": "docs/agent/buyer/render-hosts.json"
     },
     {
-      "condition": "Checkout has payment_intent_id and payment QR is needed",
-      "topic": "payment-qr",
-      "command": "itp docs show payment-qr --role buyer --json"
-    },
-    {
-      "condition": "Cart or checkout command fails",
-      "topic": "recovery",
-      "command": "itp docs show recovery --role buyer --json"
+      "condition": "Need order or refund follow-up after payment",
+      "topic": "orders-refunds",
+      "file": "docs/agent/buyer/orders-refunds.json"
     }
   ],
   "search_terms": [
     "cart",
     "checkout",
-    "cart_id",
-    "line_items",
-    "quantity",
+    "buy",
     "购物车",
-    "下单",
     "结账"
   ]
 }

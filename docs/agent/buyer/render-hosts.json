@@ -1,0 +1,79 @@
+{
+  "schema_version": "itp.agent_doc.v1",
+  "role": "buyer",
+  "topic": "render-hosts",
+  "title": "Host Rendering And Interaction Requests",
+  "purpose": "Teach the agent how the current V3 CLI renders checkout handoff and missing-data interaction prompts for each host.",
+  "when_to_use": [
+    "The agent needs to choose the right --host value.",
+    "The agent needs to explain what the user will see in terminal, Trae/Codex, Telegram, or Feishu/Lark.",
+    "The flow emits an interaction request instead of immediate checkout."
+  ],
+  "required_state": {
+    "needs": [
+      "correct host selection"
+    ],
+    "optional": [
+      "target for Telegram / Feishu / Lark"
+    ]
+  },
+  "commands": [
+    {
+      "intent": "render checkout for terminal",
+      "command": "itpay buy --host terminal --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>",
+      "success_signal": "terminal summary, links, Branded QR local path + mirrors, and an ATTACH block with status=downloaded are printed"
+    },
+    {
+      "intent": "render checkout or interaction request for Trae / Codex style chat",
+      "command": "itpay buy --host trae --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --require-contact email,phone",
+      "success_signal": "markdown with one inline data: image, an [ATTACH] IDE image reference block, and a structured itpay_input_request block is printed"
+    },
+    {
+      "intent": "render chat-native buttons for Telegram",
+      "command": "itpay buy --host telegram --target <chat_id> --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>",
+      "success_signal": "openclaw_message and presentation payload plus presentation.ide_image_attach (status, local_path, mirrors, must_render_reason) are printed"
+    },
+    {
+      "intent": "render interactive card output for Feishu or Lark",
+      "command": "itpay buy --host feishu --target <open_id_or_chat_id> --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>",
+      "success_signal": "interactive card JSON plus message.ide_image_attach (status, local_path, mirrors, must_render_reason) is printed"
+    }
+  ],
+  "agent_rules": [
+    "Use --host terminal only when the human is directly watching a terminal.",
+    "Use --host trae in Trae chat; it normalizes to the codex-style markdown renderer.",
+    "Telegram, Feishu, and Lark require --target.",
+    "Current V3 CLI can emit structured interaction requests, but Trae itself does not show a native popup unless a host adapter consumes that block.",
+    "Terminal can render images as ASCII when an image URL is available.",
+    "Telegram and Feishu/Lark can emit selector or input metadata for host-native adapters.",
+    "If an interaction request is emitted, collect the requested values and rerun the relevant command with those values rather than inventing them.",
+    "After buy/checkout/order output, the IDE image attach contract must be honoured: read the file at brand_qr_local_path (or any of brand_qr_mirrors) with the IDE's Read tool so the human sees the QR in the chat window. Do not declare success unless brand_qr_status is \"downloaded\" and the image is visible."
+  ],
+  "forbidden": [
+    "Do not claim Trae currently has a built-in native popup if only markdown is printed.",
+    "Do not handwrite Telegram buttons when the CLI already returns a native presentation payload.",
+    "Do not drop required --target fields for IM hosts."
+  ],
+  "next_docs": [
+    {
+      "condition": "Need the overall start sequence",
+      "topic": "quickstart",
+      "file": "docs/agent/buyer/quickstart.json"
+    },
+    {
+      "condition": "Need cart-first handoff details",
+      "topic": "cart-checkout",
+      "file": "docs/agent/buyer/cart-checkout.json"
+    }
+  ],
+  "search_terms": [
+    "render",
+    "host",
+    "telegram",
+    "trae",
+    "codex",
+    "interaction request",
+    "selector",
+    "输入框"
+  ]
+}
