@@ -103,9 +103,36 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             catalog_item_id: "cat_service",
             slug: "qizhidao-company-lookup",
             title: "企知道企业查询",
+            description: "Confirm the company identity before purchasing the primary report.",
             provider: "qizhidao",
             service_type: "company_lookup",
             category: "enterprise_data",
+            service_flow: {
+              discovery: {
+                role: "subject_disambiguation",
+                title: "Confirm company identity",
+                description: "Use a keyword to identify the intended company; this is an auxiliary step.",
+                capability_id: "fuzzy_disambiguation",
+                free_quota_limit: 3,
+                quota_subject: "agent_device",
+                paid_continuation: {
+                  capability_id: "fuzzy_disambiguation_paid",
+                  description: "Continue after free quota without a delivery email.",
+                  amount_minor: 10,
+                  currency: "CNY",
+                  delivery_email_required: false,
+                },
+              },
+              primary_service: {
+                capability_id: "precise_report",
+                title: "Precise company report",
+                description: "Purchase the complete report after confirming the company.",
+                amount_minor: 50,
+                currency: "CNY",
+                delivery_email_required: true,
+                delivery_description: "Email sends the protected result claim link.",
+              },
+            },
             variants: [{
               catalog_variant_id: "var_service",
               offer_id: "offer_service",
@@ -297,6 +324,38 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     if (method === "POST" && serviceInvokeMatch) {
       const serviceExecutionID = serviceInvokeMatch[1]!;
       const capabilityID = serviceInvokeMatch[2]!;
+      if (serviceExecutionID === "se_quota") {
+        const quotaModel = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
+        quotaModel.execution = {
+          ...(quotaModel.execution as Record<string, unknown>),
+          status: "quota_exhausted",
+          phase: "pre_purchase",
+          current_capability_id: capabilityID,
+        };
+        serviceExecutions[serviceExecutionID] = quotaModel;
+        respond(res, 200, {
+          execution: quotaModel.execution,
+          invocation: {
+            service_capability_invocation_id: "sci_quota",
+            service_execution_id: serviceExecutionID,
+            capability_id: capabilityID,
+            status: "quota_exhausted",
+            created_at: "2026-07-11T00:00:00Z",
+          },
+          result_items: [],
+          provider_called: false,
+          effective_quota: {
+            bucket: "company_lookup_fuzzy",
+            subject_type: "device_lineage",
+            limit: 3,
+            remaining: 0,
+            exhausted: true,
+            replenishment: "purchase_finalized",
+          },
+          next_actions: [{ kind: "create_checkout", capability_id: "fuzzy_disambiguation_paid", requires_human: true }],
+        });
+        return;
+      }
       const model = mockServiceExecutionReadModel(serviceExecutionID, "select_candidate");
       serviceExecutions[serviceExecutionID] = model;
       respond(res, 200, {

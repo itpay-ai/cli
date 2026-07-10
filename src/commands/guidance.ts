@@ -140,9 +140,13 @@ export function buildServiceReadModelGuidance(model: ServiceExecutionReadModel):
   });
 }
 
-export function buildServiceInvokedGuidance(response: ServiceCapabilityInvoked): AgentGuidance {
+export function buildServiceInvokedGuidance(
+  response: ServiceCapabilityInvoked,
+  capabilities: ServiceCapability[] = [],
+): AgentGuidance {
   return buildServiceGuidance({
     execution: response.execution,
+    capabilities,
     resultItems: response.result_items,
     ...(response.next_actions ? { backendNextActions: response.next_actions } : {}),
     ...(response.effective_quota ? { effectiveQuota: response.effective_quota } : {}),
@@ -191,9 +195,9 @@ export function buildServiceHandleGuidance(serviceExecutionID: string, checkoutC
     actions.push({
       id: "checkout_service",
       label: "Create checkout after human confirmation",
-      command: `itpay services checkout ${serviceExecutionID} --capability ${checkoutCapabilityID} --email <email> --json`,
+      command: `itpay services checkout ${serviceExecutionID} --capability ${checkoutCapabilityID} --json`,
       requires_human: true,
-      reason: "Only use after the service contract has the required human confirmation or quote lock.",
+      reason: "Inspect the Service Execution first; the CLI will request delivery contact only when the selected capability requires it.",
     });
   }
   return {
@@ -350,12 +354,16 @@ function buildServiceGuidance(input: {
   } else if (execution.checkout_required || execution.next_action === "create_checkout") {
     const capabilityID = backendCheckout?.capability_id ?? paid?.capability_id ?? input.checkoutCapabilityID ?? execution.current_capability_id;
     if (capabilityID) {
+      const checkoutCapability = capabilities.find((capability) => capability.capability_id === capabilityID);
+      const emailRequired = checkoutCapability?.delivery_email_required === true;
       nextActions.push({
         id: "checkout_service",
         label: "Create ItPay checkout for the paid service capability",
-        command: `itpay services checkout ${execution.service_execution_id} --capability ${capabilityID} --email <email> --json`,
+        command: `itpay services checkout ${execution.service_execution_id} --capability ${capabilityID}${emailRequired ? " --email <email>" : ""} --json`,
         requires_human: true,
-        reason: "The human must provide delivery contact and pay on the ItPay checkout page.",
+        reason: emailRequired
+          ? "Ask the human for their email. It is used to send the protected result claim link; never invent or substitute an address."
+          : "This capability returns an agent-visible result after payment and does not require a delivery email.",
       });
     } else {
       nextActions.push({
@@ -424,6 +432,10 @@ function buildServiceGuidance(input: {
         capability_id: capability.capability_id,
         agent_visible: capability.agent_visible,
         requires_payment: capability.requires_payment,
+        vault_required: capability.vault_required,
+        delivery_email_required: capability.delivery_email_required,
+        price_amount_minor: capability.price_amount_minor,
+        price_currency: capability.price_currency,
         free_quota_limit: capability.free_quota_limit,
       })),
       result_items: (input.resultItems ?? []).map((item) => ({

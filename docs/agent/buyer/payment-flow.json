@@ -17,12 +17,12 @@
     },
     {
       "intent": "create service-execution quote lock and render ItPay checkout page handoff",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> --email <email>",
+      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>]",
       "success_signal": "The quote lock is bound to the original server cart item when present; ItPay checkout QR/URL is rendered for the human; the checkout page handles authorization and provider payment."
     },
     {
       "intent": "create service-execution checkout with machine-readable handoff",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> --email <email> --json",
+      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>] --json",
       "success_signal": "JSON with kind='checkout_handoff_required', next_action='open_human_checkout', checkout_url, display_token, qr_png_url, and brand_qr_local_path."
     },
     {

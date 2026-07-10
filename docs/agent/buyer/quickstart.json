@@ -80,7 +80,7 @@
     },
     {
       "intent": "create checkout from a confirmed service execution and render human handoff",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> --email <email> --json",
+      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>] --json",
       "success_signal": "quote lock is bound to the server cart item when present; JSON includes checkout_id, display_token, checkout_url, qr_png_url, and brand_qr_local_path"
     },
     {
@@ -134,6 +134,7 @@
     "For service-backed catalog items, read service_execution_id from `itpay cart add --json` before invoking service capabilities.",
     "Do not use --pay or itpay pay for the normal buyer flow; first show the ItPay checkout QR/URL so the human enters the checkout page.",
     "If buy emits an interaction request for missing contact fields, collect values and rerun with --contact-email/--contact-phone.",
+    "For services checkout, include --email only when next_actions includes it. Explain that protected delivery uses it to send the claim link; agent-visible paid results do not require email.",
     "Do not assume checkout implies payment succeeded; it only creates a handoff.",
     "Payment success is confirmed by backend checkout/order state, not by QR display or buyer claim.",
     "A human grant applies only to its service execution and expires after 15 minutes; do not claim access to other orders or executions.",

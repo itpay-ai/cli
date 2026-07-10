@@ -189,6 +189,35 @@ export interface CatalogVariant {
   currency: string;
 }
 
+export interface CatalogPaidContinuation {
+  capability_id: string;
+  description: string;
+  amount_minor: number;
+  currency: string;
+  delivery_email_required: boolean;
+}
+
+export interface CatalogServiceFlow {
+  discovery: {
+    role: string;
+    title: string;
+    description: string;
+    capability_id: string;
+    free_quota_limit?: number;
+    quota_subject?: string;
+    paid_continuation?: CatalogPaidContinuation;
+  };
+  primary_service: {
+    capability_id: string;
+    title: string;
+    description: string;
+    amount_minor: number;
+    currency: string;
+    delivery_email_required: boolean;
+    delivery_description?: string;
+  };
+}
+
 export interface CatalogItem {
   catalog_item_id: string;
   slug: string;
@@ -197,6 +226,8 @@ export interface CatalogItem {
   service_type: string;
   category: string;
   service_id?: string;
+  description?: string;
+  service_flow?: CatalogServiceFlow;
   variants: CatalogVariant[];
 }
 

@@ -28,7 +28,7 @@ This test release defaults to `https://test.itpay.ai`. Set
 - `itpay services start <service_id>` — start a generic Service Execution run
 - `itpay services invoke <service_execution_id> --capability <capability_id> --input key=value` — invoke an agent-visible capability
 - `itpay services action <service_execution_id> --action <action_type> [--result-item <id>]` — record a human/agent service action
-- `itpay services checkout <service_execution_id> --capability <capability_id> --email <email> [--host <host>] [--json]` — create quote lock from Service Execution state, bind it to the server cart item when present, persist the handoff, and render the branded ItPay checkout
+- `itpay services checkout <service_execution_id> --capability <capability_id> [--email <email>] [--host <host>] [--json]` — create quote lock from Service Execution state, require email only for capabilities that deliver a claim link, persist the handoff, and render the branded ItPay checkout
 - `itpay services checkout <service_execution_id> --resume --json` — reissue a lost or expired handoff for the same unpaid checkout without asking for contact information again
 - `itpay services next <service_execution_id> [--json]` — show the next recommended action from the Service Execution read model
 - `itpay services get <service_execution_id>` / `itpay services events <service_execution_id>` — read the redacted Service Execution timeline

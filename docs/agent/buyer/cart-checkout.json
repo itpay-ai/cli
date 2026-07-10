@@ -58,7 +58,7 @@
     },
     {
       "intent": "create quote lock and checkout for a service-backed cart item",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> --email <email> --json",
+      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>] --json",
       "success_signal": "the quote lock is bound to the original server cart item when present; JSON includes checkout_id and display_token"
     },
     {
@@ -76,6 +76,7 @@
     "Do not remove quote-locked or checkout-bound cart lines. Continue checkout/payment or use refund/cancel owner flow after payment.",
     "If required contact data is missing, prefer --require-contact so the CLI can emit a structured interaction request.",
     "Do not invent buyer email or phone values; let the human provide them when required.",
+    "Only request --email when the selected capability declares delivery_email_required. Tell the buyer it sends the protected result claim link.",
     "The happy-path buy flow creates cart and checkout, then renders checkout_qr. It should not create a payment intent first."
   ],
   "forbidden": [

@@ -1,5 +1,5 @@
 import type { BackendClient } from "../client/backend.js";
-import type { RecordServiceExecutionActionRequest } from "../client/types.js";
+import type { RecordServiceExecutionActionRequest, ServiceCapability } from "../client/types.js";
 import { operationID, type CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
 import { resolveOutput, type OutputSink } from "../render/sink.js";
@@ -56,7 +56,16 @@ export async function runServicesInvoke(
     idempotency_key: idempotencyKey,
     redacted_summary: input,
   });
-  const guidance = buildServiceInvokedGuidance(response);
+  let capabilities: ServiceCapability[] = [];
+  if (response.next_actions?.some((action) => action.kind === "create_checkout")) {
+    try {
+      capabilities = (await backend.getServiceExecution(serviceExecutionID)).capabilities;
+    } catch {
+      // Preserve the successful invocation response. Checkout performs the same
+      // capability-aware email validation before creating a handoff.
+    }
+  }
+  const guidance = buildServiceInvokedGuidance(response, capabilities);
   if (options.jsonOutput) {
     writeJSON(options.output, attachAgentGuidance(response, guidance));
     return;

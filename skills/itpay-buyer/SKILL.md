@@ -59,8 +59,12 @@ the checkout with the exact server-selected capability:
 
 ```bash
 itpay --agent-type <agent_type> services checkout <service_execution_id> \
-  --capability <capability_id> --email <human_email> --host <host> --json
+  --capability <capability_id> [--email <human_email>] --host <host> --json
 ```
+
+Include `--email` only when the CLI's `next_actions` command includes it. For a
+protected delivery, explain that the address receives the order claim link;
+never invent an address. Agent-visible paid results do not require email.
 
 5. Show both handoff forms to the human:
 

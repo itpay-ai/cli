@@ -233,7 +233,7 @@ test("services next prints service execution guidance", async () => {
 });
 
 test("quota exhaustion uses the backend-selected paid capability without guessing", () => {
-  const guidance = buildServiceInvokedGuidance({
+  const response = {
     execution: {
       service_execution_id: "se_quota", service_id: "svc_company", service_contract_version_id: "scv_2",
       status: "quota_exhausted", phase: "pre_purchase", current_capability_id: "fuzzy_disambiguation",
@@ -244,9 +244,57 @@ test("quota exhaustion uses the backend-selected paid capability without guessin
     result_items: [], provider_called: false,
     effective_quota: { bucket: "company_lookup_fuzzy", subject_type: "device_lineage", limit: 3, remaining: 0, exhausted: true, replenishment: "purchase_finalized" },
     next_actions: [{ kind: "create_checkout", capability_id: "fuzzy_disambiguation_paid", requires_human: true }],
-  });
+  };
+  const guidance = buildServiceInvokedGuidance(response, [{
+    capability_id: "fuzzy_disambiguation_paid", phase: "paid_fulfillment", agent_visible: true,
+    requires_payment: true, requires_human_action: false, vault_required: false,
+    delivery_email_required: false, price_amount_minor: 10, price_currency: "CNY",
+  }]);
   assert.match(guidance.summary, /quota 0\/3/);
-  assert.equal(guidance.next_actions[0]?.command, "itpay services checkout se_quota --capability fuzzy_disambiguation_paid --email <email> --json");
+  assert.equal(guidance.next_actions[0]?.command, "itpay services checkout se_quota --capability fuzzy_disambiguation_paid --json");
+  assert.match(guidance.next_actions[0]?.reason ?? "", /does not require a delivery email/);
+});
+
+test("protected checkout explains that email delivers the claim link", () => {
+  const guidance = buildServiceInvokedGuidance({
+    execution: {
+      service_execution_id: "se_precise", service_id: "svc_company", service_contract_version_id: "scv_2",
+      status: "quota_exhausted", phase: "pre_purchase", current_capability_id: "fuzzy_disambiguation",
+      checkout_required: true, next_action: "create_checkout", started_at: "2026-07-11T00:00:00Z",
+      created_at: "2026-07-11T00:00:00Z", updated_at: "2026-07-11T00:00:00Z",
+    },
+    result_items: [], provider_called: false,
+    next_actions: [{ kind: "create_checkout", capability_id: "precise_report", requires_human: true }],
+  }, [{
+    capability_id: "precise_report", phase: "paid_fulfillment", agent_visible: false,
+    requires_payment: true, requires_human_action: false, vault_required: true,
+    delivery_email_required: true, price_amount_minor: 50, price_currency: "CNY",
+  }]);
+  assert.equal(guidance.next_actions[0]?.command, "itpay services checkout se_precise --capability precise_report --email <email> --json");
+  assert.match(guidance.next_actions[0]?.reason ?? "", /claim link/);
+  assert.match(guidance.next_actions[0]?.reason ?? "", /never invent/);
+});
+
+test("services invoke reads target capability metadata before checkout guidance", async () => {
+  await runServicesInvoke(
+    backend,
+    config,
+    "se_quota",
+    "fuzzy_disambiguation",
+    { keyword: "美团" },
+    { jsonOutput: true, output: stdoutSink },
+  );
+  const parsed = JSON.parse(stdoutCapture.join("")) as {
+    agent_guidance: { next_actions: Array<{ command: string; reason?: string }> };
+  };
+  assert.equal(
+    parsed.agent_guidance.next_actions[0]?.command,
+    "itpay services checkout se_quota --capability fuzzy_disambiguation_paid --json",
+  );
+  assert.match(parsed.agent_guidance.next_actions[0]?.reason ?? "", /does not require a delivery email/);
+  const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
+  assert.equal(requests.at(-2)?.method, "POST");
+  assert.equal(requests.at(-1)?.method, "GET");
 });
 
 test("services list recovers executions without a local cart handle", async () => {
@@ -1095,8 +1143,20 @@ test("services action resolves a human-selected candidate rank from the executio
 test("catalog list supports JSON output", async () => {
   const output: string[] = [];
   await runCatalogList(backend, { jsonOutput: true, output: (line) => output.push(line) });
-  const parsed = JSON.parse(output.join("")) as { manifest: { items: Array<{ catalog_item_id: string }> } };
+  const parsed = JSON.parse(output.join("")) as { manifest: { items: Array<{ catalog_item_id: string; service_flow?: { discovery: { free_quota_limit?: number } } }> } };
   assert.ok(parsed.manifest.items.some((item) => item.catalog_item_id === "cat_service"));
+  assert.equal(parsed.manifest.items[0]?.service_flow?.discovery.free_quota_limit, 3);
+});
+
+test("catalog text explains auxiliary discovery before the primary service", async () => {
+  const output: string[] = [];
+  await runCatalogList(backend, { output: (line) => output.push(line) });
+  const text = output.join("");
+  assert.match(text, /每台已登记设备可免费使用 3 次/);
+  assert.match(text, /免费次数用完后：¥0\.10\/次，继续使用该辅助步骤；结果直接返回给 agent，不需要邮箱/);
+  assert.match(text, /确认主体后：Precise company report，¥0\.50\/次/);
+  assert.doesNotMatch(text, /how it works|purchasable offers|included:/);
+  assert.match(text, /claim link/);
 });
 
 test("services checkout renders the branded checkout QR by default", async () => {
