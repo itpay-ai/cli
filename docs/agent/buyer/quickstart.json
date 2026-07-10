@@ -2,122 +2,190 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "quickstart",
-  "title": "ItPay Buyer Agent Quickstart",
-  "purpose": "Teach a new external agent the minimal safe flow for buying through ItPay.",
+  "title": "ItPay V3 CLI Buyer Quickstart",
+  "purpose": "Teach an external agent the minimal safe path for using the current V3 itpay CLI package.",
   "when_to_use": [
-    "The agent has just installed the ItPay CLI or loaded the buyer skill.",
-    "The user wants the agent to search for a service, recommend an option, or buy through ItPay.",
-    "The agent is unsure which ItPay buyer command should come first."
+    "The agent has just loaded the V3 npm package.",
+    "The user wants the agent to add a catalog item to the canonical server cart or create a checkout through the current V3 CLI.",
+    "The agent needs to know which commands exist right now."
   ],
   "required_state": {
     "needs": [
-      "itp CLI available",
-      "buyer delivery email before checkout"
+      "itpay CLI installed",
+      "prerelease API at https://test.itpay.ai, or an intentional ITPAY_BACKEND_URL override",
+      "catalog item id, variant id, and offer id from `itpay catalog list`",
+      "real agent runtime type supplied through --agent-type or ITPAY_AGENT_TYPE"
     ],
     "must_not_need": [
-      "ops token",
+      "admin token",
       "claim token",
-      "raw key",
       "provider raw payload"
     ]
   },
   "commands": [
     {
-      "intent": "verify whether this agent/device already has a server-valid buyer session",
-      "command": "itp status --refresh --host <client> --json",
-      "success_signal": "response.status is idle when authenticated, or response.next.command tells the agent how to start human auth; if response.recoverable_context.found is true, compare it with the current user intent before continuing or ignoring it"
+      "intent": "check backend readiness",
+      "command": "itpay readyz",
+      "success_signal": "the production backend reports ready and accepts this CLI contract"
     },
     {
-      "intent": "list the available agent docs topics",
-      "command": "itp docs list --role buyer --json",
-      "success_signal": "response.topics contains catalog-search, cart-checkout, payment-wait, secure-delivery"
+      "intent": "browse available services",
+      "command": "itpay --agent-type <agent_type> catalog list --json",
+      "success_signal": "catalog items with variants and prices are displayed"
     },
     {
-      "intent": "search the public catalog for the current user request",
-      "command": "itp buyer catalog search --query \"<user request>\" --host <client> --json",
-      "success_signal": "response.products contains public services and purchase options; response.catalog_guidance tells the agent how to compare and when to ask the human"
+      "intent": "start a catalog service without hardcoding its workflow",
+      "command": "itpay --agent-type <agent_type> services start <service_id>",
+      "success_signal": "a service_execution_id and server-derived next actions are displayed"
     },
     {
-      "intent": "search standardized API services with category/facet filters when intent is clear",
-      "command": "itp buyer catalog search --query \"企业工商信息 查询\" --category business_data_api --provider itpay_enterprise_data --service-type ai_api --host <client> --json",
-      "success_signal": "response.products are narrowed by category/facet before recommendation"
+      "intent": "recover the next step from remembered server handles",
+      "command": "itpay next --json",
+      "success_signal": "JSON includes next_actions derived from server cart, service execution, or checkout handles"
     },
     {
-      "intent": "buy a selected variant with the high-level cart-first flow",
-      "command": "itp buy <variant_id> --email <buyer_email> --phone <buyer_phone> --display agent --no-wait-payment --host <client> --json",
-      "success_signal": "response.status becomes waiting_human_auth or payment_handoff_required; if agent_action is present, execute it before any normal reply or payment status check"
+      "intent": "add one line to the canonical server cart",
+      "command": "itpay cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --quantity 1 --host <client> --json",
+      "success_signal": "JSON includes cart_id, cart_item_id, service_execution_id when the line is service-backed, and top-level next_actions"
+    },
+    {
+      "intent": "read the next cart or service-backed action",
+      "command": "itpay cart next --json",
+      "success_signal": "JSON includes next_actions such as services invoke, services action, services checkout, or buy"
+    },
+    {
+      "intent": "show the current canonical server cart",
+      "command": "itpay cart show",
+      "success_signal": "the CLI prints persisted server cart items and service refs when present"
+    },
+    {
+      "intent": "remove a pre-checkout line if the human changes their mind",
+      "command": "itpay cart remove --line <cart_item_id>",
+      "success_signal": "the server cart is updated; quote-locked or checkout-bound lines return a conflict"
+    },
+    {
+      "intent": "invoke an agent-visible service capability after a service-backed cart or service start",
+      "command": "itpay services invoke <service_execution_id> --capability <capability_id> --input key=value",
+      "success_signal": "JSON with redacted execution status, safe result items, and next_actions"
+    },
+    {
+      "intent": "submit a human/agent service action when required by the service contract",
+      "command": "itpay services action <service_execution_id> --action <action_type> --result-item <result_item_id>",
+      "success_signal": "JSON with redacted execution status, accepted action, and next_actions"
+    },
+    {
+      "intent": "read the next Service Execution action",
+      "command": "itpay services next <service_execution_id> --json",
+      "success_signal": "JSON includes next_actions derived from the Service Execution read model and capabilities"
+    },
+    {
+      "intent": "create checkout from a confirmed service execution and render human handoff",
+      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> --email <email> --json",
+      "success_signal": "quote lock is bound to the server cart item when present; JSON includes checkout_id, display_token, checkout_url, qr_png_url, and brand_qr_local_path"
+    },
+    {
+      "intent": "recover a lost or expired service checkout handoff",
+      "command": "itpay services checkout <service_execution_id> --resume --json",
+      "success_signal": "the same checkout_id is returned with a fresh short-lived display token and QR path"
+    },
+    {
+      "intent": "create checkout from a server cart that is ready for checkout",
+      "command": "itpay buy --cart <cart_id> --host terminal --contact-email <email>",
+      "success_signal": "checkout QR/URL rendered for the host"
+    },
+    {
+      "intent": "inspect checkout state",
+      "command": "itpay checkout --id <checkout_id> --token <display_token>",
+      "success_signal": "checkout presentation with status, items, payment intents"
+    },
+    {
+      "intent": "read an order",
+      "command": "itpay order <order_id>",
+      "success_signal": "order details with items and delivery artifacts"
+    },
+    {
+      "intent": "read a protected result after the human grants temporary access",
+      "command": "itpay --agent-type <agent_type> services read-result <service_execution_id>",
+      "success_signal": "the payload for this service execution is returned while its human grant is active"
+    },
+    {
+      "intent": "list account orders (needs ITPAY_BEARER_TOKEN)",
+      "command": "itpay orders --limit 20",
+      "success_signal": "list of orders"
+    },
+    {
+      "intent": "show install instructions",
+      "command": "itpay install [claude-code|codex|terminal|telegram|feishu]",
+      "success_signal": "step-by-step instructions for the target host"
+    },
+    {
+      "intent": "browse agent documentation",
+      "command": "itpay docs list",
+      "success_signal": "list of available doc topics"
     }
   ],
   "agent_rules": [
-    "Use --json for every ItPay command.",
-    "Every non-doc ItPay command must include the current client context: --host codex, --host claude-code, --host terminal, --host plain-chat, or for OpenClaw/Telegram use --host telegram --target <inbound_meta.chat_id>. --host is the human-visible client/surface, not where the shell command runs; in Codex desktop chat use --host codex even when calling itp through shell.",
-    "Do not rely on the CLI to guess Telegram, Discord, WhatsApp, Codex, or Claude Code. If ItPay returns client_context_required or client_target_required, rerun the same command with the required --host/--target fields before continuing.",
-    "For Telegram group chat or @mention flows, pass the group/private chat target from OpenClaw inbound metadata, for example --target telegram:-1001234567890. ItPay only echoes the target into agent_action; OpenClaw owns group allowlist/mention policy.",
-    "Use `itp status --refresh --host <client> --json` before account, order, refund, or repeat-purchase decisions. Plain local memory is not identity.",
-    "If `status --refresh` returns `recoverable_context.found=true`, do not blindly resume or blindly ignore it. Decide whether the old task is related to the current user intent; continue related tasks, ignore clearly unrelated tasks, and ask the human when unsure.",
-    "If the catalog is unclear, read catalog-search docs and use buyer shelf manifest/snapshot as the shopping-list view before guessing keywords.",
-    "Search and explain purchase options before buying unless the user already named a purchase option ID.",
-    "Add the selected UCP Variant.id to cart; do not bypass cart for CORE-028 flows.",
-    "When explaining prices, remember ItPay JSON money fields use minor units. For CNY, amount=10 means CNY 0.10. Prefer display_amount when present.",
-    "Before checkout, make sure a buyer delivery email is available. If no email is known from the current buyer context, ask the human for it before creating checkout.",
-    "Do not invent, guess, or use a placeholder email. Secure delivery and account/order access depend on the buyer email.",
-    "For first purchase, show auth_qr as the ItPay first-purchase entry: the human first approves provider login/registration/profile sharing, then ItPay should continue the same checkout to payment.",
-    "After showing auth_qr, keep running/resuming the same checkout unless the human explicitly asks you to pause. Do not stop merely because a QR was displayed.",
-    "When a buyer command returns buyer_session.status=buyer_session_saved, the CLI has stored the buyer account session for this agent device. You may continue with checkout/payment or `buyer vault` commands without asking the human for a token.",
-    "Vault grants are only for reading approved delivered artifacts. They are not buyer session credentials and do not authorize refunds or account/order management.",
-    "Use high-level itp buy when possible. In Codex/Claude Code app clients, the default payment flow is one round: send response.agent_action.markdown to the current chat, then immediately run response.after_visible_action.command once if the QR/link is visible.",
-    "If response.agent_action is present, it is the mandatory execution path for the current client. Execute it before any normal prose reply: command/argv for Telegram or terminal, markdown for Codex/Claude Code app clients.",
-    "In OpenClaw Telegram, response.agent_action is already the exact openclaw message send command. It includes target, QR media, exact message, and native button presentation.",
-    "If response.agent_action cannot be executed or made visible to the human, stop and tell the human what capability is missing. Do not fall back to handwritten prose.",
-    "response.agent_instruction is natural-language reinforcement for the agent; it does not replace response.agent_action.",
-    "If response.status is payment_handoff_required, do not run payment wait before the QR/link is visible. If response.next.type is send_to_human_then_wait_once_if_visible, send agent_action first, then run after_visible_action.command once. Stop only when visibility is uncertain.",
-    "Show the returned payment QR exactly as provided before starting payment wait.",
-    "Payment truth comes only from payment_intent.verified.",
-    "Secure delivery goes to the human first; report redacted delivery status only.",
-    "For OpenClaw Telegram, root agent_action is the execution path. Do not use handwritten prose when agent_action is present."
+    "Every human-facing command should include the correct --host value.",
+    "For Telegram, Feishu, and Lark, provide --target or the CLI will reject.",
+    "Use --json for machine-readable output in agent flows.",
+    "Supply the real agent runtime type on commerce commands; the CLI persists one signed device identity and registered agent instances under ~/.itpay-v3/device.",
+    "Prefer top-level next_actions over hardcoded service-specific command sequences.",
+    "Use itpay next or itpay cart next to recover after interruption; these commands read server handles and do not treat local cart files as business truth.",
+    "For service-backed catalog items, read service_execution_id from `itpay cart add --json` before invoking service capabilities.",
+    "Do not use --pay or itpay pay for the normal buyer flow; first show the ItPay checkout QR/URL so the human enters the checkout page.",
+    "If buy emits an interaction request for missing contact fields, collect values and rerun with --contact-email/--contact-phone.",
+    "Do not assume checkout implies payment succeeded; it only creates a handoff.",
+    "Payment success is confirmed by backend checkout/order state, not by QR display or buyer claim.",
+    "A human grant applies only to its service execution and expires after 15 minutes; do not claim access to other orders or executions.",
+    "Use `itpay catalog list` to browse available services before buying.",
+    "Use `itpay docs show <topic>` to get detailed instructions on a specific topic.",
+    "Server cart, quota, execution, quote, checkout, and delivery facts persist in backend Postgres. ~/.itpay-v3/cart.json only caches last ids and explicit local drafts."
   ],
   "forbidden": [
-    "Do not call ops commands from the buyer path.",
-    "Do not call worker run-once, provider query recovery, or fixture evidence routes.",
-    "Do not ask the user to paste raw keys, claim links, claim tokens, provider payloads, or secrets.",
-    "Do not rewrite, shorten, re-encode, or invent QR URLs.",
-    "Do not treat user text like 'I paid' as payment proof."
+    "Do not invent variant ids, offer ids, or catalog ids.",
+    "Do not invent admin, account-management, or grant-creation commands; the human grants access in the web UI and the CLI only reads an active grant.",
+    "Do not ask users to paste secrets into chat."
   ],
   "next_docs": [
     {
-      "condition": "Need to discover or compare services",
-      "topic": "catalog-search",
-      "command": "itp docs show catalog-search --role buyer --json"
-    },
-    {
-      "condition": "User asks which option to choose",
-      "topic": "product-recommendation",
-      "command": "itp docs show product-recommendation --role buyer --json"
-    },
-    {
-      "condition": "A variant is selected and the agent needs to create cart/checkout",
+      "condition": "Need to understand cart-first checkout in detail",
       "topic": "cart-checkout",
-      "command": "itp docs show cart-checkout --role buyer --json"
+      "file": "docs/agent/buyer/cart-checkout.json"
     },
     {
-      "condition": "The agent is unsure what is forbidden",
-      "topic": "safety-policy",
-      "command": "itp docs show safety-policy --role buyer --json"
+      "condition": "Need to browse available services",
+      "topic": "catalog-list",
+      "file": "docs/agent/buyer/catalog-list.json"
     },
     {
-      "condition": "The user asks to view their ItPay account or previous orders",
-      "topic": "account-portal",
-      "command": "itp docs show account-portal --role buyer --json"
+      "condition": "Need the checkout-to-payment handoff and verification rules",
+      "topic": "payment-flow",
+      "file": "docs/agent/buyer/payment-flow.json"
+    },
+    {
+      "condition": "Need to understand host rendering and interaction",
+      "topic": "render-hosts",
+      "file": "docs/agent/buyer/render-hosts.json"
+    },
+    {
+      "condition": "Need to inspect orders or create refunds",
+      "topic": "orders-refunds",
+      "file": "docs/agent/buyer/orders-refunds.json"
+    },
+    {
+      "condition": "Need to install or configure for a specific host",
+      "topic": "install-and-setup",
+      "file": "docs/agent/buyer/install-and-setup.json"
     }
   ],
   "search_terms": [
-    "start",
     "quickstart",
-    "first time",
+    "start",
     "buyer flow",
-    "how to use itpay",
+    "v3 cli",
+    "how to use",
+    "怎么用",
     "开始",
-    "第一次",
-    "怎么用"
+    "快速开始"
   ]
 }
