@@ -8,7 +8,7 @@ itpay readyz
 itpay docs show quickstart
 ```
 
-This test release defaults to `https://test.itpay.ai`. Set
+The CLI defaults to the production API at `https://api.itpay.ai`. Set
 `ITPAY_BACKEND_URL` only when intentionally using another backend.
 
 ## Commands
@@ -54,7 +54,7 @@ Aliases: `tg` and `openclaw-telegram` map to `telegram`; `feishu_im` and `fs` ma
 
 ## Environment
 
-- `ITPAY_BACKEND_URL` — optional backend override (test-release default `https://test.itpay.ai`)
+- `ITPAY_BACKEND_URL` — optional backend override (default `https://api.itpay.ai`)
 - `ITPAY_BEARER_TOKEN` — account-scoped session token (only needed for `orders`)
 - `ITPAY_AGENT_DEVICE_ID` — agent device id, used for cart/service execution quota identity and `client_context`
 - `ITPAY_CURRENCY` — checkout currency (default `CNY`)
