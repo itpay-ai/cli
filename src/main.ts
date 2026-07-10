@@ -47,7 +47,7 @@ program
   .name("itpay")
   .description("V3 ItPay CLI — checkout, payment, order, and refund commands")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
-  .version("2.0.0-rc.2");
+  .version("2.0.0");
 
 function withHost(value: string | undefined): ClientHost {
   const host = normalizeHost(value);

@@ -20,7 +20,7 @@ itpay readyz
 itpay docs show quickstart
 ```
 
-This prerelease defaults to `https://test.itpay.ai`. Set `ITPAY_BACKEND_URL`
+This test release defaults to `https://test.itpay.ai`. Set `ITPAY_BACKEND_URL`
 only for an intentional override.
 
 Every commerce flow must identify the real runtime. Pass the global option
