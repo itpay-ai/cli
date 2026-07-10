@@ -12,7 +12,7 @@ const INSTALL_TARGETS: Record<string, InstallTarget> = {
     configFile: "~/.claude/settings.json",
     instructions: [
       "1. Ensure itpay is installed:  npm install -g @itpay/cli",
-      `2. Production API (default):    ${DEFAULT_BASE_URL}`,
+      `2. Default API:                 ${DEFAULT_BASE_URL}`,
       "3. Use --agent-type claude-code-cli or claude-code-desktop",
       "4. Use --host claude-code for human-facing output",
       "5. The CLI renders checkout QR as markdown images and links",
@@ -23,7 +23,7 @@ const INSTALL_TARGETS: Record<string, InstallTarget> = {
     configFile: "~/.codex/config.toml",
     instructions: [
       "1. Ensure itpay is installed:  npm install -g @itpay/cli",
-      `2. Production API (default):    ${DEFAULT_BASE_URL}`,
+      `2. Default API:                 ${DEFAULT_BASE_URL}`,
       "3. Use --agent-type codex-cli or codex-desktop",
       "4. Use --host trae or --host codex for human-facing output",
       "5. Attach the emitted QR image and show the checkout link",
@@ -35,7 +35,7 @@ const INSTALL_TARGETS: Record<string, InstallTarget> = {
     configFile: "shell profile (~/.zshrc, ~/.bashrc)",
     instructions: [
       "1. Install globally:            npm install -g @itpay/cli",
-      `2. Production API (default):    ${DEFAULT_BASE_URL}`,
+      `2. Default API:                 ${DEFAULT_BASE_URL}`,
       "3. Set the real runtime type with --agent-type <type>",
       "4. Use --host terminal for text/QR output in terminal",
       "5. Override ITPAY_BACKEND_URL only for local or test backends",
@@ -46,7 +46,7 @@ const INSTALL_TARGETS: Record<string, InstallTarget> = {
     configFile: "OpenClaw gateway config",
     instructions: [
       "1. Install itpay:               npm install -g @itpay/cli",
-      `2. Production API (default):    ${DEFAULT_BASE_URL}`,
+      `2. Default API:                 ${DEFAULT_BASE_URL}`,
       "3. Set the real OpenClaw runtime with --agent-type <type>",
       "4. Use --host telegram --target <chat_id> for human-facing output",
       "5. The CLI emits openclaw_message payloads with buttons and QR images",
@@ -57,7 +57,7 @@ const INSTALL_TARGETS: Record<string, InstallTarget> = {
     configFile: "Feishu bot config",
     instructions: [
       "1. Install itpay:               npm install -g @itpay/cli",
-      `2. Production API (default):    ${DEFAULT_BASE_URL}`,
+      `2. Default API:                 ${DEFAULT_BASE_URL}`,
       "3. Set the real agent runtime with --agent-type <type>",
       "4. Use --host feishu --target <open_id> or --host lark --target <open_id>",
       "5. The CLI emits Interactive Card JSON with buttons and QR images",
