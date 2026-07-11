@@ -47,7 +47,7 @@ program
   .name("itpay")
   .description("V3 ItPay CLI — checkout, payment, order, and refund commands")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
-  .version("2.0.2");
+  .version("2.0.3");
 
 function withHost(value: string | undefined): ClientHost {
   const host = normalizeHost(value);
@@ -478,21 +478,13 @@ program
   .command("refund")
   .description("Create a V3 refund request for an order")
   .requiredOption("--order <order_id>")
-  .requiredOption("--payment-intent <payment_intent_id>")
-  .requiredOption("--amount-minor <n>", "amount in minor units", (value) => Number.parseInt(value, 10))
-  .requiredOption("--currency <currency>")
   .option("--reason <reason>")
-  .option("--created-by <created_by>")
   .action(async (options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     const refundOptions = {
       orderID: options.order,
-      paymentIntentID: options.paymentIntent,
-      amountMinor: options.amountMinor,
-      currency: options.currency,
       ...(options.reason ? { reason: options.reason } : {}),
-      ...(options.createdBy ? { createdBy: options.createdBy } : {}),
     };
     await runRefund(backend, config, refundOptions);
   });

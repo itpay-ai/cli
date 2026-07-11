@@ -10,27 +10,21 @@ import { resolveOutput, type OutputSink } from "../render/sink.js";
 
 export interface RefundOptions {
   orderID: string;
-  paymentIntentID: string;
-  amountMinor: number;
-  currency: string;
   reason?: string;
-  createdBy?: string;
   output?: OutputSink;
 }
 
 export async function runRefund(backend: BackendClient, config: CLIConfig, options: RefundOptions): Promise<void> {
   const out = resolveOutput(options.output);
-  const request = {
-    payment_intent_id: options.paymentIntentID,
-    amount_minor: options.amountMinor,
-    currency: options.currency,
-    ...(options.reason ? { reason: options.reason } : {}),
-    ...(options.createdBy ? { created_by: options.createdBy } : {}),
-  };
+  if (!config.bearerToken) {
+    throw new Error("ITPAY_BEARER_TOKEN is required to refund an account order");
+  }
+  const reason = options.reason?.trim() || "buyer_requested";
   const refund = await backend.createRefund(
     options.orderID,
-    request,
-    await operationID(config, `refund.create:${options.orderID}:${options.paymentIntentID}:${options.amountMinor}:${options.currency}`),
+    { reason },
+    config.bearerToken,
+    await operationID(config, `refund.create:${options.orderID}:${reason}`),
   );
   out(renderRefund(refund) + "\n");
   out(`hint: ${hintFor("refund", refund.status)}\n`);

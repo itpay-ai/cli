@@ -132,9 +132,10 @@ export class BackendClient {
   createRefund(
     orderID: string,
     input: CreateRefundRequest,
+    bearer: string,
     idempotencyKey?: string,
   ): Promise<RefundRequest> {
-    const options = idempotencyKey ? { idempotencyKey } : {};
+    const options = { bearer, ...(idempotencyKey ? { idempotencyKey } : {}) };
     return this.http.post<RefundRequest>(
       `/v1/orders/${encodeURIComponent(orderID)}/refunds`,
       input,

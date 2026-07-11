@@ -92,7 +92,7 @@ after(async () => {
 // --- client context ------------------------------------------------------
 
 test("production backend is the package default", () => {
-  assert.equal(DEFAULT_BASE_URL, "https://api.itpay.ai");
+  assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -1219,18 +1219,17 @@ test("orders surfaces account_scope_required as HttpError", async () => {
 });
 
 test("refund issues a refund request with Idempotency-Key", async () => {
-  await runRefund(backend, config, {
+  await runRefund(backend, { ...config, bearerToken: "account_token" }, {
     orderID: "ord_42",
-    paymentIntentID: "pi_42",
-    amountMinor: 100,
-    currency: "CNY",
     reason: "buyer_requested",
     output: silent,
   });
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "POST");
   assert.equal(req.path, "/v1/orders/ord_42/refunds");
+  assert.equal(req.headers.authorization, "Bearer account_token");
   assert.equal(req.headers["idempotency-key"], "cli_smoke_key");
+  assert.deepEqual(req.body, { reason: "buyer_requested" });
 });
 
 // --- IDE image attach contract -----------------------------------------

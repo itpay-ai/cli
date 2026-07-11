@@ -25,10 +25,12 @@ export interface LineItem {
   quantity: number;
   amount_minor: number;
   currency: string;
+  input?: Record<string, unknown>;
 }
 
 export interface Cart {
   cart_id: string;
+  order_code?: string;
   status: string;
   amount_minor: number;
   currency: string;
@@ -59,10 +61,12 @@ export interface CreateCartRequest {
 
 export interface Checkout {
   checkout_id: string;
+  order_code?: string;
   status: string;
   next_action: string;
   amount_minor: number;
   currency: string;
+  delivery_contact?: Record<string, unknown>;
 }
 
 export interface CreateCheckoutRequest {
@@ -84,6 +88,7 @@ export interface CheckoutPresentation {
   items: LineItem[];
   payment_intents: PaymentIntent[];
   buyer_session: { state: string };
+  completed_order_id?: string;
   qr_png_url?: string;
 }
 
@@ -112,6 +117,7 @@ export interface CreatePaymentIntentRequest {
 
 export interface Order {
   order_id: string;
+  order_code?: string;
   checkout_id: string;
   status: string;
   amount_minor: number;
@@ -151,12 +157,7 @@ export interface RefundRequest {
 }
 
 export interface CreateRefundRequest {
-  payment_intent_id: string;
-  buyer_id?: string;
-  amount_minor: number;
-  currency: string;
-  reason?: string;
-  created_by?: string;
+  reason: string;
 }
 
 export interface ReadyResponse {
