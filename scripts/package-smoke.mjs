@@ -39,7 +39,7 @@ try {
   const installHelp = execFileSync(process.execPath, [entry, "install", "codex"], { env, encoding: "utf8" });
   assert.match(installHelp, /Default API:/);
   assert.doesNotMatch(installHelp, /Production API/);
-  assert.match(installHelp, /https:\/\/api\.itpay\.ai/);
+  assert.match(installHelp, /https:\/\/app\.itpay\.ai/);
   assert.doesNotMatch(installHelp, /sandbox\.itpay\.ai/);
   const skill = readFileSync(join(packageRoot, "skills", "itpay-buyer", "SKILL.md"), "utf8");
   assert.match(skill, /next_actions/);

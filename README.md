@@ -8,7 +8,7 @@ itpay readyz
 itpay docs show quickstart
 ```
 
-The CLI defaults to the production API at `https://api.itpay.ai`. Set
+The CLI defaults to the production app at `https://app.itpay.ai`. Set
 `ITPAY_BACKEND_URL` only when intentionally using another backend.
 
 ## Commands
@@ -36,7 +36,7 @@ The CLI defaults to the production API at `https://api.itpay.ai`. Set
 - `itpay pay --checkout <id> --method alipay|wechatpay` — CLI escape hatch for operator/manual testing only; normal buyer flow opens the ItPay checkout page first
 - `itpay order <order_id>` — read one V3 order
 - `itpay orders [--limit 20] [--status <status>]` — list account-scoped orders (requires `ITPAY_BEARER_TOKEN`)
-- `itpay refund --order <id> --payment-intent <id> --amount-minor <n> --currency <code>` — request a refund
+- `itpay refund --order <id> [--reason <reason>]` — request a refund with an account-scoped `ITPAY_BEARER_TOKEN`; payment and amount are derived by the backend
 
 ## Hosts
 
@@ -54,7 +54,7 @@ Aliases: `tg` and `openclaw-telegram` map to `telegram`; `feishu_im` and `fs` ma
 
 ## Environment
 
-- `ITPAY_BACKEND_URL` — optional backend override (default `https://api.itpay.ai`)
+- `ITPAY_BACKEND_URL` — optional backend override (default `https://app.itpay.ai`)
 - `ITPAY_BEARER_TOKEN` — account-scoped session token (only needed for `orders`)
 - `ITPAY_AGENT_DEVICE_ID` — agent device id, used for cart/service execution quota identity and `client_context`
 - `ITPAY_CURRENCY` — checkout currency (default `CNY`)

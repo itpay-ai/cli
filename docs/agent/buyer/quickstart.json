@@ -12,7 +12,7 @@
   "required_state": {
     "needs": [
       "itpay CLI installed",
-      "production API at https://api.itpay.ai, or an intentional ITPAY_BACKEND_URL override",
+      "production app at https://app.itpay.ai, or an intentional ITPAY_BACKEND_URL override",
       "catalog item id, variant id, and offer id from `itpay catalog list`",
       "real agent runtime type supplied through --agent-type or ITPAY_AGENT_TYPE"
     ],

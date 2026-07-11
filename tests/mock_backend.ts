@@ -577,14 +577,18 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
 
     const refundMatch = path.match(/^\/v1\/orders\/([^/]+)\/refunds$/);
     if (method === "POST" && refundMatch) {
+      if (bearer !== "Bearer account_token") {
+        respond(res, 401, { code: "session_required", message: "account bearer required" });
+        return;
+      }
       const orderID = refundMatch[1]!;
-      const payload = (requests.at(-1)?.body ?? {}) as { amount_minor?: number; currency?: string; reason?: string };
+      const payload = (requests.at(-1)?.body ?? {}) as { reason?: string };
       respond(res, 202, {
         refund_request_id: `rr_${refundCounter++}`,
         order_id: orderID,
         status: "requested",
-        amount_minor: payload.amount_minor ?? 100,
-        currency: payload.currency ?? "CNY",
+        amount_minor: 100,
+        currency: "CNY",
         reason: payload.reason,
       });
       return;

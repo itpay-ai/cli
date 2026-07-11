@@ -29,9 +29,9 @@ export interface CLIConfig {
   ideImageDirOverride?: string;
 }
 
-export const DEFAULT_BASE_URL = "https://api.itpay.ai";
-export const CLI_VERSION = "2.0.2";
-export const API_CONTRACT_REVISION = "sha256:2c2829f4618c47bc505efc0ded853cf639d775585ba13aa23012197e39efa31f";
+export const DEFAULT_BASE_URL = "https://app.itpay.ai";
+export const CLI_VERSION = "2.0.3";
+export const API_CONTRACT_REVISION = "sha256:d2870f3ee6fa4ee8a0a3ee75ae272a1a476935aae824123cf46607d62168f1f2";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";

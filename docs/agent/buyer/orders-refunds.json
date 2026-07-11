@@ -13,10 +13,10 @@
   "required_state": {
     "needs": [
       "order_id for order or refund flows",
-      "payment_intent_id for refund flows"
+      "ITPAY_BEARER_TOKEN for refund flows"
     ],
     "optional": [
-      "ITPAY_BEARER_TOKEN for account order listing"
+      "refund reason; defaults to buyer_requested"
     ]
   },
   "commands": [
@@ -37,7 +37,7 @@
     },
     {
       "intent": "request a refund for an order",
-      "command": "itpay refund --order <order_id> --payment-intent <payment_intent_id> --amount-minor <n> --currency CNY --reason buyer_requested",
+      "command": "ITPAY_BEARER_TOKEN=<account_scoped_token> itpay refund --order <order_id> --reason buyer_requested",
       "success_signal": "refund request id and refund status are printed"
     }
   ],
@@ -45,7 +45,7 @@
     "Use itpay order when you already know the exact order id.",
     "Use itpay orders only with an account-scoped bearer token. Missing or wrong scope should be surfaced as an error, not guessed away.",
     "Treat itpay pay as an operator escape hatch. The checkout handoff remains the preferred path.",
-    "Refund amounts are minor units. For CNY, 100 means CNY 1.00.",
+    "Never ask the user or client to supply refund payment ids, amount, currency, buyer id, or actor; the backend derives them from the owned order.",
     "The refund response is the current source of truth; do not assume success locally."
   ],
   "forbidden": [
