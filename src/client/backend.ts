@@ -15,6 +15,7 @@ import type {
   CatalogManifest,
   InvokeServiceCapabilityRequest,
   ListOrdersResponse,
+	ListRefundsResponse,
   ListServiceExecutionsResponse,
   Order,
   PaymentIntent,
@@ -132,16 +133,28 @@ export class BackendClient {
   createRefund(
     orderID: string,
     input: CreateRefundRequest,
-    bearer: string,
+    bearer?: string,
     idempotencyKey?: string,
   ): Promise<RefundRequest> {
-    const options = { bearer, ...(idempotencyKey ? { idempotencyKey } : {}) };
+	const options = { ...(bearer ? { bearer } : {}), ...(idempotencyKey ? { idempotencyKey } : {}) };
     return this.http.post<RefundRequest>(
       `/v1/orders/${encodeURIComponent(orderID)}/refunds`,
       input,
       options,
     );
   }
+
+	listOrderRefunds(orderID: string): Promise<ListRefundsResponse> {
+		return this.http.get<ListRefundsResponse>(`/v1/orders/${encodeURIComponent(orderID)}/refunds`);
+	}
+
+	getRefund(refundRequestID: string): Promise<RefundRequest> {
+		return this.http.get<RefundRequest>(`/v1/refunds/${encodeURIComponent(refundRequestID)}`);
+	}
+
+	cancelRefund(refundRequestID: string, reason = "buyer_cancelled"): Promise<RefundRequest> {
+		return this.http.post<RefundRequest>(`/v1/refunds/${encodeURIComponent(refundRequestID)}/cancel`, { reason });
+	}
 
   // --- Service Execution ---
 

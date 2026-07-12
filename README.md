@@ -36,7 +36,8 @@ The CLI defaults to the production app at `https://app.itpay.ai`. Set
 - `itpay pay --checkout <id> --method alipay|wechatpay` — CLI escape hatch for operator/manual testing only; normal buyer flow opens the ItPay checkout page first
 - `itpay order <order_id>` — read one V3 order
 - `itpay orders [--limit 20] [--status <status>]` — list account-scoped orders (requires `ITPAY_BEARER_TOKEN`)
-- `itpay refund --order <id> [--reason <reason>]` — request a refund with an account-scoped `ITPAY_BEARER_TOKEN`; payment and amount are derived by the backend
+- `itpay refund create --order <id> [--reason <reason>]` — request a refund with the signed DeviceAuthority identity; payment and amount are derived by the backend
+- `itpay refund list --order <id>` / `get <refund_id>` / `watch <refund_id>` / `cancel <refund_id>` — recover and manage one refund; the legacy `itpay refund --order ...` alias remains supported
 
 ## Hosts
 

@@ -44,6 +44,8 @@ export function renderRefund(refund: RefundRequest): string {
     `  status:  ${refund.status}`,
     `  amount:  ${formatMoney(refund.amount_minor, refund.currency)}`,
     refund.reason ? `  reason:  ${refund.reason}` : "",
+	`  access:  ${refund.access_locked ? "locked" : "available"}`,
+	`  policy:  ${refund.decision_mode === "automatic" ? "automatic" : "admin review"}`,
   ]
     .filter((line) => line.length > 0)
     .join("\n");

@@ -154,7 +154,14 @@ export interface RefundRequest {
   amount_minor: number;
   currency: string;
   reason?: string;
+	decision_mode: "automatic" | "manual";
+	consumption_state: "unconsumed" | "consumed" | "unknown";
+	failure_class?: "known_no_effect" | "retryable" | "outcome_unknown" | "permanent";
+	access_locked: boolean;
+	can_cancel: boolean;
 }
+
+export interface ListRefundsResponse { refunds: RefundRequest[]; }
 
 export interface CreateRefundRequest {
   reason: string;

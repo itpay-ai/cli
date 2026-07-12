@@ -577,7 +577,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
 
     const refundMatch = path.match(/^\/v1\/orders\/([^/]+)\/refunds$/);
     if (method === "POST" && refundMatch) {
-      if (bearer !== "Bearer account_token") {
+	  if (bearer !== "Bearer account_token" && !bearer.startsWith("ItPayDevice ")) {
         respond(res, 401, { code: "session_required", message: "account bearer required" });
         return;
       }
@@ -586,13 +586,28 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       respond(res, 202, {
         refund_request_id: `rr_${refundCounter++}`,
         order_id: orderID,
-        status: "requested",
+		status: "accepted",
         amount_minor: 100,
         currency: "CNY",
         reason: payload.reason,
+		decision_mode: "automatic",
+		consumption_state: "unconsumed",
+		access_locked: true,
+		can_cancel: true,
       });
       return;
     }
+
+	const refundReadMatch = path.match(/^\/v1\/refunds\/([^/]+)$/);
+	if (method === "GET" && refundReadMatch) {
+		respond(res, 200, { refund_request_id: refundReadMatch[1], order_id: "ord_42", status: "accepted", amount_minor: 100, currency: "CNY", decision_mode: "automatic", consumption_state: "unconsumed", access_locked: true, can_cancel: true });
+		return;
+	}
+	const refundCancelMatch = path.match(/^\/v1\/refunds\/([^/]+)\/cancel$/);
+	if (method === "POST" && refundCancelMatch) {
+		respond(res, 200, { refund_request_id: refundCancelMatch[1], order_id: "ord_42", status: "cancelled", amount_minor: 100, currency: "CNY", decision_mode: "automatic", consumption_state: "unconsumed", access_locked: false, can_cancel: false });
+		return;
+	}
 
     respond(res, 404, { code: "not_found", message: `no mock for ${method} ${path}` });
   }

@@ -14,7 +14,7 @@ import { runCheckoutPresentation } from "./commands/checkout.js";
 import { runPay } from "./commands/pay.js";
 import { runOrder } from "./commands/order.js";
 import { runListOrders } from "./commands/orders.js";
-import { runRefund } from "./commands/refund.js";
+import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "./commands/refund.js";
 import {
   runCartAdd,
   runCartAddServer,
@@ -47,7 +47,7 @@ program
   .name("itpay")
   .description("V3 ItPay CLI — checkout, payment, order, and refund commands")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
-  .version("2.0.3");
+  .version("2.0.4");
 
 function withHost(value: string | undefined): ClientHost {
   const host = normalizeHost(value);
@@ -474,12 +474,13 @@ program
     });
   });
 
-program
+const refund = program
   .command("refund")
-  .description("Create a V3 refund request for an order")
-  .requiredOption("--order <order_id>")
+	.description("Create a V3 refund request for an order")
+	.option("--order <order_id>")
   .option("--reason <reason>")
   .action(async (options) => {
+	if (!options.order) throw new Error("--order is required; or use `itpay refund create --order <order_id>`");
     const config = loadConfig();
     const backend = newBackendClient(config);
     const refundOptions = {
@@ -488,6 +489,22 @@ program
     };
     await runRefund(backend, config, refundOptions);
   });
+
+refund.command("create").requiredOption("--order <order_id>").option("--reason <reason>").action(async (options) => {
+	const config = loadConfig(); await runRefund(newBackendClient(config), config, { orderID: options.order, ...(options.reason ? { reason: options.reason } : {}) });
+});
+refund.command("list").requiredOption("--order <order_id>").action(async (options) => {
+	const config = loadConfig(); await runListRefunds(newBackendClient(config), options.order);
+});
+refund.command("get").argument("<refund_request_id>").action(async (id) => {
+	const config = loadConfig(); await runGetRefund(newBackendClient(config), id);
+});
+refund.command("watch").argument("<refund_request_id>").option("--interval <seconds>", "poll interval", Number, 2).option("--timeout <seconds>", "timeout", Number, 120).action(async (id, options) => {
+	const config = loadConfig(); await runWatchRefund(newBackendClient(config), id, options.interval, options.timeout);
+});
+refund.command("cancel").argument("<refund_request_id>").option("--reason <reason>").action(async (id, options) => {
+	const config = loadConfig(); await runCancelRefund(newBackendClient(config), id, options.reason);
+});
 
 // --- service execution ----------------------------------------------------
 

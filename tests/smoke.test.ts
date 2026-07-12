@@ -32,7 +32,7 @@ import { runCheckoutPresentation } from "../src/commands/checkout.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
-import { runRefund } from "../src/commands/refund.js";
+import { runCancelRefund, runGetRefund, runRefund } from "../src/commands/refund.js";
 import { runCartAdd, runCartShow, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartNext } from "../src/commands/cart.js";
 import { runCatalogList } from "../src/commands/catalog.js";
 import { runServicesAction, runServicesCheckout, runServicesInvoke, runServicesList, runServicesNext, runServicesReadResult } from "../src/commands/services.js";
@@ -1230,6 +1230,17 @@ test("refund issues a refund request with Idempotency-Key", async () => {
   assert.equal(req.headers.authorization, "Bearer account_token");
   assert.equal(req.headers["idempotency-key"], "cli_smoke_key");
   assert.deepEqual(req.body, { reason: "buyer_requested" });
+});
+
+test("refund uses signed device authority without buyer bearer and supports recovery commands", async () => {
+	const signedBackend = new BackendClient(new HttpClient({ baseURL: mock.url, requestAuthorizer: async () => ({ Authorization: "ItPayDevice device_session" }) }));
+	const { bearerToken: _bearerToken, ...deviceConfig } = config;
+	await runRefund(signedBackend, deviceConfig, { orderID: "ord_42", output: silent });
+	assert.equal(mock.requests.at(-1)?.headers.authorization, "ItPayDevice device_session");
+	await runGetRefund(signedBackend, "rr_1", silent);
+	assert.equal(mock.requests.at(-1)?.path, "/v1/refunds/rr_1");
+	await runCancelRefund(signedBackend, "rr_1", undefined, silent);
+	assert.equal(mock.requests.at(-1)?.path, "/v1/refunds/rr_1/cancel");
 });
 
 // --- IDE image attach contract -----------------------------------------
