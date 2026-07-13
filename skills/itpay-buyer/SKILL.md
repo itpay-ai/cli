@@ -1,154 +1,84 @@
 ---
 name: itpay-buyer
 description: >
-  Use the ItPay V3 CLI when a human asks an AI agent to discover services,
-  use a free capability, buy a paid result, show an ItPay checkout QR, recover
-  an interrupted purchase, or read a result covered by a temporary human grant.
+  Use the ItPay CLI when a human asks an Agent to discover services, use a
+  capability, buy a result, show a Checkout, recover an interrupted flow,
+  read a human-granted result, or manage a refund.
 ---
 
-# ItPay V3 Buyer
+# ItPay Buyer
 
-Use the CLI as the control surface. Do not recreate ItPay API calls or invent a
-service-specific workflow. The backend returns the next valid actions for each
-catalog item and Service Execution.
+Use the CLI as the only ItPay control surface. Do not recreate API calls or hardcode a service-specific sequence.
 
 ## Bootstrap
 
 ```bash
 npm install -g @itpay/cli
-itpay readyz
-itpay docs show quickstart
+itpay install <agent_type> --json
+itpay --agent-type <agent_type> readyz --json
+itpay --agent-type <agent_type> docs show quickstart --json
 ```
 
-The CLI defaults to `https://app.itpay.ai`. Set `ITPAY_BACKEND_URL`
-only for an intentional override.
+Supported types are `codex-desktop`, `codex-cli`, `claude-code-desktop`, `claude-code-cli`, and `workbuddy`. Use the real stable runtime type; Host is presentation only.
 
-Every commerce flow must identify the real runtime. Pass the global option
-immediately after `itpay`, or set `ITPAY_AGENT_TYPE` once:
+## Envelope Rule
 
-```bash
-itpay --agent-type codex-desktop catalog list --json
-```
+For every JSON response:
 
-Examples include `codex-desktop`, `codex-cli`, `claude-code-desktop`,
-`claude-code-cli`, and the actual WorkBuddy/OpenClaw runtime name. Never rotate
-the type or local device files to obtain more free quota. The CLI enrolls one
-signed device under `~/.itpay-v3/device` and registers each runtime on it.
+1. Read `status` and `result` as current facts.
+2. Follow `instruction` when explaining or presenting those facts.
+3. Execute at most the one `next.command`, filling only explicit placeholders or required user data.
+4. Use `recovery` only when the normal next step cannot continue.
+
+Do not print the whole envelope to the user. Return the useful result, a short explanation, and the next human action when needed.
 
 ## Golden Flow
 
-1. Discover, then use IDs returned by the CLI:
-
 ```bash
 itpay --agent-type <agent_type> catalog list --json
-itpay --agent-type <agent_type> services start <service_id>
+itpay --agent-type <agent_type> services start <service_id> --json
 ```
 
-2. Ask the server for the next step:
+Then execute the exact `next.command` returned by each step. It may invoke a capability, ask for a selection, create a Checkout, wait for human action, return an Agent-visible result, or read a protected result after grant.
 
-```bash
-itpay --agent-type <agent_type> services next <service_execution_id> --json
-```
+Rules:
 
-3. Execute the first applicable command from `next_actions` unchanged. Typical
-commands are `services invoke`, `services action`, or `services checkout`.
-Do not infer a capability ID or hardcode one service's sequence.
-
-4. For a paid result, collect only contact fields requested by the CLI. Create
-the checkout with the exact server-selected capability:
-
-```bash
-itpay --agent-type <agent_type> services checkout <service_execution_id> \
-  --capability <capability_id> [--email <human_email>] --host <host> --json
-```
-
-Include `--email` only when the CLI's `next_actions` command includes it. For a
-protected delivery, explain that the address receives the order claim link;
-never invent an address. Agent-visible paid results do not require email.
-
-5. Show both handoff forms to the human:
-
-- Attach `brand_qr_local_path` when `brand_qr_status` is `downloaded`.
-- Print `checkout_url` as a clickable link.
-- Keep `checkout_id`, `display_token`, and `service_execution_id` for recovery.
-- Do not substitute a provider QR or call `itpay pay` in the normal buyer flow.
-
-6. After the human pays, claims, or grants access, re-read server state:
-
-```bash
-itpay --agent-type <agent_type> services next <service_execution_id> --json
-itpay --agent-type <agent_type> services get <service_execution_id> --json
-```
-
-7. Read protected output only when `next_actions` says the human grant is
-active:
-
-```bash
-itpay --agent-type <agent_type> services read-result <service_execution_id>
-```
-
-The grant is scoped to one Service Execution and expires after 15 minutes. It
-does not expose the buyer's other Vault artifacts, orders, or executions.
+- One independent service intent uses one Service Execution.
+- Ask for required email/contact fields; explain their delivery purpose and never invent them.
+- When Checkout is ready, make both the ItPay QR/image and URL visible on the current human surface.
+- Normal payment happens on the ItPay Checkout page. `itpay pay` and `buy --pay` are operator escape hatches.
+- Payment is confirmed only by Backend Checkout or Order state.
+- Agent-visible results come from `services next`; do not call `read-result` for them.
+- Protected results require a current human grant. The grant is scoped to one delivery, approved fields and frozen Agent audience, and expires after 15 minutes.
+- A pending refund locks every delivery path and revokes existing grants.
 
 ## Recovery
 
-Use server-backed recovery before creating anything again:
+Before creating anything again:
 
 ```bash
 itpay --agent-type <agent_type> next --json
 itpay --agent-type <agent_type> services list --json
 itpay --agent-type <agent_type> services next <service_execution_id> --json
 itpay --agent-type <agent_type> services checkout <service_execution_id> --resume --json
-itpay checkout --id <checkout_id> --token <display_token>
+itpay checkout --id <checkout_id> --token <display_token> --json
+itpay --agent-type <agent_type> refund get <refund_request_id> --json
 ```
 
-`--resume` reissues the handoff for the existing unpaid checkout. It must not
-create a second order. Local files cache recovery handles; canonical cart,
-quota, execution, checkout, delivery, and grant state comes from the backend.
+## Safety
 
-## Host Selection
+- Never invent service, capability, item, Checkout, Order, grant, or refund IDs.
+- Never expose Provider credentials, raw payloads, display tokens as standalone chat data, Buyer bearer tokens, or Device private keys.
+- Never bypass ownership, compatibility, quota, grant, or refund-lock errors.
+- Do not use `services events` in a normal flow; it is a bounded redacted diagnostic command.
+- Do not rotate Agent Type or local identity to reset free quota.
 
-`--agent-type` identifies the agent runtime. `--host` identifies where the
-human sees the output. They are separate.
-
-| Human surface | CLI options |
-| --- | --- |
-| Codex | `--host codex` |
-| Claude Code | `--host claude-code` |
-| Terminal | `--host terminal` |
-| Telegram | `--host telegram --target <chat_id>` |
-| Feishu/Lark | `--host feishu --target <id>` or `--host lark --target <id>` |
-
-Run `itpay install <host>` for host-specific setup.
-
-## Progressive Disclosure
-
-- Run one state-changing command at a time.
-- Return the useful result, a short explanation, and the next executable step.
-- Ask the human only for a missing required field such as delivery email.
-- When checkout is ready, visibly attach the QR and print the payment link.
-- Prefer CLI `next_actions`; do not dump internal timelines unless diagnosing.
-- Use `--json` for agent parsing and normal rendering for the human handoff.
-
-## Safety Rules
-
-1. Never invent catalog, service, capability, result-item, checkout, or order IDs.
-2. Never expose provider credentials, raw provider metadata, bearer tokens, or device private keys.
-3. Do not treat QR rendering or a human statement as payment confirmation.
-4. Do not call `itpay pay` or use `buy --pay` for a normal checkout; those are operator escape hatches.
-5. Do not create a new execution or checkout until recovery confirms the prior one is unusable.
-6. Do not claim protected access before `services read-result` succeeds.
-7. Do not invent admin, account, grant-creation, or provider-specific CLI commands.
-
-## Built-in Docs
+## Built-In Help
 
 ```bash
-itpay docs list
-itpay docs search <term>
-itpay docs show catalog-list
-itpay docs show cart-checkout
-itpay docs show payment-flow
-itpay docs show orders-refunds
-itpay docs show render-hosts
-itpay docs show install-and-setup
+itpay docs list --json
+itpay docs search <term> --json
+itpay docs show <topic> --json
 ```
+
+The normative command contracts are packaged under `docs/cli-reference`.

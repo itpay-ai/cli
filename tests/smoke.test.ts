@@ -10,7 +10,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 
 import { HttpClient, HttpError } from "../src/client/http.js";
 import { BackendClient } from "../src/client/backend.js";
+import type { ServiceExecutionReadModel } from "../src/client/types.js";
 import { CartSession } from "../src/state/cart_session.js";
 import {
   HOSTS_REQUIRING_TARGET,
@@ -25,22 +26,22 @@ import {
   normalizeHost,
   validateContext,
 } from "../src/state/client_context.js";
-import { runBuy, buildCheckoutQRPlan, buildJSONOutput } from "../src/commands/buy.js";
-import { buildServiceInvokedGuidance, buildServiceReadModelGuidance, errorRecoveryActions } from "../src/commands/guidance.js";
+import { runBuy, buildCheckoutQRPlan } from "../src/commands/buy.js";
+import { CommandContractError, buildServiceInvokedGuidance, buildServiceReadModelGuidance, errorRecoveryActions } from "../src/commands/guidance.js";
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
-import { runCancelRefund, runGetRefund, runRefund } from "../src/commands/refund.js";
-import { runCartAdd, runCartShow, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartNext } from "../src/commands/cart.js";
+import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "../src/commands/refund.js";
+import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartNext } from "../src/commands/cart.js";
 import { runCatalogList } from "../src/commands/catalog.js";
-import { runServicesAction, runServicesCheckout, runServicesInvoke, runServicesList, runServicesNext, runServicesReadResult } from "../src/commands/services.js";
+import { runNext } from "../src/commands/next.js";
+import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
 import { DEFAULT_BASE_URL, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
-import { extractInputRequestFromMarkdown, submitAgentInputRequest } from "./mock_agent_adapter.js";
 
 const execFileAsync = promisify(execFile);
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -69,7 +70,6 @@ before(async () => {
   mock = await startMockBackend();
   config = {
     baseURL: mock.url,
-    agentDeviceID: "agent_smoke",
     checkoutCurrency: "CNY",
     idempotencyKey: "cli_smoke_key",
     ideImageAttach: true,
@@ -107,8 +107,10 @@ test("normalizeHost handles aliases and rejects unknown hosts", () => {
 
 test("agent type selects the default client surface", () => {
   assert.equal(defaultHostForAgentType("codex-desktop"), "codex");
-  assert.equal(defaultHostForAgentType("claude-code-cli"), "claude-code");
-  assert.equal(defaultHostForAgentType("workbuddy"), "terminal");
+  assert.equal(defaultHostForAgentType("codex-cli"), "terminal");
+  assert.equal(defaultHostForAgentType("claude-code-desktop"), "claude-code");
+  assert.equal(defaultHostForAgentType("claude-code-cli"), "terminal");
+  assert.equal(defaultHostForAgentType("workbuddy"), "plain-chat");
 });
 
 test("validateContext enforces --target for IM hosts", () => {
@@ -162,16 +164,27 @@ test("cart remove and clear mutate the session", () => {
     quantity: 1,
     output: silent,
   });
-  runCartClear(session);
+  runCartClear(session, { output: silent });
   assert.equal(session.show().items.length, 0);
 });
 
 test("server cart remove and abandon call canonical backend routes", async () => {
   const session = new CartSession("CNY");
-  session.rememberServerCart({ cartID: "cart_server_1", cartItemID: "cart_item_1" });
-  await runCartRemoveServer(backend, session, undefined, { output: silent });
+  session.rememberServerCart({ cartID: "cart_server_1", cartItemID: "cart_item_1", serviceExecutionID: "se_removed" });
+  await runCartRemoveServer(backend, session, undefined, { jsonOutput: true, output: stdoutSink });
   assert.equal(mock.requests.at(-1)?.method, "DELETE");
   assert.equal(mock.requests.at(-1)?.path, "/v1/carts/cart_server_1/items/cart_item_1");
+  const removed = JSON.parse(stdoutCapture.join("")) as { status: string; result: { remaining_item_count: number }; next: { command: string } };
+  assert.equal(removed.status, "removed");
+  assert.equal(removed.result.remaining_item_count, 0);
+  assert.equal(removed.next.command, "itpay cart next --json");
+  assert.equal(session.lastCartItemID, undefined);
+  assert.equal(session.lastServiceExecutionID, undefined);
+
+  stdoutCapture = [];
+  runNext(session, { jsonOutput: true, output: stdoutSink });
+  const next = JSON.parse(stdoutCapture.join("")) as { result: { resource_type: string } };
+  assert.equal(next.result.resource_type, "cart");
 
   await runCartAbandonServer(backend, session, { output: silent });
   assert.equal(mock.requests.at(-1)?.method, "DELETE");
@@ -179,22 +192,127 @@ test("server cart remove and abandon call canonical backend routes", async () =>
   assert.equal(session.lastCartID, undefined);
 });
 
-test("server cart clear drops local handle when canonical cart is locked", async () => {
+test("cart remove parser supports canonical and local scopes across Agent Types", async () => {
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const home = mkdtempSync(join(tmpdir(), `itpay-cart-remove-${agentType}-`));
+    const session = new CartSession("CNY");
+    session.rememberServerCart({ cartID: `cart_remove_${agentType}`, cartItemID: "ci_remove", serviceExecutionID: "se_remove" });
+    session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+    const result = await runCLI(["--agent-type", agentType, "cart", "remove", "--line", "ci_remove", "--json"], {
+      ITPAY_BACKEND_URL: mock.url,
+      HOME: home,
+    });
+    const envelope = JSON.parse(result.stdout) as { status: string; result: { cart_item_id: string }; next: { command: string } };
+    assert.equal(envelope.status, "removed");
+    assert.equal(envelope.result.cart_item_id, "ci_remove");
+    assert.equal(envelope.next.command, "itpay cart next --json");
+    assert.equal(result.stderr, "");
+  }
+
+  const localHome = mkdtempSync(join(tmpdir(), "itpay-cart-remove-local-"));
+  const local = new CartSession("CNY");
+  runCartAdd(local, { catalogItemID: "i", catalogVariantID: "v", offerID: "o", quantity: 1, output: silent });
+  local.saveToFile(join(localHome, ".itpay-v3", "cart.json"));
+  const localResult = await runCLI([
+    "--agent-type", "workbuddy", "cart", "remove", "--local", "--variant", "v", "--offer", "o", "--json",
+  ], { ITPAY_BACKEND_URL: mock.url, HOME: localHome });
+  const localEnvelope = JSON.parse(localResult.stdout) as { status: string; next: { command: string } };
+  assert.equal(localEnvelope.status, "removed_local");
+  assert.equal(localEnvelope.next.command, "itpay cart show --local --json");
+});
+
+test("cart remove validates scope before HTTP and preserves locked handles", async () => {
+  const requestCount = mock.requests.length;
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "cart", "remove", "--variant", "v", "--offer", "o", "--json"], {
+      cwd: CLI_ROOT,
+      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-cart-remove-invalid-")) },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "cart_remove_scope_invalid");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, requestCount);
+
+  const locked = new CartSession("CNY");
+  locked.rememberServerCart({ cartID: "cart_locked", cartItemID: "ci_locked", serviceExecutionID: "se_locked" });
+  const lockedBackend = {
+    removeCartItem: async () => { throw new HttpError(409, { code: "cart_item_locked", message: "cart item is locked" }, "HTTP 409"); },
+  } as unknown as BackendClient;
+  await assert.rejects(runCartRemoveServer(lockedBackend, locked, "ci_locked", { output: silent }), /cart item is locked/);
+  assert.equal(locked.lastCartItemID, "ci_locked");
+  assert.equal(locked.lastServiceExecutionID, "se_locked");
+});
+
+test("server cart clear preserves recovery handles when canonical cart is locked", async () => {
   const session = new CartSession("CNY");
-  session.rememberServerCart({ cartID: "cart_locked", cartItemID: "cart_item_locked" });
+  session.rememberServerCart({ cartID: "cart_locked", cartItemID: "cart_item_locked", serviceExecutionID: "se_locked" });
   const lockedBackend = {
     abandonCart: async () => {
       throw new HttpError(409, { code: "cart_item_locked", message: "cart item is locked" }, "HTTP 409");
     },
   } as unknown as BackendClient;
 
-  await runCartAbandonServer(lockedBackend, session, { output: stdoutSink });
-
-  assert.equal(session.lastCartID, undefined);
-  assert.match(stdoutCapture.join(""), /server cart cart_locked is locked by quote\/checkout/);
+  await assert.rejects(runCartAbandonServer(lockedBackend, session, { jsonOutput: true, output: stdoutSink }), /cart item is locked/);
+  assert.equal(session.lastCartID, "cart_locked");
+  assert.equal(session.lastCartItemID, "cart_item_locked");
+  assert.equal(session.lastServiceExecutionID, "se_locked");
+  assert.equal(stdoutCapture.join(""), "");
 });
 
-test("server cart add returns service execution guidance for service-backed lines", async () => {
+test("cart clear parser returns canonical and explicit local contracts across Agent Types", async () => {
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const home = mkdtempSync(join(tmpdir(), `itpay-cart-clear-${agentType}-`));
+    const session = new CartSession("CNY");
+    session.rememberServerCart({ cartID: `cart_clear_${agentType}`, cartItemID: "ci_clear", serviceExecutionID: "se_clear" });
+    session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+    const result = await runCLI(["--agent-type", agentType, "cart", "clear", "--json"], {
+      ITPAY_BACKEND_URL: mock.url,
+      HOME: home,
+    });
+    const envelope = JSON.parse(result.stdout) as { status: string; result: { server_abandoned: boolean }; next: { command: string } };
+    assert.equal(envelope.status, "abandoned");
+    assert.equal(envelope.result.server_abandoned, true);
+    assert.equal(envelope.next.command, "itpay catalog list --json");
+    const persisted = CartSession.loadFromFile(join(home, ".itpay-v3", "cart.json"), "CNY");
+    assert.equal(persisted.lastCartID, undefined);
+    assert.equal(persisted.lastServiceExecutionID, undefined);
+  }
+
+  const localHome = mkdtempSync(join(tmpdir(), "itpay-cart-clear-local-"));
+  const local = new CartSession("CNY");
+  local.rememberServerCart({ cartID: "cart_not_abandoned", cartItemID: "ci_local" });
+  runCartAdd(local, { catalogItemID: "i", catalogVariantID: "v", offerID: "o", quantity: 1, output: silent });
+  local.saveToFile(join(localHome, ".itpay-v3", "cart.json"));
+  const requestCount = mock.requests.length;
+  const localResult = await runCLI(["--agent-type", "workbuddy", "cart", "clear", "--local", "--json"], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: localHome,
+  });
+  const localEnvelope = JSON.parse(localResult.stdout) as { status: string; result: { server_abandoned: boolean; local_state_cleared: boolean } };
+  assert.equal(localEnvelope.status, "cleared_local");
+  assert.deepEqual(localEnvelope.result, { server_abandoned: false, local_state_cleared: true });
+  assert.equal(mock.requests.length, requestCount);
+});
+
+test("cart clear without a canonical handle is non-mutating and recoverable", async () => {
+  const session = new CartSession("CNY");
+  runCartAdd(session, { catalogItemID: "i", catalogVariantID: "v", offerID: "o", quantity: 1, output: silent });
+  const requestCount = mock.requests.length;
+  await runCartAbandonServer(backend, session, { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
+  assert.equal(envelope.status, "cart_handle_missing");
+  assert.equal(envelope.next.command, "itpay next --json");
+  assert.equal(session.show().items.length, 1);
+  assert.equal(mock.requests.length, requestCount);
+});
+
+test("server cart add returns one compact Service Execution handoff", async () => {
   const session = new CartSession("CNY");
   await runCartAddServer({
     catalogItemID: "cat_service",
@@ -209,27 +327,322 @@ test("server cart add returns service execution guidance for service-backed line
     output: stdoutSink,
   });
   const parsed = JSON.parse(stdoutCapture.join("")) as {
-    items: Array<{ service_execution_id?: string }>;
-    agent_guidance: { next_actions: Array<{ command: string }> };
+    status: string;
+    result: { cart_id: string; cart_item_id: string; service_execution_id?: string; title: string; amount: string };
+    next: { command: string };
   };
-  assert.equal(parsed.items[0]!.service_execution_id, "se_mock_1");
-  assert.ok(parsed.agent_guidance.next_actions.some((action) => action.command.includes("fuzzy_disambiguation")));
+  assert.equal(parsed.status, "added");
+  assert.equal(parsed.result.service_execution_id, "se_mock_1");
+  assert.equal(parsed.result.amount, "1.00 CNY");
+  assert.equal(parsed.next.command, "itpay services next se_mock_1 --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /agent_guidance|capabilities|client_context|input_schema/);
   assert.equal(session.lastServiceExecutionID, "se_mock_1");
 
   stdoutCapture = [];
   await runCartNext(backend, session, { jsonOutput: true, output: stdoutSink });
-  const guidance = JSON.parse(stdoutCapture.join("")) as { next_actions: Array<{ command: string }> };
-  assert.ok(guidance.next_actions.some((action) => action.command.includes("fuzzy_disambiguation")));
+  const next = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
+  assert.equal(next.status, "action_available");
+  assert.equal(next.next.command, "itpay services next se_mock_1 --json");
 });
 
-test("services next prints service execution guidance", async () => {
-  await runServicesNext(backend, "se_mock_next", { jsonOutput: true, output: stdoutSink });
-  const guidance = JSON.parse(stdoutCapture.join("")) as {
-    next_actions: Array<{ command: string }>;
-    state: { capabilities: Array<{ capability_id: string }> };
+test("cart add derives Host from Agent Type and keeps output contract stable", async () => {
+  const expectedHosts: Record<string, string> = {
+    "codex-desktop": "codex",
+    "codex-cli": "terminal",
+    "claude-code-desktop": "claude-code",
+    "claude-code-cli": "terminal",
+    workbuddy: "plain-chat",
   };
-  assert.ok(guidance.next_actions.some((action) => action.command.includes("fuzzy_disambiguation")));
-  assert.ok(guidance.state.capabilities.some((capability) => capability.capability_id === "precise_lookup"));
+  for (const [agentType, expectedHost] of Object.entries(expectedHosts)) {
+    const result = await runCLI([
+      "--agent-type", agentType,
+      "cart", "add",
+      "--item", "cat_service",
+      "--variant", "var_service",
+      "--offer", "offer_service",
+      "--input", JSON.stringify({ keyword: "example" }),
+      "--json",
+    ], {
+      ITPAY_BACKEND_URL: mock.url,
+      HOME: mkdtempSync(join(tmpdir(), `itpay-cart-add-${agentType}-`)),
+    });
+    const envelope = JSON.parse(result.stdout) as { status: string; result: { service_execution_id?: string }; next: { command: string } };
+    assert.equal(envelope.status, "added");
+    assert.equal(envelope.result.service_execution_id, "se_mock_1");
+    assert.equal(envelope.next.command, "itpay services next se_mock_1 --json");
+    const cartRequest = [...mock.requests].reverse().find((request) => request.method === "POST" && request.path === "/v1/carts");
+    assert.equal((cartRequest?.body?.client_context as { host?: string } | undefined)?.host, expectedHost);
+    assert.equal("buyer_id" in (cartRequest?.body ?? {}), false);
+    assert.equal("agent_device_id" in (cartRequest?.body ?? {}), false);
+    assert.equal("agent_device_id" in ((cartRequest?.body?.client_context as Record<string, unknown> | undefined) ?? {}), false);
+    assert.equal(result.stderr, "");
+  }
+});
+
+test("cart add local mode is explicit JSON and makes no HTTP request", async () => {
+  const requestCount = mock.requests.length;
+  const result = await runCLI([
+    "--agent-type", "codex-desktop",
+    "cart", "add",
+    "--item", "local_item",
+    "--variant", "local_variant",
+    "--offer", "local_offer",
+    "--local",
+    "--json",
+  ], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: mkdtempSync(join(tmpdir(), "itpay-cart-add-local-")),
+  });
+  const envelope = JSON.parse(result.stdout) as { status: string; instruction: string; next: { command: string } };
+  assert.equal(envelope.status, "added_local");
+  assert.match(envelope.instruction, /未验证目录、价格或服务合同/);
+  assert.equal(envelope.next.command, "itpay cart show --local");
+  assert.equal(mock.requests.length, requestCount);
+});
+
+test("cart add validates identifiers, quantity and JSON object before mutation", async () => {
+  const cases = [
+    { args: ["cart", "add", "--json"], code: "cart_item_required" },
+    { args: ["cart", "add", "--item", "i", "--variant", "v", "--offer", "o", "--quantity", "0", "--json"], code: "quantity_invalid" },
+    { args: ["cart", "add", "--item", "i", "--variant", "v", "--offer", "o", "--input", "[]", "--json"], code: "cart_input_invalid" },
+  ];
+  for (const testCase of cases) {
+    const requestCount = mock.requests.length;
+    await assert.rejects(
+      execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", ...testCase.args], {
+        cwd: CLI_ROOT,
+        env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-cart-add-invalid-")) },
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
+      }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+        assert.equal(envelope.error.code, testCase.code);
+        return true;
+      },
+    );
+    assert.equal(mock.requests.length, requestCount);
+  }
+});
+
+test("cart next distinguishes missing, empty, generic, and service-backed carts", async () => {
+  await runCartNext(backend, new CartSession("CNY"), { jsonOutput: true, output: stdoutSink });
+  assert.equal(JSON.parse(stdoutCapture.join(""))?.status, "cart_handle_missing");
+
+  stdoutCapture = [];
+  const empty = new CartSession("CNY");
+  empty.rememberServerCart({ cartID: "cart_empty" });
+  await runCartNext(backend, empty, { jsonOutput: true, output: stdoutSink });
+  const emptyEnvelope = JSON.parse(stdoutCapture.join(""));
+  assert.equal(emptyEnvelope.status, "cart_empty");
+  assert.equal(emptyEnvelope.next.command, "itpay catalog list --json");
+
+  stdoutCapture = [];
+  const generic = new CartSession("CNY");
+  generic.rememberServerCart({ cartID: "cart_generic" });
+  const genericBackend = {
+    getCart: async () => ({
+      cart_id: "cart_generic", status: "active", amount_minor: 300, currency: "CNY",
+      items: [{ title: "Generic item", quantity: 1, amount_minor: 300, currency: "CNY" }],
+    }),
+  } as unknown as BackendClient;
+  await runCartNext(genericBackend, generic, { jsonOutput: true, output: stdoutSink });
+  const genericEnvelope = JSON.parse(stdoutCapture.join(""));
+  assert.equal(genericEnvelope.result.item_count, 1);
+  assert.equal(genericEnvelope.next.command, "itpay buy --cart cart_generic --json");
+});
+
+test("cart next is compact across every Agent Type and has structured stale-handle recovery", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-cart-next-types-"));
+  const session = new CartSession("CNY");
+  session.rememberServerCart({ cartID: "cart_empty" });
+  session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI(["--agent-type", agentType, "cart", "next", "--json"], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+  assert.equal(JSON.parse(outputs[0]!).status, "cart_empty");
+
+  const staleHome = mkdtempSync(join(tmpdir(), "itpay-cli-cart-next-stale-"));
+  const stale = new CartSession("CNY");
+  stale.rememberServerCart({ cartID: "cart_missing" });
+  stale.saveToFile(join(staleHome, ".itpay-v3", "cart.json"));
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "cart", "next", "--json"], {
+      cwd: CLI_ROOT,
+      env: { ...process.env, HOME: staleHome, ITPAY_BACKEND_URL: mock.url },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? ""));
+      assert.equal(envelope.status, "error");
+      assert.equal(envelope.error.code, "not_found");
+      assert.equal(envelope.recovery[0]?.command, "itpay services list --json");
+      return true;
+    },
+  );
+});
+
+test("top-level next routes one local handle without emitting resource DTOs", () => {
+  const session = new CartSession("CNY");
+  session.rememberCheckout({
+    checkoutID: "chk_1", displayToken: "cdt_1", checkoutURL: "https://example.test/checkout/chk_1",
+    serviceExecutionID: "se_1",
+  });
+  runNext(session, { jsonOutput: true, output: stdoutSink });
+  const execution = JSON.parse(stdoutCapture.join("")) as {
+    status: string; result: { resource_type: string; resource_id: string }; next: { command: string };
+  };
+  assert.equal(execution.status, "resume_available");
+  assert.deepEqual(execution.result, { resource_type: "service_execution", resource_id: "se_1" });
+  assert.equal(execution.next.command, "itpay services next se_1 --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /capabilities|agent_guidance|next_actions/);
+
+  stdoutCapture = [];
+  const checkout = new CartSession("CNY");
+  checkout.rememberCheckout({ checkoutID: "chk_2", displayToken: "cdt_2", checkoutURL: "https://example.test/checkout/chk_2" });
+  runNext(checkout, { jsonOutput: true, output: stdoutSink });
+  assert.equal(JSON.parse(stdoutCapture.join(""))?.next?.command, "itpay checkout --id chk_2 --token cdt_2 --json");
+
+  stdoutCapture = [];
+  const cart = new CartSession("CNY");
+  cart.rememberServerCart({ cartID: "cart_3" });
+  runNext(cart, { jsonOutput: true, output: stdoutSink });
+  assert.equal(JSON.parse(stdoutCapture.join(""))?.next?.command, "itpay cart next --json");
+
+  stdoutCapture = [];
+  runNext(new CartSession("CNY"), { jsonOutput: true, output: stdoutSink });
+  assert.equal(JSON.parse(stdoutCapture.join(""))?.status, "nothing_to_resume");
+});
+
+test("top-level next recovers corrupt local state through the server", () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-next-corrupt-"));
+  const path = join(home, "cart.json");
+  writeFileSync(path, "{not-json", "utf8");
+  const session = CartSession.loadFromFile(path, "CNY");
+  runNext(session, { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
+  assert.equal(envelope.status, "local_state_invalid");
+  assert.equal(envelope.next.command, "itpay services list --json");
+});
+
+test("top-level next is identical across every Agent Type", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-next-types-"));
+  const session = new CartSession("CNY");
+  session.rememberCheckout({
+    checkoutID: "chk_types", displayToken: "cdt_types", checkoutURL: "https://example.test/checkout/chk_types",
+    serviceExecutionID: "se_types",
+  });
+  session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI(["--agent-type", agentType, "next", "--json"], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+  assert.equal(JSON.parse(outputs[0]!).next.command, "itpay services next se_types --json");
+});
+
+test("services next returns one compact current-state action", async () => {
+  await runServicesNext(backend, "se_mock_next", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { service_execution_id: string; phase: string };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "running");
+  assert.equal(envelope.result.service_execution_id, "se_mock_next");
+  assert.equal(envelope.result.phase, "pre_purchase");
+  assert.match(envelope.next.command, /fuzzy_disambiguation/);
+  assert.doesNotMatch(stdoutCapture.join(""), /capabilities|agent_guidance|stable_hash/);
+});
+
+test("services next exposes only safe agent-visible result fields", async () => {
+  await runServicesNext(backend, "se_agent_visible", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { delivery_mode: string; items: Array<{ safe_payload: Record<string, unknown> }> };
+    next: unknown;
+  };
+  assert.equal(envelope.status, "result_ready");
+  assert.equal(envelope.result.delivery_mode, "agent_visible_result");
+  assert.deepEqual(envelope.result.items[0]?.safe_payload, { name: "Example result", status: "active" });
+  assert.equal(envelope.next, null);
+  assert.doesNotMatch(stdoutCapture.join(""), /stable_hash|service_capability_result_item_id/);
+});
+
+test("services next keeps Vault payload hidden until human authorization", async () => {
+  await runServicesNext(backend, "se_vault_none", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { delivery_mode: string; grant_status: string; payload?: unknown; items?: unknown };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "human_authorization_required");
+  assert.equal(envelope.result.delivery_mode, "vault_artifact");
+  assert.equal(envelope.result.grant_status, "none");
+  assert.equal(envelope.result.payload, undefined);
+  assert.equal(envelope.result.items, undefined);
+  assert.match(envelope.next.command, /services read-result se_vault_none --json/);
+});
+
+test("services next recommends immediate read only for an active grant", async () => {
+  await runServicesNext(backend, "se_granted", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { grant_status: string; grant_expires_at: string };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "grant_active");
+  assert.equal(envelope.result.grant_status, "active");
+  assert.equal(envelope.result.grant_expires_at, "2026-07-13T12:15:00Z");
+  assert.equal(envelope.next.command, "itpay services read-result se_granted --json");
+});
+
+test("refund lock takes precedence over delivery guidance and existing result reads", async () => {
+  await runServicesNext(backend, "se_refund_locked", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { access_locked: boolean; refund: { refund_request_id: string } };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "delivery_locked");
+  assert.equal(envelope.result.access_locked, true);
+  assert.equal(envelope.result.refund.refund_request_id, "rr_locked");
+  assert.equal(envelope.next.command, "itpay refund get rr_locked --json");
+
+  const before = mock.requests.length;
+  await assert.rejects(
+    runServicesReadResult(backend, "se_refund_locked", { jsonOutput: true, output: silent }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "delivery_locked_by_refund");
+      assert.equal(error.recovery[0]?.command, "itpay refund get rr_locked --json");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.slice(before).some((request) => request.path.endsWith("/granted-result")), false);
+});
+
+test("refund-locked delivery is identical across every Agent Type", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-locked-delivery-"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI([
+      "--agent-type", agentType, "services", "next", "se_refund_locked", "--json",
+    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+  assert.equal(JSON.parse(outputs[0]!).status, "delivery_locked");
 });
 
 test("quota exhaustion uses the backend-selected paid capability without guessing", () => {
@@ -285,23 +698,276 @@ test("services invoke reads target capability metadata before checkout guidance"
     { jsonOutput: true, output: stdoutSink },
   );
   const parsed = JSON.parse(stdoutCapture.join("")) as {
-    agent_guidance: { next_actions: Array<{ command: string; reason?: string }> };
+    status: string;
+    result: { checkout: { capability_id: string; price: { amount_minor: number; currency: string } } };
+    next: { command: string; reason: string };
   };
+  assert.equal(parsed.status, "quota_exhausted");
+  assert.equal(parsed.result.checkout.capability_id, "fuzzy_disambiguation_paid");
+  assert.deepEqual(parsed.result.checkout.price, { amount_minor: 10, currency: "CNY" });
   assert.equal(
-    parsed.agent_guidance.next_actions[0]?.command,
-    "itpay services checkout se_quota --capability fuzzy_disambiguation_paid --json",
+    parsed.next.command,
+    "itpay services checkout se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
   );
-  assert.match(parsed.agent_guidance.next_actions[0]?.reason ?? "", /does not require a delivery email/);
+  assert.match(parsed.next.reason, /付费 continuation/);
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
-  assert.equal(requests.at(-2)?.method, "POST");
-  assert.equal(requests.at(-1)?.method, "GET");
+	assert.equal(requests.at(-2)?.method, "GET");
+	assert.equal(requests.at(-1)?.method, "POST");
+});
+
+test("services invoke redirects paid capabilities to checkout without invoking", async () => {
+	const requestsBefore = mock.requests.length;
+	await assert.rejects(
+		runServicesInvoke(
+			backend,
+			config,
+			"se_paid_direct",
+			"precise_lookup",
+			{ company: "example" },
+			{ jsonOutput: true, output: stdoutSink },
+		),
+		(error: unknown) => {
+			assert.ok(error instanceof CommandContractError);
+			assert.equal(error.code, "checkout_required");
+			assert.equal(
+				error.recovery[0]?.command,
+				"itpay services checkout se_paid_direct --capability precise_lookup --input company=example --email <email> --json",
+			);
+			return true;
+		},
+	);
+	const requests = mock.requests.slice(requestsBefore).filter((request) => request.path.includes("/v1/service-executions/se_paid_direct"));
+	assert.equal(requests.length, 1);
+	assert.equal(requests[0]?.method, "GET");
+});
+
+test("services invoke validates required input before the provider request", async () => {
+	const requestsBefore = mock.requests.length;
+	await assert.rejects(
+		runServicesInvoke(
+			backend,
+			config,
+			"se_missing_input",
+			"fuzzy_disambiguation",
+			{},
+			{ jsonOutput: true, output: stdoutSink },
+		),
+		(error: unknown) => {
+			assert.ok(error instanceof CommandContractError);
+			assert.equal(error.code, "capability_input_invalid");
+			assert.match(error.recovery[0]?.command ?? "", /--input keyword=<value>/);
+			return true;
+		},
+	);
+	const requests = mock.requests.slice(requestsBefore).filter((request) => request.path.includes("se_missing_input"));
+	assert.equal(requests.length, 1);
+	assert.equal(requests[0]?.method, "GET");
+});
+
+test("services invoke returns only safe result items and one next action", async () => {
+	await runServicesInvoke(
+		backend,
+		config,
+		"se_result",
+		"fuzzy_disambiguation",
+		{ keyword: "小米" },
+		{ jsonOutput: true, output: stdoutSink },
+	);
+	const parsed = JSON.parse(stdoutCapture.join(""));
+	assert.equal(parsed.status, "result_ready");
+	assert.equal(parsed.result.items[0].title, "小米汽车科技有限公司");
+	assert.match(parsed.next.command, /^itpay services action se_result /);
+	assert.equal("execution" in parsed, false);
+	assert.equal("invocation" in parsed, false);
+	assert.equal("agent_guidance" in parsed, false);
 });
 
 test("services list recovers executions without a local cart handle", async () => {
-  await runServicesList(backend, { output: stdoutSink });
+  await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
+  await runServicesList(backend, { jsonOutput: true, output: stdoutSink });
   assert.equal(mock.requests.at(-1)?.path, "/v1/service-executions?limit=50");
-  assert.match(stdoutCapture.join("\n"), /service execution se_mock_1/);
-  assert.match(stdoutCapture.join("\n"), /next: itpay services invoke/);
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { executions: Array<Record<string, unknown>> };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "listed");
+  const firstID = String(envelope.result.executions[0]?.service_execution_id);
+  assert.match(firstID, /^se_/);
+  assert.equal(envelope.next.command, `itpay services next ${firstID} --json`);
+  assert.deepEqual(Object.keys(envelope.result.executions[0] ?? {}), [
+    "service_execution_id", "service_id", "status", "phase", "updated_at",
+  ]);
+  assert.doesNotMatch(stdoutCapture.join(""), /capabilities|agent_guidance|result_items|client_context/);
+});
+
+test("services list validates limit and handles an empty server list", async () => {
+  const before = mock.requests.length;
+  await assert.rejects(
+    runServicesList(backend, { limit: 0, jsonOutput: true, output: silent }),
+    (error: unknown) => error instanceof CommandContractError && error.code === "limit_invalid",
+  );
+  assert.equal(mock.requests.length, before);
+
+  const emptyBackend = { listServiceExecutions: async () => ({ executions: [] }) } as unknown as BackendClient;
+  await runServicesList(emptyBackend, { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
+  assert.equal(envelope.status, "no_executions");
+  assert.equal(envelope.next.command, "itpay catalog list --json");
+});
+
+test("services list is compact and identical across every Agent Type", async () => {
+  await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-services-list-types-"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI([
+      "--agent-type", agentType, "services", "list", "--limit", "1", "--json",
+    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+  assert.equal(JSON.parse(outputs[0]!).status, "listed");
+});
+
+test("services get returns a bounded public timeline", async () => {
+  await runServicesGet(backend, "se_timeline", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { timeline: Array<{ sequence: number; step: string }>; timeline_truncated: boolean };
+    next: { command: string };
+    recovery: Array<{ command: string }>;
+  };
+  assert.equal(envelope.status, "shown");
+  assert.equal(envelope.result.timeline.length, 20);
+  assert.equal(envelope.result.timeline[0]?.sequence, 6);
+  assert.equal(envelope.result.timeline.at(-1)?.step, "delivery.issued");
+  assert.equal(envelope.result.timeline_truncated, true);
+  assert.match(envelope.next.command, /services invoke se_timeline/);
+  assert.equal(envelope.recovery[0]?.command, "itpay services events se_timeline --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|graph_projection|capabilities/);
+});
+
+test("services get is identical across Agent Types and keeps not-found opaque", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-services-get-types-"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI([
+      "--agent-type", agentType, "services", "get", "se_timeline", "--json",
+    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "services", "get", "se_missing", "--json"], {
+      cwd: CLI_ROOT,
+      env: { ...process.env, HOME: home, ITPAY_BACKEND_URL: mock.url },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? ""));
+      assert.equal(envelope.error.code, "not_found");
+      assert.equal(envelope.recovery[0]?.command, "itpay services list --json");
+      return true;
+    },
+  );
+});
+
+test("services events returns bounded public facts and strips event internals", async () => {
+  await runServicesEvents(backend, "se_events", {
+    afterSequence: 1,
+    limit: 2,
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: {
+      service_execution_id: string;
+      after_sequence: number;
+      returned_count: number;
+      events: Array<Record<string, unknown>>;
+    };
+    next: { command: string };
+    recovery: Array<{ command: string }>;
+  };
+  assert.equal(envelope.status, "listed");
+  assert.equal(envelope.result.after_sequence, 1);
+  assert.equal(envelope.result.returned_count, 2);
+  assert.deepEqual(Object.keys(envelope.result.events[0] ?? {}), [
+    "sequence", "type", "status", "phase", "capability_id", "occurred_at",
+  ]);
+  assert.equal(envelope.next.command, "itpay services next se_events --json");
+  assert.equal(envelope.recovery[0]?.command, "itpay services events se_events --after-sequence 3 --limit 2 --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /see_secret|must_not_leak|redacted_summary|provider_header|selected_candidate_hash/);
+});
+
+test("services events parser is identical across Agent Types and validates before HTTP", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-service-events-types-"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI([
+      "--agent-type", agentType, "services", "events", "se_events", "--after-sequence", "0", "--limit", "3", "--json",
+    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+
+  const before = mock.requests.length;
+  await assert.rejects(
+    runCLI(["--agent-type", "codex-cli", "services", "events", "se_events", "--limit", "101", "--json"], {
+      HOME: home,
+      ITPAY_BACKEND_URL: mock.url,
+    }),
+    (error: unknown) => {
+      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(failure.error.code, "events_parameter_invalid");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, before);
+});
+
+test("terminal service executions never recommend replaying a capability", async () => {
+  const terminalModel: ServiceExecutionReadModel = {
+    execution: {
+      service_execution_id: "se_cancelled", service_id: "svc_generic", service_contract_version_id: "scv_1",
+      status: "cancelled", phase: "failed", current_capability_id: "generic_capability",
+      checkout_required: false, next_action: "invoke_capability", started_at: "2026-07-13T00:00:00Z",
+      created_at: "2026-07-13T00:00:00Z", updated_at: "2026-07-13T00:01:00Z",
+    },
+    capabilities: [{
+      capability_id: "generic_capability", phase: "pre_purchase", agent_visible: true,
+      requires_payment: false, requires_human_action: false, vault_required: false,
+      delivery_email_required: false,
+    }],
+    events: [], result_items: [], actions: [], checkout_bindings: [], payment_bindings: [],
+    execution_requests: [], provider_invocations: [], delivery_bindings: [], refunds: [],
+  };
+  const guidance = buildServiceReadModelGuidance(terminalModel);
+  assert.equal(guidance.next_actions.length, 0);
+
+  const terminalBackend = {
+    getServiceExecution: async () => terminalModel,
+  } as unknown as BackendClient;
+  stdoutCapture = [];
+  await runServicesNext(terminalBackend, "se_cancelled", { jsonOutput: true, output: stdoutSink });
+  const next = JSON.parse(stdoutCapture.join("")) as { status: string; next: unknown; recovery: Array<{ command: string }> };
+  assert.equal(next.status, "cancelled");
+  assert.equal(next.next, null);
+  assert.equal(next.recovery[0]?.command, "itpay services events se_cancelled --json");
+
+  stdoutCapture = [];
+  await runServicesGet(terminalBackend, "se_cancelled", { jsonOutput: true, output: stdoutSink });
+  const shown = JSON.parse(stdoutCapture.join("")) as { next: unknown; instruction: string };
+  assert.equal(shown.next, null);
+  assert.match(shown.instruction, /已结束/);
 });
 
 test("service guidance opens existing checkout after checkout is pending", () => {
@@ -409,6 +1075,56 @@ test("service guidance reads result after active human grant", () => {
   assert.equal(guidance.next_actions[0]?.command, "itpay services read-result se_granted");
 });
 
+test("agent-visible delivery exposes complete safe fields and never recommends Vault read-result", () => {
+  const guidance = buildServiceReadModelGuidance({
+    execution: {
+      service_execution_id: "se_paid_fuzzy", service_id: "svc_company", service_contract_version_id: "scv_1",
+      status: "completed", phase: "completed", checkout_required: false, next_action: "completed",
+      started_at: "2026-07-12T00:00:00Z", created_at: "2026-07-12T00:00:00Z", updated_at: "2026-07-12T00:00:00Z",
+    },
+    capabilities: [], events: [], actions: [], checkout_bindings: [], payment_bindings: [], execution_requests: [], provider_invocations: [], refunds: [],
+    result_items: [{
+      service_capability_result_item_id: "sri_1", service_execution_id: "se_paid_fuzzy", capability_id: "fuzzy_disambiguation_paid",
+      stable_hash: "hash_1", rank: 1, display_title: "北京京东世纪贸易有限公司",
+      safe_payload: { company_name: "北京京东世纪贸易有限公司", status: "存续", region: "北京", credit_code: "911103026605015136" },
+      created_at: "2026-07-12T00:00:00Z",
+    }],
+    delivery_bindings: [{
+      service_delivery_binding_id: "sdb_1", service_execution_id: "se_paid_fuzzy", order_id: "ord_1", status: "completed",
+      redacted_summary: { delivery_mode: "agent_visible_result", result_item_count: 1 },
+    }],
+  });
+  assert.equal(guidance.next_actions[0]?.id, "use_agent_visible_result");
+  assert.doesNotMatch(guidance.next_actions[0]?.command ?? "", /read-result/);
+  assert.deepEqual(guidance.visible_results?.[0]?.safe_payload, {
+    company_name: "北京京东世纪贸易有限公司", status: "存续", region: "北京", credit_code: "911103026605015136",
+  });
+});
+
+test("services read-result rejects agent-visible delivery before calling the Vault endpoint", async () => {
+  let grantedResultCalled = false;
+  const agentVisibleBackend = {
+    getServiceExecution: async () => ({
+      delivery_bindings: [{ redacted_summary: { delivery_mode: "agent_visible_result" } }],
+      refunds: [],
+    }),
+    getGrantedServiceResult: async () => {
+      grantedResultCalled = true;
+      return {};
+    },
+  } as unknown as BackendClient;
+  await assert.rejects(
+    runServicesReadResult(agentVisibleBackend, "se_paid_fuzzy", { output: silent }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "wrong_delivery_mode");
+      assert.equal(error.recovery[0]?.command, "itpay services next se_paid_fuzzy --json");
+      return true;
+    },
+  );
+  assert.equal(grantedResultCalled, false);
+});
+
 test("service guidance emits executable human selection action", () => {
   const guidance = buildServiceReadModelGuidance({
     execution: {
@@ -447,6 +1163,26 @@ test("service guidance emits executable human selection action", () => {
     guidance.next_actions[0]?.command,
     "itpay services action se_select --action select_candidate --actor-type human --status approved --candidate <rank>",
   );
+  assert.equal(guidance.next_actions[1]?.command, "itpay services start svc_qizhidao_company_lookup");
+});
+
+test("empty lookup starts a new execution instead of reusing a closed one", () => {
+  const guidance = buildServiceReadModelGuidance({
+    execution: {
+      service_execution_id: "se_empty", service_id: "svc_company", service_contract_version_id: "scv_1",
+      status: "human_action_required", phase: "pre_purchase", current_capability_id: "fuzzy_disambiguation",
+      checkout_required: false, next_action: "select_candidate", started_at: "2026-07-12T00:00:00Z",
+      created_at: "2026-07-12T00:00:00Z", updated_at: "2026-07-12T00:00:00Z",
+    },
+    capabilities: [], events: [], actions: [], checkout_bindings: [], payment_bindings: [], execution_requests: [], refunds: [],
+    result_items: [], delivery_bindings: [],
+    provider_invocations: [{
+      service_capability_invocation_id: "sci_empty", service_execution_id: "se_empty", capability_id: "fuzzy_disambiguation",
+      status: "succeeded", created_at: "2026-07-12T00:00:00Z",
+    }],
+  });
+  assert.equal(guidance.next_actions[0]?.command, "itpay services start svc_company");
+  assert.doesNotMatch(guidance.next_actions[0]?.command ?? "", /services invoke/);
 });
 
 test("service recovery guides backend outage retries", () => {
@@ -455,7 +1191,7 @@ test("service recovery guides backend outage retries", () => {
   assert.equal(recovery[1]?.command, "echo $ITPAY_BACKEND_URL");
 });
 
-test("cart show prints items to the output sink", () => {
+test("cart show returns an explicit local draft contract", () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -464,10 +1200,105 @@ test("cart show prints items to the output sink", () => {
     quantity: 1,
     output: silent,
   });
-  runCartShow(session, { output: stdoutSink });
-  const text = stdoutCapture.join("");
-  assert.match(text, /currency=CNY/);
-  assert.match(text, /v_1/);
+  runCartShow(session, { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { items: Array<{ catalog_variant_id: string }> };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "shown_local");
+  assert.equal(envelope.result.items[0]?.catalog_variant_id, "v_1");
+  assert.equal(envelope.next.command, "itpay buy --json");
+});
+
+test("canonical cart show is compact and does not read Service Execution", async () => {
+  const session = new CartSession("CNY");
+  await runCartAddServer({
+    catalogItemID: "cat_service",
+    catalogVariantID: "var_service",
+    offerID: "offer_service",
+    quantity: 1,
+    backend,
+    config,
+    session,
+    host: "terminal",
+    output: silent,
+  });
+  mock.requests.length = 0;
+  await runCartShowServer(backend, session, { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { items: Array<Record<string, unknown>> };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "shown");
+  assert.deepEqual(envelope.result.items, [{
+    cart_item_id: "ci_1",
+    title: "企知道企业查询",
+    quantity: 1,
+    service_execution_id: "se_mock_1",
+  }]);
+  assert.equal(envelope.next.command, "itpay cart next --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /offer_id|catalog_variant_id|service_quote_lock|agent_guidance|capabilities/);
+  assert.deepEqual(mock.requests.map((request) => `${request.method} ${request.path}`), [`GET /v1/carts/${session.lastCartID}`]);
+});
+
+test("cart show parser supports canonical and local JSON for every Agent Type", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cart-show-types-"));
+  const session = new CartSession("CNY");
+  session.rememberServerCart({ cartID: "cart_show_types" });
+  session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI(["--agent-type", agentType, "cart", "show", "--json"], {
+      ITPAY_BACKEND_URL: mock.url,
+      HOME: home,
+    });
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+  assert.equal(JSON.parse(outputs[0]!).status, "shown");
+
+  const localHome = mkdtempSync(join(tmpdir(), "itpay-cart-show-local-"));
+  const local = new CartSession("CNY");
+  runCartAdd(local, { catalogItemID: "i", catalogVariantID: "v", offerID: "o", quantity: 1, output: silent });
+  local.saveToFile(join(localHome, ".itpay-v3", "cart.json"));
+  const localResult = await runCLI(["--agent-type", "workbuddy", "cart", "show", "--local", "--json"], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: localHome,
+  });
+  assert.equal(JSON.parse(localResult.stdout).status, "shown_local");
+});
+
+test("cart show keeps missing and stale canonical handles recoverable", async () => {
+  const emptyHome = mkdtempSync(join(tmpdir(), "itpay-cart-show-missing-"));
+  const missing = await runCLI(["--agent-type", "codex-cli", "cart", "show", "--json"], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: emptyHome,
+  });
+  const missingEnvelope = JSON.parse(missing.stdout) as { status: string; recovery: Array<{ command: string }> };
+  assert.equal(missingEnvelope.status, "cart_handle_missing");
+  assert.equal(missingEnvelope.recovery[0]?.command, "itpay cart show --local --json");
+
+  const staleHome = mkdtempSync(join(tmpdir(), "itpay-cart-show-stale-"));
+  const stale = new CartSession("CNY");
+  stale.rememberServerCart({ cartID: "cart_missing" });
+  stale.saveToFile(join(staleHome, ".itpay-v3", "cart.json"));
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "cart", "show", "--json"], {
+      cwd: CLI_ROOT,
+      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: staleHome },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "not_found");
+      return true;
+    },
+  );
 });
 
 test("cart session persists checkout recovery fields with owner-only permissions", () => {
@@ -481,7 +1312,6 @@ test("cart session persists checkout recovery fields with owner-only permissions
     output: silent,
   });
   session.rememberCheckout({
-    cartID: "cart_session",
     checkoutID: "chk_session",
     displayToken: "cdt_session",
     checkoutURL: "https://sandbox.itpay.ai/checkout/chk_session?display_token=cdt_session",
@@ -496,7 +1326,7 @@ test("cart session persists checkout recovery fields with owner-only permissions
     lastCheckoutURL?: string;
   };
   assert.deepEqual(persisted.items, []);
-  assert.equal(persisted.lastCartID, "cart_session");
+  assert.equal(persisted.lastCartID, undefined);
   assert.equal(persisted.lastCheckoutID, "chk_session");
   assert.equal(persisted.lastDisplayToken, "cdt_session");
   assert.equal(persisted.lastCheckoutURL, "https://sandbox.itpay.ai/checkout/chk_session?display_token=cdt_session");
@@ -504,7 +1334,7 @@ test("cart session persists checkout recovery fields with owner-only permissions
 
   const loaded = CartSession.loadFromFile(path, "CNY").show();
   assert.deepEqual(loaded.items, []);
-  assert.equal(loaded.lastCartID, "cart_session");
+  assert.equal(loaded.lastCartID, undefined);
   assert.equal(loaded.lastCheckoutID, "chk_session");
   assert.equal(loaded.lastDisplayToken, "cdt_session");
   assert.equal(loaded.lastCheckoutURL, "https://sandbox.itpay.ai/checkout/chk_session?display_token=cdt_session");
@@ -732,7 +1562,7 @@ test("dispatchInteractionRequest (markdown) emits structured input request for a
   assert.match(text, /Collect buyer identity/);
 });
 
-test("runBuy requests missing contact info via interaction request before checkout", async () => {
+test("runBuy rejects missing contact before checkout with explicit recovery", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -741,61 +1571,21 @@ test("runBuy requests missing contact info via interaction request before checko
     quantity: 1,
     output: silent,
   });
-  const result = await runBuy(backend, config, {
-    cartSession: session,
-    host: "codex",
-    requiredContactFields: ["email", "phone"],
-    output: stdoutSink,
-  });
-  assert.equal(result.kind, "interaction_requested");
+  await assert.rejects(
+    runBuy(backend, config, {
+      cartSession: session,
+      host: "codex",
+      requiredContactFields: ["email", "phone"],
+      output: stdoutSink,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "missing_contact");
+      assert.match(error.instruction, /禁止编造/);
+      return true;
+    },
+  );
   assert.equal(mock.requests.length, 0);
-  const text = stdoutCapture.join("");
-  // markdown renderer emits a fillable JSON template; the agent
-  // adapter reconstructs the request from the code block keys.
-  assert.match(text, /```json/);
-  assert.match(text, /"email":\s*"<email>"/);
-  assert.match(text, /Collect buyer contact/);
-});
-
-test("mock Trae/Codex adapter consumes markdown block and replays filled contact info", async () => {
-  const session = new CartSession("CNY");
-  runCartAdd(session, {
-    catalogItemID: "item_1",
-    catalogVariantID: "v_1",
-    offerID: "o_1",
-    quantity: 1,
-    output: silent,
-  });
-
-  const firstPass = await runBuy(backend, config, {
-    cartSession: session,
-    host: "codex",
-    requiredContactFields: ["email", "phone"],
-    output: stdoutSink,
-  });
-  assert.equal(firstPass.kind, "interaction_requested");
-
-  const markdown = stdoutCapture.join("");
-  const inputRequest = extractInputRequestFromMarkdown(markdown);
-  const contact = submitAgentInputRequest(inputRequest, {
-    email: "buyer@example.com",
-    phone: "+86 13800000000",
-  });
-
-  stdoutCapture = [];
-  const secondPass = await runBuy(backend, config, {
-    cartSession: session,
-    host: "codex",
-    contact,
-    requiredContactFields: ["email", "phone"],
-    output: stdoutSink,
-  });
-  assert.equal(secondPass.kind, "checkout_rendered");
-  assert.equal(mock.requests[0]!.path, "/v1/carts");
-  assert.equal(mock.requests[1]!.path, "/v1/checkouts");
-  assert.deepEqual((mock.requests[1]!.body as { delivery_contact?: Record<string, string> }).delivery_contact, contact);
-  assert.match(stdoutCapture.join(""), /AGENT ACTION REQUIRED/);
-  assert.match(stdoutCapture.join(""), /!\[ItPay 付款二维码\]\(</);
 });
 
 test("dispatchInteractionRequest (telegram) emits selector buttons for chat hosts", async () => {
@@ -874,7 +1664,12 @@ test("runBuy rejects when the cart is empty", async () => {
   const session = new CartSession("CNY");
   await assert.rejects(
     runBuy(backend, config, { cartSession: session, host: "terminal", output: silent }),
-    /cart is empty/,
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "cart_empty");
+      assert.equal(error.recovery[0]?.command, "itpay catalog list --json");
+      return true;
+    },
   );
 });
 
@@ -898,10 +1693,179 @@ test("buildCheckoutQRPlan pins the brand QR payload", () => {
 // --- per-command smoke (kept from prior round) ---------------------------
 
 test("readyz probes /v1/readyz", async () => {
-  await runReadyz(backend, { output: silent });
+  await runReadyz(backend, { output: stdoutSink, jsonOutput: true });
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/readyz");
+  assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
+    status: "ready",
+    result: { backend: "available" },
+    instruction: "ItPay 可用，可以读取服务目录。",
+    next: { command: "itpay catalog list", reason: "发现可用服务" },
+    recovery: [],
+  });
+});
+
+test("readyz command supports the documented JSON contract", async () => {
+  const result = await runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: mock.url });
+  assert.equal(JSON.parse(result.stdout).status, "ready");
+  assert.equal(result.stderr, "");
+});
+
+test("install returns one official contract for every supported Agent Type", async () => {
+  const expectedHosts: Record<string, string> = {
+    "codex-desktop": "codex",
+    "codex-cli": "terminal",
+    "claude-code-desktop": "claude-code",
+    "claude-code-cli": "terminal",
+    workbuddy: "plain-chat",
+  };
+  for (const [agentType, defaultHost] of Object.entries(expectedHosts)) {
+    const result = await runCLI(["install", agentType, "--json"], {
+      HOME: mkdtempSync(join(tmpdir(), `itpay-install-${agentType}-`)),
+    });
+    const envelope = JSON.parse(result.stdout) as {
+      status: string;
+      result: { agent_type: string; default_host: string; default_api: string; install_command: string };
+      instruction: string;
+      next: { command: string };
+    };
+    assert.equal(envelope.status, "instructions_ready");
+    assert.deepEqual(envelope.result, {
+      agent_type: agentType,
+      default_host: defaultHost,
+      default_api: DEFAULT_BASE_URL,
+      install_command: "npm install -g @itpay/cli",
+    });
+    assert.match(envelope.instruction, /始终传这个 Agent Type/);
+    assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
+    assert.equal(result.stderr, "");
+  }
+});
+
+test("install lists supported types and rejects obsolete Host targets", async () => {
+  const listed = await runCLI(["install", "--json"], {
+    HOME: mkdtempSync(join(tmpdir(), "itpay-install-list-")),
+  });
+  const listEnvelope = JSON.parse(listed.stdout) as {
+    status: string;
+    result: { agent_types: Array<{ agent_type: string; default_host: string }> };
+  };
+  assert.equal(listEnvelope.status, "install_targets");
+  assert.deepEqual(listEnvelope.result.agent_types.map((item) => item.agent_type), [
+    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy",
+  ]);
+
+  await assert.rejects(
+    runCLI(["install", "codex", "--json"], {
+      HOME: mkdtempSync(join(tmpdir(), "itpay-install-invalid-")),
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string };
+        recovery: Array<{ command: string }>;
+      };
+      assert.equal(envelope.error.code, "unsupported_agent_type");
+      assert.equal(envelope.recovery[0]?.command, "itpay install --json");
+      return true;
+    },
+  );
+});
+
+test("docs list is compact, sorted and identical across Agent Types", async () => {
+  const outputs: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI(["--agent-type", agentType, "docs", "list", "--json"], {});
+    outputs.push(result.stdout);
+    assert.equal(result.stderr, "");
+  }
+  assert.equal(new Set(outputs).size, 1);
+  const envelope = JSON.parse(outputs[0]!) as {
+    status: string;
+    result: { topics: Array<Record<string, unknown>> };
+    next: null;
+  };
+  assert.equal(envelope.status, "listed");
+  assert.equal(envelope.next, null);
+  assert.deepEqual(Object.keys(envelope.result.topics[0] ?? {}), ["topic", "title", "purpose"]);
+  const names = envelope.result.topics.map((topic) => String(topic.topic));
+  assert.deepEqual(names, [...names].sort());
+});
+
+test("docs show returns only one complete topic with structured recovery", async () => {
+  const shown = await runCLI(["docs", "show", "quickstart", "--json"], {});
+  const envelope = JSON.parse(shown.stdout) as {
+    status: string;
+    result: { topic: string; content: { topic: string; title: string } };
+    next: null;
+  };
+  assert.equal(envelope.status, "shown");
+  assert.equal(envelope.result.topic, "quickstart");
+  assert.equal(envelope.result.content.topic, "quickstart");
+  assert.equal(envelope.next, null);
+
+  await assert.rejects(
+    runCLI(["docs", "show", "missing-topic", "--json"], {}),
+    (error: unknown) => {
+      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string };
+        recovery: Array<{ command: string }>;
+      };
+      assert.equal(failure.error.code, "doc_not_found");
+      assert.deepEqual(failure.recovery.map((item) => item.command), [
+        "itpay docs list --json",
+        "itpay docs search missing-topic --json",
+      ]);
+      return true;
+    },
+  );
+});
+
+test("docs search distinguishes unique, multiple and empty results", async () => {
+  const unique = JSON.parse((await runCLI(["docs", "search", "render-hosts", "--json"], {})).stdout) as {
+    status: string;
+    result: { topics: Array<{ topic: string }> };
+    next: { command: string };
+  };
+  assert.equal(unique.status, "matched");
+  assert.deepEqual(unique.result.topics.map((topic) => topic.topic), ["render-hosts"]);
+  assert.equal(unique.next.command, "itpay docs show render-hosts --json");
+
+  const multiple = JSON.parse((await runCLI(["docs", "search", "checkout", "--json"], {})).stdout) as {
+    status: string;
+    result: { topics: unknown[] };
+    next: null;
+  };
+  assert.equal(multiple.status, "matched");
+  assert.ok(multiple.result.topics.length > 1);
+  assert.equal(multiple.next, null);
+
+  const empty = JSON.parse((await runCLI(["docs", "search", "no-such-doc-term", "--json"], {})).stdout) as {
+    status: string;
+    result: { topics: unknown[] };
+    next: { command: string };
+  };
+  assert.equal(empty.status, "no_match");
+  assert.deepEqual(empty.result.topics, []);
+  assert.equal(empty.next.command, "itpay docs list --json");
+});
+
+test("docs reports a damaged packaged document without exposing its path", async () => {
+  const docsDir = mkdtempSync(join(tmpdir(), "itpay-docs-invalid-"));
+  writeFileSync(join(docsDir, "broken.json"), "{not-json", "utf8");
+  await assert.rejects(
+    runCLI(["docs", "list", "--json"], { ITPAY_CLI_DOCS_DIR: docsDir }),
+    (error: unknown) => {
+      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string; message: string };
+        recovery: Array<{ command: string }>;
+      };
+      assert.equal(failure.error.code, "docs_unavailable");
+      assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.5");
+      return true;
+    },
+  );
 });
 
 test("checkout reads canonical presentation with display_token", async () => {
@@ -917,9 +1881,58 @@ test("checkout reads canonical presentation with display_token", async () => {
   assert.ok(mock.requests.some((item) => item.path === "/v1/checkouts/chk_demo/qr.png?display_token=cdt_demo"));
 });
 
+test("checkout pending JSON returns one compact human handoff", async () => {
+  const output: string[] = [];
+  await runCheckoutPresentation(backend, {
+    checkoutID: "chk_pending",
+    displayToken: "cdt_pending",
+    host: "codex",
+    output: (text) => output.push(text),
+    baseURL: mock.url,
+    jsonOutput: true,
+  });
+  const parsed = JSON.parse(output.join(""));
+  assert.equal(parsed.status, "human_checkout_required");
+  assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
+  assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
+  assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending/);
+  assert.equal("agent_guidance" in parsed, false);
+  assert.equal("brand_qr_mirrors" in parsed, false);
+});
+
+test("checkout completed never prepares or recommends another payment handoff", async () => {
+  const output: string[] = [];
+  const before = mock.requests.length;
+  await runCheckoutPresentation(backend, {
+    checkoutID: "chk_completed",
+    displayToken: "cdt_completed",
+    host: "codex",
+    output: (text) => output.push(text),
+    baseURL: mock.url,
+    jsonOutput: true,
+  });
+  const parsed = JSON.parse(output.join(""));
+  assert.equal(parsed.status, "completed");
+  assert.equal(parsed.result.payment, "verified");
+  assert.equal(parsed.result.service_execution_id, "se_completed");
+  assert.equal(parsed.next.command, "itpay services next se_completed --json");
+  assert.equal("handoff" in parsed, false);
+  assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png")), false);
+});
+
+test("checkout command accepts the documented JSON form", async () => {
+  const result = await runCLI([
+    "--agent-type", "codex-desktop", "checkout",
+    "--id", "chk_completed", "--token", "cdt_completed", "--json",
+  ], { ITPAY_BACKEND_URL: mock.url });
+  assert.equal(JSON.parse(result.stdout).status, "completed");
+  assert.equal(result.stderr, "");
+});
+
 test("main buy persists checkout recovery state and consumes local cart", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-buy-"));
   const sessionPath = join(home, "cart.json");
+  const before = mock.requests.length;
   await runCLI(
     ["buy", "--host", "plain-chat", "--item", "item_1", "--variant", "v_cli", "--offer", "o_cli"],
     {
@@ -940,18 +1953,112 @@ test("main buy persists checkout recovery state and consumes local cart", async 
     lastCheckoutURL?: string;
   };
   assert.deepEqual(saved.items, []);
-  assert.match(saved.lastCartID ?? "", /^cart_/);
+  assert.equal(saved.lastCartID, undefined);
   assert.match(saved.lastCheckoutID ?? "", /^chk_/);
   assert.equal(saved.lastDisplayToken, `cdt_${saved.lastCheckoutID}_secret`);
   assert.match(saved.lastCheckoutURL ?? "", /display_token=/);
   assert.equal(statSync(sessionPath).mode & 0o777, 0o600);
+  const checkoutRequest = mock.requests.slice(before).find((request) => request.method === "POST" && request.path === "/v1/checkouts");
+  assert.equal(checkoutRequest?.headers["idempotency-key"], "cli_command_key");
+});
+
+test("buy reuses the canonical cart and idempotency key after a lost checkout response", async () => {
+  const session = new CartSession("CNY");
+  runCartAdd(session, {
+    catalogItemID: "item_retry",
+    catalogVariantID: "v_retry",
+    offerID: "o_retry",
+    quantity: 1,
+    output: silent,
+  });
+  const interruptedBackend = new BackendClient(new HttpClient({ baseURL: mock.url }));
+  const createCheckout = interruptedBackend.createCheckout.bind(interruptedBackend);
+  let loseResponse = true;
+  interruptedBackend.createCheckout = async (input, idempotencyKey) => {
+    const checkout = await createCheckout(input, idempotencyKey);
+    if (loseResponse) {
+      loseResponse = false;
+      throw new Error("simulated response loss");
+    }
+    return checkout;
+  };
+  const retryConfig: CLIConfig = { ...config, idempotencyKey: "checkout_retry_key", ideImageAttach: false };
+
+  await assert.rejects(
+    runBuy(interruptedBackend, retryConfig, { cartSession: session, host: "terminal", jsonOutput: true, output: silent }),
+    /simulated response loss/,
+  );
+  const rememberedCartID = session.lastCartID;
+  assert.match(rememberedCartID ?? "", /^cart_/);
+
+  await runBuy(interruptedBackend, retryConfig, { cartSession: session, host: "terminal", jsonOutput: true, output: silent });
+  const checkoutRequests = mock.requests.filter((request) => request.method === "POST" && request.path === "/v1/checkouts");
+  assert.equal(checkoutRequests.length, 2);
+  assert.deepEqual(checkoutRequests.map((request) => request.body?.cart_id), [rememberedCartID, rememberedCartID]);
+  assert.deepEqual(checkoutRequests.map((request) => request.headers["idempotency-key"]), ["checkout_retry_key", "checkout_retry_key"]);
+  assert.equal(session.lastCartID, undefined);
+  assert.match(session.lastCheckoutID ?? "", /^chk_/);
+});
+
+test("buy derives the handoff Host from every supported Agent Type", async () => {
+  const expectedHosts: Record<string, string> = {
+    "codex-desktop": "codex",
+    "codex-cli": "terminal",
+    "claude-code-desktop": "claude-code",
+    "claude-code-cli": "terminal",
+    workbuddy: "plain-chat",
+  };
+  for (const [agentType, expectedHost] of Object.entries(expectedHosts)) {
+    const before = mock.requests.length;
+    const result = await runCLI([
+      "--agent-type", agentType, "buy", "--item", "item_1", "--variant", "v_1", "--offer", "o_1", "--json",
+    ], {
+      ITPAY_BACKEND_URL: mock.url,
+      HOME: mkdtempSync(join(tmpdir(), `itpay-buy-host-${agentType}-`)),
+    });
+    const envelope = JSON.parse(result.stdout) as {
+      status: string;
+      handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string };
+    };
+    assert.equal(envelope.status, "human_checkout_required");
+    assert.match(envelope.handoff.url, /display_token=/);
+    assert.ok(envelope.handoff.qr_local_path);
+    assert.equal(Boolean(envelope.handoff.markdown), expectedHost === "codex" || expectedHost === "claude-code");
+    assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat");
+    const cartRequest = mock.requests.slice(before).find((request) => request.method === "POST" && request.path === "/v1/carts");
+    assert.equal((cartRequest?.body as { client_context?: { host?: string } })?.client_context?.host, expectedHost);
+  }
+});
+
+test("buy rejects invalid source, contact and numeric parameters before mutation", async () => {
+  const cases: Array<{ args: string[]; code: string }> = [
+    { args: ["--item", "item_1"], code: "buy_source_invalid" },
+    { args: ["--cart", "cart_1", "--item", "item_1", "--variant", "v_1", "--offer", "o_1"], code: "buy_source_invalid" },
+    { args: ["--item", "item_1", "--variant", "v_1", "--offer", "o_1", "--quantity", "1x"], code: "buy_parameter_invalid" },
+    { args: ["--item", "item_1", "--variant", "v_1", "--offer", "o_1", "--require-contact", "fax"], code: "contact_field_invalid" },
+    { args: ["--item", "item_1", "--variant", "v_1", "--offer", "o_1", "--require-contact", "email"], code: "missing_contact" },
+    { args: ["--item", "item_1", "--variant", "v_1", "--offer", "o_1", "--no-wait"], code: "buy_parameter_invalid" },
+  ];
+  for (const entry of cases) {
+    const home = mkdtempSync(join(tmpdir(), "itpay-buy-invalid-"));
+    const before = mock.requests.length;
+    await assert.rejects(
+      runCLI(["--agent-type", "codex-cli", "buy", ...entry.args, "--json"], { ITPAY_BACKEND_URL: mock.url, HOME: home }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+        assert.equal(envelope.error.code, entry.code);
+        return true;
+      },
+    );
+    assert.equal(mock.requests.length, before);
+    assert.equal(CartSession.loadFromFile(join(home, ".itpay-v3", "cart.json"), "CNY").show().items.length, 0);
+  }
 });
 
 test("main checkout without args uses saved checkout id and display token", async () => {
   const sessionPath = join(mkdtempSync(join(tmpdir(), "itpay-cli-checkout-")), "cart.json");
   const session = new CartSession("CNY");
   session.rememberCheckout({
-    cartID: "cart_saved",
     checkoutID: "chk_saved",
     displayToken: "cdt_saved",
     checkoutURL: "https://sandbox.itpay.ai/checkout/chk_saved?display_token=cdt_saved",
@@ -975,7 +2082,6 @@ test("expired saved service checkout token returns an executable resume instruct
   const sessionPath = join(mkdtempSync(join(tmpdir(), "itpay-cli-expired-checkout-")), "cart.json");
   const session = new CartSession("CNY");
   session.rememberCheckout({
-    cartID: "cart_expired",
     checkoutID: "chk_expired",
     displayToken: "cdt_expired",
     checkoutURL: "https://sandbox.itpay.ai/checkout/chk_expired?display_token=cdt_expired",
@@ -1013,21 +2119,102 @@ test("progressive service instructions execute unchanged across CLI processes", 
   const created = JSON.parse((await runCLI([
     "services", "checkout", "se_instruction", "--capability", "precise_report",
     "--email", "buyer@example.com", "--json",
-  ], env)).stdout) as { checkout_id: string; display_token: string };
+  ], env)).stdout) as { result: { checkout_id: string }; next: { command: string } };
   const resumed = JSON.parse((await runCLI([
     "services", "checkout", "se_instruction", "--resume", "--json",
-  ], env)).stdout) as { checkout_id: string; display_token: string };
-  assert.equal(resumed.checkout_id, created.checkout_id);
-  assert.notEqual(resumed.display_token, created.display_token);
+  ], env)).stdout) as { result: { checkout_id: string }; next: { command: string } };
+  assert.equal(resumed.result.checkout_id, created.result.checkout_id);
+  assert.notEqual(resumed.next.command, created.next.command);
 });
 
-test("pay creates a payment intent with Idempotency-Key", async () => {
-  await runPay(backend, config, { checkoutID: "chk_pay", method: "alipay", output: silent });
+test("pay creates a checkout-bound payment intent", async () => {
+  await runPay(backend, {
+    checkoutID: "chk_pay", displayToken: "cdt_pay", method: "alipay", host: "terminal", refreshAction: true,
+    jsonOutput: true, output: stdoutSink,
+  });
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "POST");
   assert.equal(req.path, "/v1/checkouts/chk_pay/payment-intents");
-  assert.equal(req.headers["idempotency-key"], "cli_smoke_key");
   assert.equal((req.body as { payment_method_type: string }).payment_method_type, "alipay");
+  assert.equal((req.body as { display_token: string }).display_token, "cdt_pay");
+  assert.equal((req.body as { refresh_action: boolean }).refresh_action, true);
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string; result: { checkout_id: string; payment_intent_id: string }; handoff: Record<string, string>; next: { command: string };
+  };
+  assert.equal(envelope.status, "payment_action_ready");
+  assert.equal(envelope.result.checkout_id, "chk_pay");
+  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["mobile_wallet_url", "qr_image_url"]);
+  assert.equal(envelope.next.command, "itpay checkout --id chk_pay --token cdt_pay --json");
+});
+
+test("pay parser is strict, compact and Host-aware across every Agent Type", async () => {
+  const instructions: string[] = [];
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI([
+      "--agent-type", agentType, "pay", "--checkout", `chk_${agentType}`, "--token", `cdt_${agentType}`, "--method", "alipay", "--json",
+    ], { HOME: mkdtempSync(join(tmpdir(), `itpay-pay-${agentType}-`)), ITPAY_BACKEND_URL: mock.url });
+    const envelope = JSON.parse(result.stdout) as {
+      status: string; result: Record<string, unknown>; handoff: Record<string, string>; instruction: string; next: { command: string };
+    };
+    assert.equal(envelope.status, "payment_action_ready");
+    assert.equal(Object.keys(envelope.result).length, 4);
+    assert.deepEqual(Object.keys(envelope.handoff).sort(), ["mobile_wallet_url", "qr_image_url"]);
+    assert.match(envelope.next.command, /checkout --id .* --token .* --json/);
+    instructions.push(envelope.instruction);
+  }
+  assert.equal(new Set(instructions).size, 3);
+
+  const before = mock.requests.length;
+  await assert.rejects(
+    runCLI(["--agent-type", "codex-cli", "pay", "--checkout", "chk_invalid", "--token", "cdt_invalid", "--method", "cash", "--json"], {
+      HOME: mkdtempSync(join(tmpdir(), "itpay-pay-invalid-")), ITPAY_BACKEND_URL: mock.url,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "payment_method_invalid");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, before);
+});
+
+test("pay recovers only the display token saved for the same checkout", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-pay-token-"));
+  const session = new CartSession("CNY");
+  session.rememberCheckout({ checkoutID: "chk_saved_pay", displayToken: "cdt_saved_pay", checkoutURL: "https://example.test/checkout/chk_saved_pay" });
+  session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+
+  const recovered = await runCLI(["--agent-type", "codex-cli", "pay", "--checkout", "chk_saved_pay", "--method", "alipay", "--json"], {
+    HOME: home, ITPAY_BACKEND_URL: mock.url,
+  });
+  assert.match(JSON.parse(recovered.stdout).next.command, /--token cdt_saved_pay --json$/);
+
+  const before = mock.requests.length;
+  await assert.rejects(
+    runCLI(["--agent-type", "codex-cli", "pay", "--checkout", "chk_other", "--method", "alipay", "--json"], {
+      HOME: home, ITPAY_BACKEND_URL: mock.url,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "checkout_token_required");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, before);
+});
+
+test("pay never returns a payment handoff for verified or refunded intents", async () => {
+  for (const [checkoutID, wantStatus] of [["chk_pay_verified", "payment_verified"], ["chk_pay_refunded", "payment_unavailable"]]) {
+    const output: string[] = [];
+    await runPay(backend, {
+      checkoutID: checkoutID!, displayToken: "cdt_terminal", method: "alipay", host: "terminal", jsonOutput: true,
+      output: (line) => output.push(line),
+    });
+    const envelope = JSON.parse(output.join("")) as { status: string; handoff?: unknown; next: { command: string } };
+    assert.equal(envelope.status, wantStatus);
+    assert.equal(envelope.handoff, undefined);
+    assert.match(envelope.next.command, /checkout --id .* --token cdt_terminal --json/);
+  }
 });
 
 test("services checkout JSON returns ItPay checkout handoff, not provider QR", async () => {
@@ -1039,31 +2226,45 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
     output: (line) => stdoutCaptureJSON.push(line),
   });
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
-    kind: string;
-    next_action: string;
-    checkout_url: string;
-    qr_payload: string;
-    qr_png_url?: string;
-    warning?: string;
-    brand_qr_status?: string;
-    brand_qr_data_url?: string;
-    agent_action?: { must_send_to_user: boolean; markdown: string; after_visible_action?: { command: string } };
+    status: string;
+    result: { checkout_id: string; capability_id: string; locked_input: Record<string, unknown>; amount: string };
+    handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string };
+    instruction: string;
+    next: { command: string };
+    recovery: unknown[];
   };
-  assert.equal(json.kind, "checkout_handoff_required");
-  assert.equal(json.next_action, "open_human_checkout");
-  assert.match(json.checkout_url, /^https:\/\/sandbox\.itpay\.ai\/checkout\/chk_/);
-  assert.match(json.qr_payload, /display_token=/);
-  assert.match(json.qr_png_url ?? "", /^\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
-  assert.match(json.warning ?? "", /Do not call `itpay pay`/);
-  assert.equal(json.brand_qr_status, "downloaded");
-  assert.equal(json.brand_qr_data_url, undefined);
-  assert.equal(json.agent_action?.must_send_to_user, true);
-  assert.match(json.agent_action?.markdown ?? "", /!\[ItPay 付款二维码\]\(</);
-  assert.match(json.agent_action?.markdown ?? "", /打开 ItPay 付款页面/);
-  assert.match(json.agent_action?.after_visible_action?.command ?? "", /itpay checkout --id/);
+  assert.equal(json.status, "human_checkout_required");
+  assert.match(json.handoff.url, /^https:\/\/sandbox\.itpay\.ai\/checkout\/chk_/);
+  assert.match(json.handoff.url, /display_token=/);
+  assert.match(json.handoff.qr_image_url ?? "", /^\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
+  assert.equal(json.result.capability_id, "precise_report");
+  assert.deepEqual(json.result.locked_input, {});
+  assert.equal(json.result.amount, "0.50 CNY");
+  assert.match(json.next.command, /itpay checkout --id/);
+  assert.deepEqual(json.recovery, []);
+  assert.equal("service_quote_lock_id" in json, false);
+  assert.equal("display_token" in json, false);
+  assert.equal("agent_guidance" in json, false);
+  assert.equal("agent_action" in json, false);
+  assert.equal("brand_qr_mirrors" in json, false);
   assert.ok(!JSON.stringify(json).includes("qr.alipay.com"));
   assert.ok(mock.requests.some((req) => req.path.includes("/qr.png?display_token=")));
   assert.equal(JSON.stringify(json).includes("agent_access_token"), false);
+
+  const displayToken = json.next.command.match(/--token ([^ ]+)/)?.[1];
+  assert.ok(displayToken);
+  const presentationOutput: string[] = [];
+  await runCheckoutPresentation(backend, {
+    checkoutID: json.result.checkout_id,
+    displayToken,
+    jsonOutput: true,
+    output: (line) => presentationOutput.push(line),
+    baseURL: mock.url,
+  });
+  const presentation = JSON.parse(presentationOutput.join("")) as {
+    result: { amount: string };
+  };
+  assert.equal(presentation.result.amount, "0.50 CNY");
 });
 
 test("services checkout resume reissues the same checkout and persists before output", async () => {
@@ -1074,7 +2275,7 @@ test("services checkout resume reissues the same checkout and persists before ou
     jsonOutput: true,
     output: (line) => firstOutput.push(line),
   });
-  const first = JSON.parse(firstOutput.join("")) as { checkout_id: string; display_token: string };
+  const first = JSON.parse(firstOutput.join("")) as { result: { checkout_id: string }; next: { command: string } };
 
   let persisted = false;
   const resumedOutput: string[] = [];
@@ -1083,17 +2284,16 @@ test("services checkout resume reissues the same checkout and persists before ou
     host: "codex",
     jsonOutput: true,
     persistHandoff: (handoff) => {
-      persisted = handoff.checkoutID === first.checkout_id && handoff.displayToken !== first.display_token;
+      persisted = handoff.checkoutID === first.result.checkout_id && !first.next.command.includes(handoff.displayToken);
     },
     output: (line) => {
       assert.equal(persisted, true, "handoff must be persisted before CLI output");
       resumedOutput.push(line);
     },
   });
-  const resumed = JSON.parse(resumedOutput.join("")) as { checkout_id: string; display_token: string; handoff_reissued: boolean };
-  assert.equal(resumed.checkout_id, first.checkout_id);
-  assert.notEqual(resumed.display_token, first.display_token);
-  assert.equal(resumed.handoff_reissued, true);
+  const resumed = JSON.parse(resumedOutput.join("")) as { result: { checkout_id: string }; next: { command: string } };
+  assert.equal(resumed.result.checkout_id, first.result.checkout_id);
+  assert.notEqual(resumed.next.command, first.next.command);
   const requests = mock.requests.filter((request) => request.path === "/v1/service-executions/se_resume/checkout");
   assert.equal(requests.length, 2);
   assert.equal((requests[1]?.body as { resume?: boolean }).resume, true);
@@ -1101,11 +2301,71 @@ test("services checkout resume reissues the same checkout and persists before ou
 });
 
 test("services read-result relies on device authority instead of a checkout token", async () => {
-  await runServicesReadResult(backend, "se_granted", { output: silent });
+  await runServicesReadResult(backend, "se_granted", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { service_execution_id: string; grant_expires_at: string; granted_fields: string[]; payload: Record<string, unknown> };
+  };
+  assert.equal(envelope.status, "granted_result_ready");
+  assert.equal(envelope.result.service_execution_id, "se_granted");
+  assert.equal(envelope.result.grant_expires_at, "2026-07-13T12:15:00Z");
+  assert.deepEqual(envelope.result.granted_fields, ["summary"]);
+  assert.deepEqual(envelope.result.payload, { summary: "granted" });
   const req = mock.requests.at(-1)!;
   assert.equal(req.path, "/v1/service-executions/se_granted/granted-result");
   assert.equal(req.headers.authorization, undefined);
   assert.equal(req.path.includes("agent_device_id"), false);
+});
+
+test("services next and read-result commands accept the documented JSON form", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-delivery-"));
+  const env = { ITPAY_BACKEND_URL: mock.url, HOME: home };
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const nextResult = await runCLI([
+      "--agent-type", agentType, "services", "next", "se_granted", "--json",
+    ], env);
+    assert.equal(JSON.parse(nextResult.stdout).status, "grant_active");
+    assert.equal(nextResult.stderr, "");
+
+    const readResult = await runCLI([
+      "--agent-type", agentType, "services", "read-result", "se_granted", "--json",
+    ], env);
+    const envelope = JSON.parse(readResult.stdout) as { status: string; result: { payload: Record<string, unknown> } };
+    assert.equal(envelope.status, "granted_result_ready");
+    assert.deepEqual(envelope.result.payload, { summary: "granted" });
+    assert.equal(readResult.stderr, "");
+  }
+});
+
+test("services read-result returns structured user-action recovery when access is denied", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-delivery-denied-"));
+  for (const serviceExecutionID of ["se_vault_none", "se_vault_denied"]) {
+    await assert.rejects(
+      execFileAsync(TSX_BIN, [
+        CLI_ENTRY, "--agent-type", "codex-cli", "services", "read-result", serviceExecutionID, "--json",
+      ], {
+        cwd: CLI_ROOT,
+        env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
+      }),
+      (error: unknown) => {
+        const stderr = String((error as { stderr?: string }).stderr ?? "");
+        const envelope = JSON.parse(stderr) as {
+          status: string;
+          error: { code: string };
+          instruction: string;
+          recovery: Array<{ command: string }>;
+        };
+        assert.equal(envelope.status, "error");
+        assert.equal(envelope.error.code, "agent_access_denied");
+        assert.match(envelope.instruction, /用户.*授权/);
+        assert.equal(envelope.recovery[0]?.command, `itpay services next ${serviceExecutionID} --json`);
+        return true;
+      },
+    );
+  }
 });
 
 test("services action rejects unsupported statuses before HTTP", async () => {
@@ -1114,7 +2374,12 @@ test("services action rejects unsupported statuses before HTTP", async () => {
       status: "completed",
       output: silent,
     }),
-    /invalid --status "completed"/,
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "service_action_invalid");
+      assert.match(error.message, /invalid --status "completed"/);
+      return true;
+    },
   );
   assert.equal(mock.requests.some((req) => req.path.includes("/v1/service-executions/se_bad_status/actions")), false);
 });
@@ -1125,7 +2390,8 @@ test("services action resolves a human-selected candidate rank from the executio
     actorType: "human",
     status: "approved",
     candidateRank: 1,
-    output: silent,
+    jsonOutput: true,
+    output: stdoutSink,
   });
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_select_by_rank"));
   assert.equal(requests.at(-2)?.method, "GET");
@@ -1138,25 +2404,119 @@ test("services action resolves a human-selected candidate rank from the executio
     selected_candidate_hash: "hash_candidate_1",
     input_snapshot: {},
   });
+  assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
+    status: "action_recorded",
+    result: {
+      service_execution_id: "se_select_by_rank",
+      action_type: "select_candidate",
+      action_status: "approved",
+    },
+    instruction: "动作已记录，读取服务端计算的新状态；不要自行假设下一 capability。",
+    next: {
+      command: "itpay services next se_select_by_rank --json",
+      reason: "取得更新后的首选动作",
+    },
+    recovery: [],
+  });
+});
+
+test("services action command accepts the documented --json form", async () => {
+  await runServicesInvoke(
+    backend,
+    config,
+    "se_action_cli",
+    "fuzzy_disambiguation",
+    { keyword: "小米" },
+    { output: silent },
+  );
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-service-action-"));
+  const result = await runCLI([
+    "--agent-type", "codex-cli", "services", "action", "se_action_cli",
+    "--action", "select_candidate", "--actor-type", "human", "--status", "approved",
+    "--candidate", "1", "--json",
+  ], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: home,
+  });
+  assert.equal(JSON.parse(result.stdout).status, "action_recorded");
+  assert.equal(result.stderr, "");
 });
 
 test("catalog list supports JSON output", async () => {
   const output: string[] = [];
   await runCatalogList(backend, { jsonOutput: true, output: (line) => output.push(line) });
-  const parsed = JSON.parse(output.join("")) as { manifest: { items: Array<{ catalog_item_id: string; service_flow?: { discovery: { free_quota_limit?: number } } }> } };
-  assert.ok(parsed.manifest.items.some((item) => item.catalog_item_id === "cat_service"));
-  assert.equal(parsed.manifest.items[0]?.service_flow?.discovery.free_quota_limit, 3);
+  const parsed = JSON.parse(output.join("")) as {
+    status: string;
+    result: { services: Array<{ service_id: string; discovery?: { free_quota?: number } }> };
+    next: { command: string };
+  };
+  assert.equal(parsed.status, "listed");
+  assert.equal(parsed.result.services[0]?.service_id, "svc_qizhidao_company_lookup");
+  assert.equal(parsed.result.services[0]?.discovery?.free_quota, 3);
+  assert.equal(parsed.next.command, "itpay services start svc_qizhidao_company_lookup");
+  assert.equal("manifest" in parsed, false);
 });
 
 test("catalog text explains auxiliary discovery before the primary service", async () => {
   const output: string[] = [];
   await runCatalogList(backend, { output: (line) => output.push(line) });
   const text = output.join("");
-  assert.match(text, /每台已登记设备可免费使用 3 次/);
-  assert.match(text, /免费次数用完后：¥0\.10\/次，继续使用该辅助步骤；结果直接返回给 agent，不需要邮箱/);
-  assert.match(text, /确认主体后：Precise company report，¥0\.50\/次/);
-  assert.doesNotMatch(text, /how it works|purchasable offers|included:/);
-  assert.match(text, /claim link/);
+  assert.match(text, /discovery: Confirm company identity; free_quota: 3; paid_price: ¥0\.10/);
+  assert.match(text, /primary_offer: Precise company report; price: ¥0\.50/);
+  assert.doesNotMatch(text, /catalog_variant_id|snapshot_id|provider:/);
+  assert.match(text, /instruction: 向用户解释主服务、辅助步骤和价格/);
+});
+
+test("catalog empty response does not invent a service id", async () => {
+  const output: string[] = [];
+  const emptyBackend = {
+    getCatalogManifest: async () => ({
+      version: "cat_empty",
+      status: "published",
+      item_count: 0,
+      manifest: { items: [] },
+    }),
+  } as unknown as BackendClient;
+  await runCatalogList(emptyBackend, { jsonOutput: true, output: (line) => output.push(line) });
+  const parsed = JSON.parse(output.join(""));
+  assert.equal(parsed.status, "catalog_empty");
+  assert.deepEqual(parsed.result.services, []);
+  assert.equal(parsed.next.command, "itpay catalog list");
+  assert.match(parsed.instruction, /不要猜测 service_id/);
+});
+
+test("services start returns only the documented capability entrypoint", async () => {
+  const output: string[] = [];
+  await runServicesStart(backend, "svc_qizhidao_company_lookup", {
+    host: "terminal",
+    jsonOutput: true,
+    output: (line) => output.push(line),
+  });
+  const parsed = JSON.parse(output.join(""));
+  assert.equal(parsed.status, "ready");
+  assert.equal(parsed.result.service_id, "svc_qizhidao_company_lookup");
+  assert.equal(parsed.result.capability.capability_id, "fuzzy_disambiguation");
+  assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
+  assert.match(parsed.next.command, /--input keyword=<value> --json$/);
+  assert.equal("execution" in parsed, false);
+  assert.equal("capabilities" in parsed, false);
+  assert.equal("agent_guidance" in parsed, false);
+  const request = [...mock.requests].reverse().find((item) => item.method === "POST" && item.path === "/v1/service-executions");
+  assert.equal("buyer_id" in (request?.body ?? {}), false);
+  assert.equal("agent_device_id" in (request?.body ?? {}), false);
+  assert.equal("agent_device_id" in ((request?.body?.client_context as Record<string, unknown> | undefined) ?? {}), false);
+});
+
+test("services start command accepts --json after the subcommand", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-service-start-"));
+  const result = await runCLI([
+    "--agent-type", "codex-cli", "services", "start", "svc_qizhidao_company_lookup", "--json",
+  ], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: home,
+  });
+  assert.equal(JSON.parse(result.stdout).status, "ready");
+  assert.equal(result.stderr, "");
 });
 
 test("services checkout renders the branded checkout QR by default", async () => {
@@ -1166,7 +2526,8 @@ test("services checkout renders the branded checkout QR by default", async () =>
     output: stdoutSink,
   });
   const text = stdoutCapture.join("");
-  assert.match(text, /AGENT ACTION REQUIRED/);
+  assert.match(text, /^human_checkout_required/m);
+  assert.match(text, /handoff\.markdown:/);
   assert.match(text, /!\[ItPay 付款二维码\]\(</);
   assert.match(text, /打开 ItPay 付款页面/);
   assert.match(text, /display_token=/);
@@ -1181,17 +2542,103 @@ test("services checkout requires delivery email before QR handoff", async () => 
 });
 
 test("services checkout does not require email for an agent-visible paid result", async () => {
-  await runServicesCheckout(backend, config, "se_paid_fuzzy", "fuzzy_disambiguation_paid", { output: silent });
-  assert.ok(mock.requests.some((request) =>
-    request.method === "POST" && request.path === "/v1/service-executions/se_paid_fuzzy/checkout",
-  ));
+	await runServicesCheckout(backend, config, "se_paid_fuzzy", "fuzzy_disambiguation_paid", {
+		lockedInput: { keyword: "京东" },
+		output: silent,
+	});
+	const request = [...mock.requests].reverse().find((request) =>
+		request.method === "POST" && request.path === "/v1/service-executions/se_paid_fuzzy/checkout",
+	);
+	assert.deepEqual(request?.body?.locked_input, { keyword: "京东" });
+});
+
+test("services checkout rejects missing required input before creating checkout resources", async () => {
+  const before = mock.requests.length;
+  await assert.rejects(
+    runServicesCheckout(backend, config, "se_missing_paid_input", "fuzzy_disambiguation_paid", { output: silent }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "capability_input_invalid");
+      assert.match(error.recovery[0]?.command ?? "", /--input keyword=<value>/);
+      return true;
+    },
+  );
+  const requests = mock.requests.slice(before);
+  assert.equal(requests.filter((request) => request.method === "POST").length, 0);
 });
 
 test("order reads one canonical order by id", async () => {
-  await runOrder(backend, "ord_1", { output: silent });
-  const req = mock.requests.at(-1)!;
-  assert.equal(req.method, "GET");
-  assert.equal(req.path, "/v1/orders/ord_1");
+  await runOrder(backend, "ord_delivery", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { order_code: string; delivery_mode: string; access_locked: boolean; service_execution_id: string };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "delivered");
+  assert.equal(envelope.result.order_code, "IP-DELIVERY");
+  assert.equal(envelope.result.delivery_mode, "vault_artifact");
+  assert.equal(envelope.result.access_locked, false);
+  assert.equal(envelope.result.service_execution_id, "se_granted");
+  assert.equal(envelope.next.command, "itpay services next se_granted --json");
+  assert.deepEqual(mock.requests.slice(-3).map((req) => req.path).sort(), [
+    "/v1/orders/ord_delivery",
+    "/v1/orders/ord_delivery/delivery-access",
+    "/v1/orders/ord_delivery/refunds",
+  ].sort());
+});
+
+test("order reports a refund access lock instead of delivery guidance", async () => {
+  await runOrder(backend, "ord_locked", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    result: { access_locked: boolean; refund: { refund_request_id: string; status: string } };
+    instruction: string;
+    next: { command: string };
+  };
+  assert.equal(envelope.result.access_locked, true);
+  assert.deepEqual(envelope.result.refund, { refund_request_id: "rr_locked", status: "accepted" });
+  assert.match(envelope.instruction, /不要 reveal/);
+  assert.equal(envelope.next.command, "itpay refund get rr_locked --json");
+});
+
+test("order keeps business output identical across all supported Agent Types", async () => {
+  const outputs: string[] = [];
+  for (const host of ["codex", "terminal", "claude-code", "terminal", "plain-chat"]) {
+    const current: string[] = [];
+    await runOrder(backend, "ord_agent_visible", { host, jsonOutput: true, output: (line) => current.push(line) });
+    outputs.push(current.join(""));
+  }
+  assert.equal(new Set(outputs).size, 1);
+  const envelope = JSON.parse(outputs[0]!) as { result: { delivery_mode: string }; next: { command: string } };
+  assert.equal(envelope.result.delivery_mode, "agent_visible_result");
+  assert.equal(envelope.next.command, "itpay services next se_agent_visible --json");
+});
+
+test("order command accepts JSON and returns structured opaque not-found recovery", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-order-"));
+  const result = await runCLI([
+    "--agent-type", "codex-cli", "order", "ord_delivery", "--json",
+  ], { ITPAY_BACKEND_URL: mock.url, HOME: home });
+  assert.equal(JSON.parse(result.stdout).status, "delivered");
+  assert.equal(result.stderr, "");
+
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "order", "ord_missing", "--json"], {
+      cwd: CLI_ROOT,
+      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        status: string; error: { code: string }; recovery: Array<{ command: string }>;
+      };
+      assert.equal(envelope.status, "error");
+      assert.equal(envelope.error.code, "not_found");
+      assert.equal(envelope.recovery[0]?.command, "itpay services list --json");
+      return true;
+    },
+  );
 });
 
 test("orders requires an account-scoped bearer", async () => {
@@ -1199,16 +2646,84 @@ test("orders requires an account-scoped bearer", async () => {
   delete configWithoutBearer.bearerToken;
   await assert.rejects(
     runListOrders(backend, configWithoutBearer, { limit: 10, output: silent }),
-    /ITPAY_BEARER_TOKEN is required/,
+    (error: unknown) => (error as { code?: string }).code === "session_required",
   );
 });
 
 test("orders lists account orders with a valid bearer", async () => {
-  await runListOrders(backend, { ...config, bearerToken: "account_token" }, { limit: 5, output: silent });
+  mock.setAccountOrders([{
+    order_id: "ord_latest",
+    order_code: "IP-LATEST",
+    checkout_id: "chk_latest",
+    status: "delivered",
+    amount_minor: 50,
+    currency: "CNY",
+    created_at: "2026-07-13T12:00:00Z",
+    items: [{ title: "Must not leak", input: { secret: true } }],
+    delivery_artifacts: [{ vault_artifact_id: "vault_must_not_leak" }],
+  }]);
+  await runListOrders(backend, { ...config, bearerToken: "account_token" }, {
+    limit: 5,
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { orders: Array<Record<string, unknown>> };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "listed");
+  assert.deepEqual(envelope.result.orders, [{
+    order_id: "ord_latest",
+    order_code: "IP-LATEST",
+    status: "delivered",
+    amount: "0.50 CNY",
+    created_at: "2026-07-13T12:00:00Z",
+  }]);
+  assert.equal(envelope.next.command, "itpay order ord_latest --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /Must not leak|vault_must_not_leak|chk_latest/);
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/me/orders?limit=5");
   assert.equal(req.headers["authorization"], "Bearer account_token");
+});
+
+test("orders validates filters before issuing an HTTP request", async () => {
+  const requestCount = mock.requests.length;
+  await assert.rejects(
+    runListOrders(backend, { ...config, bearerToken: "account_token" }, { limit: 0, output: silent }),
+    (error: unknown) => (error as { code?: string }).code === "limit_invalid",
+  );
+  await assert.rejects(
+    runListOrders(backend, { ...config, bearerToken: "account_token" }, { limit: 20, status: "typo", output: silent }),
+    (error: unknown) => (error as { code?: string }).code === "order_status_invalid",
+  );
+  assert.equal(mock.requests.length, requestCount);
+});
+
+test("orders JSON contract is stable for every supported Agent Type", async () => {
+  mock.setAccountOrders([{
+    order_id: "ord_agent_types",
+    order_code: "IP-TYPES",
+    checkout_id: "chk_types",
+    status: "paid",
+    amount_minor: 10,
+    currency: "CNY",
+    created_at: "2026-07-13T13:00:00Z",
+    items: [],
+    delivery_artifacts: [],
+  }]);
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI(["--agent-type", agentType, "orders", "--limit", "1", "--json"], {
+      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_BEARER_TOKEN: "account_token",
+      HOME: mkdtempSync(join(tmpdir(), `itpay-orders-${agentType}-`)),
+    });
+    const envelope = JSON.parse(result.stdout) as { status: string; result: { orders: Array<{ order_id: string }> } };
+    assert.equal(envelope.status, "listed");
+    assert.equal(envelope.result.orders[0]?.order_id, "ord_agent_types");
+    assert.equal(result.stderr, "");
+  }
 });
 
 test("orders surfaces account_scope_required as HttpError", async () => {
@@ -1218,12 +2733,89 @@ test("orders surfaces account_scope_required as HttpError", async () => {
   );
 });
 
+test("refund list returns a compact latest-first order view", async () => {
+  await runListRefunds(backend, { orderID: "ord_locked", jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { order_id: string; refunds: Array<Record<string, unknown>> };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "listed");
+  assert.equal(envelope.result.order_id, "ord_locked");
+  assert.deepEqual(envelope.result.refunds, [{
+    refund_request_id: "rr_locked",
+    status: "accepted",
+    amount: "0.50 CNY",
+    created_at: "2026-07-13T12:00:00Z",
+  }]);
+  assert.equal(envelope.next.command, "itpay refund get rr_locked --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /consumption_state|decision_mode|buyer_requested/);
+});
+
+test("refund list handles an empty order without inventing a refund", async () => {
+  await runListRefunds(backend, { orderID: "ord_delivery", jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { refunds: unknown[] };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "empty");
+  assert.deepEqual(envelope.result.refunds, []);
+  assert.equal(envelope.next.command, "itpay refund create --order ord_delivery --json");
+});
+
+test("refund list parser accepts child options for every supported Agent Type", async () => {
+  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+    const result = await runCLI([
+      "--agent-type", agentType, "refund", "list", "--order", "ord_locked", "--json",
+    ], {
+      ITPAY_BACKEND_URL: mock.url,
+      HOME: mkdtempSync(join(tmpdir(), `itpay-refund-list-${agentType}-`)),
+    });
+    const envelope = JSON.parse(result.stdout) as { status: string; result: { refunds: Array<{ refund_request_id: string }> } };
+    assert.equal(envelope.status, "listed");
+    assert.equal(envelope.result.refunds[0]?.refund_request_id, "rr_locked");
+    assert.equal(result.stderr, "");
+  }
+});
+
+test("refund list rejects a missing order before HTTP", async () => {
+  const requestCount = mock.requests.length;
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "list", "--json"], {
+      cwd: CLI_ROOT,
+      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-refund-list-missing-")) },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "order_required");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, requestCount);
+});
+
 test("refund issues a refund request with Idempotency-Key", async () => {
   await runRefund(backend, { ...config, bearerToken: "account_token" }, {
     orderID: "ord_42",
     reason: "buyer_requested",
-    output: silent,
+    jsonOutput: true,
+    output: stdoutSink,
   });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { refund_status: string; decision_mode: string; access_locked: boolean; can_cancel: boolean };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "requested");
+  assert.equal(envelope.result.refund_status, "accepted");
+  assert.equal(envelope.result.decision_mode, "automatic");
+  assert.equal(envelope.result.access_locked, true);
+  assert.equal(envelope.result.can_cancel, true);
+  assert.match(envelope.next.command, /^itpay refund watch rr_/);
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "POST");
   assert.equal(req.path, "/v1/orders/ord_42/refunds");
@@ -1237,10 +2829,189 @@ test("refund uses signed device authority without buyer bearer and supports reco
 	const { bearerToken: _bearerToken, ...deviceConfig } = config;
 	await runRefund(signedBackend, deviceConfig, { orderID: "ord_42", output: silent });
 	assert.equal(mock.requests.at(-1)?.headers.authorization, "ItPayDevice device_session");
-	await runGetRefund(signedBackend, "rr_1", silent);
+	await runGetRefund(signedBackend, "rr_1", { output: silent });
 	assert.equal(mock.requests.at(-1)?.path, "/v1/refunds/rr_1");
-	await runCancelRefund(signedBackend, "rr_1", undefined, silent);
+	await runCancelRefund(signedBackend, "rr_1", undefined, { output: silent });
 	assert.equal(mock.requests.at(-1)?.path, "/v1/refunds/rr_1/cancel");
+});
+
+test("refund create parses child options and signs with device authority", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-"));
+	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+		const result = await runCLI(["--agent-type", agentType, "refund", "create", "--order", "ord_42", "--reason", "buyer_requested", "--json"], {
+			HOME: home,
+			ITPAY_BACKEND_URL: mock.url,
+			ITPAY_IDEMPOTENCY_KEY: `refund_command_key_${agentType}`,
+		});
+		assert.equal(JSON.parse(result.stdout).status, "requested");
+		assert.equal(result.stderr, "");
+	}
+	const request = mock.requests.find((item) => item.path === "/v1/orders/ord_42/refunds");
+	assert.match(request?.headers.authorization ?? "", /^ItPayDevice /);
+});
+
+test("refund create rejects a missing order before HTTP with structured recovery", async () => {
+	const before = mock.requests.length;
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-missing-"));
+	await assert.rejects(
+		execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "create", "--json"], {
+			cwd: CLI_ROOT,
+			env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+			encoding: "utf8",
+			timeout: 10_000,
+			maxBuffer: 1024 * 1024,
+		}),
+		(error: unknown) => {
+			const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+				status: string; error: { code: string }; instruction: string;
+			};
+			assert.equal(envelope.status, "error");
+			assert.equal(envelope.error.code, "order_required");
+			assert.match(envelope.instruction, /不要猜测/);
+			return true;
+		},
+	);
+	assert.equal(mock.requests.length, before);
+});
+
+test("refund get returns one compact authoritative snapshot for every Agent Type", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-get-"));
+	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+		const result = await runCLI(["--agent-type", agentType, "refund", "get", "rr_1", "--json"], {
+			HOME: home,
+			ITPAY_BACKEND_URL: mock.url,
+		});
+		const envelope = JSON.parse(result.stdout) as {
+			status: string; result: { refund_status: string; access_locked: boolean }; next: { command: string };
+		};
+		assert.equal(envelope.status, "shown");
+		assert.equal(envelope.result.refund_status, "accepted");
+		assert.equal(envelope.result.access_locked, true);
+		assert.equal(envelope.next.command, "itpay refund watch rr_1 --json");
+		assert.equal(result.stderr, "");
+	}
+});
+
+test("refund get keeps missing and foreign refund IDs opaque", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-get-missing-"));
+	await assert.rejects(
+		execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "get", "rr_missing", "--json"], {
+			cwd: CLI_ROOT,
+			env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+			encoding: "utf8",
+			timeout: 10_000,
+			maxBuffer: 1024 * 1024,
+		}),
+		(error: unknown) => {
+			const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+				status: string; error: { code: string }; instruction: string;
+			};
+			assert.equal(envelope.status, "error");
+			assert.equal(envelope.error.code, "not_found");
+			assert.match(envelope.instruction, /不要探测/);
+			return true;
+		},
+	);
+});
+
+test("refund get reports manual review from server truth", async () => {
+	await runGetRefund(backend, "rr_manual", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		result: { decision_mode: string; refund_status: string; consumption_state: string; access_locked: boolean };
+		instruction: string;
+	};
+	assert.deepEqual(envelope.result, {
+		refund_request_id: "rr_manual",
+		order_id: "ord_42",
+		decision_mode: "manual",
+		refund_status: "policy_review_required",
+		consumption_state: "consumed",
+		access_locked: true,
+		can_cancel: true,
+	});
+	assert.match(envelope.instruction, /人工审核/);
+});
+
+test("refund watch emits one terminal envelope for every Agent Type", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-watch-"));
+	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+		const result = await runCLI(["--agent-type", agentType, "refund", "watch", "rr_succeeded", "--json"], {
+			HOME: home,
+			ITPAY_BACKEND_URL: mock.url,
+		});
+		const envelope = JSON.parse(result.stdout) as {
+			status: string; result: { refund_status: string; access_locked: boolean }; next: unknown;
+		};
+		assert.equal(envelope.status, "watch_complete");
+		assert.equal(envelope.result.refund_status, "succeeded");
+		assert.equal(envelope.result.access_locked, true);
+		assert.equal(envelope.next, null);
+		assert.equal(result.stderr, "");
+	}
+});
+
+test("refund watch timeout is a resumable state, not a refund failure", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-watch-timeout-"));
+	const result = await runCLI([
+		"--agent-type", "codex-cli", "refund", "watch", "rr_pending", "--interval", "1", "--timeout", "0.01", "--json",
+	], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+	const envelope = JSON.parse(result.stdout) as {
+		status: string; result: { last_status: string }; instruction: string; next: { command: string };
+	};
+	assert.equal(envelope.status, "watch_timeout");
+	assert.equal(envelope.result.last_status, "accepted");
+	assert.match(envelope.instruction, /不要重复申请/);
+	assert.equal(envelope.next.command, "itpay refund watch rr_pending --json");
+	assert.equal(result.stderr, "");
+});
+
+test("refund watch validates polling parameters before HTTP", async () => {
+	const before = mock.requests.length;
+	await assert.rejects(
+		runWatchRefund(backend, "rr_pending", { intervalSeconds: 0, timeoutSeconds: 1, jsonOutput: true, output: silent }),
+		/--interval must be at least 1 second/,
+	);
+	assert.equal(mock.requests.length, before);
+});
+
+test("refund cancel releases the lock and requires a new delivery authorization", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-cancel-"));
+	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+		const result = await runCLI(["--agent-type", agentType, "refund", "cancel", "rr_active", "--reason", "buyer_cancelled", "--json"], {
+			HOME: home,
+			ITPAY_BACKEND_URL: mock.url,
+		});
+		const envelope = JSON.parse(result.stdout) as {
+			status: string; result: { order_id: string; access_locked: boolean }; instruction: string; next: { command: string };
+		};
+		assert.equal(envelope.status, "cancelled");
+		assert.equal(envelope.result.access_locked, false);
+		assert.match(envelope.instruction, /新的授权/);
+		assert.equal(envelope.next.command, "itpay order ord_42 --json");
+		assert.equal(result.stderr, "");
+	}
+});
+
+test("refund cancel keeps a too-late refund locked and returns state recovery", async () => {
+	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-cancel-late-"));
+	await assert.rejects(
+		execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "cancel", "rr_too_late", "--json"], {
+			cwd: CLI_ROOT,
+			env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+			encoding: "utf8",
+			timeout: 10_000,
+			maxBuffer: 1024 * 1024,
+		}),
+		(error: unknown) => {
+			const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+				status: string; error: { code: string }; recovery: Array<{ command: string }>;
+			};
+			assert.equal(envelope.status, "error");
+			assert.equal(envelope.error.code, "refund_cancellation_too_late");
+			assert.equal(envelope.recovery[0]?.command, "itpay refund get rr_too_late --json");
+			return true;
+		},
+	);
 });
 
 // --- IDE image attach contract -----------------------------------------
@@ -1351,7 +3122,7 @@ test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => 
   assert.match(attach!.error ?? "", /http=503/);
 });
 
-test("runBuy JSON output carries brand_qr_status / mirrors / stable_name", async () => {
+test("runBuy JSON output exposes only the current Host handoff", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -1369,49 +3140,42 @@ test("runBuy JSON output carries brand_qr_status / mirrors / stable_name", async
     output: jsonSink,
   });
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
-    brand_qr_status?: string;
-    brand_qr_local_path?: string;
-    brand_qr_stable_name?: string;
-    brand_qr_data_url?: string;
-    brand_qr_mime_type?: string;
+    status: string;
+    result: { checkout_id: string; payment: string; amount: string; item_count: number };
+    handoff: { url: string; qr_local_path?: string; qr_image_url?: string };
+    next: { command: string };
   };
-  assert.equal(json.brand_qr_status, "downloaded");
-  assert.ok(json.brand_qr_local_path);
-  assert.match(json.brand_qr_stable_name ?? "", /itpay-v3-checkout-chk_/);
-  assert.match(json.brand_qr_data_url ?? "", /^data:image\/png;base64,/);
-  assert.equal(json.brand_qr_mime_type, "image/png");
+  assert.equal(json.status, "human_checkout_required");
+  assert.deepEqual(json.result, { checkout_id: json.result.checkout_id, payment: "pending", amount: "1.00 CNY", item_count: 1 });
+  assert.match(json.handoff.url, /display_token=/);
+  assert.ok(json.handoff.qr_local_path);
+  assert.match(json.handoff.qr_image_url ?? "", /\/qr\.png\?display_token=/);
+  assert.match(json.next.command, /checkout --id .* --token .* --json/);
+  assert.equal("brand_qr_mirrors" in json, false);
+  assert.equal("brand_qr_data_url" in json, false);
+  assert.equal("agent_action" in json, false);
 });
 
-test("buy JSON output carries service execution refs from cart lines", () => {
-  const json = buildJSONOutput({
-    checkout: {
-      checkout: { checkout_id: "chk_1", status: "quote_bound", amount_minor: 50, currency: "CNY" },
-      checkout_url: "https://test.itpay.ai/checkout/chk_1",
-      display_token: "cdt_1",
-      qr_payload: "https://test.itpay.ai/checkout/chk_1?display_token=cdt_1",
-    },
-    cart: {
-      cart_id: "cart_1",
-      status: "active",
-      amount_minor: 50,
-      currency: "CNY",
-      items: [{
-        title: "精准企业报告",
-        quantity: 1,
-        amount_minor: 50,
-        currency: "CNY",
-        service_execution_id: "se_1",
-        service_capability_id: "scc_qizhidao_precise_v1",
-      }],
-    },
-    waitStatus: "skipped",
+test("buy routes service-backed carts to Service Execution before checkout", async () => {
+  const session = new CartSession("CNY");
+  runCartAdd(session, {
+    catalogItemID: "cat_service",
+    catalogVariantID: "var_service",
+    offerID: "offer_service",
+    quantity: 1,
+    output: silent,
   });
-
-  assert.deepEqual(json.service_executions, [{
-    service_execution_id: "se_1",
-    service_capability_id: "scc_qizhidao_precise_v1",
-    title: "精准企业报告",
-  }]);
+  await assert.rejects(
+    runBuy(backend, config, { cartSession: session, host: "codex", jsonOutput: true, output: silent }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "service_checkout_required");
+      assert.equal(error.recovery[0]?.command, "itpay services next se_mock_1 --json");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.some((request) => request.path === "/v1/checkouts"), false);
+  assert.equal(session.lastServiceExecutionID, "se_mock_1");
 });
 
 test("markdown renderer keeps command output bounded and delegates image attachment to the host", async () => {

@@ -36,13 +36,15 @@ try {
 
   const docs = execFileSync(process.execPath, [entry, "docs", "list"], { env, encoding: "utf8" });
   assert.match(docs, /payment-flow/);
-  const installHelp = execFileSync(process.execPath, [entry, "install", "codex"], { env, encoding: "utf8" });
-  assert.match(installHelp, /Default API:/);
-  assert.doesNotMatch(installHelp, /Production API/);
-  assert.match(installHelp, /https:\/\/app\.itpay\.ai/);
-  assert.doesNotMatch(installHelp, /sandbox\.itpay\.ai/);
+  const installHelp = JSON.parse(execFileSync(process.execPath, [entry, "install", "codex-cli", "--json"], {
+    env,
+    encoding: "utf8",
+  }));
+  assert.equal(installHelp.result.agent_type, "codex-cli");
+  assert.equal(installHelp.result.default_api, "https://app.itpay.ai");
   const skill = readFileSync(join(packageRoot, "skills", "itpay-buyer", "SKILL.md"), "utf8");
-  assert.match(skill, /next_actions/);
+  assert.match(skill, /Envelope Rule/);
+  assert.doesNotMatch(skill, /next_actions/);
   assert.match(skill, /15 minutes/);
 
   let stderr = "";

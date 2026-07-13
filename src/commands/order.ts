@@ -1,93 +1,70 @@
-// Read a single V3 order by id. Supports terminal text and agent markdown output.
-
 import type { BackendClient } from "../client/backend.js";
-import { formatMoney, renderOrder } from "../render/output.js";
-import { hintFor } from "../render/status.js";
-import { resolveOutput, type OutputSink } from "../render/sink.js";
-import { ensureIdeImageAttach, ideImageAttachBlock } from "../render/ide.js";
-import type { RenderPlan } from "../render/plan.js";
+import type { OrderDeliveryAccess, RefundRequest } from "../client/types.js";
+import { formatMoney } from "../render/output.js";
+import type { OutputSink } from "../render/sink.js";
+import { type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 
 export interface OrderOptions {
   output?: OutputSink;
   host?: string;
-  baseURL?: string;
+  jsonOutput?: boolean;
 }
 
 export async function runOrder(backend: BackendClient, orderID: string, options: OrderOptions = {}): Promise<void> {
-  const out = resolveOutput(options.output);
   const order = await backend.getOrder(orderID);
-
-  // Prepare an IDE image attach slot. Order responses usually do not
-  // carry a brand QR — the previous buy already produced one. We still
-  // call ensureIdeImageAttach so the disabled / failed / no-source
-  // states get surfaced consistently across commands.
-  const plan: RenderPlan = {
-    kind: "checkout_qr",
-    host: (options.host ?? "terminal") as RenderPlan["host"],
-    summary: "order presentation",
-    url: "",
-    preferredQRSources: [],
-    platform: {
-      text: "order presentation",
-      links: [],
-      buttons: [],
-      blocks: [],
-    },
-  };
-  await ensureIdeImageAttach(plan, {
-    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+  const [delivery, refundResponse] = await Promise.all([
+    order.status === "delivered" ? backend.getOrderDeliveryAccess(orderID) : Promise.resolve(undefined),
+    backend.listOrderRefunds(orderID),
+  ]);
+  const lockedRefund = refundResponse.refunds.find((refund) => refund.access_locked);
+  const envelope = orderEnvelope(order, delivery, lockedRefund);
+  writeCommandEnvelope(envelope, {
+    ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+    ...(options.output ? { output: options.output } : {}),
+    plainResult: orderPlainResult(envelope.result),
   });
-
-  if (options.host === "codex" || options.host === "claude-code" || options.host === "trae") {
-    out(renderOrderMarkdown(order, plan) + "\n");
-  } else {
-    out(renderOrder(order) + "\n");
-    if (plan.ideImageAttach) {
-      out(ideImageAttachBlock(plan.ideImageAttach).filter((l) => l.length > 0).join("\n") + "\n");
-    }
-    out(`hint: ${hintFor("order", order.status)}\n`);
-  }
 }
 
-function renderOrderMarkdown(order: Awaited<ReturnType<BackendClient["getOrder"]>>, plan: RenderPlan): string {
-  const lines: string[] = [];
-  lines.push(`## :package: 订单 ${order.order_id}`);
-  lines.push("");
-
-  const statusEmoji = order.status === "delivered" ? ":white_check_mark:" : order.status === "refunded" ? ":arrows_counterclockwise:" : ":hourglass:";
-  lines.push(`| 字段 | 值 |`);
-  lines.push(`|------|-----|`);
-  lines.push(`| 状态 | ${statusEmoji} ${order.status} |`);
-  lines.push(`| 金额 | ${formatMoney(order.amount_minor, order.currency)} |`);
-  lines.push(`| Checkout | \`${order.checkout_id}\``);
-  if (order.paid_at) lines.push(`| 支付时间 | ${order.paid_at} |`);
-  lines.push("");
-
-  if (order.items.length > 0) {
-    lines.push(`| 项目 | 数量 | 单价 |`);
-    lines.push(`|------|:----:|------|`);
-    for (const item of order.items) {
-      lines.push(`| ${item.title} | ${item.quantity} | ${formatMoney(item.amount_minor, item.currency)} |`);
+function orderEnvelope(
+  order: Awaited<ReturnType<BackendClient["getOrder"]>>,
+  delivery: OrderDeliveryAccess | undefined,
+  lockedRefund: RefundRequest | undefined,
+): CommandEnvelope {
+  const refundTerminal = lockedRefund && ["succeeded", "failed", "cancelled", "rejected"].includes(lockedRefund.status);
+  let instruction = "订单状态已读取；当前没有可用交付入口。";
+  let next: CommandAction | null = null;
+  if (lockedRefund) {
+    instruction = "退款访问锁已生效；不要 reveal、创建 grant 或读取交付结果。";
+    if (!refundTerminal) {
+      next = { command: `itpay refund get ${lockedRefund.refund_request_id} --json`, reason: "读取退款的服务器状态" };
     }
-    lines.push("");
+  } else if (delivery?.service_execution_id) {
+    instruction = "根据 delivery_mode 使用对应读取入口；不要从订单摘要猜测受保护内容。";
+    next = { command: `itpay services next ${delivery.service_execution_id} --json`, reason: "读取交付状态" };
+  } else if (!["delivered", "refunded", "failed", "cancelled"].includes(order.status)) {
+    instruction = "订单尚未进入交付终态；稍后查询同一订单，不要创建替代订单。";
+    next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单状态" };
   }
 
-  if (order.delivery_artifacts.length > 0) {
-    lines.push(`### :lock: 交付物`);
-    lines.push("");
-    for (const artifact of order.delivery_artifacts) {
-      const notification = artifact.notification_status ? ` — notification:${artifact.notification_status}` : "";
-      const vault = artifact.vault_artifact_id ? ` — vault:\`${artifact.vault_artifact_id}\`` : "";
-      lines.push(`- \`${artifact.delivery_artifact_id}\` — ${artifact.artifact_type} — ${artifact.status}${notification}${vault}`);
-      if (artifact.public_preview) lines.push(`  > ${artifact.public_preview}`);
-    }
-    lines.push("");
-  }
+  return {
+    status: order.status,
+    result: {
+      order_id: order.order_id,
+      ...(order.order_code ? { order_code: order.order_code } : {}),
+      amount: formatMoney(order.amount_minor, order.currency),
+      ...(delivery ? { delivery_mode: delivery.delivery_mode } : {}),
+      access_locked: Boolean(lockedRefund),
+      ...(delivery?.service_execution_id ? { service_execution_id: delivery.service_execution_id } : {}),
+      ...(lockedRefund ? { refund: { refund_request_id: lockedRefund.refund_request_id, status: lockedRefund.status } } : {}),
+    },
+    instruction,
+    next,
+    recovery: [],
+  };
+}
 
-  if (plan.ideImageAttach) {
-    lines.push(...ideImageAttachBlock(plan.ideImageAttach));
-  }
-
-  lines.push(`> :bulb: ${hintFor("order", order.status)}`);
-  return lines.join("\n");
+function orderPlainResult(result: Record<string, unknown>): string[] {
+  return Object.entries(result).map(([key, value]) =>
+    `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`,
+  );
 }

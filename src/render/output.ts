@@ -7,10 +7,6 @@ export function formatMoney(amountMinor: number, currency: string): string {
   return `${major} ${currency}`;
 }
 
-export function renderReady(payload: { status: string; version: string }): string {
-  return `backend ${payload.status} (version ${payload.version})`;
-}
-
 export function renderOrder(order: Order): string {
   const lines: string[] = [];
   lines.push(`order ${order.order_id}`);

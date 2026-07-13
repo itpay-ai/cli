@@ -14,7 +14,6 @@ import { OperationJournal } from "./operation_journal.js";
 export interface CLIConfig {
   baseURL: string;
   bearerToken?: string;
-  agentDeviceID: string;
   agentType?: string;
   checkoutCurrency: string;
   idempotencyKey: string;
@@ -30,8 +29,8 @@ export interface CLIConfig {
 }
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
-export const CLI_VERSION = "2.0.4";
-export const API_CONTRACT_REVISION = "sha256:ef8f907bb97b2568bab4db1ce0beede5f85b7ffa68fa1e85494ff5ddcaf3ea5b";
+export const CLI_VERSION = "2.0.5";
+export const API_CONTRACT_REVISION = "sha256:d3b967623267dc2945db9b668e738a256f09d2c4457a3d468258099ad6777d8e";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -48,7 +47,6 @@ export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const baseURL = env.ITPAY_BACKEND_URL || DEFAULT_BASE_URL;
   const bearerToken = env.ITPAY_BEARER_TOKEN || undefined;
-  const agentDeviceID = env.ITPAY_AGENT_DEVICE_ID || "";
   const agentType = env.ITPAY_AGENT_TYPE || agentTypeFromArgv(process.argv);
   const checkoutCurrency = env.ITPAY_CURRENCY || "CNY";
   const idempotencyKey = env.ITPAY_IDEMPOTENCY_KEY || `cli_${shortRandom()}`;
@@ -56,7 +54,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const ideImageDirOverride = env.ITPAY_IDE_IMAGE_DIR_OVERRIDE;
   return {
     baseURL,
-    agentDeviceID,
 	...(agentType ? { agentType } : {}),
     checkoutCurrency,
     idempotencyKey,

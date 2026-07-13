@@ -2,81 +2,37 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "install-and-setup",
-  "title": "Install and Configure ItPay V3 CLI for Agent Hosts",
-  "purpose": "Guide the agent or runtime owner through installing and configuring the itpay CLI for different agent hosts.",
+  "title": "Install And Identify The ItPay Agent Runtime",
+  "purpose": "Install the CLI and select one of the five supported Agent Types without confusing Agent Type with Host.",
   "when_to_use": [
-    "First-time setup of the itpay CLI.",
-    "The agent needs to be configured for a specific host (Codex, Claude Code, etc.).",
-    "The buyer wants to use itpay in a new environment."
+    "The CLI is being installed or upgraded.",
+    "The agent needs to confirm its stable runtime identity and default output Host."
   ],
   "commands": [
     {
-      "intent": "list all supported install targets",
-      "command": "itpay install",
-      "success_signal": "Table of targets (claude-code, codex, terminal, telegram, feishu) with config file paths."
+      "intent": "list supported Agent Types",
+      "command": "itpay install --json",
+      "success_signal": "status is install_targets and exactly five agent_type/default_host pairs are returned"
     },
     {
-      "intent": "show install instructions for a specific target",
-      "command": "itpay install claude-code",
-      "success_signal": "Step-by-step instructions for Claude Code setup."
-    },
-    {
-      "intent": "show install instructions for Codex / Trae",
-      "command": "itpay install codex",
-      "success_signal": "Step-by-step instructions for Codex/Trae setup."
+      "intent": "read setup for the real runtime",
+      "command": "itpay install <agent_type> --json",
+      "success_signal": "status is instructions_ready and next is a readyz command using that exact Agent Type"
     }
   ],
-  "env_vars": {
-    "ITPAY_BACKEND_URL": {
-      "required": false,
-      "description": "Optional V3 backend override. The CLI defaults to https://app.itpay.ai.",
-      "examples": ["http://localhost:18080", "https://test.itpay.ai"]
-    },
-    "ITPAY_BEARER_TOKEN": {
-      "required": false,
-      "description": "Bearer token for authenticated operations (orders list, vault, profile). Not needed for anonymous cart/checkout.",
-      "acquired_from": "Sign in via web at /signin, then copy the session token."
-    },
-    "ITPAY_CART_SESSION_PATH": {
-      "required": false,
-      "description": "Custom path for the cart session file. Default: ~/.itpay-v3/cart.json"
-    },
-    "ITPAY_AGENT_DEVICE_ID": {
-      "required": false,
-      "description": "Legacy compatibility input. V3 enrolls a signed device identity under ~/.itpay-v3/device; agents should not rotate or invent this value."
-    },
-    "ITPAY_AGENT_TYPE": {
-      "required": false,
-      "description": "Agent runtime type. Set this or pass --agent-type for commerce commands, for example codex-desktop or claude-code-cli."
-    },
-    "ITPAY_CURRENCY": {
-      "required": false,
-      "description": "Default currency for cart operations. Default: CNY"
-    }
-  },
-  "host_requirements": {
-    "terminal": "No special config needed. QR renders as ASCII in terminal or saved as PNG file.",
-    "codex": "Use --host codex or --host trae. Markdown output with images and links.",
-    "claude-code": "Use --host claude-code. Markdown format with image references.",
-    "telegram": "Use --host telegram --target <chat_id>. Output includes openclaw_message payloads.",
-    "feishu": "Use --host feishu --target <open_id>. Output is Feishu Interactive Card JSON.",
-    "lark": "Use --host lark --target <open_id>. Same as feishu format."
-  },
   "agent_rules": [
-    "Use the built-in https://app.itpay.ai production default; override ITPAY_BACKEND_URL only for another deliberate environment.",
-    "Install globally with npm install -g @itpay/cli for all hosts.",
-    "Identify the real runtime with --agent-type or ITPAY_AGENT_TYPE; do not invent a new type to obtain quota.",
-    "Run `itpay install` without arguments to see all supported targets.",
-    "Server cart facts persist in backend Postgres. ~/.itpay-v3/cart.json only caches last ids, checkout display token, and explicit local drafts."
+    "Install with npm install -g @itpay/cli.",
+    "Use the default https://app.itpay.ai API unless an environment override is deliberate.",
+    "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, or workbuddy.",
+    "Agent Type identifies the runtime and device instance. Host only controls human-facing rendering.",
+    "Do not change Agent Type to reset quota or recover a failed command."
   ],
-  "search_terms": [
-    "install",
-    "setup",
-    "configure",
-    "first time",
-    "setup",
-    "安装",
-    "配置",
-    "environment"
-  ]
+  "forbidden": [
+    "Do not use codex, terminal, claude-code, or plain-chat as Agent Types.",
+    "Do not claim that install writes host configuration or registers a device; it only prints instructions."
+  ],
+  "next_docs": [
+    { "condition": "Installation is verified", "topic": "quickstart" }
+  ],
+  "search_terms": ["install", "agent type", "host", "codex", "claude code", "workbuddy"]
 }

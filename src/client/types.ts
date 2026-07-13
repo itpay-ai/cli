@@ -46,15 +46,11 @@ export interface CartRequestItem {
 }
 
 export interface AddCartItemRequest extends CartRequestItem {
-  buyer_id?: string;
-  agent_device_id?: string;
   client_context?: Record<string, unknown>;
 }
 
 export interface CreateCartRequest {
   currency: string;
-  buyer_id?: string;
-  agent_device_id?: string;
   client_context?: Record<string, unknown>;
   items: CartRequestItem[];
 }
@@ -109,9 +105,7 @@ export interface PaymentIntent {
 
 export interface CreatePaymentIntentRequest {
   payment_method_type: "alipay" | "wechatpay";
-  preferred_provider?: string;
-  buyer_id?: string;
-  display_token?: string;
+  display_token: string;
   refresh_action?: boolean;
 }
 
@@ -122,6 +116,7 @@ export interface Order {
   status: string;
   amount_minor: number;
   currency: string;
+  created_at: string;
   paid_at?: string;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
@@ -147,6 +142,16 @@ export interface ListOrdersResponse {
   orders: Order[];
 }
 
+export interface OrderDeliveryAccess {
+  order_id: string;
+  service_execution_id?: string;
+  delivery_artifact_id?: string;
+  vault_artifact_id?: string;
+  status: string;
+  delivery_mode: "agent_visible_result" | "vault_artifact";
+  delivery_url?: string;
+}
+
 export interface RefundRequest {
   refund_request_id: string;
   order_id: string;
@@ -159,6 +164,7 @@ export interface RefundRequest {
 	failure_class?: "known_no_effect" | "retryable" | "outcome_unknown" | "permanent";
 	access_locked: boolean;
 	can_cancel: boolean;
+	created_at: string;
 }
 
 export interface ListRefundsResponse { refunds: RefundRequest[]; }
@@ -288,8 +294,6 @@ export interface ServiceExecution {
 
 export interface StartServiceExecutionRequest {
   service_id: string;
-  buyer_id?: string;
-  agent_device_id?: string;
   client_context?: Record<string, unknown>;
 }
 
@@ -394,6 +398,8 @@ export interface ServiceCheckoutBinding {
 
 export interface ServiceExecutionCheckoutCreated {
 	service_quote_lock_id: string;
+	capability_id: string;
+	locked_input: Record<string, unknown>;
 	cart: Cart;
   checkout: CheckoutCreated;
   binding: ServiceCheckoutBinding;

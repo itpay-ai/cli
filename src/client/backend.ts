@@ -18,6 +18,7 @@ import type {
 	ListRefundsResponse,
   ListServiceExecutionsResponse,
   Order,
+  OrderDeliveryAccess,
   PaymentIntent,
   PlatformCompatibility,
   RecordServiceExecutionActionRequest,
@@ -77,8 +78,8 @@ export class BackendClient {
 
   // --- Checkout ---
 
-  createCheckout(input: CreateCheckoutRequest): Promise<CheckoutCreated> {
-    return this.http.post<CheckoutCreated>("/v1/checkouts", input);
+  createCheckout(input: CreateCheckoutRequest, idempotencyKey?: string): Promise<CheckoutCreated> {
+    return this.http.post<CheckoutCreated>("/v1/checkouts", input, idempotencyKey ? { idempotencyKey } : undefined);
   }
 
   getCheckoutPresentation(checkoutID: string, displayToken: string): Promise<CheckoutPresentation> {
@@ -91,13 +92,10 @@ export class BackendClient {
   createPaymentIntent(
     checkoutID: string,
     input: CreatePaymentIntentRequest,
-    idempotencyKey?: string,
   ): Promise<PaymentIntent> {
-    const options = idempotencyKey ? { idempotencyKey } : {};
     return this.http.post<PaymentIntent>(
       `/v1/checkouts/${encodeURIComponent(checkoutID)}/payment-intents`,
       input,
-      options,
     );
   }
 
@@ -118,6 +116,10 @@ export class BackendClient {
 
   getOrder(orderID: string): Promise<Order> {
     return this.http.get<Order>(`/v1/orders/${encodeURIComponent(orderID)}`);
+  }
+
+  getOrderDeliveryAccess(orderID: string): Promise<OrderDeliveryAccess> {
+    return this.http.get<OrderDeliveryAccess>(`/v1/orders/${encodeURIComponent(orderID)}/delivery-access`);
   }
 
   listAccountOrders(limit: number, status?: string, bearer?: string): Promise<ListOrdersResponse> {
@@ -201,8 +203,14 @@ export class BackendClient {
     return this.http.get<ListServiceExecutionsResponse>(`/v1/service-executions?limit=${limit}`);
   }
 
-  listServiceExecutionEvents(serviceExecutionID: string): Promise<ServiceExecutionEvents> {
-    return this.http.get<ServiceExecutionEvents>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/events`);
+  listServiceExecutionEvents(serviceExecutionID: string, afterSequence = 0, limit = 50): Promise<ServiceExecutionEvents> {
+    const query = new URLSearchParams({
+      after_sequence: String(afterSequence),
+      limit: String(limit),
+    });
+    return this.http.get<ServiceExecutionEvents>(
+      `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/events?${query}`,
+    );
   }
 
   getGrantedServiceResult(serviceExecutionID: string): Promise<GrantedServiceResult> {
