@@ -2,9 +2,9 @@
 
 ## 范围与意义
 
-为普通 Catalog 项目的 canonical Cart 创建一个 ItPay Checkout，并按当前 Agent Type 把付款入口交给用户。命令只创建或恢复 ItPay Checkout，不把“用户说已付款”当作付款成功。
+为普通 Catalog 项目或已绑定 Service Quote 的 canonical Cart 创建一个 ItPay Checkout，并按当前 Agent Type 把付款入口交给用户。命令只创建或恢复 ItPay Checkout，不把“用户说已付款”当作付款成功。
 
-Service-backed Cart 不由本命令购买。检测到 `service_execution_id` 时，命令停止并转向 `services next`，由 Service Contract 决定 capability、输入、价格和交付要求。
+未报价的 service-backed line 不可购买；命令停止并转向 `services next`。已通过 `cart add --quote` 锁定输入和价格的服务行可以合并结算，每个 Order Item 仍映射回独立 Execution、Capability 和交付路径。
 
 **直接上游：**
 
@@ -51,13 +51,13 @@ itpay buy \
 
 | 参数 | 必填 | 规则 |
 |---|---:|---|
-| `--cart` | 条件必填 | 使用一个已存在的普通 canonical Cart。不能和 inline 三元组同时使用。 |
+| `--cart` | 条件必填 | 使用一个已存在的普通或全量已报价 canonical Cart。不能和 inline 三元组同时使用。 |
 | `--item` | 条件必填 | Inline 购买时必须与 `--variant`、`--offer` 一起提供。只能使用 Catalog 返回值。 |
 | `--variant` | 条件必填 | 同上。 |
 | `--offer` | 条件必填 | 同上。 |
 | `--quantity` | 否 | 正整数，默认 `1`；只用于 inline 项目。 |
 | `--ref` | 否 | 调用方自己的业务引用；不承担幂等职责。 |
-| `--contact-email` | 条件必填 | `--require-contact` 包含 `email` 时必填，值必须来自用户。 |
+| `--contact-email` | 条件必填 | 普通 Cart 或兼容旧 Quote 缺少所需邮箱时使用，值必须来自用户；新版 Service Quote 会自动携带已确认邮箱。 |
 | `--contact-phone` | 条件必填 | `--require-contact` 包含 `phone` 时必填，值必须来自用户。 |
 | `--require-contact` | 否 | 只接受 `email`、`phone`；缺失时先询问用户，禁止 Agent 编造。 |
 | `--host` | 否 | 默认由 `--agent-type` 推导；只改变 handoff 展示，不改变交易事实。 |
@@ -134,6 +134,7 @@ itpay buy \
 - HTTP 请求通过 `Idempotency-Key` 提交该键。
 - Checkout 响应丢失时，重跑同一命令会复用已保存的 canonical Cart 和同一幂等键。
 - 后端返回同一个待处理 Checkout，并轮换新的交接 token；不会创建第二笔订单。
+- Service Quote Cart 的联系信息由 Quote Lock 汇总；正常流程无需在 `buy` 重复传邮箱，旧 Quote 可显式补充。
 - Checkout 成功保存后，active Cart 句柄被清除，只保留 Checkout（以及可选 Service Execution）恢复句柄。
 - 不确定命令执行到哪一步时，先运行 `itpay next --json`，不得重新拼一笔购买。
 
@@ -147,11 +148,11 @@ itpay buy \
 | `contact_field_invalid` | `--require-contact` 包含不支持字段。 | 只使用 `email`、`phone`。 |
 | `payment_method_invalid` | 付款方式不是允许值。 | 使用 `alipay` 或 `wechatpay`。 |
 | `buy_parameter_invalid` | quantity/timeout 非正整数，或 `--no-wait` 未配 `--pay`。 | 修正参数；本次不创建资源。 |
-| `service_checkout_required` | Cart 包含 Service Execution。 | 原样执行返回的 `services next <id> --json`。 |
+| `service_quote_required` | Cart 含尚未绑定 Quote 的 Service Execution。 | 原样执行返回的 `services next <id> --json`；不要绕过 Quote 输入校验。 |
 | `idempotency_conflict` | 同一幂等操作被用于不同请求。 | 保留句柄并执行 `itpay next --json`，不要换键重建。 |
 | `buy_failed` | 网络或未知后端错误。 | 先执行 `itpay next --json` 或 `cart next --json` 恢复现有资源。 |
 
-所有参数错误都必须在 HTTP 和本地 Cart 变更前被拒绝。Service-backed Cart 可以已存在于后端，但本命令不得为它创建普通 Checkout。
+所有参数错误都必须在 HTTP 和本地 Cart 变更前被拒绝。服务 Cart 只有每条 service-backed line 都绑定有效 Quote 时才能创建 Checkout；付款后 Backend 按 Order Item 分别推进 Execution。
 
 ## Agent Type / Host
 

@@ -55,10 +55,10 @@
   - [`itpay services start`](commands/services/start.md)
   - [`itpay services invoke`](commands/services/invoke.md)
   - [`itpay services action`](commands/services/action.md)
+  - [`itpay services quote`](commands/services/quote.md)
   - [`itpay services checkout`](commands/services/checkout.md)
   - [`itpay services list`](commands/services/list.md)
   - [`itpay services get`](commands/services/get.md)
   - [`itpay services next`](commands/services/next.md)
   - [`itpay services read-result`](commands/services/read-result.md)
   - [`itpay services events`](commands/services/events.md)
-

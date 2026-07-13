@@ -38,7 +38,7 @@ itpay cart next [--json]
 }
 ```
 
-若有多条 line，选择服务端 Cart 中最后一条带 `service_execution_id` 的 line；不读取 capability 列表，也不跳过 `services next` 直接猜 invoke 或 checkout。
+若存在尚未报价的 service-backed line，选择最后一条并返回 `services next`；不跳过 Execution 直接猜 capability。若所有服务行都已绑定 Quote，则返回 Cart 的 item count、总额和 `buy --cart`，允许一次 Checkout 支付多个独立任务。
 
 普通非 service-backed Cart 返回 `item_count`、金额和币种，下一步为：
 

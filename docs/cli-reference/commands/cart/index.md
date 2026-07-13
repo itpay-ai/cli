@@ -2,10 +2,10 @@
 
 ## 命令范围
 
-管理 canonical server cart。服务型商品加入购物车时可能同时创建 Service Execution；此后 execution 是能力调用和付费履约的主句柄。
+管理 canonical server Cart。Catalog line 可以创建 Service Execution；已准备好的 Service Quote 则通过 `cart add --quote` 加入 Cart。Cart 聚合交易，但不合并 Execution、候选归属或交付。
 
 **上游：** Catalog item、variant、offer 和服务输入。
-**下游：** Service Execution 或 `buy`。
+**下游：** Service Execution、Quote 聚合或 `buy`。
 
 ## 子命令
 

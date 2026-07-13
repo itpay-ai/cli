@@ -5,9 +5,11 @@
 读取一笔 Service Execution 的当前状态，并只返回一个首选下一步。若交付模式允许 Agent 直接读取，本命令同时返回完整 safe result。
 
 **上游：** `services start`、`invoke`、`action`、`checkout`，或一次中断恢复。  
-**下游：** 一个可执行命令、需要用户完成的授权，或流程结束。
+**下游：** 一个可执行命令、需要用户完成的候选选择或授权，或 Graph 真正到达终态。
 
 本命令不返回原始 Backend DTO、capability 列表、内部 result ID/hash、graph、binding 或重复 guidance。
+
+Backend 会根据当前 capability 选择 `current_delivery`；完整 `delivery_bindings` 仅是历史记录。CLI 不按数组位置猜测当前交付，同一 Execution 后续产生的新交付会取代旧交付成为默认结果。
 
 ## 语法与参数
 
@@ -22,6 +24,30 @@ itpay services next <service_execution_id> [--json]
 
 需要有效 Agent Device session。命令不接受 Buyer token、capability 或服务输入。
 
+## 候选选择
+
+免费或付费候选已经产生、Graph 允许继续选择时，恢复输出必须包含当前 Result Set 的安全候选：
+
+```json
+{
+  "status": "candidate_selection_available",
+  "result": {
+    "service_execution_id": "<id>",
+    "items": [
+      { "rank": 1, "title": "<title>", "safe_payload": { "<public_field>": "<value>" } }
+    ]
+  },
+  "instruction": "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+  "next": {
+    "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
+    "reason": "仅在用户明确选择后锁定来源候选"
+  },
+  "recovery": []
+}
+```
+
+该列表来自 Backend 的 `current_result_items`，CLI 不缓存或合并其他 Execution 的候选。
+
 ## Agent-visible 结果
 
 ```json
@@ -29,6 +55,7 @@ itpay services next <service_execution_id> [--json]
   "status": "result_ready",
   "result": {
     "service_execution_id": "<id>",
+    "capability_id": "<capability_id>",
     "delivery_mode": "agent_visible_result",
     "items": [
       {
@@ -38,13 +65,16 @@ itpay services next <service_execution_id> [--json]
       }
     ]
   },
-  "instruction": "结果已可供 Agent 使用；只使用 safe_payload，不调用 read-result。",
-  "next": null,
+  "instruction": "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；如用户选择，必须在当前 Execution 提交对应 rank。",
+  "next": {
+    "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
+    "reason": "仅在用户明确选择后锁定来源候选"
+  },
   "recovery": []
 }
 ```
 
-文本输出依次显示 `status`、execution、`delivery_mode`、候选及 instruction。它不会建议 `read-result`。
+只有 Graph 允许继续选择时才返回上述 `next`。若结果本身就是最终交付，则 instruction 为“只使用 safe_payload，不调用 read-result”，且 `next: null`。文本输出依次显示 `status`、Execution、`delivery_mode`、候选及 instruction，不暴露 Result Item ID、Invocation ID 或 Hash。
 
 ## Vault 交付
 
@@ -55,10 +85,11 @@ itpay services next <service_execution_id> [--json]
   "status": "human_authorization_required",
   "result": {
     "service_execution_id": "<id>",
+    "capability_id": "<capability_id>",
     "delivery_mode": "vault_artifact",
     "grant_status": "none"
   },
-  "instruction": "请用户在订单页面授权；未授权前不要读取、猜测或声称已看到内容。",
+  "instruction": "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
   "next": {
     "command": "itpay services read-result <id> --json",
     "reason": "仅在用户确认授权后执行"
@@ -74,11 +105,12 @@ itpay services next <service_execution_id> [--json]
   "status": "grant_active",
   "result": {
     "service_execution_id": "<id>",
+    "capability_id": "<capability_id>",
     "delivery_mode": "vault_artifact",
     "grant_status": "active",
     "grant_expires_at": "<RFC3339 time>"
   },
-  "instruction": "用户授权当前有效；立即读取一次受保护结果，并遵守返回的字段范围与到期时间。",
+  "instruction": "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。",
   "next": {
     "command": "itpay services read-result <id> --json",
     "reason": "读取当前有效 grant 的结果"
@@ -87,7 +119,7 @@ itpay services next <service_execution_id> [--json]
 }
 ```
 
-其他执行阶段只返回 execution、service、phase、`next_action` 和一个服务端状态导出的命令。完成或空结果后不得建议重放已失效的 invoke。
+其他执行阶段只返回 Execution、service、phase、类型化 `allowed_actions` 和一个服务端状态导出的命令。CLI 只把 Backend 的动作类型渲染成命令，不执行 Publication 中的任意 shell 文本。完成或空结果后不得建议重放已失效的 invoke。
 
 ## 退款访问锁
 

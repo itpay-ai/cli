@@ -15,7 +15,7 @@ itpay services list [--limit <number>] [--json]
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `--limit <number>` | 否 | 返回数量，默认 50；必须是 1 到 100 的整数。 |
+| `--limit <number>` | 否 | 返回数量，默认 10；必须是 1 到 100 的整数。只有最近结果找不到目标时才扩大。 |
 | `--json` | 否 | 输出单个标准 JSON envelope；默认输出每条一行的简洁文本。 |
 
 命令使用签名 Agent Device session。Backend 按 `updated_at DESC` 返回当前设备或已绑定 Buyer account 可见的执行；CLI 保留该顺序，不在本地推断归属。
@@ -30,7 +30,7 @@ itpay services list [--limit <number>] [--json]
       { "service_execution_id": "<id>", "service_id": "<service_id>", "status": "<status>", "phase": "<phase>", "updated_at": "<time>" }
     ]
   },
-  "instruction": "结果按最新到最旧排列；按服务、时间和状态选择目标 execution，再读取其下一步。",
+  "instruction": "结果按最新到最旧排列，默认只列最近 10 条；找不到目标时再扩大 limit。",
   "next": { "command": "itpay services next <latest_service_execution_id> --json", "reason": "默认恢复最新执行" },
   "recovery": []
 }
@@ -49,7 +49,7 @@ itpay services list [--limit <number>] [--json]
   "instruction": "使用 1 到 100 的整数 limit；本次未读取服务端列表。",
   "next": null,
   "recovery": [
-    { "command": "itpay services list --limit 50 --json", "reason": "使用默认上限重试" }
+    { "command": "itpay services list --limit 10 --json", "reason": "使用默认上限重试" }
   ]
 }
 ```

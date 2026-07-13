@@ -102,22 +102,21 @@ export async function runBuy(
   }
 
   const latestLine = cart.items[cart.items.length - 1];
-  options.cartSession.rememberServerCart({
+	options.cartSession.rememberServerCart({
     cartID: cart.cart_id,
     ...(latestLine?.cart_item_id ? { cartItemID: latestLine.cart_item_id } : {}),
     ...(latestLine?.service_execution_id ? { serviceExecutionID: latestLine.service_execution_id } : {}),
-  });
-  const serviceLine = cart.items.find((item) => item.service_execution_id);
-  if (serviceLine?.service_execution_id) {
-    throw new CommandContractError(
-      "service_checkout_required",
-      `cart ${cart.cart_id} contains a service-backed line`,
-      "该 Cart 由 Service Execution 管理；不要使用普通 buy 创建 Checkout。",
-      [{ command: `itpay services next ${serviceLine.service_execution_id} --json`, reason: "读取服务端允许的下一步" }],
-    );
-  }
-
-  const idempotencyKey = await operationID(config, `checkout.create:${cart.cart_id}`);
+	});
+	const unquotedServiceLine = cart.items.find((item) => item.service_execution_id && !item.service_quote_lock_id);
+	if (unquotedServiceLine?.service_execution_id) {
+		throw new CommandContractError(
+			"service_quote_required",
+			`cart ${cart.cart_id} contains an unquoted service-backed line`,
+			"该服务项目尚未绑定 Quote Lock；回到来源 Execution 完成候选选择和报价。",
+			[{ command: `itpay services next ${unquotedServiceLine.service_execution_id} --json`, reason: "读取当前合法动作" }],
+		);
+	}
+	const idempotencyKey = await operationID(config, `checkout.create:${cart.cart_id}`);
   const checkoutRequest = {
     cart_id: cart.cart_id,
     client_reference_id: options.clientReferenceID ?? idempotencyKey,

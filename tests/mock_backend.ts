@@ -46,6 +46,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   let serviceHandoffCounter = 1;
   const agentInstances = new Map<string, string>();
   const serviceCheckouts = new Map<string, { checkoutID: string; cartID: string; capabilityID: string; lockedInput: Record<string, unknown> }>();
+	const serviceQuotes = new Map<string, { serviceExecutionID: string; capabilityID: string; amountMinor: number }>();
 
   const carts: Record<string, Record<string, unknown>> = {};
   const serviceExecutions: Record<string, Record<string, unknown>> = {};
@@ -222,9 +223,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     if (method === "POST" && path === "/v1/carts") {
       const payload = (requests.at(-1)?.body ?? {}) as { currency?: string; items?: unknown[] };
       const cartID = `cart_${cartCounter++}`;
-      const amountMinor = (payload.items?.length ?? 1) * 100;
-      const firstItem = (payload.items?.[0] ?? {}) as { catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
-      const serviceExecutionID = firstItem.catalog_item_id === "cat_service" ? "se_mock_1" : undefined;
+			const firstItem = (payload.items?.[0] ?? {}) as { service_quote_lock_id?: string; catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
+			const quote = firstItem.service_quote_lock_id ? serviceQuotes.get(firstItem.service_quote_lock_id) : undefined;
+			const amountMinor = quote?.amountMinor ?? (payload.items?.length ?? 1) * 100;
+			const serviceExecutionID = quote?.serviceExecutionID ?? (firstItem.catalog_item_id === "cat_service" ? "se_mock_1" : undefined);
       if (serviceExecutionID) {
         serviceExecutions[serviceExecutionID] = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
       }
@@ -243,9 +245,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             ...(firstItem.catalog_item_id ? { catalog_item_id: firstItem.catalog_item_id } : {}),
             ...(firstItem.catalog_variant_id ? { catalog_variant_id: firstItem.catalog_variant_id } : {}),
             ...(firstItem.offer_id ? { offer_id: firstItem.offer_id } : {}),
-            ...(serviceExecutionID ? {
-              service_execution_id: serviceExecutionID,
-              service_capability_id: "precise_lookup",
+					...(serviceExecutionID ? {
+						service_execution_id: serviceExecutionID,
+						...(firstItem.service_quote_lock_id ? { service_quote_lock_id: firstItem.service_quote_lock_id } : {}),
+						service_capability_id: quote?.capabilityID ?? "precise_lookup",
               next_action: "invoke_capability",
               checkout_required: false,
             } : {}),
@@ -260,7 +263,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const cartItemAddMatch = path.match(/^\/v1\/carts\/([^/]+)\/items$/);
     if (method === "POST" && cartItemAddMatch) {
       const cartID = cartItemAddMatch[1]!;
-      const payload = (requests.at(-1)?.body ?? {}) as { catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
+			const payload = (requests.at(-1)?.body ?? {}) as { service_quote_lock_id?: string; catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
       const cart = carts[cartID] ?? {
         cart_id: cartID,
         status: "active",
@@ -268,7 +271,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         currency: "CNY",
         items: [],
       };
-      const serviceExecutionID = payload.catalog_item_id === "cat_service" ? "se_mock_1" : undefined;
+			const quote = payload.service_quote_lock_id ? serviceQuotes.get(payload.service_quote_lock_id) : undefined;
+			const serviceExecutionID = quote?.serviceExecutionID ?? (payload.catalog_item_id === "cat_service" ? "se_mock_1" : undefined);
       if (serviceExecutionID) {
         serviceExecutions[serviceExecutionID] = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
       }
@@ -276,18 +280,20 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         cart_item_id: `ci_${(cart.items as unknown[]).length + 1}`,
         title: serviceExecutionID ? "企知道企业查询" : "Mock Item",
         quantity: 1,
-        amount_minor: 100,
+		amount_minor: quote?.amountMinor ?? 100,
         currency: "CNY",
         catalog_item_id: payload.catalog_item_id,
         catalog_variant_id: payload.catalog_variant_id,
         offer_id: payload.offer_id,
-        ...(serviceExecutionID ? {
-          service_execution_id: serviceExecutionID,
-          service_capability_id: "precise_lookup",
+				...(serviceExecutionID ? {
+					service_execution_id: serviceExecutionID,
+					...(payload.service_quote_lock_id ? { service_quote_lock_id: payload.service_quote_lock_id } : {}),
+					service_capability_id: quote?.capabilityID ?? "precise_lookup",
           next_action: "invoke_capability",
           checkout_required: false,
         } : {}),
-      });
+			});
+			cart.amount_minor = (cart.items as Array<{ amount_minor: number }>).reduce((sum, item) => sum + item.amount_minor, 0);
       carts[cartID] = cart;
       respond(res, 200, cart);
       return;
@@ -448,10 +454,25 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     }
 
     const serviceActionMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/actions$/);
-    if (method === "POST" && serviceActionMatch) {
-      const serviceExecutionID = serviceActionMatch[1]!;
-      const payload = (requests.at(-1)?.body ?? {}) as { action_type?: string; actor_type?: string; status?: string; result_item_id?: string; selected_candidate_hash?: string };
-      serviceExecutions[serviceExecutionID] = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
+		if (method === "POST" && serviceActionMatch) {
+			const serviceExecutionID = serviceActionMatch[1]!;
+			const payload = (requests.at(-1)?.body ?? {}) as { action_type?: string; actor_type?: string; status?: string; result_item_id?: string };
+			const selected = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
+			selected.execution = {
+				...(selected.execution as Record<string, unknown>),
+				status: "human_action_approved",
+				phase: "pre_purchase",
+				current_capability_id: "fuzzy_disambiguation",
+				checkout_required: false,
+				next_action: "create_checkout",
+			};
+			selected.allowed_actions = [{
+				type: "prepare_quote",
+				capability_id: "precise_report",
+				source_capability_id: "fuzzy_disambiguation",
+				requires_human: false,
+			}];
+			serviceExecutions[serviceExecutionID] = selected;
       respond(res, 201, {
         service_execution_action_id: "sea_1",
         service_execution_id: serviceExecutionID,
@@ -459,22 +480,41 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         status: payload.status ?? "pending",
         actor_type: payload.actor_type ?? "agent",
         result_item_id: payload.result_item_id,
-        selected_candidate_hash: payload.selected_candidate_hash,
       });
       return;
     }
 
+		const serviceQuoteMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/quotes$/);
+		if (method === "POST" && serviceQuoteMatch) {
+			const serviceExecutionID = serviceQuoteMatch[1]!;
+			const payload = (requests.at(-1)?.body ?? {}) as { capability_id?: string };
+			const capabilityID = payload.capability_id ?? "precise_report";
+			const quoteID = `sqlock_${serviceExecutionID}_${capabilityID}`;
+			const amountMinor = capabilityID.includes("fuzzy") ? 10 : 50;
+			serviceQuotes.set(quoteID, { serviceExecutionID, capabilityID, amountMinor });
+			respond(res, 201, {
+				service_quote_lock_id: quoteID,
+				service_execution_id: serviceExecutionID,
+				capability_id: capabilityID,
+				amount_minor: amountMinor,
+				currency: "CNY",
+				expires_at: "2026-07-13T12:15:00Z",
+			});
+			return;
+		}
+
     if (method === "POST" && path === "/v1/checkouts") {
       const checkoutID = `chk_${checkoutCounter++}`;
       const payload = (requests.at(-1)?.body ?? {}) as { cart_id?: string; client_reference_id?: string };
-      const checkoutURL = `https://sandbox.itpay.ai/checkout/${checkoutID}`;
+			const cart = payload.cart_id ? carts[payload.cart_id] : undefined;
+			const checkoutURL = `https://sandbox.itpay.ai/checkout/${checkoutID}`;
       const displayToken = `cdt_${checkoutID}_secret`;
       respond(res, 201, {
         checkout: {
           checkout_id: checkoutID,
           status: "quote_bound",
           next_action: "open_checkout",
-          amount_minor: 100,
+					amount_minor: Number(cart?.amount_minor ?? 100),
           currency: "CNY",
         },
         checkout_url: checkoutURL,
@@ -803,7 +843,7 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
       service_contract_version_id: "sdcv_mock",
       compiled_service_graph_id: "csg_mock",
       agent_device_id: "agent_smoke",
-      status: agentVisible ? "completed" : vaultDelivery ? (grantActive ? "grant_available" : "delivery_issued") : checkoutRequired ? "quote_locked" : "running",
+		status: agentVisible ? "completed" : vaultDelivery ? (grantActive ? "grant_available" : "delivery_issued") : checkoutRequired ? "quote_locked" : nextAction === "select_candidate" ? "human_action_required" : "running",
       phase: agentVisible ? "completed" : vaultDelivery ? "delivery" : checkoutRequired ? "quote" : "pre_purchase",
       current_capability_id: agentVisible ? "public_result" : checkoutRequired ? "precise_lookup" : "fuzzy_disambiguation",
       checkout_required: checkoutRequired,
@@ -884,7 +924,6 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
           service_capability_result_item_id: "scri_visible_1",
           service_execution_id: serviceExecutionID,
           capability_id: "public_result",
-          stable_hash: "internal_hash_must_not_leak",
           rank: 1,
           display_title: "Example result",
           safe_payload: { name: "Example result", status: "active" },
@@ -895,13 +934,40 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
           service_capability_result_item_id: "scri_1",
           service_execution_id: serviceExecutionID,
           capability_id: "fuzzy_disambiguation",
-          stable_hash: "hash_candidate_1",
           rank: 1,
           display_title: "小米汽车科技有限公司",
           safe_payload: { company_name: "小米汽车科技有限公司" },
           created_at: "2026-07-05T12:00:00Z",
         }]
-      : [],
+		: [],
+	current_result_items: agentVisible
+		? [{
+				service_capability_result_item_id: "scri_visible_1",
+				service_execution_id: serviceExecutionID,
+				capability_id: "public_result",
+				rank: 1,
+				display_title: "Example result",
+				safe_payload: { name: "Example result", status: "active" },
+				created_at: "2026-07-13T12:00:00Z",
+			}]
+		: nextAction === "select_candidate"
+			? [{
+					service_capability_result_item_id: "scri_1",
+					service_execution_id: serviceExecutionID,
+					capability_id: "fuzzy_disambiguation",
+					rank: 1,
+					display_title: "小米汽车科技有限公司",
+					safe_payload: { company_name: "小米汽车科技有限公司" },
+					created_at: "2026-07-05T12:00:00Z",
+				}]
+			: [],
+	allowed_actions: vaultDelivery || agentVisible
+		? []
+		: nextAction === "select_candidate"
+			? [{ type: "select_candidate", source_capability_id: "fuzzy_disambiguation", requires_human: true }]
+			: checkoutRequired
+				? [{ type: "prepare_quote", capability_id: "precise_lookup", source_capability_id: "fuzzy_disambiguation", requires_human: false }]
+				: [{ type: "invoke_capability", capability_id: "fuzzy_disambiguation", requires_human: false }],
     actions: [],
     checkout_bindings: [],
     payment_bindings: [],
@@ -928,6 +994,23 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
             redacted_summary: { delivery_mode: "vault_artifact" },
           }]
         : [],
+	current_delivery: agentVisible
+		? {
+				service_delivery_binding_id: "sdb_visible", service_execution_id: serviceExecutionID,
+				capability_id: "public_result", order_id: "ord_visible", status: "completed",
+				redacted_summary: { delivery_mode: "agent_visible_result" },
+			}
+		: vaultDelivery
+			? {
+					service_delivery_binding_id: "sdb_vault", service_execution_id: serviceExecutionID,
+					capability_id: "precise_report", order_id: "ord_vault", vault_artifact_id: `vault_${serviceExecutionID}`,
+					...(grantActive ? { agent_read_grant_id: `grant_${serviceExecutionID}` } : {}),
+					status: grantActive ? "grant_available" : "delivery_issued",
+					grant_status: grantActive ? "active" : "missing",
+					...(grantActive ? { grant_expires_at: "2026-07-13T12:15:00Z" } : {}),
+					redacted_summary: { delivery_mode: "vault_artifact" },
+				}
+			: undefined,
     graph_projection: [],
     refunds: refundLocked ? [{
       refund_request_id: "rr_locked",

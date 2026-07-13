@@ -2,19 +2,22 @@
 
 ## 范围与意义
 
-把一个已发布 Catalog offer 加入 canonical server cart。服务型 line 可能返回 `service_execution_id`，Agent 应转入 `services next`，而不是直接 `buy`。
+把一个已发布 Catalog offer 或一个已准备的 Service Quote 加入 canonical server Cart。Catalog 服务行先进入 `services next`；Quote 行已经锁定输入和价格，可以与其他独立 Execution 的 Quote 一起结算。
 
-**上游：** `catalog list` 返回的 item、variant、offer。
-**下游：** `services next <id>` 或 `cart next`。
+**上游：** `catalog list` 返回的 item/variant/offer，或 `services quote` 返回的 Quote ID。
+**下游：** `services next <id>`、继续 `cart add --quote`，或 `buy --cart`。
 
 ## 语法与参数
 
 ```bash
 itpay cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>
   [--quantity <n>] [--input <json>] [--host <host>] [--target <target>] [--json] [--local]
+
+itpay cart add --quote <service_quote_lock_id>
+  [--host <host>] [--target <target>] [--json]
 ```
 
-`--item`、`--variant`、`--offer` 必填且必须来自同一条 Catalog 记录；`--quantity` 默认 `1`，只接受正整数。`--input` 必须是 JSON object，最终业务字段仍由服务端合同校验。`--local` 不调用服务端。
+Catalog 模式下 `--item`、`--variant`、`--offer` 必须成组且来自同一记录；`--quantity` 为正整数，`--input` 必须是 JSON object。Quote 模式只接受 `--quote`，不能混用 Catalog 字段、input 或 `--local`。Backend 校验 Quote 有效、未过期、未消费且属于当前设备/账号。
 
 未显式传 `--host` 时，CLI 根据 `--agent-type` 选择 Host；需要消息目标的 Host 还必须传 `--target`。所有参数在本地草稿写入或 HTTP 请求前完成基础校验。
 
@@ -62,9 +65,21 @@ itpay cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <
 }
 ```
 
+Quote 模式返回：
+
+```json
+{
+  "status": "quote_added",
+  "result": { "cart_id": "<cart_id>", "item_count": 3, "total": "<amount> <currency>" },
+  "instruction": "付费服务报价已加入同一 Cart；每个项目仍保持独立 Execution 和交付。",
+  "next": { "command": "itpay buy --cart <cart_id> --json", "reason": "确认项目齐全后创建一次合并付款" },
+  "recovery": [{ "command": "itpay cart show --json", "reason": "检查当前合并 Cart" }]
+}
+```
+
 ## 异常处理
 
-缺少 ID、非法 quantity、非 object JSON 和缺少 Host target 必须在任何写入/HTTP 前失败。目录 ID 不匹配、服务合同输入不合法或 cart 已锁定由服务端事务拒绝，不得留下半成品 line。错误使用统一 envelope，recovery 指向 `catalog list` 或当前可执行的 `cart show`。
+缺少 ID、两种模式混用、非法 quantity、非 object JSON 和缺少 Host target 必须在任何写入/HTTP 前失败。目录不匹配、Quote 过期/跨身份/已消费或 Cart 已锁定由服务端事务拒绝，不得留下半成品 line。错误使用统一 envelope，recovery 指向 `services next`、`catalog list` 或当前 `cart show`。
 
 ## Agent Type / Host
 

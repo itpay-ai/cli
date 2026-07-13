@@ -20,6 +20,8 @@ itpay services read-result <service_execution_id> [--json]
 
 CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer token、`agent_device_id` 参数或开发者凭证。
 
+CLI 直接请求 Backend 的当前有效 Grant。历史 `delivery_bindings` 不作为访问判断；Backend 负责验证当前 Vault、Agent instance、Buyer、scope、TTL 和退款锁。
+
 ## 标准输出
 
 ```json
@@ -31,7 +33,7 @@ CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer to
     "granted_fields": ["<field>"],
     "payload": { "<granted_field>": "<value>" }
   },
-  "instruction": "只使用本次授权字段；授权过期后停止读取并重新请求用户同意。",
+  "instruction": "结果来自当前有效 Vault Grant；只使用本次授权字段，过期后停止读取并重新请求用户同意。",
   "next": null,
   "recovery": []
 }
@@ -41,27 +43,15 @@ CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer to
 
 ## 异常处理
 
-Agent-visible delivery 在请求 Vault endpoint 前被拒绝：
+没有当前有效 Vault Grant（包括只有 Agent-visible 历史交付、未授权、过期、撤销或 wrong-scope）时，Backend 返回 `agent_access_denied`。CLI 指向：
 
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "wrong_delivery_mode",
-    "message": "service execution <id> has an agent-visible result"
-  },
-  "instruction": "该交付不需要 Vault grant；直接读取 safe result，不要调用 read-result。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "itpay services next <id> --json",
-      "reason": "读取 Agent-visible safe result"
-    }
-  ]
-}
+```text
+itpay services next <id> --json
 ```
 
-退款访问锁会在请求结果 endpoint 前优先拒绝，并指向同一退款：
+不要从历史 Delivery Binding 推断当前模式，也不要使用数据库、Admin API 或新 Device ID 绕过授权。
+
+退款访问锁由 Backend 在读取 Vault payload 的同一事务中拒绝：
 
 ```json
 {
@@ -81,7 +71,7 @@ Agent-visible delivery 在请求 Vault endpoint 前被拒绝：
 }
 ```
 
-无 grant、过期、撤销或 wrong-scope 保留 Backend 的 `agent_access_denied`，并返回：
+其他 `agent_access_denied` 返回：
 
 ```json
 {

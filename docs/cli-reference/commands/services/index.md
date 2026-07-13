@@ -9,10 +9,12 @@
 
 ## 核心不变量
 
-- 一个 execution 表示一次明确服务意图；是否可复用由服务端 graph 决定，CLI 不自行假设。
+- 一个 Execution 表示一个独立服务意图；多个意图分别执行、分别交付，但各自的 Quote 可以进入同一 Cart。
 - 任何 capability 输入都必须在状态写入、锁价、订单创建和 Provider 调用前通过 schema 校验。
 - `invoke` 只运行当前阶段允许且不需付款的 Agent-visible capability。
-- 付费 capability 使用 `services checkout`，输入锁入 quote。
+- 依赖候选的付费 capability 必须继续来源 Execution；`action --candidate` 不能跨 Execution 搬运候选。
+- `services quote` 只创建 Quote Lock；`cart add --quote` 聚合交易；`buy --cart` 创建一次 Checkout。
+- `services checkout` 是单项快捷方式，内部复用 Quote、Cart 和 Checkout 的相同规则。
 - `agent_visible_result` 从 `services next` 读取；`vault_artifact` 只有人授权后才能 `read-result`。
 
 ## 子命令
@@ -20,6 +22,7 @@
 - [`start`](start.md)
 - [`invoke`](invoke.md)
 - [`action`](action.md)
+- [`quote`](quote.md)
 - [`checkout`](checkout.md)
 - [`list`](list.md)
 - [`get`](get.md)
@@ -35,7 +38,7 @@
 itpay services --help
 ```
 
-输出九个子命令及一句选择规则：正常推进使用 `next`，深度诊断才使用 `get/events`。未知子命令返回参数错误和本 help，不创建 execution。
+输出十个子命令及一句选择规则：正常推进使用 `next`，深度诊断才使用 `get/events`。未知子命令返回参数错误和本 help，不创建 Execution。
 
 ## Agent Type / Host
 

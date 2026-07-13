@@ -5,6 +5,7 @@ import type {
   ServiceCapability,
   ServiceCapabilityInvoked,
   ServiceExecutionReadModel,
+  ServiceExecutionAllowedAction,
 } from "../client/types.js";
 import { operationID, type CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
@@ -19,7 +20,6 @@ import {
   CommandContractError,
   type CommandAction,
   type CommandEnvelope,
-  buildServiceReadModelGuidance,
   isTerminalServiceExecutionStatus,
   writeCommandEnvelope,
 } from "./guidance.js";
@@ -112,12 +112,12 @@ export async function runServicesInvoke(
     );
   }
   if (requestedCapability.requires_payment) {
-    const command = checkoutCommand(serviceExecutionID, requestedCapability, input);
+		const command = quoteCommand(serviceExecutionID, requestedCapability, input);
     throw new CommandContractError(
       "checkout_required",
       `capability ${capabilityID} requires checkout and cannot be invoked directly`,
-      "该 capability 需要付款；先向用户确认购买，再创建 Checkout。",
-      [{ command, reason: "锁定输入和价格后交给用户付款" }],
+			"该 capability 需要付款；先向用户确认购买，再创建报价。",
+			[{ command, reason: "锁定可信输入和价格" }],
     );
   }
   const missingInput = missingRequiredInput(requestedCapability.input_schema, input);
@@ -169,7 +169,7 @@ function invokedEnvelope(
   };
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
-    ? "只向用户展示 safe_payload；需要用户选择时记录对应 action。"
+		? "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。"
     : "Provider 已返回空结果；不要重放当前 execution，按下一步恢复。";
   let next: CommandAction | null = null;
 
@@ -187,8 +187,8 @@ function invokedEnvelope(
         delivery_email_required: checkoutCapability.delivery_email_required,
       };
       next = {
-        command: checkoutCommand(response.execution.service_execution_id, checkoutCapability, input),
-        reason: "购买一次当前服务的付费 continuation",
+				command: quoteCommand(response.execution.service_execution_id, checkoutCapability, input),
+				reason: "准备当前服务的付费 continuation 报价",
       };
     } else {
       next = {
@@ -198,8 +198,8 @@ function invokedEnvelope(
     }
   } else if (items.length > 0 && requestedCapability.requires_human_action) {
     next = {
-      command: `itpay services action ${response.execution.service_execution_id} --action ${response.execution.next_action} --actor-type human --status approved --candidate <rank> --json`,
-      reason: "记录用户选择",
+			command: `itpay services action ${response.execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
+			reason: "在当前 Execution 记录用户选择",
     };
   } else if (items.length === 0) {
     next = response.provider_called
@@ -250,6 +250,16 @@ function checkoutCommand(
   return `itpay services checkout ${serviceExecutionID} --capability ${capability.capability_id}${formatInputOptions(lockedInput)}${capability.delivery_email_required ? " --email <email>" : ""} --json`;
 }
 
+function quoteCommand(
+  serviceExecutionID: string,
+  capability: ServiceCapability,
+  input: Record<string, unknown>,
+): string {
+	const lockedInput = { ...input };
+	for (const field of missingRequiredInput(capability.input_schema, lockedInput)) lockedInput[field] = "<value>";
+	return `itpay services quote ${serviceExecutionID} --capability ${capability.capability_id}${formatInputOptions(lockedInput)}${capability.delivery_email_required ? " --email <email>" : ""} --json`;
+}
+
 function stableInput(input: Record<string, unknown>): string {
   return JSON.stringify(Object.fromEntries(Object.entries(input).sort(([left], [right]) => left.localeCompare(right))));
 }
@@ -278,7 +288,6 @@ export async function runServicesAction(
     actorID?: string;
     status?: string;
     resultItemID?: string;
-    selectedCandidateHash?: string;
     candidateRank?: number;
     requiredBefore?: string;
     jsonOutput?: boolean;
@@ -293,12 +302,32 @@ export async function runServicesAction(
   if (options.actorID) request.actor_id = options.actorID;
   if (options.status) request.status = normalizeServiceActionStatus(options.status, serviceExecutionID);
   const resultItemID = selection?.resultItemID ?? options.resultItemID;
-  const selectedCandidateHash = selection?.stableHash ?? options.selectedCandidateHash;
   if (resultItemID) request.result_item_id = resultItemID;
-  if (selectedCandidateHash) request.selected_candidate_hash = selectedCandidateHash;
   if (options.requiredBefore) request.required_before = options.requiredBefore;
-  const response = await backend.recordServiceExecutionAction(serviceExecutionID, request);
-  writeCommandEnvelope({
+	const response = await backend.recordServiceExecutionAction(serviceExecutionID, request);
+	if (selection && actionType === "select_candidate" && response.status === "approved") {
+		const updated = await backend.getServiceExecution(serviceExecutionID);
+		const preferred = updated.allowed_actions?.[0];
+		const next = preferred ? serviceAllowedActionCommand(updated, preferred) : null;
+		writeCommandEnvelope({
+			status: "candidate_selected",
+			result: {
+				service_execution_id: response.service_execution_id,
+				candidate: { rank: selection.rank, title: selection.title },
+			},
+			instruction: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
+			next,
+			recovery: [{
+				command: `itpay services next ${response.service_execution_id} --json`,
+				reason: "重新读取服务端允许的动作",
+			}],
+		}, {
+			...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+			...(options.output ? { output: options.output } : {}),
+		});
+		return;
+	}
+	writeCommandEnvelope({
     status: "action_recorded",
     result: {
       service_execution_id: response.service_execution_id,
@@ -321,20 +350,21 @@ async function resolveCandidateSelection(
   backend: BackendClient,
   serviceExecutionID: string,
   actionType: string,
-  options: { candidateRank?: number; resultItemID?: string; selectedCandidateHash?: string },
-): Promise<{ resultItemID: string; stableHash: string } | undefined> {
+	options: { candidateRank?: number; resultItemID?: string },
+): Promise<{ resultItemID: string; rank: number; title: string } | undefined> {
   if (options.candidateRank === undefined) return undefined;
   if (actionType !== "select_candidate") {
     throw actionInputError(serviceExecutionID, "--candidate is only valid with --action select_candidate");
   }
-  if (options.resultItemID || options.selectedCandidateHash) {
-    throw actionInputError(serviceExecutionID, "--candidate cannot be combined with --result-item or --selected-candidate-hash");
+  if (options.resultItemID) {
+		throw actionInputError(serviceExecutionID, "--candidate cannot be combined with --result-item");
   }
   if (!Number.isInteger(options.candidateRank) || options.candidateRank < 1) {
     throw actionInputError(serviceExecutionID, "--candidate must be a positive integer result rank");
   }
   const execution = await backend.getServiceExecution(serviceExecutionID);
-  const result = execution.result_items.find((item) => item.rank === options.candidateRank);
+	const currentItems = execution.current_result_items ?? [];
+	const result = currentItems.find((item) => item.rank === options.candidateRank);
   if (!result) {
     throw actionInputError(
       serviceExecutionID,
@@ -342,10 +372,11 @@ async function resolveCandidateSelection(
       "candidate_not_found",
     );
   }
-  return {
-    resultItemID: result.service_capability_result_item_id,
-    stableHash: result.stable_hash,
-  };
+	return {
+		resultItemID: result.service_capability_result_item_id,
+		rank: result.rank,
+		title: result.display_title,
+	};
 }
 
 function actionInputError(serviceExecutionID: string, message: string, code = "service_action_invalid"): CommandContractError {
@@ -499,6 +530,74 @@ export async function runServicesCheckout(
   });
 }
 
+export async function runServicesQuote(
+  backend: BackendClient,
+  serviceExecutionID: string,
+  capabilityID: string,
+  input: Record<string, unknown>,
+  options: ServicesCommandOptions & { email?: string; deliveryContact?: Record<string, unknown>; jsonOutput?: boolean } = {},
+): Promise<void> {
+  const model = await backend.getServiceExecution(serviceExecutionID);
+  const capability = model.capabilities.find((item) => item.capability_id === capabilityID);
+  if (!capability || !capability.requires_payment) {
+    throw new CommandContractError(
+      "capability_not_quoteable",
+      `capability ${capabilityID} is not available for quote on service execution ${serviceExecutionID}`,
+      "只为当前 Service Execution 返回的付费 capability 创建报价。",
+      [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前合法动作" }],
+    );
+  }
+  const selectionBacked = model.execution.status === "human_action_approved" &&
+    model.allowed_actions?.some((action) => action.type === "prepare_quote" && action.capability_id === capabilityID);
+  const missingInput = missingRequiredInput(capability.input_schema, input);
+  if (missingInput.length > 0 && !selectionBacked) {
+    throw new CommandContractError(
+      "capability_input_invalid",
+      `missing required capability input: ${missingInput.join(", ")}`,
+      "补齐付费 capability 输入；本次没有创建 Quote、Cart 或 Checkout。",
+      [{ command: quoteCommand(serviceExecutionID, capability, input), reason: "提交完整且会被锁定的输入" }],
+    );
+  }
+  const deliveryContact = {
+    ...(options.deliveryContact ?? {}),
+    ...(options.email ? { email: options.email } : {}),
+  };
+  if (capability.delivery_email_required && String(deliveryContact.email ?? "").trim() === "") {
+    throw new CommandContractError(
+      "delivery_email_required",
+      "delivery email is required before preparing this service quote",
+      "交付链接会发送到用户邮箱；说明用途并询问邮箱，不要代填。",
+      [{ command: quoteCommand(serviceExecutionID, capability, input), reason: "使用用户提供的邮箱创建报价" }],
+    );
+  }
+  const quote = await backend.prepareServiceQuote(serviceExecutionID, {
+    capability_id: capabilityID,
+    ...(Object.keys(deliveryContact).length > 0 ? { delivery_contact: deliveryContact } : {}),
+    ...(Object.keys(input).length > 0 ? { locked_input: input } : {}),
+  });
+  const result = {
+    service_quote_lock_id: quote.service_quote_lock_id,
+    service_execution_id: quote.service_execution_id,
+    capability_id: quote.capability_id,
+    price: formatMoney(quote.amount_minor, quote.currency),
+    expires_at: quote.expires_at,
+  };
+  writeCommandEnvelope({
+    status: "quote_ready",
+    result,
+    instruction: "报价已锁定当前 Execution 的可信输入和价格；可单独付款，也可与其他独立 Execution 的报价合并。",
+    next: {
+      command: `itpay cart add --quote ${quote.service_quote_lock_id} --json`,
+      reason: "加入 canonical Cart",
+    },
+    recovery: [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "重新读取当前 Execution 状态" }],
+  }, {
+    ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+    ...(options.output ? { output: options.output } : {}),
+    plainResult: Object.entries(result).map(([key, value]) => `${key}: ${String(value)}`),
+  });
+}
+
 export async function runServicesGet(
   backend: BackendClient,
   serviceExecutionID: string,
@@ -572,13 +671,13 @@ export async function runServicesList(
   backend: BackendClient,
   options: ServicesCommandOptions & { limit?: number; jsonOutput?: boolean } = {},
 ): Promise<void> {
-  const limit = options.limit ?? 50;
+  const limit = options.limit ?? 10;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new CommandContractError(
       "limit_invalid",
       "--limit must be an integer from 1 to 100",
       "使用 1 到 100 的整数 limit；本次未读取服务端列表。",
-      [{ command: "itpay services list --limit 50 --json", reason: "使用默认上限重试" }],
+      [{ command: "itpay services list --limit 10 --json", reason: "使用默认上限重试" }],
     );
   }
   const response = await backend.listServiceExecutions(limit);
@@ -594,7 +693,7 @@ export async function runServicesList(
     status: latest ? "listed" : "no_executions",
     result: { executions },
     instruction: latest
-      ? "结果按最新到最旧排列；按服务、时间和状态选择目标 execution，再读取其下一步。"
+      ? "结果按最新到最旧排列，默认只列最近 10 条；找不到目标时再扩大 limit。"
       : "当前设备没有可恢复的 Service Execution；先读取已发布目录，不要猜测 ID。",
     next: latest
       ? { command: `itpay services next ${latest.service_execution_id} --json`, reason: "默认恢复最新执行" }
@@ -615,33 +714,6 @@ export async function runServicesReadResult(
   serviceExecutionID: string,
   options: ServicesCommandOptions & { jsonOutput?: boolean } = {},
 ): Promise<void> {
-  const execution = await backend.getServiceExecution(serviceExecutionID);
-  const lockedRefund = execution.refunds.find((refund) => refund.access_locked);
-  if (lockedRefund) {
-    throw new CommandContractError(
-      "delivery_locked_by_refund",
-      `delivery is locked by refund ${lockedRefund.refund_request_id}`,
-      "退款访问锁已生效；不要 reveal、创建 grant 或读取交付结果。",
-      [{ command: `itpay refund get ${lockedRefund.refund_request_id} --json`, reason: "读取退款权威状态" }],
-    );
-  }
-  const deliveryMode = serviceDeliveryMode(execution);
-  if (deliveryMode === "agent_visible_result") {
-    throw new CommandContractError(
-      "wrong_delivery_mode",
-      `service execution ${serviceExecutionID} has an agent-visible result`,
-      "该交付不需要 Vault grant；直接读取 safe result，不要调用 read-result。",
-      [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取 Agent-visible safe result" }],
-    );
-  }
-  if (deliveryMode !== "vault_artifact") {
-    throw new CommandContractError(
-      "result_not_ready",
-      `service execution ${serviceExecutionID} does not have a Vault delivery`,
-      "先读取 Service Execution 当前状态，不要猜测或绕过交付模式。",
-      [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前交付状态" }],
-    );
-  }
   const envelope = grantedResultEnvelope(await backend.getGrantedServiceResult(serviceExecutionID));
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -675,7 +747,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       recovery: [],
     };
   }
-  if (isTerminalServiceExecutionStatus(execution.status)) {
+	if (isTerminalServiceExecutionStatus(execution.status)) {
     return {
       status: execution.status,
       result: {
@@ -691,24 +763,55 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         command: `itpay services events ${execution.service_execution_id} --json`,
         reason: "仅在需要诊断终止原因时读取事件",
       }],
-    };
-  }
-  const delivery = model.delivery_bindings[0];
+		};
+	}
+	const currentItems = model.current_result_items ?? [];
+	const candidateSelection = model.allowed_actions?.find((action) => action.type === "select_candidate");
+	if (candidateSelection && currentItems.length > 0) {
+		return {
+			status: "candidate_selection_available",
+			result: {
+				service_execution_id: execution.service_execution_id,
+				items: currentItems.map((item) => ({
+					rank: item.rank,
+					title: item.display_title,
+					safe_payload: item.safe_payload,
+				})),
+			},
+			instruction: "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+			next: {
+				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
+				reason: "仅在用户明确选择后锁定来源候选",
+			},
+			recovery: [],
+		};
+	}
+	const delivery = model.current_delivery ?? model.delivery_bindings.at(-1);
   const deliveryMode = serviceDeliveryMode(model);
   if (deliveryMode === "agent_visible_result") {
-    const currentItems = model.result_items.filter((item) => item.capability_id === execution.current_capability_id);
-    const items = (currentItems.length > 0 ? currentItems : model.result_items).map((item) => ({
+			const items = currentItems.map((item) => ({
       rank: item.rank,
       title: item.display_title,
       safe_payload: item.safe_payload,
     }));
-    return {
+		const selection = model.allowed_actions?.find((action) => action.type === "select_candidate");
+		return {
       status: items.length > 0 ? "result_ready" : "no_result",
-      result: { service_execution_id: execution.service_execution_id, delivery_mode: deliveryMode, items },
-      instruction: items.length > 0
-        ? "结果已可供 Agent 使用；只使用 safe_payload，不调用 read-result。"
-        : "Agent-visible 交付已完成但没有结果项；不要调用 read-result 或重放当前 execution。",
-      next: null,
+			result: {
+				service_execution_id: execution.service_execution_id,
+				...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
+				delivery_mode: deliveryMode,
+				items,
+			},
+			instruction: items.length > 0
+				? selection
+					? "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；如用户选择，必须在当前 Execution 提交对应 rank。"
+					: "这是当前 Graph 步骤对应的交付；结果已可供 Agent 使用，只使用 safe_payload。"
+				: "Agent-visible 交付已完成但没有结果项；不要调用 read-result 或重放当前 execution。",
+			next: selection ? {
+				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
+				reason: "仅在用户明确选择后锁定来源候选",
+			} : null,
       recovery: items.length > 0 ? [] : [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "检查交付时间线" }],
     };
   }
@@ -719,13 +822,14 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       status: grantActive ? "grant_active" : "human_authorization_required",
       result: {
         service_execution_id: execution.service_execution_id,
+				...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
         delivery_mode: deliveryMode,
         grant_status: grantStatus,
         ...(grantActive && delivery?.grant_expires_at ? { grant_expires_at: delivery.grant_expires_at } : {}),
       },
       instruction: grantActive
-        ? "用户授权当前有效；立即读取一次受保护结果，并遵守返回的字段范围与到期时间。"
-        : "请用户在订单页面授权；未授权前不要读取、猜测或声称已看到内容。",
+			? "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。"
+			: "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
       next: {
         command: `itpay services read-result ${execution.service_execution_id} --json`,
         reason: grantActive ? "读取当前有效 grant 的结果" : "仅在用户确认授权后执行",
@@ -734,26 +838,70 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     };
   }
 
-  const guidance = buildServiceReadModelGuidance(model);
-  const preferred = guidance.next_actions[0];
-  return {
+	const allowedActions = model.allowed_actions ?? [];
+	const preferred = allowedActions[0];
+	const next = preferred ? serviceAllowedActionCommand(model, preferred) : null;
+	return {
     status: execution.status,
     result: {
       service_execution_id: execution.service_execution_id,
       service_id: execution.service_id,
       phase: execution.phase,
-      next_action: execution.next_action,
-    },
-    instruction: preferred?.requires_human
-      ? "当前下一步需要用户操作；先向用户说明并等待确认。"
-      : preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" : "当前没有后续动作。",
-    next: preferred ? { command: preferred.command, reason: preferred.reason ?? preferred.label } : null,
-    recovery: guidance.recovery.slice(0, 1).map((action) => ({ command: action.command, reason: action.reason ?? action.label })),
-  };
+			allowed_actions: allowedActions.map((action) => ({
+				type: action.type,
+				...(action.capability_id ? { capability_id: action.capability_id } : {}),
+				requires_human: action.requires_human,
+			})),
+		},
+		instruction: preferred?.requires_human
+			? "当前下一步需要用户明确选择；先展示必要信息并等待确认。"
+			: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" : "当前没有后续动作。",
+		next,
+		recovery: [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "仅在当前动作异常时检查时间线" }],
+	};
+}
+
+function serviceAllowedActionCommand(model: ServiceExecutionReadModel, action: ServiceExecutionAllowedAction): CommandAction | null {
+	const executionID = model.execution.service_execution_id;
+	const capability = action.capability_id
+		? model.capabilities.find((item) => item.capability_id === action.capability_id)
+		: undefined;
+	switch (action.type) {
+	case "invoke_capability": {
+		if (!capability) return null;
+		const input = Object.fromEntries(requiredInputFields(capability.input_schema).map((field) => [field, "<value>"]));
+		return {
+			command: `itpay services invoke ${executionID} --capability ${capability.capability_id}${formatInputOptions(input)} --json`,
+			reason: "执行当前允许的 Agent-visible capability",
+		};
+	}
+	case "select_candidate":
+		return {
+			command: `itpay services action ${executionID} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
+			reason: "仅在用户明确选择后提交当前候选 rank",
+		};
+	case "prepare_quote": {
+		if (!capability) return null;
+		const selectionBacked = model.execution.status === "human_action_approved";
+		const input = selectionBacked
+			? {}
+			: Object.fromEntries(requiredInputFields(capability.input_schema).map((field) => [field, "<value>"]));
+		return {
+			command: `itpay services quote ${executionID} --capability ${capability.capability_id}${formatInputOptions(input)}${capability.delivery_email_required ? " --email <email>" : ""} --json`,
+			reason: selectionBacked ? "为已确认候选准备报价" : "为当前输入准备报价",
+		};
+	}
+	case "wait":
+		return { command: `itpay services next ${executionID} --json`, reason: "等待 durable execution 推进" };
+	case "view_delivery":
+		return { command: `itpay services next ${executionID} --json`, reason: "读取当前交付模式" };
+	default:
+		return null;
+	}
 }
 
 function serviceDeliveryMode(model: ServiceExecutionReadModel): string {
-  const delivery = model.delivery_bindings[0];
+	const delivery = model.current_delivery ?? model.delivery_bindings.at(-1);
   const explicit = String(delivery?.redacted_summary?.delivery_mode ?? "");
   if (explicit) return explicit;
   return delivery?.vault_artifact_id ? "vault_artifact" : "";
@@ -772,7 +920,7 @@ function grantedResultEnvelope(response: GrantedServiceResult): CommandEnvelope 
       granted_fields: Object.keys(response.result),
       payload: response.result,
     },
-    instruction: "只使用本次授权字段；授权过期后停止读取并重新请求用户同意。",
+    instruction: "结果来自当前有效 Vault Grant；只使用本次授权字段，过期后停止读取并重新请求用户同意。",
     next: null,
     recovery: [],
   };

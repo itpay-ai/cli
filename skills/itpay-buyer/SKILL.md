@@ -44,11 +44,15 @@ Then execute the exact `next.command` returned by each step. It may invoke a cap
 Rules:
 
 - One independent service intent uses one Service Execution.
+- Every candidate list belongs to its source Service Execution. After a human selects a rank, submit the selection on that same Execution; never copy it into a new Execution or construct a candidate.
+- A paid step is `services quote -> cart add --quote -> buy --cart`. Quote locks service input and price; Cart may combine Quotes from separate Executions without merging their delivery.
+- `services checkout` is the one-item shortcut for the same Quote, Cart and Checkout rules.
 - Ask for required email/contact fields; explain their delivery purpose and never invent them.
 - When Checkout is ready, make both the ItPay QR/image and URL visible on the current human surface.
 - Normal payment happens on the ItPay Checkout page. `itpay pay` and `buy --pay` are operator escape hatches.
 - Payment is confirmed only by Backend Checkout or Order state.
 - Agent-visible results come from `services next`; do not call `read-result` for them.
+- An Execution may have delivery history; always follow `services next` for the backend-selected current delivery instead of reusing an older result.
 - Protected results require a current human grant. The grant is scoped to one delivery, approved fields and frozen Agent audience, and expires after 15 minutes.
 - A pending refund locks every delivery path and revokes existing grants.
 

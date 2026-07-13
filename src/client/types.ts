@@ -38,10 +38,11 @@ export interface Cart {
 }
 
 export interface CartRequestItem {
-  catalog_item_id: string;
-  catalog_variant_id: string;
-  offer_id: string;
-  quantity: number;
+  service_quote_lock_id?: string;
+  catalog_item_id?: string;
+  catalog_variant_id?: string;
+  offer_id?: string;
+  quantity?: number;
   input?: Record<string, unknown>;
 }
 
@@ -155,6 +156,7 @@ export interface OrderDeliveryAccess {
 export interface RefundRequest {
   refund_request_id: string;
   order_id: string;
+  order_item_id?: string;
   status: string;
   amount_minor: number;
   currency: string;
@@ -171,6 +173,7 @@ export interface ListRefundsResponse { refunds: RefundRequest[]; }
 
 export interface CreateRefundRequest {
   reason: string;
+  order_item_id?: string;
 }
 
 export interface ReadyResponse {
@@ -328,7 +331,6 @@ export interface ServiceCapabilityResultItem {
   service_capability_invocation_id?: string;
   service_execution_id: string;
   capability_id: string;
-  stable_hash: string;
   rank: number;
   display_title: string;
   safe_payload: Record<string, unknown>;
@@ -363,7 +365,6 @@ export interface RecordServiceExecutionActionRequest {
   input_snapshot?: Record<string, unknown>;
   result_snapshot?: Record<string, unknown>;
   result_item_id?: string;
-  selected_candidate_hash?: string;
   required_before?: string;
 }
 
@@ -377,7 +378,6 @@ export interface ServiceExecutionAction {
   input_snapshot?: Record<string, unknown>;
   result_snapshot?: Record<string, unknown>;
   result_item_id?: string;
-  selected_candidate_hash?: string;
   required_before?: string;
 }
 
@@ -397,13 +397,22 @@ export interface ServiceCheckoutBinding {
 }
 
 export interface ServiceExecutionCheckoutCreated {
-	service_quote_lock_id: string;
-	capability_id: string;
-	locked_input: Record<string, unknown>;
-	cart: Cart;
+  service_quote_lock_id: string;
+  capability_id: string;
+  locked_input: Record<string, unknown>;
+  cart: Cart;
   checkout: CheckoutCreated;
   binding: ServiceCheckoutBinding;
   handoff_reissued: boolean;
+}
+
+export interface ServiceQuotePrepared {
+  service_quote_lock_id: string;
+  service_execution_id: string;
+  capability_id: string;
+  amount_minor: number;
+  currency: string;
+  expires_at: string;
 }
 
 export interface ExecutionRequest {
@@ -441,6 +450,7 @@ export interface ServiceExecutionEvents {
 export interface ServiceDeliveryBinding {
   service_delivery_binding_id: string;
   service_execution_id: string;
+  capability_id?: string;
   order_id: string;
   order_item_id?: string;
   delivery_artifact_id?: string;
@@ -467,7 +477,17 @@ export interface ServiceExecutionReadModel {
   execution_requests: ExecutionRequest[];
   provider_invocations: Array<Record<string, unknown>>;
   delivery_bindings: ServiceDeliveryBinding[];
+  current_delivery?: ServiceDeliveryBinding;
   refunds: RefundRequest[];
+  current_result_items?: ServiceCapabilityResultItem[];
+  allowed_actions?: ServiceExecutionAllowedAction[];
+}
+
+export interface ServiceExecutionAllowedAction {
+  type: "invoke_capability" | "select_candidate" | "prepare_quote" | "wait" | "view_delivery" | string;
+  capability_id?: string;
+  source_capability_id?: string;
+  requires_human: boolean;
 }
 
 export interface ListServiceExecutionsResponse {

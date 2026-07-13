@@ -116,6 +116,64 @@ export async function runCartAddServer(options: ServerCartAddOptions): Promise<C
   return cart;
 }
 
+export async function runCartAddQuoteServer(options: {
+  serviceQuoteLockID: string;
+  host: ClientHost;
+  target?: string;
+  jsonOutput?: boolean;
+  backend: BackendClient;
+  config: CLIConfig;
+  session: CartSession;
+  output?: OutputSink;
+}): Promise<Cart> {
+  const out = resolveOutput(options.output);
+  const clientContext = {
+    host: options.host,
+    ...(options.target ? { target: options.target } : {}),
+  };
+  const quoteItem = { service_quote_lock_id: options.serviceQuoteLockID };
+  const cart = options.session.lastCartID
+    ? await options.backend.addCartItem(options.session.lastCartID, {
+        ...quoteItem,
+        client_context: clientContext,
+      })
+    : await options.backend.createCart({
+        currency: options.config.checkoutCurrency,
+        client_context: clientContext,
+        items: [quoteItem],
+      });
+  const line = cart.items[cart.items.length - 1];
+  if (!line?.cart_item_id) {
+    throw new Error("backend did not return the added cart item");
+  }
+  options.session.rememberServerCart({
+    cartID: cart.cart_id,
+    cartItemID: line.cart_item_id,
+    ...(line.service_execution_id ? { serviceExecutionID: line.service_execution_id } : {}),
+  });
+  const envelope: CommandEnvelope = {
+    status: "quote_added",
+    result: {
+      cart_id: cart.cart_id,
+      item_count: cart.items.length,
+      total: formatMoney(cart.amount_minor, cart.currency),
+    },
+    instruction: "付费服务报价已加入同一 Cart；每个项目仍保持独立 Execution 和交付。",
+    next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "确认项目齐全后创建一次合并付款" },
+    recovery: [{ command: "itpay cart show --json", reason: "检查当前合并 Cart" }],
+  };
+  writeCommandEnvelope(envelope, {
+    ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+    output: out,
+    plainResult: [
+      `cart_id: ${cart.cart_id}`,
+      `item_count: ${cart.items.length}`,
+      `total: ${formatMoney(cart.amount_minor, cart.currency)}`,
+    ],
+  });
+  return cart;
+}
+
 export interface CartRemoveOptions {
   catalogVariantID: string;
   offerID: string;
@@ -333,19 +391,19 @@ export async function runCartNext(
   }
 
   const cart = await backend.getCart(session.lastCartID);
-  const serviceLine = [...cart.items].reverse().find((item) => item.service_execution_id);
+  const unquotedServiceLine = [...cart.items].reverse().find((item) => item.service_execution_id && !item.service_quote_lock_id);
   let envelope: CommandEnvelope;
-  if (serviceLine?.service_execution_id) {
+  if (unquotedServiceLine?.service_execution_id) {
     envelope = {
       status: "action_available",
       result: {
         cart_id: cart.cart_id,
         cart_status: cart.status,
-        service_execution_id: serviceLine.service_execution_id,
+        service_execution_id: unquotedServiceLine.service_execution_id,
       },
       instruction: "该 Cart 包含 service-backed line；继续 Service Execution，不要从 Cart 猜 capability。",
       next: {
-        command: `itpay services next ${serviceLine.service_execution_id} --json`,
+        command: `itpay services next ${unquotedServiceLine.service_execution_id} --json`,
         reason: "读取服务端最新执行状态",
       },
       recovery: [],
@@ -368,7 +426,9 @@ export async function runCartNext(
         amount_minor: cart.amount_minor,
         currency: cart.currency,
       },
-      instruction: "该 Cart 是普通购买流程；使用同一 Cart 创建 Checkout，不要重复添加商品。",
+    instruction: cart.items.some((item) => item.service_quote_lock_id)
+      ? "服务报价已锁定输入和价格；确认项目齐全后使用同一 Cart 创建一次 Checkout。"
+      : "该 Cart 是普通购买流程；使用同一 Cart 创建 Checkout，不要重复添加商品。",
       next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "继续 canonical Cart 结算" },
       recovery: [],
     };

@@ -240,9 +240,8 @@ export function buildServiceActionGuidance(action: ServiceExecutionAction): Agen
     state: {
       service_execution_id: serviceExecutionID,
       action_type: action.action_type,
-      status: action.status,
-      result_item_id: action.result_item_id,
-      selected_candidate_hash: action.selected_candidate_hash,
+			status: action.status,
+			result_item_id: action.result_item_id,
     },
     next_actions: [
       {
@@ -533,9 +532,8 @@ function buildServiceGuidance(input: {
         price_currency: capability.price_currency,
         free_quota_limit: capability.free_quota_limit,
       })),
-      result_items: (input.resultItems ?? []).map((item) => ({
-        result_item_id: item.service_capability_result_item_id,
-        stable_hash: item.stable_hash,
+		result_items: (input.resultItems ?? []).map((item) => ({
+			result_item_id: item.service_capability_result_item_id,
         rank: item.rank,
         display_title: item.display_title,
         safe_payload: item.safe_payload,

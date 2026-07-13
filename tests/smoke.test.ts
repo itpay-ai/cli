@@ -34,10 +34,10 @@ import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
 import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "../src/commands/refund.js";
-import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartNext } from "../src/commands/cart.js";
+import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartAddQuoteServer, runCartNext } from "../src/commands/cart.js";
 import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
-import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
+import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
 import { DEFAULT_BASE_URL, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
@@ -564,6 +564,25 @@ test("services next returns one compact current-state action", async () => {
   assert.doesNotMatch(stdoutCapture.join(""), /capabilities|agent_guidance|stable_hash/);
 });
 
+test("services next restores candidate items on the source execution", async () => {
+	await runServicesInvoke(backend, config, "se_candidate_recovery", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
+	await runServicesNext(backend, "se_candidate_recovery", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { service_execution_id: string; items: Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }> };
+		next: { command: string };
+	};
+	assert.equal(envelope.status, "candidate_selection_available");
+	assert.equal(envelope.result.service_execution_id, "se_candidate_recovery");
+	assert.deepEqual(envelope.result.items[0], {
+		rank: 1,
+		title: "小米汽车科技有限公司",
+		safe_payload: { company_name: "小米汽车科技有限公司" },
+	});
+	assert.match(envelope.next.command, /services action se_candidate_recovery/);
+	assert.doesNotMatch(stdoutCapture.join(""), /service_capability_result_item_id|stable_hash|invocation/);
+});
+
 test("services next exposes only safe agent-visible result fields", async () => {
   await runServicesNext(backend, "se_agent_visible", { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as {
@@ -606,7 +625,25 @@ test("services next recommends immediate read only for an active grant", async (
   assert.equal(envelope.next.command, "itpay services read-result se_granted --json");
 });
 
-test("refund lock takes precedence over delivery guidance and existing result reads", async () => {
+test("services next uses the current Vault delivery after an older agent-visible delivery", async () => {
+	const model = await backend.getServiceExecution("se_granted");
+	model.delivery_bindings.unshift({
+		service_delivery_binding_id: "sdb_old",
+		service_execution_id: "se_granted",
+		order_id: "ord_old",
+		status: "completed",
+		redacted_summary: { delivery_mode: "agent_visible_result" },
+	});
+	model.current_delivery = model.delivery_bindings.at(-1)!;
+	const currentBackend = { getServiceExecution: async () => model } as unknown as BackendClient;
+
+	await runServicesNext(currentBackend, "se_granted", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
+	assert.equal(envelope.status, "grant_active");
+	assert.equal(envelope.next.command, "itpay services read-result se_granted --json");
+});
+
+test("refund lock takes precedence over delivery guidance", async () => {
   await runServicesNext(backend, "se_refund_locked", { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
@@ -618,17 +655,6 @@ test("refund lock takes precedence over delivery guidance and existing result re
   assert.equal(envelope.result.refund.refund_request_id, "rr_locked");
   assert.equal(envelope.next.command, "itpay refund get rr_locked --json");
 
-  const before = mock.requests.length;
-  await assert.rejects(
-    runServicesReadResult(backend, "se_refund_locked", { jsonOutput: true, output: silent }),
-    (error: unknown) => {
-      assert.ok(error instanceof CommandContractError);
-      assert.equal(error.code, "delivery_locked_by_refund");
-      assert.equal(error.recovery[0]?.command, "itpay refund get rr_locked --json");
-      return true;
-    },
-  );
-  assert.equal(mock.requests.slice(before).some((request) => request.path.endsWith("/granted-result")), false);
 });
 
 test("refund-locked delivery is identical across every Agent Type", async () => {
@@ -707,7 +733,7 @@ test("services invoke reads target capability metadata before checkout guidance"
   assert.deepEqual(parsed.result.checkout.price, { amount_minor: 10, currency: "CNY" });
   assert.equal(
     parsed.next.command,
-    "itpay services checkout se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
+		"itpay services quote se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
   );
   assert.match(parsed.next.reason, /付费 continuation/);
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
@@ -715,7 +741,7 @@ test("services invoke reads target capability metadata before checkout guidance"
 	assert.equal(requests.at(-1)?.method, "POST");
 });
 
-test("services invoke redirects paid capabilities to checkout without invoking", async () => {
+test("services invoke redirects paid capabilities to quote without invoking", async () => {
 	const requestsBefore = mock.requests.length;
 	await assert.rejects(
 		runServicesInvoke(
@@ -731,7 +757,7 @@ test("services invoke redirects paid capabilities to checkout without invoking",
 			assert.equal(error.code, "checkout_required");
 			assert.equal(
 				error.recovery[0]?.command,
-				"itpay services checkout se_paid_direct --capability precise_lookup --input company=example --email <email> --json",
+					"itpay services quote se_paid_direct --capability precise_lookup --input company=example --email <email> --json",
 			);
 			return true;
 		},
@@ -739,6 +765,43 @@ test("services invoke redirects paid capabilities to checkout without invoking",
 	const requests = mock.requests.slice(requestsBefore).filter((request) => request.path.includes("/v1/service-executions/se_paid_direct"));
 	assert.equal(requests.length, 1);
 	assert.equal(requests[0]?.method, "GET");
+});
+
+test("independent service quotes aggregate into one cart and one checkout", async () => {
+	const quoteIDs: string[] = [];
+	for (const executionID of ["se_bundle_a", "se_bundle_b"]) {
+		stdoutCapture = [];
+		await runServicesQuote(backend, executionID, "precise_report", {}, {
+			email: "buyer@example.com", jsonOutput: true, output: stdoutSink,
+		});
+		const envelope = JSON.parse(stdoutCapture.join("")) as {
+			status: string;
+			result: { service_quote_lock_id: string };
+			next: { command: string };
+		};
+		assert.equal(envelope.status, "quote_ready");
+		assert.match(envelope.next.command, /^itpay cart add --quote /);
+		quoteIDs.push(envelope.result.service_quote_lock_id);
+	}
+
+	const session = new CartSession("CNY");
+	for (const quoteID of quoteIDs) {
+		await runCartAddQuoteServer({
+			serviceQuoteLockID: quoteID, host: "codex", backend, config, session, output: silent,
+		});
+	}
+	const cart = await backend.getCart(session.lastCartID!);
+	assert.equal(cart.items.length, 2);
+	assert.deepEqual(cart.items.map((item) => item.service_execution_id), ["se_bundle_a", "se_bundle_b"]);
+	assert.ok(cart.items.every((item) => Boolean(item.service_quote_lock_id)));
+
+	stdoutCapture = [];
+	await runBuy(backend, config, {
+		cartSession: session, cartID: cart.cart_id, host: "codex", jsonOutput: true, output: stdoutSink,
+	});
+	const checkoutRequests = mock.requests.filter((request) => request.method === "POST" && request.path === "/v1/checkouts");
+	assert.equal(checkoutRequests.length, 1);
+	assert.equal(checkoutRequests[0]?.body?.cart_id, cart.cart_id);
 });
 
 test("services invoke validates required input before the provider request", async () => {
@@ -785,7 +848,7 @@ test("services invoke returns only safe result items and one next action", async
 test("services list recovers executions without a local cart handle", async () => {
   await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
   await runServicesList(backend, { jsonOutput: true, output: stdoutSink });
-  assert.equal(mock.requests.at(-1)?.path, "/v1/service-executions?limit=50");
+  assert.equal(mock.requests.at(-1)?.path, "/v1/service-executions?limit=10");
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
     result: { executions: Array<Record<string, unknown>> };
@@ -1019,7 +1082,6 @@ test("service guidance waits for human grant after delivery", () => {
       service_capability_result_item_id: "sri_1",
       service_execution_id: "se_delivered",
       capability_id: "fuzzy_disambiguation",
-      stable_hash: "hash_1",
       rank: 1,
       display_title: "小米科技有限责任公司",
       safe_payload: {},
@@ -1085,7 +1147,7 @@ test("agent-visible delivery exposes complete safe fields and never recommends V
     capabilities: [], events: [], actions: [], checkout_bindings: [], payment_bindings: [], execution_requests: [], provider_invocations: [], refunds: [],
     result_items: [{
       service_capability_result_item_id: "sri_1", service_execution_id: "se_paid_fuzzy", capability_id: "fuzzy_disambiguation_paid",
-      stable_hash: "hash_1", rank: 1, display_title: "北京京东世纪贸易有限公司",
+		rank: 1, display_title: "北京京东世纪贸易有限公司",
       safe_payload: { company_name: "北京京东世纪贸易有限公司", status: "存续", region: "北京", credit_code: "911103026605015136" },
       created_at: "2026-07-12T00:00:00Z",
     }],
@@ -1101,28 +1163,25 @@ test("agent-visible delivery exposes complete safe fields and never recommends V
   });
 });
 
-test("services read-result rejects agent-visible delivery before calling the Vault endpoint", async () => {
+test("services read-result delegates current grant authorization to the Vault endpoint", async () => {
   let grantedResultCalled = false;
-  const agentVisibleBackend = {
-    getServiceExecution: async () => ({
-      delivery_bindings: [{ redacted_summary: { delivery_mode: "agent_visible_result" } }],
-      refunds: [],
-    }),
+  const currentGrantBackend = {
     getGrantedServiceResult: async () => {
       grantedResultCalled = true;
-      return {};
+      return {
+			service_execution_id: "se_multi_delivery",
+			vault_artifact_id: "vault_current",
+			agent_read_grant_id: "grant_current",
+			grant_status: "active",
+			result: { summary: "granted" },
+		};
     },
   } as unknown as BackendClient;
-  await assert.rejects(
-    runServicesReadResult(agentVisibleBackend, "se_paid_fuzzy", { output: silent }),
-    (error: unknown) => {
-      assert.ok(error instanceof CommandContractError);
-      assert.equal(error.code, "wrong_delivery_mode");
-      assert.equal(error.recovery[0]?.command, "itpay services next se_paid_fuzzy --json");
-      return true;
-    },
-  );
-  assert.equal(grantedResultCalled, false);
+  await runServicesReadResult(currentGrantBackend, "se_multi_delivery", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { payload: Record<string, unknown> } };
+  assert.equal(grantedResultCalled, true);
+  assert.equal(envelope.status, "granted_result_ready");
+  assert.deepEqual(envelope.result.payload, { summary: "granted" });
 });
 
 test("service guidance emits executable human selection action", () => {
@@ -1145,7 +1204,6 @@ test("service guidance emits executable human selection action", () => {
       service_capability_result_item_id: "scri_1",
       service_execution_id: "se_select",
       capability_id: "fuzzy_disambiguation",
-      stable_hash: "hash_candidate_1",
       rank: 1,
       display_title: "小米汽车科技有限公司",
       safe_payload: { company_name: "小米汽车科技有限公司" },
@@ -1370,8 +1428,9 @@ test("runBuy (terminal) prints checkout QR + summary", async () => {
   // cart session remembered the checkout
   const snap = session.show();
   assert.equal(snap.items.length, 0);
-  assert.equal(snap.lastCheckoutID, "chk_1");
+  assert.match(snap.lastCheckoutID ?? "", /^chk_\d+$/);
   assert.ok(snap.lastDisplayToken);
+  assert.match(snap.lastCheckoutURL ?? "", new RegExp(`/checkout/${snap.lastCheckoutID}\\?`));
   assert.match(snap.lastCheckoutURL ?? "", /display_token=/);
 });
 
@@ -2394,29 +2453,34 @@ test("services action resolves a human-selected candidate rank from the executio
     output: stdoutSink,
   });
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_select_by_rank"));
-  assert.equal(requests.at(-2)?.method, "GET");
-  assert.equal(requests.at(-1)?.method, "POST");
-  assert.deepEqual(requests.at(-1)?.body, {
+	assert.equal(requests.at(-3)?.method, "GET");
+	assert.equal(requests.at(-2)?.method, "POST");
+	assert.equal(requests.at(-1)?.method, "GET");
+	assert.deepEqual(requests.at(-2)?.body, {
     action_type: "select_candidate",
     actor_type: "human",
     status: "approved",
     result_item_id: "scri_1",
-    selected_candidate_hash: "hash_candidate_1",
     input_snapshot: {},
   });
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
-    status: "action_recorded",
-    result: {
-      service_execution_id: "se_select_by_rank",
-      action_type: "select_candidate",
-      action_status: "approved",
-    },
-    instruction: "动作已记录，读取服务端计算的新状态；不要自行假设下一 capability。",
-    next: {
-      command: "itpay services next se_select_by_rank --json",
-      reason: "取得更新后的首选动作",
-    },
-    recovery: [],
+		status: "candidate_selected",
+		result: {
+			service_execution_id: "se_select_by_rank",
+			candidate: {
+				rank: 1,
+				title: "小米汽车科技有限公司",
+			},
+		},
+		instruction: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
+		next: {
+			command: "itpay services quote se_select_by_rank --capability precise_report --email <email> --json",
+			reason: "为已确认候选准备报价",
+		},
+		recovery: [{
+			command: "itpay services next se_select_by_rank --json",
+			reason: "重新读取服务端允许的动作",
+		}],
   });
 });
 
@@ -2438,7 +2502,7 @@ test("services action command accepts the documented --json form", async () => {
     ITPAY_BACKEND_URL: mock.url,
     HOME: home,
   });
-  assert.equal(JSON.parse(result.stdout).status, "action_recorded");
+	assert.equal(JSON.parse(result.stdout).status, "candidate_selected");
   assert.equal(result.stderr, "");
 });
 
@@ -3169,7 +3233,7 @@ test("buy routes service-backed carts to Service Execution before checkout", asy
     runBuy(backend, config, { cartSession: session, host: "codex", jsonOutput: true, output: silent }),
     (error: unknown) => {
       assert.ok(error instanceof CommandContractError);
-      assert.equal(error.code, "service_checkout_required");
+		assert.equal(error.code, "service_quote_required");
       assert.equal(error.recovery[0]?.command, "itpay services next se_mock_1 --json");
       return true;
     },

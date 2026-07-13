@@ -31,6 +31,7 @@ import type {
   ServiceExecutionEvents,
   ServiceExecutionReadModel,
   ServiceExecutionStarted,
+  ServiceQuotePrepared,
   SSEEvent,
   StartServiceExecutionRequest,
 } from "./types.js";
@@ -191,6 +192,16 @@ export class BackendClient {
   ): Promise<ServiceExecutionCheckoutCreated> {
     return this.http.post<ServiceExecutionCheckoutCreated>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/checkout`,
+      input,
+    );
+  }
+
+  prepareServiceQuote(
+    serviceExecutionID: string,
+    input: CreateServiceExecutionCheckoutRequest,
+  ): Promise<ServiceQuotePrepared> {
+    return this.http.post<ServiceQuotePrepared>(
+      `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/quotes`,
       input,
     );
   }

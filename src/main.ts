@@ -17,6 +17,7 @@ import { runListOrders } from "./commands/orders.js";
 import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "./commands/refund.js";
 import {
   runCartAdd,
+  runCartAddQuoteServer,
   runCartAddServer,
   runCartAbandonServer,
   runCartClear,
@@ -41,6 +42,7 @@ import {
   runServicesList,
   runServicesNext,
   runServicesReadResult,
+  runServicesQuote,
   runServicesStart,
 } from "./commands/services.js";
 
@@ -305,6 +307,7 @@ cart
   .option("--item <catalog_item_id>")
   .option("--variant <catalog_variant_id>")
   .option("--offer <offer_id>")
+  .option("--quote <service_quote_lock_id>", "add a prepared service quote")
   .option("--quantity <n>", "quantity", Number, 1)
   .option("--input <json>")
   .option("--host <host>", "client host (terminal, codex, telegram, feishu, lark, ...)")
@@ -317,7 +320,16 @@ cart
     const session = CartSession.loadFromFile(sessionPath, config.checkoutCurrency);
     const jsonOutput = Boolean(options.json);
     try {
-      if (!options.item || !options.variant || !options.offer) {
+			const quoteMode = Boolean(options.quote);
+			if (quoteMode && (options.item || options.variant || options.offer || options.input || options.local)) {
+				throw new CommandContractError(
+					"cart_item_scope_invalid",
+					"--quote cannot be combined with catalog fields, input, or --local",
+					"服务报价只使用 services quote 返回的 quote ID；不要混入 Catalog 或 input 参数。",
+					[{ command: "itpay cart add --help", reason: "查看两种添加方式" }],
+				);
+			}
+			if (!quoteMode && (!options.item || !options.variant || !options.offer)) {
         throw new CommandContractError(
           "cart_item_required",
           "--item, --variant and --offer are required",
@@ -325,7 +337,7 @@ cart
           [{ command: "itpay catalog list --json", reason: "读取已发布目录 ID" }],
         );
       }
-      if (!Number.isInteger(options.quantity) || options.quantity < 1) {
+			if (!quoteMode && (!Number.isInteger(options.quantity) || options.quantity < 1)) {
         throw new CommandContractError(
           "quantity_invalid",
           "--quantity must be a positive integer",
@@ -333,7 +345,7 @@ cart
           [{ command: "itpay cart show", reason: "确认当前 Cart 未变化" }],
         );
       }
-      let input: Record<string, unknown> | undefined;
+			let input: Record<string, unknown> | undefined;
       if (options.input) {
         const parsed = JSON.parse(options.input) as unknown;
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -346,14 +358,14 @@ cart
         }
         input = parsed as Record<string, unknown>;
       }
-      const addOptions = {
+			const addOptions = {
         catalogItemID: options.item,
         catalogVariantID: options.variant,
         offerID: options.offer,
         quantity: options.quantity,
         ...(input ? { input } : {}),
       };
-      if (options.local) {
+			if (options.local) {
         runCartAdd(session, { ...addOptions, jsonOutput });
       } else {
         const host = withHost(options.host ?? defaultHostForAgentType(config.agentType));
@@ -366,26 +378,43 @@ cart
             [{ command: "itpay cart add --help", reason: "查看客户端参数" }],
           );
         }
-        const backend = newBackendClient(config);
-        await runCartAddServer({
-          ...addOptions,
-          backend,
-          config,
-          session,
-          host,
-          ...(options.target ? { target: options.target } : {}),
-          jsonOutput,
-        });
+				const backend = newBackendClient(config);
+				if (quoteMode) {
+					await runCartAddQuoteServer({
+						serviceQuoteLockID: options.quote,
+						backend, config, session, host,
+						...(options.target ? { target: options.target } : {}),
+						jsonOutput,
+					});
+				} else {
+					await runCartAddServer({
+						...addOptions,
+						backend,
+						config,
+						session,
+						host,
+						...(options.target ? { target: options.target } : {}),
+						jsonOutput,
+					});
+				}
       }
     } catch (error) {
+			const quoteMode = Boolean(options.quote);
       reportCLIError(error, {
         jsonOutput,
         code: "cart_add_failed",
-        instruction: "核对 Catalog ID、输入和 Cart 状态；不要在失败后直接创建 Checkout。",
-        recovery: [
-          { command: "itpay catalog list --json", reason: "核对已发布项目" },
-          { command: "itpay cart show", reason: "确认 canonical Cart 当前状态" },
-        ],
+				instruction: quoteMode
+					? "Quote 是否已加入 Cart 尚未确认；先恢复当前 Cart 或来源 Execution，不要重复准备报价或直接创建 Checkout。"
+					: "核对 Catalog ID、输入和 Cart 状态；不要在失败后直接创建 Checkout。",
+				recovery: quoteMode
+					? [
+						{ command: "itpay cart show --json", reason: "检查当前 canonical Cart" },
+						{ command: "itpay services list --json", reason: "恢复 Quote 所属的 Service Execution" },
+					]
+					: [
+						{ command: "itpay catalog list --json", reason: "核对已发布项目" },
+						{ command: "itpay cart show", reason: "确认 canonical Cart 当前状态" },
+					],
       });
     } finally {
       session.saveToFile(sessionPath);
@@ -663,7 +692,7 @@ program
       reportCLIError(error, {
         jsonOutput,
         code: "buy_failed",
-        instruction: "普通 buy 失败；保留当前 Cart/Checkout 句柄并按恢复命令继续，不要重复创建资源。",
+		instruction: "Checkout 创建失败；保留当前 Cart/Checkout 句柄并按恢复命令继续，不要重复创建资源。",
         recovery: [
           { command: "itpay next --json", reason: "恢复最近资源" },
           { command: "itpay cart next --json", reason: "检查 canonical Cart" },
@@ -1020,7 +1049,6 @@ services
   .option("--status <status>", "pending, approved, rejected, expired, or cancelled")
   .option("--candidate <rank>", "select a displayed candidate by its rank", Number)
   .option("--result-item <service_capability_result_item_id>")
-  .option("--selected-candidate-hash <hash>")
   .option("--required-before <step>")
   .option("--input <key=value>", "action input snapshot", collectOption, [])
   .option("--json", "output JSON instead of terminal text")
@@ -1039,7 +1067,6 @@ services
           ...(options.status ? { status: options.status } : {}),
           ...(options.candidate !== undefined ? { candidateRank: options.candidate } : {}),
           ...(options.resultItem ? { resultItemID: options.resultItem } : {}),
-          ...(options.selectedCandidateHash ? { selectedCandidateHash: options.selectedCandidateHash } : {}),
           ...(options.requiredBefore ? { requiredBefore: options.requiredBefore } : {}),
           jsonOutput: Boolean(options.json),
         },
@@ -1053,6 +1080,34 @@ services
           { command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前可选动作" },
           { command: `itpay services get ${serviceExecutionID} --json`, reason: "检查执行状态" },
         ],
+      });
+    }
+  });
+
+services
+  .command("quote")
+  .description("Prepare a paid service quote without creating a Cart or Checkout")
+  .argument("<service_execution_id>")
+  .requiredOption("--capability <capability_id>")
+  .option("--input <key=value>", "input to lock into the paid service quote", collectOption, [])
+  .option("--email <delivery_email>")
+  .option("--json", "output compact JSON")
+  .action(async (serviceExecutionID: string, options) => {
+    const config = loadConfig();
+    try {
+      await runServicesQuote(
+        newBackendClient(config),
+        serviceExecutionID,
+        options.capability,
+        parseKeyValueList(options.input),
+        { ...(options.email ? { email: options.email } : {}), jsonOutput: Boolean(options.json) },
+      );
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "service_quote_failed",
+        instruction: "按当前 Execution 的合法付费 capability 和可信输入重试；本次不要自行创建 Cart 或 Checkout。",
+        recovery: [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前合法动作" }],
       });
     }
   });
@@ -1111,7 +1166,7 @@ services
 services
   .command("list")
   .description("Recover service executions visible to this enrolled device or account")
-  .option("--limit <number>", "maximum executions", "50")
+  .option("--limit <number>", "maximum executions", "10")
   .option("--json", "output compact JSON")
   .action(async (options) => {
     const config = loadConfig();
@@ -1125,7 +1180,7 @@ services
         instruction: "确认当前设备身份和 Backend 后重试；不要猜测 Service Execution ID。",
         recovery: [
           { command: "itpay readyz --json", reason: "确认 Backend 可用" },
-          { command: "itpay services list --limit 50 --json", reason: "重新读取当前设备可见执行" },
+          { command: "itpay services list --limit 10 --json", reason: "重新读取最近执行" },
         ],
       });
     }
