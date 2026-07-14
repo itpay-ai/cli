@@ -20,7 +20,6 @@ export interface LocalCartItem {
 export interface LocalCartSession {
   currency: string;
   items: LocalCartItem[];
-  agentDeviceID?: string;
   lastCartID?: string;
   lastCartItemID?: string;
   lastServiceExecutionID?: string;
@@ -31,6 +30,7 @@ export interface LocalCartSession {
 
 export class CartSession {
   private state: LocalCartSession;
+  private loadFailed = false;
 
   constructor(currency: string) {
     this.state = { currency, items: [] };
@@ -49,7 +49,6 @@ export class CartSession {
             }
           });
         }
-        if (persisted.agentDeviceID) session.state.agentDeviceID = persisted.agentDeviceID;
         if (persisted.lastCartID) session.state.lastCartID = persisted.lastCartID;
         if (persisted.lastCartItemID) session.state.lastCartItemID = persisted.lastCartItemID;
         if (persisted.lastServiceExecutionID) session.state.lastServiceExecutionID = persisted.lastServiceExecutionID;
@@ -58,6 +57,7 @@ export class CartSession {
         if (persisted.lastCheckoutURL) session.state.lastCheckoutURL = persisted.lastCheckoutURL;
       } catch {
         session.state.items = [];
+        session.loadFailed = true;
       }
     }
     return session;
@@ -67,7 +67,6 @@ export class CartSession {
     const toSave: LocalCartSession = {
       currency: this.state.currency,
       items: this.state.items.map((item) => ({ ...item })),
-      ...(this.state.agentDeviceID ? { agentDeviceID: this.state.agentDeviceID } : {}),
       ...(this.state.lastCartID ? { lastCartID: this.state.lastCartID } : {}),
       ...(this.state.lastCartItemID ? { lastCartItemID: this.state.lastCartItemID } : {}),
       ...(this.state.lastServiceExecutionID ? { lastServiceExecutionID: this.state.lastServiceExecutionID } : {}),
@@ -109,11 +108,7 @@ export class CartSession {
   }
 
   clear(): void {
-    this.state = {
-      currency: this.state.currency,
-      items: [],
-      ...(this.state.agentDeviceID ? { agentDeviceID: this.state.agentDeviceID } : {}),
-    };
+    this.state = { currency: this.state.currency, items: [] };
   }
 
   show(): LocalCartSession {
@@ -133,28 +128,26 @@ export class CartSession {
     };
   }
 
-  rememberCheckout(input: { cartID: string; checkoutID: string; displayToken: string; checkoutURL: string; serviceExecutionID?: string }): void {
+  rememberCheckout(input: { checkoutID: string; displayToken: string; checkoutURL: string; serviceExecutionID?: string }): void {
     this.state.items = [];
-    this.state.lastCartID = input.cartID;
+    delete this.state.lastCartID;
+    delete this.state.lastCartItemID;
     this.state.lastCheckoutID = input.checkoutID;
     this.state.lastDisplayToken = input.displayToken;
     this.state.lastCheckoutURL = input.checkoutURL;
     if (input.serviceExecutionID) this.state.lastServiceExecutionID = input.serviceExecutionID;
   }
 
-  rememberServerCart(input: { cartID: string; cartItemID?: string; serviceExecutionID?: string; agentDeviceID?: string }): void {
+  rememberServerCart(input: { cartID: string; cartItemID?: string; serviceExecutionID?: string }): void {
     this.state.items = [];
     this.state.lastCartID = input.cartID;
+    delete this.state.lastCartItemID;
+    delete this.state.lastServiceExecutionID;
+    delete this.state.lastCheckoutID;
+    delete this.state.lastDisplayToken;
+    delete this.state.lastCheckoutURL;
     if (input.cartItemID) this.state.lastCartItemID = input.cartItemID;
     if (input.serviceExecutionID) this.state.lastServiceExecutionID = input.serviceExecutionID;
-    if (input.agentDeviceID) this.state.agentDeviceID = input.agentDeviceID;
-  }
-
-  ensureAgentDeviceID(fallback: string): string {
-    if (!this.state.agentDeviceID) {
-      this.state.agentDeviceID = fallback;
-    }
-    return this.state.agentDeviceID;
   }
 
   get lastCartID(): string | undefined {
@@ -179,5 +172,9 @@ export class CartSession {
 
   get currency(): string {
     return this.state.currency;
+  }
+
+  get stateLoadFailed(): boolean {
+    return this.loadFailed;
   }
 }

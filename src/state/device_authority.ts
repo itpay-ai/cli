@@ -67,7 +67,7 @@ interface SessionVerified {
   expires_at: string;
 }
 
-const PROTECTED_PATHS = ["/v1/carts", "/v1/service-executions", "/v1/agent-instances"];
+const PROTECTED_PATHS = ["/v1/carts", "/v1/service-executions", "/v1/agent-instances", "/v1/orders", "/v1/refunds"];
 
 export class DeviceAuthority {
   private readonly baseURL: string;

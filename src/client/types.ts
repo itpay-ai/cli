@@ -38,23 +38,20 @@ export interface Cart {
 }
 
 export interface CartRequestItem {
-  catalog_item_id: string;
-  catalog_variant_id: string;
-  offer_id: string;
-  quantity: number;
+  service_quote_lock_id?: string;
+  catalog_item_id?: string;
+  catalog_variant_id?: string;
+  offer_id?: string;
+  quantity?: number;
   input?: Record<string, unknown>;
 }
 
 export interface AddCartItemRequest extends CartRequestItem {
-  buyer_id?: string;
-  agent_device_id?: string;
   client_context?: Record<string, unknown>;
 }
 
 export interface CreateCartRequest {
   currency: string;
-  buyer_id?: string;
-  agent_device_id?: string;
   client_context?: Record<string, unknown>;
   items: CartRequestItem[];
 }
@@ -109,9 +106,7 @@ export interface PaymentIntent {
 
 export interface CreatePaymentIntentRequest {
   payment_method_type: "alipay" | "wechatpay";
-  preferred_provider?: string;
-  buyer_id?: string;
-  display_token?: string;
+  display_token: string;
   refresh_action?: boolean;
 }
 
@@ -122,6 +117,7 @@ export interface Order {
   status: string;
   amount_minor: number;
   currency: string;
+  created_at: string;
   paid_at?: string;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
@@ -147,17 +143,37 @@ export interface ListOrdersResponse {
   orders: Order[];
 }
 
+export interface OrderDeliveryAccess {
+  order_id: string;
+  service_execution_id?: string;
+  delivery_artifact_id?: string;
+  vault_artifact_id?: string;
+  status: string;
+  delivery_mode: "agent_visible_result" | "vault_artifact";
+  delivery_url?: string;
+}
+
 export interface RefundRequest {
   refund_request_id: string;
   order_id: string;
+  order_item_id?: string;
   status: string;
   amount_minor: number;
   currency: string;
   reason?: string;
+	decision_mode: "automatic" | "manual";
+	consumption_state: "unconsumed" | "consumed" | "unknown";
+	failure_class?: "known_no_effect" | "retryable" | "outcome_unknown" | "permanent";
+	access_locked: boolean;
+	can_cancel: boolean;
+	created_at: string;
 }
+
+export interface ListRefundsResponse { refunds: RefundRequest[]; }
 
 export interface CreateRefundRequest {
   reason: string;
+  order_item_id?: string;
 }
 
 export interface ReadyResponse {
@@ -281,8 +297,6 @@ export interface ServiceExecution {
 
 export interface StartServiceExecutionRequest {
   service_id: string;
-  buyer_id?: string;
-  agent_device_id?: string;
   client_context?: Record<string, unknown>;
 }
 
@@ -317,7 +331,6 @@ export interface ServiceCapabilityResultItem {
   service_capability_invocation_id?: string;
   service_execution_id: string;
   capability_id: string;
-  stable_hash: string;
   rank: number;
   display_title: string;
   safe_payload: Record<string, unknown>;
@@ -352,7 +365,6 @@ export interface RecordServiceExecutionActionRequest {
   input_snapshot?: Record<string, unknown>;
   result_snapshot?: Record<string, unknown>;
   result_item_id?: string;
-  selected_candidate_hash?: string;
   required_before?: string;
 }
 
@@ -366,7 +378,6 @@ export interface ServiceExecutionAction {
   input_snapshot?: Record<string, unknown>;
   result_snapshot?: Record<string, unknown>;
   result_item_id?: string;
-  selected_candidate_hash?: string;
   required_before?: string;
 }
 
@@ -386,11 +397,22 @@ export interface ServiceCheckoutBinding {
 }
 
 export interface ServiceExecutionCheckoutCreated {
-	service_quote_lock_id: string;
-	cart: Cart;
+  service_quote_lock_id: string;
+  capability_id: string;
+  locked_input: Record<string, unknown>;
+  cart: Cart;
   checkout: CheckoutCreated;
   binding: ServiceCheckoutBinding;
   handoff_reissued: boolean;
+}
+
+export interface ServiceQuotePrepared {
+  service_quote_lock_id: string;
+  service_execution_id: string;
+  capability_id: string;
+  amount_minor: number;
+  currency: string;
+  expires_at: string;
 }
 
 export interface ExecutionRequest {
@@ -428,6 +450,7 @@ export interface ServiceExecutionEvents {
 export interface ServiceDeliveryBinding {
   service_delivery_binding_id: string;
   service_execution_id: string;
+  capability_id?: string;
   order_id: string;
   order_item_id?: string;
   delivery_artifact_id?: string;
@@ -454,7 +477,17 @@ export interface ServiceExecutionReadModel {
   execution_requests: ExecutionRequest[];
   provider_invocations: Array<Record<string, unknown>>;
   delivery_bindings: ServiceDeliveryBinding[];
+  current_delivery?: ServiceDeliveryBinding;
   refunds: RefundRequest[];
+  current_result_items?: ServiceCapabilityResultItem[];
+  allowed_actions?: ServiceExecutionAllowedAction[];
+}
+
+export interface ServiceExecutionAllowedAction {
+  type: "invoke_capability" | "select_candidate" | "prepare_quote" | "wait" | "view_delivery" | string;
+  capability_id?: string;
+  source_capability_id?: string;
+  requires_human: boolean;
 }
 
 export interface ListServiceExecutionsResponse {

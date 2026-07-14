@@ -16,12 +16,13 @@ import type { ClientHost } from "../state/client_context.js";
 import { validateContext } from "../state/client_context.js";
 import type { CartSession } from "../state/cart_session.js";
 import { dispatchRender, type DispatchOptions } from "../render/index.js";
-import { dispatchInteractionRequest } from "../render/interaction.js";
-import type { RenderInteractionRequest, RenderPlan } from "../render/plan.js";
+import { platformKeyForHost, type RenderPlan } from "../render/plan.js";
 import type { OutputSink } from "../render/sink.js";
-import { ensureIdeImageAttach, readFileAsDataURL } from "../render/ide.js";
-import { buildAgentChatHandoff, type AgentChatHandoff } from "../render/markdown.js";
+import { ensureIdeImageAttach } from "../render/ide.js";
+import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
+import { formatMoney } from "../render/output.js";
+import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 
 export type ContactField = "email" | "phone";
 
@@ -49,52 +50,13 @@ export interface BuyOptions {
   jsonOutput?: boolean;
 }
 
-export interface BuyJSONOutput {
-  kind: string;
-  checkout_id: string;
-  checkout_url: string;
-  display_token: string;
-  qr_payload: string;
-  qr_png_url?: string;
-  checkout_status: string;
-  service_executions?: Array<{
-    service_execution_id: string;
-    service_capability_id?: string;
-    title?: string;
-  }>;
-  payment_intent_id?: string;
-  payment_status?: string;
-  payment_action?: { qr_image_url?: string; mobile_wallet_url?: string };
-  wait_status?: "verified" | "timeout" | "skipped";
-  next?: string;
-  // IDE image attach — local file the agent must read back into the
-  // IDE chat window so the human can scan the QR. Without rendering
-  // this PNG in-chat the order is not considered successful.
-  brand_qr_local_path?: string;
-  brand_qr_mirrors?: string[];
-  brand_qr_stable_name?: string;
-  brand_qr_mime_type?: string;
-  brand_qr_data_url?: string;
-  brand_qr_caption?: string;
-  brand_qr_status?: "downloaded" | "failed" | "disabled" | "fallback";
-  brand_qr_error?: string;
-  brand_qr_must_render_reason?: string;
-  brand_qr_render_action?: "agent_must_read_local_path_into_ide_chat";
-  agent_action?: AgentChatHandoff;
-}
-
-export type BuyResult =
-  | {
-      kind: "interaction_requested";
-      interactionRequest: RenderInteractionRequest;
-    }
-  | {
-      kind: "checkout_rendered";
-      plan: RenderPlan;
-      checkoutID: string;
-      displayToken: string;
-      json?: BuyJSONOutput;
-    };
+export type BuyResult = {
+  kind: "checkout_rendered";
+  plan: RenderPlan;
+  checkoutID: string;
+  displayToken: string;
+  envelope?: CommandEnvelope;
+};
 
 export async function runBuy(
   backend: BackendClient,
@@ -107,48 +69,62 @@ export async function runBuy(
   }
 
   const snap = options.cartSession.show();
-  if (!options.cartID && snap.items.length === 0) {
-    throw new Error("cart is empty; add an item with `itpay cart add` first");
+  const resumableCartID = !options.cartID && snap.items.length === 0 ? snap.lastCartID : undefined;
+  if (!options.cartID && !resumableCartID && snap.items.length === 0) {
+    throw new CommandContractError(
+      "cart_empty",
+      "no local draft or canonical cart is available",
+      "没有可购买的普通 Cart；从已发布目录选择项目，不要猜测 item、variant 或 offer。",
+      [{ command: "itpay catalog list --json", reason: "读取已发布项目" }],
+    );
   }
 
   const missingContactFields = findMissingContactFields(options.contact, options.requiredContactFields ?? []);
   if (missingContactFields.length > 0) {
-    const interactionRequest = buildMissingContactInteractionRequest(missingContactFields);
-    await dispatchInteractionRequest(options.host, interactionRequest, {
-      ...(options.isTTY !== undefined ? { isTTY: options.isTTY } : {}),
-      ...(options.target ? { target: options.target } : {}),
-      ...(options.output ? { output: options.output } : {}),
-    });
-    return {
-      kind: "interaction_requested",
-      interactionRequest,
-    };
+    throw new CommandContractError(
+      "missing_contact",
+      `missing required contact fields: ${missingContactFields.join(", ")}`,
+      `向用户询问 ${missingContactFields.join(" 和 ")}，然后在同一 buy 命令补充对应 contact 参数；禁止编造。`,
+      [{ command: "itpay buy --help", reason: "查看 contact 参数" }],
+    );
   }
 
   let cart: Cart;
-  if (options.cartID) {
-    cart = await backend.getCart(options.cartID);
+  if (options.cartID || resumableCartID) {
+    cart = await backend.getCart(options.cartID ?? resumableCartID!);
   } else {
     const request = options.cartSession.toCreateCartRequest();
     request.client_context = {
       host: options.host,
       target: options.target,
-      agent_device_id: options.cartSession.ensureAgentDeviceID(config.agentDeviceID),
     };
-    const agentDeviceID = options.cartSession.ensureAgentDeviceID(config.agentDeviceID);
-    request.agent_device_id = agentDeviceID;
     cart = await backend.createCart(request);
   }
 
+  const latestLine = cart.items[cart.items.length - 1];
+	options.cartSession.rememberServerCart({
+    cartID: cart.cart_id,
+    ...(latestLine?.cart_item_id ? { cartItemID: latestLine.cart_item_id } : {}),
+    ...(latestLine?.service_execution_id ? { serviceExecutionID: latestLine.service_execution_id } : {}),
+	});
+	const unquotedServiceLine = cart.items.find((item) => item.service_execution_id && !item.service_quote_lock_id);
+	if (unquotedServiceLine?.service_execution_id) {
+		throw new CommandContractError(
+			"service_quote_required",
+			`cart ${cart.cart_id} contains an unquoted service-backed line`,
+			"该服务项目尚未绑定 Quote Lock；回到来源 Execution 完成候选选择和报价。",
+			[{ command: `itpay services next ${unquotedServiceLine.service_execution_id} --json`, reason: "读取当前合法动作" }],
+		);
+	}
+	const idempotencyKey = await operationID(config, `checkout.create:${cart.cart_id}`);
   const checkoutRequest = {
     cart_id: cart.cart_id,
-    client_reference_id: options.clientReferenceID ?? await operationID(config, `checkout.create:${cart.cart_id}`),
+    client_reference_id: options.clientReferenceID ?? idempotencyKey,
     ...(options.contact ? { delivery_contact: options.contact } : {}),
   };
-  const checkout = await backend.createCheckout(checkoutRequest);
+  const checkout = await backend.createCheckout(checkoutRequest, idempotencyKey);
 
   options.cartSession.rememberCheckout({
-    cartID: cart.cart_id,
     checkoutID: checkout.checkout.checkout_id,
     displayToken: checkout.display_token,
     checkoutURL: tokenizedCheckoutURL(checkout.checkout_url, checkout.display_token, checkout.qr_payload),
@@ -174,7 +150,6 @@ export async function runBuy(
     paymentIntent = await backend.createPaymentIntent(
       checkoutID,
       { payment_method_type: method, display_token: displayToken },
-      await operationID(config, `payment.intent:${checkoutID}:${method}`),
     );
 
     if (!options.jsonOutput) {
@@ -226,36 +201,23 @@ export async function runBuy(
 
   // --- Output ---
   if (options.jsonOutput) {
-    const jsonInput: JSONOutputInput = {
-      checkout: { ...checkout, checkout_url: checkoutURL },
+    const envelope = buildBuyEnvelope({
       cart,
-      waitStatus,
+      checkoutID,
+      checkoutURL,
+      displayToken,
       plan,
-    };
-    if (paymentIntent) {
-      jsonInput.paymentIntent = paymentIntent;
-    }
-    if (plan.ideImageAttach) {
-      jsonInput.ideImageAttach = {
-        localPath: plan.ideImageAttach.localPath,
-        mirrors: plan.ideImageAttach.mirrors,
-        mimeType: plan.ideImageAttach.mimeType,
-        ...(plan.ideImageAttach.caption ? { caption: plan.ideImageAttach.caption } : {}),
-        mustRenderReason: plan.ideImageAttach.mustRenderReason,
-        status: plan.ideImageAttach.status,
-        ...(plan.ideImageAttach.error ? { error: plan.ideImageAttach.error } : {}),
-      };
-    }
-    const json = buildJSONOutput(jsonInput);
-    (options.output ?? ((line: string) => process.stdout.write(line + "\n")))(
-      JSON.stringify(json, null, 2) + "\n",
-    );
+      waitStatus,
+      ...(checkout.qr_png_url ? { qrPNGURL: checkout.qr_png_url } : {}),
+      ...(paymentIntent ? { paymentIntent } : {}),
+    });
+    writeCommandEnvelope(envelope, { jsonOutput: true, ...(options.output ? { output: options.output } : {}) });
     return {
       kind: "checkout_rendered",
       plan,
       checkoutID,
       displayToken,
-      json,
+      envelope,
     };
   }
 
@@ -278,6 +240,63 @@ export async function runBuy(
     checkoutID,
     displayToken,
   };
+}
+
+function buildBuyEnvelope(input: {
+  cart: Cart;
+  checkoutID: string;
+  checkoutURL: string;
+  displayToken: string;
+  qrPNGURL?: string;
+  plan: RenderPlan;
+  paymentIntent?: PaymentIntent;
+  waitStatus: "verified" | "timeout" | "skipped";
+}): CommandEnvelope {
+  const verified = input.waitStatus === "verified";
+  const platform = platformKeyForHost(input.plan.host);
+  const handoff: Record<string, unknown> = { url: input.checkoutURL };
+  if (input.plan.ideImageAttach?.status === "downloaded" && input.plan.ideImageAttach.localPath) {
+    handoff.qr_local_path = input.plan.ideImageAttach.localPath;
+  }
+  if (platform === "markdown") {
+    handoff.markdown = buildAgentChatHandoff(input.plan).markdown;
+  } else if (platform === "plain_chat" && input.qrPNGURL) {
+    handoff.qr_image_url = input.qrPNGURL;
+  }
+  const result: Record<string, unknown> = {
+    checkout_id: input.checkoutID,
+    payment: verified ? "verified" : "pending",
+    amount: formatMoney(input.cart.amount_minor, input.cart.currency),
+    item_count: input.cart.items.length,
+    ...(input.paymentIntent ? {
+      payment_intent_id: input.paymentIntent.payment_intent_id,
+      payment_intent_status: input.paymentIntent.status,
+    } : {}),
+    ...(input.waitStatus === "timeout" ? { wait_status: "timeout" } : {}),
+  };
+  if (verified) {
+    return {
+      status: "payment_event_observed",
+      result,
+      instruction: "已观察到付款确认事件；读取同一 Checkout 的权威完成状态，不要再次付款。",
+      next: { command: `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "读取订单和履约句柄" },
+      recovery: [],
+    };
+  }
+  return {
+    status: "human_checkout_required",
+    result,
+    handoff,
+    instruction: buyHandoffInstruction(platform),
+    next: { command: `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "稍后查询同一笔 Checkout 状态" },
+    recovery: [],
+  };
+}
+
+function buyHandoffInstruction(platform: ReturnType<typeof platformKeyForHost>): string {
+  if (platform === "markdown") return "把 handoff.markdown 原样发送到当前桌面对话；二维码和链接可见后等待用户操作，不要创建新 Checkout。";
+  if (platform === "terminal") return "在用户可见终端展示 handoff 中的付款入口，然后等待用户操作；不要创建新 Checkout。";
+  return "把 handoff.url 和可用二维码附件发送给用户，然后等待用户操作；不要创建新 Checkout。";
 }
 
 // --- SSE wait for payment verification ---
@@ -314,87 +333,6 @@ async function waitForPaymentSSE(
   });
 }
 
-// --- JSON output builder ---
-
-interface JSONOutputInput {
-  checkout: { checkout: { checkout_id: string; status: string; amount_minor: number; currency: string }; checkout_url: string; display_token: string; qr_payload: string; qr_png_url?: string };
-  cart?: Cart;
-  paymentIntent?: PaymentIntent | undefined;
-  waitStatus: "verified" | "timeout" | "skipped";
-  plan?: RenderPlan;
-  ideImageAttach?: {
-    localPath: string;
-    mirrors: string[];
-    mimeType: string;
-    caption?: string;
-    mustRenderReason: string;
-    status: "downloaded" | "failed" | "disabled" | "fallback";
-    error?: string;
-  };
-}
-
-export function buildJSONOutput(input: JSONOutputInput): BuyJSONOutput {
-  const output: BuyJSONOutput = {
-    kind: "checkout_created",
-    checkout_id: input.checkout.checkout.checkout_id,
-    checkout_url: input.checkout.checkout_url,
-    display_token: input.checkout.display_token,
-    qr_payload: input.checkout.qr_payload,
-    checkout_status: input.checkout.checkout.status,
-    wait_status: input.waitStatus,
-  };
-  if (input.checkout.qr_png_url) {
-    output.qr_png_url = input.checkout.qr_png_url;
-  }
-  const serviceExecutions = input.cart?.items
-    .filter((item) => item.service_execution_id)
-    .map((item) => ({
-      service_execution_id: item.service_execution_id as string,
-      ...(item.service_capability_id ? { service_capability_id: item.service_capability_id } : {}),
-      ...(item.title ? { title: item.title } : {}),
-    }));
-  if (serviceExecutions && serviceExecutions.length > 0) {
-    output.service_executions = serviceExecutions;
-  }
-  if (input.paymentIntent) {
-    output.payment_intent_id = input.paymentIntent.payment_intent_id;
-    output.payment_status = input.paymentIntent.status;
-    if (input.paymentIntent.action) {
-      const pa: { qr_image_url?: string; mobile_wallet_url?: string } = {};
-      if (input.paymentIntent.action.qr_image_url) pa.qr_image_url = input.paymentIntent.action.qr_image_url;
-      if (input.paymentIntent.action.mobile_wallet_url) pa.mobile_wallet_url = input.paymentIntent.action.mobile_wallet_url;
-      output.payment_action = pa;
-    }
-    output.kind = "payment_handoff_required";
-  }
-  if (input.waitStatus === "verified") {
-    output.kind = "payment_verified";
-  }
-  if (input.ideImageAttach) {
-    output.brand_qr_status = input.ideImageAttach.status;
-    if (input.ideImageAttach.localPath) {
-      output.brand_qr_local_path = input.ideImageAttach.localPath;
-      const dataURL = readFileAsDataURL(input.ideImageAttach.localPath, input.ideImageAttach.mimeType);
-      if (dataURL) output.brand_qr_data_url = dataURL;
-      const stableName = input.ideImageAttach.localPath.split("/").pop();
-      if (stableName) output.brand_qr_stable_name = stableName;
-    }
-    if (input.ideImageAttach.mirrors.length > 0) {
-      output.brand_qr_mirrors = [...input.ideImageAttach.mirrors];
-    }
-    output.brand_qr_mime_type = input.ideImageAttach.mimeType;
-    if (input.ideImageAttach.caption) output.brand_qr_caption = input.ideImageAttach.caption;
-    if (input.ideImageAttach.error) output.brand_qr_error = input.ideImageAttach.error;
-    output.brand_qr_must_render_reason = input.ideImageAttach.mustRenderReason;
-    output.brand_qr_render_action = "agent_must_read_local_path_into_ide_chat";
-  }
-  output.next = input.waitStatus === "verified"
-    ? "itpay orders"
-    : `itpay checkout --id ${input.checkout.checkout.checkout_id} --token ${input.checkout.display_token}`;
-  if (input.plan) output.agent_action = buildAgentChatHandoff(input.plan);
-  return output;
-}
-
 // --- checkout QR plan ---
 
 export function buildCheckoutQRPlan(input: {
@@ -413,9 +351,7 @@ export function buildCheckoutQRPlan(input: {
 }): RenderPlan {
   const summary = `Scan the QR or open ${input.checkoutURL} to start the human checkout flow.`;
   const isPayment = input.paymentIntentID != null;
-  const afterCommand = isPayment
-    ? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken}`
-    : `itpay checkout --id ${input.checkoutID} --token ${input.displayToken}`;
+  const afterCommand = `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`;
 
   const platform: RenderPlan["platform"] = {
     text: summary,
@@ -452,24 +388,6 @@ export function buildCheckoutQRPlan(input: {
 }
 
 // --- contact field interaction ---
-
-export function buildMissingContactInteractionRequest(fields: ContactField[]): RenderInteractionRequest {
-  return {
-    kind: "input",
-    id: "collect_delivery_contact",
-    title: "Collect buyer contact",
-    prompt: "Before creating the checkout, ask the buyer to provide the missing contact details.",
-    fields: fields.map((field) => ({
-      id: field,
-      label: field === "email" ? "Email" : "Phone number",
-      inputType: field === "email" ? "email" : "phone",
-      required: true,
-      placeholder: field === "email" ? "buyer@example.com" : "+86 138...",
-      description: field === "email" ? "Used for receipts or delivery follow-up." : "Used when the order requires buyer verification.",
-    })),
-    submitLabel: "Submit contact",
-  };
-}
 
 function findMissingContactFields(contact: Record<string, unknown> | undefined, fields: ContactField[]): ContactField[] {
   return fields.filter((field) => {

@@ -2,105 +2,49 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "cart-checkout",
-  "title": "V3 Cart-First Checkout",
-  "purpose": "Teach the agent to use the current V3 canonical server cart flow without treating local CLI state as business truth.",
+  "title": "Canonical Cart And Checkout Routing",
+  "purpose": "Use the canonical server Cart and route service-backed lines through Service Execution without hardcoded service logic.",
   "when_to_use": [
-    "The user already chose a catalog item, variant, and offer.",
-    "The agent needs to add a catalog item to a server cart before checkout.",
-    "The agent wants to understand how service-backed cart items create or resume Service Execution."
+    "A catalog item or variant is ready to add.",
+    "An interrupted Cart or Checkout needs recovery."
   ],
-  "required_state": {
-    "needs": [
-      "catalog_item_id",
-      "catalog_variant_id",
-      "offer_id"
-    ],
-    "optional": [
-      "quantity",
-      "contact email",
-      "contact phone",
-      "agent_device_id for service-backed items"
-    ],
-    "must_not_need": [
-      "catalog search support from this CLI"
-    ]
-  },
   "commands": [
     {
-      "intent": "add the first line to the canonical server cart",
-      "command": "itpay cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --quantity 1 --host <client> --json",
-      "success_signal": "JSON includes cart_id and cart_item_id; service-backed lines also include service_execution_id and top-level next_actions"
+      "intent": "add one published line",
+      "command": "itpay --agent-type <agent_type> cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --quantity 1 --json",
+      "success_signal": "result identifies the canonical cart line and next contains one executable recovery or service command"
     },
     {
-      "intent": "recover the next step for the current cart",
-      "command": "itpay cart next --json",
-      "success_signal": "JSON includes next_actions derived from the canonical server cart and Service Execution read model"
+      "intent": "read the canonical Cart route",
+      "command": "itpay --agent-type <agent_type> cart next --json",
+      "success_signal": "service-backed lines route to services next; ordinary lines route to buy"
     },
     {
-      "intent": "inspect the current canonical server cart before checkout",
-      "command": "itpay cart show",
-      "success_signal": "server cart lines, checkout readiness, and service refs are printed"
+      "intent": "create an ordinary Checkout",
+      "command": "itpay --agent-type <agent_type> buy --cart <cart_id> --json",
+      "success_signal": "status is human_checkout_required and handoff contains only fields usable by the current Host"
     },
     {
-      "intent": "soft-remove one active line from the canonical server cart",
-      "command": "itpay cart remove --line <cart_item_id>",
-      "success_signal": "the line is removed from the server cart; quote-locked or checkout-bound lines return a conflict"
-    },
-    {
-      "intent": "abandon the canonical server cart",
-      "command": "itpay cart clear",
-      "success_signal": "the server cart is abandoned, active lines are soft-removed, and local handles are cleared"
-    },
-    {
-      "intent": "create checkout from a server cart that is ready for checkout",
-      "command": "itpay buy --cart <cart_id> --host <client> [--contact-email <email>] [--contact-phone <phone>]",
-      "success_signal": "the CLI either renders checkout_qr or emits an interaction request for missing contact data"
-    },
-    {
-      "intent": "create quote lock and checkout for a service-backed cart item",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>] --json",
-      "success_signal": "the quote lock is bound to the original server cart item when present; JSON includes checkout_id and display_token"
-    },
-    {
-      "intent": "read the next Service Execution action",
-      "command": "itpay services next <service_execution_id> --json",
-      "success_signal": "JSON includes next_actions such as invoke capability, select result item, or checkout"
+      "intent": "create or resume a service Checkout",
+      "command": "itpay --agent-type <agent_type> services checkout <service_execution_id> --capability <capability_id> [--input key=value] [--email <email>] --json",
+      "success_signal": "one Checkout handoff is returned; rerun with --resume after output or token loss"
     }
   ],
   "agent_rules": [
-    "The current V3 CLI uses server cart as the business source of truth. Local ~/.itpay-v3/cart.json only caches last ids and explicit local drafts.",
-    "Prefer top-level next_actions and itpay next/cart next/services next over hardcoded service-specific flows.",
-    "Use cart add/show/remove/clear before checkout. Remove and clear are server-side soft state changes, not hard deletes.",
-    "For service-backed items, use service_execution_id from cart add/show as the canonical handle for services invoke/action/checkout.",
-    "Do not call buy --cart on a service-backed cart item until the required service action and quote lock are complete.",
-    "Do not remove quote-locked or checkout-bound cart lines. Continue checkout/payment or use refund/cancel owner flow after payment.",
-    "If required contact data is missing, prefer --require-contact so the CLI can emit a structured interaction request.",
-    "Do not invent buyer email or phone values; let the human provide them when required.",
-    "Only request --email when the selected capability declares delivery_email_required. Tell the buyer it sends the protected result claim link.",
-    "The happy-path buy flow creates cart and checkout, then renders checkout_qr. It should not create a payment intent first."
+    "The Backend Cart is business truth; ~/.itpay-v3/cart.json only stores local recovery handles and explicit drafts.",
+    "Run the exact next.command returned by the CLI. Do not extract or invent a capability from a raw list.",
+    "One service intent uses one Service Execution. Start another execution for another independent intent.",
+    "Ask for email only when the selected capability requires protected delivery; never invent contact data.",
+    "A lost Checkout response is retried with the same Cart and persisted idempotency operation."
   ],
   "forbidden": [
-    "Do not treat local cart files as durable business truth.",
-    "Do not create duplicate checkout commands if the first handoff is still usable.",
-    "Do not treat QR display as proof of payment."
+    "Do not call ordinary buy for a service-backed Cart line.",
+    "Do not create a second Checkout when the existing one can be resumed.",
+    "Do not treat QR display as payment verification."
   ],
   "next_docs": [
-    {
-      "condition": "Need host rendering details after checkout is created",
-      "topic": "render-hosts",
-      "file": "docs/agent/buyer/render-hosts.json"
-    },
-    {
-      "condition": "Need order or refund follow-up after payment",
-      "topic": "orders-refunds",
-      "file": "docs/agent/buyer/orders-refunds.json"
-    }
+    { "condition": "Checkout handoff is ready", "topic": "payment-flow" },
+    { "condition": "Host rendering needs clarification", "topic": "render-hosts" }
   ],
-  "search_terms": [
-    "cart",
-    "checkout",
-    "buy",
-    "购物车",
-    "结账"
-  ]
+  "search_terms": ["cart", "checkout", "service execution", "resume", "contact"]
 }

@@ -1,105 +1,77 @@
+import type { OutputSink } from "../render/sink.js";
 import { DEFAULT_BASE_URL } from "../state/config.js";
+import { defaultHostForAgentType } from "../state/client_context.js";
+import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 
-export interface InstallTarget {
-  name: string;
-  configFile: string;
-  instructions: string[];
+export const INSTALL_AGENT_TYPES = [
+  "codex-desktop",
+  "codex-cli",
+  "claude-code-desktop",
+  "claude-code-cli",
+  "workbuddy",
+] as const;
+
+type InstallAgentType = (typeof INSTALL_AGENT_TYPES)[number];
+
+export interface InstallOptions {
+  jsonOutput?: boolean;
+  output?: OutputSink;
 }
 
-const INSTALL_TARGETS: Record<string, InstallTarget> = {
-  "claude-code": {
-    name: "Claude Code",
-    configFile: "~/.claude/settings.json",
-    instructions: [
-      "1. Ensure itpay is installed:  npm install -g @itpay/cli",
-      `2. Default API:                 ${DEFAULT_BASE_URL}`,
-      "3. Use --agent-type claude-code-cli or claude-code-desktop",
-      "4. Use --host claude-code for human-facing output",
-      "5. The CLI renders checkout QR as markdown images and links",
-    ],
-  },
-  codex: {
-    name: "Codex / Trae",
-    configFile: "~/.codex/config.toml",
-    instructions: [
-      "1. Ensure itpay is installed:  npm install -g @itpay/cli",
-      `2. Default API:                 ${DEFAULT_BASE_URL}`,
-      "3. Use --agent-type codex-cli or codex-desktop",
-      "4. Use --host trae or --host codex for human-facing output",
-      "5. Attach the emitted QR image and show the checkout link",
-      "6. Collect missing contact fields from the user; never invent them",
-    ],
-  },
-  terminal: {
-    name: "Terminal",
-    configFile: "shell profile (~/.zshrc, ~/.bashrc)",
-    instructions: [
-      "1. Install globally:            npm install -g @itpay/cli",
-      `2. Default API:                 ${DEFAULT_BASE_URL}`,
-      "3. Set the real runtime type with --agent-type <type>",
-      "4. Use --host terminal for text/QR output in terminal",
-      "5. Override ITPAY_BACKEND_URL only for local or test backends",
-    ],
-  },
-  telegram: {
-    name: "Telegram",
-    configFile: "OpenClaw gateway config",
-    instructions: [
-      "1. Install itpay:               npm install -g @itpay/cli",
-      `2. Default API:                 ${DEFAULT_BASE_URL}`,
-      "3. Set the real OpenClaw runtime with --agent-type <type>",
-      "4. Use --host telegram --target <chat_id> for human-facing output",
-      "5. The CLI emits openclaw_message payloads with buttons and QR images",
-    ],
-  },
-  feishu: {
-    name: "Feishu / Lark",
-    configFile: "Feishu bot config",
-    instructions: [
-      "1. Install itpay:               npm install -g @itpay/cli",
-      `2. Default API:                 ${DEFAULT_BASE_URL}`,
-      "3. Set the real agent runtime with --agent-type <type>",
-      "4. Use --host feishu --target <open_id> or --host lark --target <open_id>",
-      "5. The CLI emits Interactive Card JSON with buttons and QR images",
-    ],
-  },
+const INSTRUCTIONS: Record<InstallAgentType, string> = {
+  "codex-desktop": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
+  "codex-cli": "在 Codex CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
+  "claude-code-desktop": "在 Claude Code Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
+  "claude-code-cli": "在 Claude Code CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
+  workbuddy: "在 WorkBuddy 中始终传这个 Agent Type；当前使用 plain-chat 交接，必须把链接和可用图片发到当前会话。",
 };
 
-export function runInstall(target?: string): void {
+export function runInstall(target: string | undefined, options: InstallOptions = {}): void {
   if (!target || target === "list") {
-    listTargets();
+    const agentTypes = INSTALL_AGENT_TYPES.map((agentType) => ({
+      agent_type: agentType,
+      default_host: defaultHostForAgentType(agentType),
+    }));
+    writeCommandEnvelope({
+      status: "install_targets",
+      result: { agent_types: agentTypes },
+      instruction: "选择当前真实运行环境；同一 Agent 不要临时更换 Agent Type。",
+      next: null,
+      recovery: [{ command: "itpay docs show install-and-setup", reason: "查看安装与环境说明" }],
+    }, {
+      ...options,
+      plainResult: agentTypes.map((item) => `${item.agent_type}: ${item.default_host}`),
+    });
     return;
   }
 
-  const normalized = target.toLowerCase();
-  if (normalized === "trae") {
-    // Trae uses the codex install target
-    printInstall("codex");
-    return;
+  const normalized = target.trim().toLowerCase();
+  if (!isInstallAgentType(normalized)) {
+    throw new CommandContractError(
+      "unsupported_agent_type",
+      `unsupported install target: ${target}`,
+      `target 只接受：${INSTALL_AGENT_TYPES.join(", ")}。`,
+      [{ command: "itpay install --json", reason: "列出正式支持的 Agent Type" }],
+    );
   }
 
-  if (INSTALL_TARGETS[normalized]) {
-    printInstall(normalized);
-  } else {
-    process.stderr.write(`unknown target "${target}". Available: ${Object.keys(INSTALL_TARGETS).join(", ")}\n`);
-    process.exitCode = 1;
-  }
+  writeCommandEnvelope({
+    status: "instructions_ready",
+    result: {
+      agent_type: normalized,
+      default_host: defaultHostForAgentType(normalized),
+      default_api: DEFAULT_BASE_URL,
+      install_command: "npm install -g @itpay/cli",
+    },
+    instruction: INSTRUCTIONS[normalized],
+    next: {
+      command: `itpay --agent-type ${normalized} readyz --json`,
+      reason: "验证 CLI 与默认 ItPay API 的兼容性",
+    },
+    recovery: [{ command: "itpay docs show install-and-setup", reason: "查看环境覆盖和首次使用说明" }],
+  }, options);
 }
 
-function printInstall(key: string): void {
-  const target = INSTALL_TARGETS[key];
-  if (!target) return;
-  process.stdout.write(`\n=== ItPay V3 CLI — Install for ${target.name} ===\n`);
-  process.stdout.write(`Config file: ${target.configFile}\n\n`);
-  for (const line of target.instructions) {
-    process.stdout.write(`${line}\n`);
-  }
-  process.stdout.write("\n");
-}
-
-function listTargets(): void {
-  process.stdout.write("Available install targets:\n\n");
-  for (const [key, target] of Object.entries(INSTALL_TARGETS)) {
-    process.stdout.write(`  ${key.padEnd(14)} ${target.name.padEnd(18)} ${target.configFile}\n`);
-  }
+function isInstallAgentType(value: string): value is InstallAgentType {
+  return (INSTALL_AGENT_TYPES as readonly string[]).includes(value);
 }

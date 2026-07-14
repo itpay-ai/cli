@@ -1,121 +1,162 @@
-// Reads the canonical V3 checkout presentation. Requires both checkout_id
-// and the checkout-scoped display_token. Supports terminal and agent markdown.
+// Reads one canonical Checkout presentation. This command never creates a
+// Checkout and only prepares a payment handoff while the Checkout is pending.
 
 import type { BackendClient } from "../client/backend.js";
-import { formatMoney } from "../render/output.js";
-import { hintFor } from "../render/status.js";
-import { resolveOutput, type OutputSink } from "../render/sink.js";
-import { ensureIdeImageAttach, ideImageAttachBlock } from "../render/ide.js";
-import type { RenderPlan } from "../render/plan.js";
+import type { CheckoutPresentation } from "../client/types.js";
+import { ensureIdeImageAttach } from "../render/ide.js";
+import { buildAgentChatHandoff } from "../render/markdown.js";
+import { platformKeyForHost } from "../render/plan.js";
+import { renderTerminalQR } from "../render/qr.js";
+import type { OutputSink } from "../render/sink.js";
+import type { ClientHost } from "../state/client_context.js";
 import { DEFAULT_BASE_URL } from "../state/config.js";
+import { buildCheckoutQRPlan } from "./buy.js";
+import { type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 
 export interface CheckoutPresentationOptions {
   checkoutID: string;
   displayToken: string;
   output?: OutputSink;
-  host?: string;
+  host?: ClientHost;
   baseURL?: string;
+  jsonOutput?: boolean;
 }
 
 export async function runCheckoutPresentation(
   backend: BackendClient,
   options: CheckoutPresentationOptions,
 ): Promise<void> {
-  const out = resolveOutput(options.output);
   const presentation = await backend.getCheckoutPresentation(options.checkoutID, options.displayToken);
+  const host = options.host ?? "terminal";
+  if (!checkoutNeedsHumanHandoff(presentation.checkout.status)) {
+    const envelope = terminalCheckoutEnvelope(presentation);
+    writeCommandEnvelope(envelope, {
+      ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+      ...(options.output ? { output: options.output } : {}),
+      plainResult: checkoutPlainResult(envelope.result),
+    });
+    return;
+  }
 
   const checkoutURL = checkoutPageURL(options.baseURL, options.checkoutID, options.displayToken);
   const qrPNGURL = presentation.qr_png_url ?? checkoutQRPNGURL(options.baseURL, options.checkoutID, options.displayToken);
-
-  const plan: RenderPlan = {
-    kind: "checkout_qr",
-    host: (options.host ?? "terminal") as RenderPlan["host"],
-    summary: "checkout presentation",
-    url: checkoutURL,
-    preferredQRSources: [qrPNGURL],
-    platform: {
-      text: "checkout presentation",
-      links: [{ label: "打开付款页面", url: checkoutURL }],
-      buttons: [],
-      blocks: [],
-    },
-  };
+  const nextCommand = `itpay checkout --id ${options.checkoutID} --token ${options.displayToken}`;
+  const plan = buildCheckoutQRPlan({
+    host,
+    checkoutID: options.checkoutID,
+    checkoutURL,
+    displayToken: options.displayToken,
+    qrPayload: checkoutURL,
+    qrPNGURL,
+    nextAction: presentation.checkout.next_action,
+    orderItems: presentation.items.map((item) => ({
+      title: item.title,
+      quantity: item.quantity,
+      amountMinor: item.amount_minor,
+      currency: item.currency,
+    })),
+    orderCurrency: presentation.checkout.currency,
+  });
   await ensureIdeImageAttach(plan, {
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
   });
-
-  if (options.host === "codex" || options.host === "claude-code" || options.host === "trae") {
-    out(renderCheckoutMarkdown(presentation, plan) + "\n");
-  } else {
-    out(renderCheckoutText(presentation) + "\n");
-    if (plan.ideImageAttach) {
-      out(ideImageAttachBlock(plan.ideImageAttach).filter((l) => l.length > 0).join("\n") + "\n");
-    }
-    out(`hint: ${hintFor("checkout", presentation.checkout.status)}\n`);
+  const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand);
+  const plainResult = checkoutPlainResult(envelope.result);
+  if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
+    plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
   }
+  writeCommandEnvelope(envelope, {
+    ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+    ...(options.output ? { output: options.output } : {}),
+    plainResult,
+  });
 }
 
-function renderCheckoutText(presentation: Awaited<ReturnType<BackendClient["getCheckoutPresentation"]>>): string {
-  const lines: string[] = [];
-  const c = presentation.checkout;
-  lines.push(`checkout ${c.checkout_id}`);
-  lines.push(`  status:      ${c.status}`);
-  lines.push(`  next_action: ${c.next_action}`);
-  lines.push(`  amount:      ${formatMoney(c.amount_minor, c.currency)}`);
-  lines.push(`  buyer:       ${presentation.buyer_session.state}`);
-  if (presentation.items.length > 0) {
-    lines.push("  items:");
-    for (const item of presentation.items) {
-      lines.push(`    - ${item.title} × ${item.quantity} (${formatMoney(item.amount_minor, item.currency)})`);
-    }
+function pendingCheckoutEnvelope(
+  presentation: CheckoutPresentation,
+  checkoutURL: string,
+  plan: ReturnType<typeof buildCheckoutQRPlan>,
+  nextCommand: string,
+): CommandEnvelope {
+  const platform = platformKeyForHost(plan.host);
+  const handoff: Record<string, unknown> = { url: checkoutURL };
+  if (plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath) {
+    handoff.qr_local_path = plan.ideImageAttach.localPath;
   }
-  if (presentation.payment_intents.length > 0) {
-    lines.push("  payment_intents:");
-    for (const intent of presentation.payment_intents) {
-      lines.push(`    - ${intent.payment_intent_id} ${intent.status} (${intent.payment_method_type}, ${formatMoney(intent.amount_minor, intent.currency)})`);
-    }
+  if (platform === "markdown") {
+    handoff.markdown = buildAgentChatHandoff(plan).markdown;
+  } else if (platform === "plain_chat" && presentation.qr_png_url) {
+    handoff.qr_image_url = presentation.qr_png_url;
   }
-  return lines.join("\n");
+  return {
+    status: "human_checkout_required",
+    result: {
+      checkout_id: presentation.checkout.checkout_id,
+      payment: "pending",
+      amount: formatMoney(presentation.checkout.amount_minor, presentation.checkout.currency),
+    },
+    handoff,
+    instruction: pendingInstruction(platform),
+    next: { command: nextCommand, reason: "稍后查询同一笔 Checkout 状态" },
+    recovery: [],
+  };
 }
 
-function renderCheckoutMarkdown(presentation: Awaited<ReturnType<BackendClient["getCheckoutPresentation"]>>, plan: RenderPlan): string {
-  const c = presentation.checkout;
-  const lines: string[] = [];
-  lines.push(`## :mag: Checkout ${c.checkout_id}`);
-  lines.push("");
-
-  lines.push(`| 字段 | 值 |`);
-  lines.push(`|------|-----|`);
-  lines.push(`| 状态 | ${c.status} |`);
-  lines.push(`| 操作 | ${c.next_action} |`);
-  lines.push(`| 金额 | ${formatMoney(c.amount_minor, c.currency)} |`);
-  lines.push(`| 买家 | ${presentation.buyer_session.state} |`);
-  lines.push("");
-
-  if (presentation.items.length > 0) {
-    lines.push(`| 项目 | 数量 | 单价 |`);
-    lines.push(`|------|:----:|------|`);
-    for (const item of presentation.items) {
-      lines.push(`| ${item.title} | ${item.quantity} | ${formatMoney(item.amount_minor, item.currency)} |`);
+function terminalCheckoutEnvelope(presentation: CheckoutPresentation): CommandEnvelope {
+  const checkout = presentation.checkout;
+  const serviceExecutionIDs = [...new Set(
+    presentation.items.map((item) => item.service_execution_id).filter((id): id is string => Boolean(id)),
+  )];
+  const payment = checkout.status === "refunded" ? "refunded"
+    : checkout.status === "payment_succeeded" || checkout.status === "completed" ? "verified"
+      : checkout.status;
+  const result: Record<string, unknown> = {
+    checkout_id: checkout.checkout_id,
+    payment,
+    ...(presentation.completed_order_id ? { order_id: presentation.completed_order_id } : {}),
+    ...(serviceExecutionIDs.length === 1 ? { service_execution_id: serviceExecutionIDs[0] } : {}),
+    ...(serviceExecutionIDs.length > 1 ? { service_execution_ids: serviceExecutionIDs } : {}),
+  };
+  let status = checkout.status;
+  let instruction = "Checkout 已结束；不要再次展示付款二维码。";
+  let next: CommandAction | null = null;
+  const recovery: CommandAction[] = [];
+  if (payment === "verified") {
+    status = "completed";
+    instruction = "付款已确认，不要再次展示付款二维码。";
+    next = serviceExecutionIDs.length === 1
+      ? { command: `itpay services next ${serviceExecutionIDs[0]} --json`, reason: "读取履约状态" }
+      : presentation.completed_order_id
+        ? { command: `itpay order ${presentation.completed_order_id}`, reason: "读取已创建订单" }
+        : { command: "itpay orders", reason: "恢复已付款订单" };
+  } else if (checkout.status === "refunded") {
+    instruction = "该 Checkout 已退款，不要再次付款或展示二维码。";
+    if (presentation.completed_order_id) next = { command: `itpay order ${presentation.completed_order_id}`, reason: "读取订单与退款状态" };
+  } else if (checkout.status === "failed" || checkout.status === "expired") {
+    instruction = "该 Checkout 已失效；不要继续使用当前付款入口。";
+    if (serviceExecutionIDs.length === 1) {
+      recovery.push({ command: `itpay services next ${serviceExecutionIDs[0]} --json`, reason: "由服务端决定是否可恢复 Checkout" });
     }
-    lines.push("");
   }
+  return { status, result, instruction, next, recovery };
+}
 
-  if (presentation.payment_intents.length > 0) {
-    lines.push(`### :credit_card: 支付`);
-    lines.push("");
-    for (const intent of presentation.payment_intents) {
-      lines.push(`- \`${intent.payment_intent_id}\` — ${intent.payment_method_type} — ${intent.status} — ${formatMoney(intent.amount_minor, intent.currency)}`);
-    }
-    lines.push("");
-  }
+function checkoutNeedsHumanHandoff(status: string): boolean {
+  return !new Set(["payment_succeeded", "completed", "failed", "expired", "refunded"]).has(status);
+}
 
-  if (plan.ideImageAttach) {
-    lines.push(...ideImageAttachBlock(plan.ideImageAttach));
-  }
+function checkoutPlainResult(result: Record<string, unknown>): string[] {
+  return Object.entries(result).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
+}
 
-  lines.push(`> :bulb: ${hintFor("checkout", c.status)}`);
-  return lines.join("\n");
+function pendingInstruction(platform: ReturnType<typeof platformKeyForHost>): string {
+  if (platform === "markdown") return "把 handoff.markdown 原样发送到当前桌面对话；二维码和链接可见后等待用户操作，不要创建新 Checkout。";
+  if (platform === "terminal") return "在用户可见终端展示二维码和付款链接，然后等待用户操作；不要创建新 Checkout。";
+  return "把付款链接和可用二维码附件发送给用户，然后等待用户操作；不要创建新 Checkout。";
+}
+
+function formatMoney(amountMinor: number, currency: string): string {
+  return `${(amountMinor / 100).toFixed(2)} ${currency}`;
 }
 
 function checkoutPageURL(baseURL: string | undefined, checkoutID: string, displayToken: string): string {

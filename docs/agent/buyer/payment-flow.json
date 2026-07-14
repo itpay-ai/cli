@@ -2,76 +2,43 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "payment-flow",
-  "title": "ItPay V3 Payment Flow — From Checkout to Verified Payment",
-  "purpose": "Teach the agent how to hand a checkout to the human, let the ItPay checkout page create provider payment, and verify payment state.",
+  "title": "Human Checkout Handoff And Payment Verification",
+  "purpose": "Show the ItPay Checkout to the human and recover authoritative payment state without creating duplicate payment resources.",
   "when_to_use": [
-    "The agent has created a checkout and needs to hand it to the human.",
-    "The buyer wants to pay via Alipay or WeChat Pay.",
-    "The agent needs to wait for payment verification before confirming success."
+    "buy or services checkout returned human_checkout_required.",
+    "The agent restarted or lost the Checkout output before payment was confirmed."
   ],
   "commands": [
     {
-      "intent": "create checkout from a canonical server cart and render ItPay checkout page handoff",
-      "command": "itpay buy --cart <cart_id> --host <client> --contact-email <email>",
-      "success_signal": "ItPay checkout QR/URL is rendered for the human; payment intent is not created by the agent."
+      "intent": "present the Checkout handoff",
+      "command": "<execute the exact command returned by buy or services checkout>",
+      "success_signal": "the human can see both the ItPay Checkout QR or image and the Checkout URL"
     },
     {
-      "intent": "create service-execution quote lock and render ItPay checkout page handoff",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>]",
-      "success_signal": "The quote lock is bound to the original server cart item when present; ItPay checkout QR/URL is rendered for the human; the checkout page handles authorization and provider payment."
+      "intent": "read authoritative Checkout state",
+      "command": "itpay checkout --id <checkout_id> --token <display_token> --json",
+      "success_signal": "pending returns one human handoff; completed returns no payment handoff and routes to delivery"
     },
     {
-      "intent": "create service-execution checkout with machine-readable handoff",
-      "command": "itpay services checkout <service_execution_id> --capability <paid_capability_id> [--email <email>] --json",
-      "success_signal": "JSON with kind='checkout_handoff_required', next_action='open_human_checkout', checkout_url, display_token, qr_png_url, and brand_qr_local_path."
-    },
-    {
-      "intent": "recover a service checkout after output loss, process restart, or token expiry",
+      "intent": "recover a service Checkout handoff",
       "command": "itpay services checkout <service_execution_id> --resume --json",
-      "success_signal": "The existing checkout is reused and a fresh handoff is persisted before rendering."
-    },
-    {
-      "intent": "inspect checkout state after payment",
-      "command": "itpay checkout --id <checkout_id> --token <display_token>",
-      "success_signal": "Current checkout status, any payment intents, and buyer session state."
+      "success_signal": "the same unpaid Checkout is reused with a fresh short-lived handoff"
     }
   ],
-  "payment_flow_states": {
-    "quote_bound": "Checkout created, no payment intent yet. Show the ItPay checkout QR/URL to the human.",
-    "payment_pending": "Payment intent created, waiting for buyer to complete payment.",
-    "payment_succeeded": "Payment verified via SSE event payment_intent.verified.",
-    "completed": "Order delivered."
-  },
   "agent_rules": [
-    "Do not call itpay pay or use --pay for the normal buyer flow; those are operator escape hatches.",
-    "The human opens the ItPay checkout page first; the page handles authorization and creates the Alipay/WeChat payment intent.",
-    "For JSON output, render brand_qr_local_path or qr_png_url to the human; do not render provider qr.alipay.com directly.",
-    "After timeout, re-run checkout --id ... --token ... to check current state before retrying.",
-    "Payment success is confirmed ONLY by backend events, not by QR display or buyer claim."
+    "Normal buyer flow opens the ItPay Checkout page; itpay pay and buy --pay are operator escape hatches.",
+    "Use only handoff fields returned for the current Host and make them actually visible to the human.",
+    "Payment is verified only by Backend Checkout or Order state, never by QR rendering, redirect, or user claim.",
+    "A terminal payment state must never display another payment handoff."
+  ],
+  "forbidden": [
+    "Do not render a provider QR in place of the ItPay Checkout handoff.",
+    "Do not mix a display token from another Checkout.",
+    "Do not create a replacement Checkout after an uncertain response; recover first."
   ],
   "next_docs": [
-    {
-      "condition": "Payment verified, need to check order state",
-      "topic": "orders-refunds",
-      "file": "docs/agent/buyer/orders-refunds.json"
-    },
-    {
-      "condition": "Need to understand render behavior per host",
-      "topic": "render-hosts",
-      "file": "docs/agent/buyer/render-hosts.json"
-    }
+    { "condition": "Payment is verified", "topic": "orders-refunds" },
+    { "condition": "The current Host cannot display the handoff", "topic": "render-hosts" }
   ],
-  "search_terms": [
-    "payment",
-    "pay",
-    "alipay",
-    "wechat",
-    "QR",
-    "payment intent",
-    "wait",
-    "SSE",
-    "verified",
-    "支付",
-    "扫码"
-  ]
+  "search_terms": ["payment", "checkout", "QR", "display token", "resume", "verified"]
 }

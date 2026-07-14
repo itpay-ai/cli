@@ -7,10 +7,6 @@ export function formatMoney(amountMinor: number, currency: string): string {
   return `${major} ${currency}`;
 }
 
-export function renderReady(payload: { status: string; version: string }): string {
-  return `backend ${payload.status} (version ${payload.version})`;
-}
-
 export function renderOrder(order: Order): string {
   const lines: string[] = [];
   lines.push(`order ${order.order_id}`);
@@ -44,6 +40,8 @@ export function renderRefund(refund: RefundRequest): string {
     `  status:  ${refund.status}`,
     `  amount:  ${formatMoney(refund.amount_minor, refund.currency)}`,
     refund.reason ? `  reason:  ${refund.reason}` : "",
+	`  access:  ${refund.access_locked ? "locked" : "available"}`,
+	`  policy:  ${refund.decision_mode === "automatic" ? "automatic" : "admin review"}`,
   ]
     .filter((line) => line.length > 0)
     .join("\n");

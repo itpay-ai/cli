@@ -2,75 +2,53 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "orders-refunds",
-  "title": "Orders, Payment Escape Hatch, And Refund Requests",
-  "purpose": "Teach the agent how to inspect orders and create refund requests with the current V3 CLI package.",
+  "title": "Order, Delivery And Refund Recovery",
+  "purpose": "Read owned orders and manage refunds through signed Agent authority without guessing payment or refund state.",
   "when_to_use": [
-    "The user wants to inspect one order.",
-    "The agent needs to list orders for an account-scoped bearer session.",
-    "The user wants to request a refund.",
-    "The checkout page is unavailable and the operator needs the payment-intent escape hatch."
+    "An order or Service Execution was interrupted after payment.",
+    "The buyer asks to request, track, or cancel a refund."
   ],
-  "required_state": {
-    "needs": [
-      "order_id for order or refund flows",
-      "ITPAY_BEARER_TOKEN for refund flows"
-    ],
-    "optional": [
-      "refund reason; defaults to buyer_requested"
-    ]
-  },
   "commands": [
     {
-      "intent": "read one canonical order by id",
-      "command": "itpay order <order_id>",
-      "success_signal": "order details and a status hint are printed"
+      "intent": "read one order",
+      "command": "itpay --agent-type <agent_type> order <order_id> --json",
+      "success_signal": "one compact owned-order summary and one current next step are returned"
     },
     {
-      "intent": "list account-visible orders",
-      "command": "ITPAY_BEARER_TOKEN=<account_scoped_token> itpay orders --limit 20",
-      "success_signal": "orders are listed, or the CLI prints that no orders were found"
+      "intent": "request a refund",
+      "command": "itpay --agent-type <agent_type> refund create --order <order_id> --reason buyer_requested --json",
+      "success_signal": "the Refund Owner returns its request id, policy status, consumption state, and access lock"
     },
     {
-      "intent": "create a payment intent only when the normal checkout page cannot do it",
-      "command": "itpay pay --checkout <checkout_id> --method alipay",
-      "success_signal": "payment_intent_id and current payment state are printed"
+      "intent": "recover one refund",
+      "command": "itpay --agent-type <agent_type> refund get <refund_request_id> --json",
+      "success_signal": "one authoritative refund snapshot is returned"
     },
     {
-      "intent": "request a refund for an order",
-      "command": "ITPAY_BEARER_TOKEN=<account_scoped_token> itpay refund --order <order_id> --reason buyer_requested",
-      "success_signal": "refund request id and refund status are printed"
+      "intent": "wait through provider processing",
+      "command": "itpay --agent-type <agent_type> refund watch <refund_request_id> --json",
+      "success_signal": "one terminal refund envelope or one resumable timeout envelope is returned"
+    },
+    {
+      "intent": "cancel before provider submission",
+      "command": "itpay --agent-type <agent_type> refund cancel <refund_request_id> --json",
+      "success_signal": "the Refund Owner cancels the request and requires a new delivery authorization"
     }
   ],
   "agent_rules": [
-    "Use itpay order when you already know the exact order id.",
-    "Use itpay orders only with an account-scoped bearer token. Missing or wrong scope should be surfaced as an error, not guessed away.",
-    "Treat itpay pay as an operator escape hatch. The checkout handoff remains the preferred path.",
-    "Never ask the user or client to supply refund payment ids, amount, currency, buyer id, or actor; the backend derives them from the owned order.",
-    "The refund response is the current source of truth; do not assume success locally."
+    "The Backend derives payment, amount, currency, Buyer and refund policy from the owned order.",
+    "A refund request freezes all delivery paths and revokes existing grants immediately.",
+    "Cancellation or rejection restores eligibility but never reactivates an old grant.",
+    "Use get or watch after interruption; do not infer success from elapsed time.",
+    "Account-wide orders requires an account-scoped Buyer bearer; exact order and refund routes support the bound signed Agent where documented."
   ],
   "forbidden": [
-    "Do not fabricate bearer tokens.",
-    "Do not create a payment intent first if normal checkout rendering is available.",
-    "Do not claim a refund succeeded before the backend response says so."
+    "Do not fabricate Buyer sessions, Device IDs or payment references.",
+    "Do not read delivery while refund access_locked is true.",
+    "Do not claim a refund succeeded before the Refund Owner says succeeded."
   ],
   "next_docs": [
-    {
-      "condition": "Need the initial buyer flow",
-      "topic": "quickstart",
-      "file": "docs/agent/buyer/quickstart.json"
-    },
-    {
-      "condition": "Need host-specific render behavior for checkout handoff",
-      "topic": "render-hosts",
-      "file": "docs/agent/buyer/render-hosts.json"
-    }
+    { "condition": "Need the original purchase path", "topic": "quickstart" }
   ],
-  "search_terms": [
-    "order",
-    "orders",
-    "refund",
-    "payment intent",
-    "退款",
-    "订单"
-  ]
+  "search_terms": ["order", "refund", "cancel", "watch", "delivery lock", "grant"]
 }

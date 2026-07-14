@@ -29,6 +29,7 @@ export interface RecordedRequest {
 export interface MockBackendHandle {
   url: string;
   requests: RecordedRequest[];
+  setAccountOrders: (orders: Array<Record<string, unknown>>) => void;
   close: () => Promise<void>;
 }
 
@@ -39,18 +40,45 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   let cartCounter = 1;
   let checkoutCounter = 1;
   let paymentIntentCounter = 1;
-  let orderCounter = 1;
   let refundCounter = 1;
+  let serviceExecutionCounter = 1;
   let pendingAgentType = "codex-cli";
   let serviceHandoffCounter = 1;
   const agentInstances = new Map<string, string>();
-  const serviceCheckouts = new Map<string, { checkoutID: string; cartID: string }>();
+  const serviceCheckouts = new Map<string, { checkoutID: string; cartID: string; capabilityID: string; lockedInput: Record<string, unknown> }>();
+	const serviceQuotes = new Map<string, { serviceExecutionID: string; capabilityID: string; amountMinor: number }>();
 
   const carts: Record<string, Record<string, unknown>> = {};
   const serviceExecutions: Record<string, Record<string, unknown>> = {};
-  const ordersByBuyer: Record<string, Array<Record<string, unknown>>> = {};
   let accountOrders: Array<Record<string, unknown>> = [];
-  const orderByID: Record<string, Record<string, unknown>> = {};
+  const orderByID: Record<string, Record<string, unknown>> = {
+    ord_delivery: {
+      order_id: "ord_delivery", order_code: "IP-DELIVERY", checkout_id: "chk_delivery", status: "delivered",
+      amount_minor: 50, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ title: "Protected result", quantity: 1, amount_minor: 50, currency: "CNY" }],
+      delivery_artifacts: [{
+        delivery_artifact_id: "da_delivery", order_id: "ord_delivery", service_execution_id: "se_granted",
+        vault_artifact_id: "vault_se_granted", status: "claimable", artifact_type: "service_result",
+        sensitive_content_redacted: true,
+      }],
+    },
+    ord_agent_visible: {
+      order_id: "ord_agent_visible", order_code: "IP-VISIBLE", checkout_id: "chk_visible", status: "delivered",
+      amount_minor: 10, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ title: "Agent-visible result", quantity: 1, amount_minor: 10, currency: "CNY" }],
+      delivery_artifacts: [],
+    },
+    ord_locked: {
+      order_id: "ord_locked", order_code: "IP-LOCKED", checkout_id: "chk_locked", status: "delivered",
+      amount_minor: 50, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ title: "Locked result", quantity: 1, amount_minor: 50, currency: "CNY" }],
+      delivery_artifacts: [{
+        delivery_artifact_id: "da_locked", order_id: "ord_locked", service_execution_id: "se_vault_denied",
+        vault_artifact_id: "vault_locked", status: "claimable", artifact_type: "service_result",
+        sensitive_content_redacted: true,
+      }],
+    },
+  };
 
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -107,6 +135,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             provider: "qizhidao",
             service_type: "company_lookup",
             category: "enterprise_data",
+            service_id: "svc_qizhidao_company_lookup",
             service_flow: {
               discovery: {
                 role: "subject_disambiguation",
@@ -194,9 +223,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     if (method === "POST" && path === "/v1/carts") {
       const payload = (requests.at(-1)?.body ?? {}) as { currency?: string; items?: unknown[] };
       const cartID = `cart_${cartCounter++}`;
-      const amountMinor = (payload.items?.length ?? 1) * 100;
-      const firstItem = (payload.items?.[0] ?? {}) as { catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
-      const serviceExecutionID = firstItem.catalog_item_id === "cat_service" ? "se_mock_1" : undefined;
+			const firstItem = (payload.items?.[0] ?? {}) as { service_quote_lock_id?: string; catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
+			const quote = firstItem.service_quote_lock_id ? serviceQuotes.get(firstItem.service_quote_lock_id) : undefined;
+			const amountMinor = quote?.amountMinor ?? (payload.items?.length ?? 1) * 100;
+			const serviceExecutionID = quote?.serviceExecutionID ?? (firstItem.catalog_item_id === "cat_service" ? "se_mock_1" : undefined);
       if (serviceExecutionID) {
         serviceExecutions[serviceExecutionID] = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
       }
@@ -215,9 +245,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             ...(firstItem.catalog_item_id ? { catalog_item_id: firstItem.catalog_item_id } : {}),
             ...(firstItem.catalog_variant_id ? { catalog_variant_id: firstItem.catalog_variant_id } : {}),
             ...(firstItem.offer_id ? { offer_id: firstItem.offer_id } : {}),
-            ...(serviceExecutionID ? {
-              service_execution_id: serviceExecutionID,
-              service_capability_id: "precise_lookup",
+					...(serviceExecutionID ? {
+						service_execution_id: serviceExecutionID,
+						...(firstItem.service_quote_lock_id ? { service_quote_lock_id: firstItem.service_quote_lock_id } : {}),
+						service_capability_id: quote?.capabilityID ?? "precise_lookup",
               next_action: "invoke_capability",
               checkout_required: false,
             } : {}),
@@ -232,7 +263,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const cartItemAddMatch = path.match(/^\/v1\/carts\/([^/]+)\/items$/);
     if (method === "POST" && cartItemAddMatch) {
       const cartID = cartItemAddMatch[1]!;
-      const payload = (requests.at(-1)?.body ?? {}) as { catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
+			const payload = (requests.at(-1)?.body ?? {}) as { service_quote_lock_id?: string; catalog_item_id?: string; catalog_variant_id?: string; offer_id?: string };
       const cart = carts[cartID] ?? {
         cart_id: cartID,
         status: "active",
@@ -240,7 +271,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         currency: "CNY",
         items: [],
       };
-      const serviceExecutionID = payload.catalog_item_id === "cat_service" ? "se_mock_1" : undefined;
+			const quote = payload.service_quote_lock_id ? serviceQuotes.get(payload.service_quote_lock_id) : undefined;
+			const serviceExecutionID = quote?.serviceExecutionID ?? (payload.catalog_item_id === "cat_service" ? "se_mock_1" : undefined);
       if (serviceExecutionID) {
         serviceExecutions[serviceExecutionID] = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
       }
@@ -248,18 +280,20 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         cart_item_id: `ci_${(cart.items as unknown[]).length + 1}`,
         title: serviceExecutionID ? "企知道企业查询" : "Mock Item",
         quantity: 1,
-        amount_minor: 100,
+		amount_minor: quote?.amountMinor ?? 100,
         currency: "CNY",
         catalog_item_id: payload.catalog_item_id,
         catalog_variant_id: payload.catalog_variant_id,
         offer_id: payload.offer_id,
-        ...(serviceExecutionID ? {
-          service_execution_id: serviceExecutionID,
-          service_capability_id: "precise_lookup",
+				...(serviceExecutionID ? {
+					service_execution_id: serviceExecutionID,
+					...(payload.service_quote_lock_id ? { service_quote_lock_id: payload.service_quote_lock_id } : {}),
+					service_capability_id: quote?.capabilityID ?? "precise_lookup",
           next_action: "invoke_capability",
           checkout_required: false,
         } : {}),
-      });
+			});
+			cart.amount_minor = (cart.items as Array<{ amount_minor: number }>).reduce((sum, item) => sum + item.amount_minor, 0);
       carts[cartID] = cart;
       respond(res, 200, cart);
       return;
@@ -268,6 +302,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const cartGetMatch = path.match(/^\/v1\/carts\/([^/]+)$/);
     if (method === "GET" && cartGetMatch) {
       const cartID = cartGetMatch[1]!;
+      if (cartID === "cart_missing") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
       respond(res, 200, carts[cartID] ?? {
         cart_id: cartID,
         status: "active",
@@ -308,14 +346,57 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    if (method === "POST" && path === "/v1/service-executions") {
+      const serviceExecutionID = `se_started_${serviceExecutionCounter++}`;
+      const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+      serviceExecutions[serviceExecutionID] = model;
+      respond(res, 201, {
+        execution: model.execution,
+        capabilities: model.capabilities,
+        graph_id: "csg_mock",
+      });
+      return;
+    }
+
     if (method === "GET" && path === "/v1/service-executions") {
       respond(res, 200, { executions: Object.values(serviceExecutions) });
+      return;
+    }
+
+    const serviceEventsMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/events$/);
+    if (method === "GET" && serviceEventsMatch) {
+      const serviceExecutionID = serviceEventsMatch[1]!;
+      if (serviceExecutionID === "se_missing") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      const afterSequence = Number(url.searchParams.get("after_sequence") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const events = Array.from({ length: 6 }, (_, index) => ({
+        service_execution_event_id: `see_secret_${index + 1}`,
+        service_execution_id: serviceExecutionID,
+        sequence: index + 1,
+        type: index === 5 ? "delivery.issued" : "capability.progressed",
+        status: index === 5 ? "delivery_issued" : "running",
+        phase: index === 5 ? "delivery" : "pre_purchase",
+        capability_id: "generic_capability",
+        redacted_summary: {
+          provider_header: "must_not_leak",
+          selected_candidate_hash: "must_not_leak",
+        },
+        occurred_at: `2026-07-13T12:0${index}:00Z`,
+      })).filter((event) => event.sequence > afterSequence).slice(0, limit);
+      respond(res, 200, { events });
       return;
     }
 
     const serviceGetMatch = path.match(/^\/v1\/service-executions\/([^/]+)$/);
     if (method === "GET" && serviceGetMatch) {
       const serviceExecutionID = serviceGetMatch[1]!;
+      if (serviceExecutionID === "se_missing") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
       respond(res, 200, serviceExecutions[serviceExecutionID] ?? mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability"));
       return;
     }
@@ -373,33 +454,67 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     }
 
     const serviceActionMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/actions$/);
-    if (method === "POST" && serviceActionMatch) {
-      const serviceExecutionID = serviceActionMatch[1]!;
-      const payload = (requests.at(-1)?.body ?? {}) as { action_type?: string; result_item_id?: string; selected_candidate_hash?: string };
-      serviceExecutions[serviceExecutionID] = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
+		if (method === "POST" && serviceActionMatch) {
+			const serviceExecutionID = serviceActionMatch[1]!;
+			const payload = (requests.at(-1)?.body ?? {}) as { action_type?: string; actor_type?: string; status?: string; result_item_id?: string };
+			const selected = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
+			selected.execution = {
+				...(selected.execution as Record<string, unknown>),
+				status: "human_action_approved",
+				phase: "pre_purchase",
+				current_capability_id: "fuzzy_disambiguation",
+				checkout_required: false,
+				next_action: "create_checkout",
+			};
+			selected.allowed_actions = [{
+				type: "prepare_quote",
+				capability_id: "precise_report",
+				source_capability_id: "fuzzy_disambiguation",
+				requires_human: false,
+			}];
+			serviceExecutions[serviceExecutionID] = selected;
       respond(res, 201, {
         service_execution_action_id: "sea_1",
         service_execution_id: serviceExecutionID,
         action_type: payload.action_type ?? "select_candidate",
-        status: "pending",
-        actor_type: "agent",
+        status: payload.status ?? "pending",
+        actor_type: payload.actor_type ?? "agent",
         result_item_id: payload.result_item_id,
-        selected_candidate_hash: payload.selected_candidate_hash,
       });
       return;
     }
 
+		const serviceQuoteMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/quotes$/);
+		if (method === "POST" && serviceQuoteMatch) {
+			const serviceExecutionID = serviceQuoteMatch[1]!;
+			const payload = (requests.at(-1)?.body ?? {}) as { capability_id?: string };
+			const capabilityID = payload.capability_id ?? "precise_report";
+			const quoteID = `sqlock_${serviceExecutionID}_${capabilityID}`;
+			const amountMinor = capabilityID.includes("fuzzy") ? 10 : 50;
+			serviceQuotes.set(quoteID, { serviceExecutionID, capabilityID, amountMinor });
+			respond(res, 201, {
+				service_quote_lock_id: quoteID,
+				service_execution_id: serviceExecutionID,
+				capability_id: capabilityID,
+				amount_minor: amountMinor,
+				currency: "CNY",
+				expires_at: "2026-07-13T12:15:00Z",
+			});
+			return;
+		}
+
     if (method === "POST" && path === "/v1/checkouts") {
       const checkoutID = `chk_${checkoutCounter++}`;
       const payload = (requests.at(-1)?.body ?? {}) as { cart_id?: string; client_reference_id?: string };
-      const checkoutURL = `https://sandbox.itpay.ai/checkout/${checkoutID}`;
+			const cart = payload.cart_id ? carts[payload.cart_id] : undefined;
+			const checkoutURL = `https://sandbox.itpay.ai/checkout/${checkoutID}`;
       const displayToken = `cdt_${checkoutID}_secret`;
       respond(res, 201, {
         checkout: {
           checkout_id: checkoutID,
           status: "quote_bound",
           next_action: "open_checkout",
-          amount_minor: 100,
+					amount_minor: Number(cart?.amount_minor ?? 100),
           currency: "CNY",
         },
         checkout_url: checkoutURL,
@@ -414,15 +529,23 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const serviceCheckoutMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/checkout$/);
     if (method === "POST" && serviceCheckoutMatch) {
       const serviceExecutionID = serviceCheckoutMatch[1]!;
-      const requestBody = (requests.at(-1)?.body ?? {}) as { resume?: boolean };
+      const requestBody = (requests.at(-1)?.body ?? {}) as {
+        resume?: boolean;
+        capability_id?: string;
+        locked_input?: Record<string, unknown>;
+      };
       const existing = serviceCheckouts.get(serviceExecutionID);
       const checkoutID = existing?.checkoutID ?? `chk_${checkoutCounter++}`;
       const cartID = existing?.cartID ?? `cart_${cartCounter++}`;
-      serviceCheckouts.set(serviceExecutionID, { checkoutID, cartID });
+      const capabilityID = requestBody.capability_id ?? existing?.capabilityID ?? "precise_report";
+      const lockedInput = requestBody.locked_input ?? existing?.lockedInput ?? {};
+      serviceCheckouts.set(serviceExecutionID, { checkoutID, cartID, capabilityID, lockedInput });
       const checkoutURL = `https://sandbox.itpay.ai/checkout/${checkoutID}`;
       const displayToken = `cdt_${checkoutID}_${serviceHandoffCounter++}`;
       respond(res, requestBody.resume ? 200 : 201, {
         service_quote_lock_id: `sqlock_${serviceExecutionID}`,
+        capability_id: capabilityID,
+        locked_input: lockedInput,
         handoff_reissued: Boolean(requestBody.resume),
         cart: {
           cart_id: cartID,
@@ -435,7 +558,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             amount_minor: 50,
             currency: "CNY",
             service_execution_id: serviceExecutionID,
-            service_capability_id: "precise_report",
+            service_capability_id: capabilityID,
           }],
         },
         checkout: {
@@ -465,11 +588,16 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const grantedResultMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/granted-result$/);
     if (method === "GET" && grantedResultMatch) {
       const serviceExecutionID = grantedResultMatch[1]!;
+      if (serviceExecutionID === "se_vault_none" || serviceExecutionID === "se_vault_denied") {
+        respond(res, 403, { code: "agent_access_denied", message: "an active agent read grant is required" });
+        return;
+      }
       respond(res, 200, {
         service_execution_id: serviceExecutionID,
         vault_artifact_id: `vault_${serviceExecutionID}`,
         agent_read_grant_id: `grant_${serviceExecutionID}`,
         grant_status: "active",
+        expires_at: "2026-07-13T12:15:00Z",
         result: { summary: "granted" },
       });
       return;
@@ -492,8 +620,40 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const presentationMatch = path.match(/^\/v1\/checkouts\/([^/]+)\/presentation$/);
     if (method === "GET" && presentationMatch) {
       const checkoutID = presentationMatch[1];
+      const serviceCheckoutEntry = [...serviceCheckouts.entries()].find(([, checkout]) => checkout.checkoutID === checkoutID);
+      const serviceExecutionID = serviceCheckoutEntry?.[0];
+      const serviceCheckout = serviceCheckoutEntry?.[1];
       if (url.searchParams.get("display_token") === "cdt_expired") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      if (checkoutID === "chk_completed") {
+        respond(res, 200, {
+          checkout: {
+            checkout_id: checkoutID,
+            status: "completed",
+            next_action: "none",
+            amount_minor: 50,
+            currency: "CNY",
+          },
+          items: [{
+            title: "Mock Service Result",
+            quantity: 1,
+            amount_minor: 50,
+            currency: "CNY",
+            service_execution_id: "se_completed",
+          }],
+          payment_intents: [{
+            payment_intent_id: "pi_completed",
+            checkout_id: checkoutID,
+            status: "verified",
+            payment_method_type: "alipay",
+            amount_minor: 50,
+            currency: "CNY",
+          }],
+          buyer_session: { state: "account" },
+          completed_order_id: "ord_completed",
+        });
         return;
       }
       respond(res, 200, {
@@ -501,10 +661,19 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           checkout_id: checkoutID,
           status: "quote_bound",
           next_action: "open_checkout",
-          amount_minor: 100,
+          amount_minor: serviceCheckout ? 50 : 100,
           currency: "CNY",
         },
-        items: [{ title: "Mock Item", quantity: 1, amount_minor: 100, currency: "CNY" }],
+        items: [{
+          title: serviceCheckout ? "企知道企业精准报告" : "Mock Item",
+          quantity: 1,
+          amount_minor: serviceCheckout ? 50 : 100,
+          currency: "CNY",
+          ...(serviceCheckout ? {
+            service_execution_id: serviceExecutionID,
+            service_capability_id: serviceCheckout.capabilityID,
+          } : {}),
+        }],
         payment_intents: [],
         buyer_session: { state: "anonymous" },
       });
@@ -515,36 +684,19 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     if (method === "POST" && piMatch) {
       const checkoutID = piMatch[1];
       const intentID = `pi_${paymentIntentCounter++}`;
-      const orderID = `ord_${orderCounter++}`;
-      const buyerID = "buyer_test";
-      const order = {
-        order_id: orderID,
-        checkout_id: checkoutID,
-        status: "delivery_pending",
-        amount_minor: 100,
-        currency: "CNY",
-        paid_at: "2026-07-05T12:00:00Z",
-        items: [{ title: "Mock Item", quantity: 1, amount_minor: 100, currency: "CNY" }],
-        delivery_artifacts: [
-          {
-            delivery_artifact_id: `da_${orderID}`,
-            order_id: orderID,
-            status: "claimable",
-            artifact_type: "link",
-            sensitive_content_redacted: true,
-          },
-        ],
-      };
-      orderByID[orderID] = order;
-      (ordersByBuyer[buyerID] ??= []).push(order);
-      accountOrders = ordersByBuyer[buyerID]!;
+      const paymentMethod = String(requests.at(-1)?.body?.payment_method_type ?? "alipay");
+      const status = checkoutID?.includes("verified") ? "verified" : checkoutID?.includes("refunded") ? "refunded" : "waiting_user_payment";
       respond(res, 202, {
         payment_intent_id: intentID,
         checkout_id: checkoutID,
-        status: "waiting_user_payment",
-        payment_method_type: "alipay",
+        status,
+        payment_method_type: paymentMethod,
         amount_minor: 100,
         currency: "CNY",
+        ...(status === "waiting_user_payment" ? { action: {
+          qr_image_url: `https://qr.alipay.com/mock-${intentID}`,
+          mobile_wallet_url: `alipays://platformapi/startapp?payment_intent_id=${intentID}`,
+        } } : {}),
       });
       return;
     }
@@ -558,6 +710,24 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         return;
       }
       respond(res, 200, order);
+      return;
+    }
+
+    const orderDeliveryAccessMatch = path.match(/^\/v1\/orders\/([^/]+)\/delivery-access$/);
+    if (method === "GET" && orderDeliveryAccessMatch) {
+      const orderID = orderDeliveryAccessMatch[1]!;
+      if (!orderByID[orderID]) {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      const agentVisible = orderID === "ord_agent_visible";
+      respond(res, 200, {
+        order_id: orderID,
+        service_execution_id: agentVisible ? "se_agent_visible" : orderID === "ord_locked" ? "se_vault_denied" : "se_granted",
+        ...(agentVisible ? {} : { delivery_artifact_id: `da_${orderID.replace("ord_", "")}`, vault_artifact_id: `vault_${orderID.replace("ord_", "")}` }),
+        status: "completed",
+        delivery_mode: agentVisible ? "agent_visible_result" : "vault_artifact",
+      });
       return;
     }
 
@@ -576,8 +746,17 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     }
 
     const refundMatch = path.match(/^\/v1\/orders\/([^/]+)\/refunds$/);
+    if (method === "GET" && refundMatch) {
+      const orderID = refundMatch[1]!;
+      respond(res, 200, { refunds: orderID === "ord_locked" ? [{
+        refund_request_id: "rr_locked", order_id: orderID, status: "accepted", amount_minor: 50, currency: "CNY",
+        decision_mode: "automatic", consumption_state: "unconsumed", access_locked: true, can_cancel: true,
+        created_at: "2026-07-13T12:00:00Z",
+      }] : [] });
+      return;
+    }
     if (method === "POST" && refundMatch) {
-      if (bearer !== "Bearer account_token") {
+	  if (bearer !== "Bearer account_token" && !bearer.startsWith("ItPayDevice ")) {
         respond(res, 401, { code: "session_required", message: "account bearer required" });
         return;
       }
@@ -586,13 +765,47 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       respond(res, 202, {
         refund_request_id: `rr_${refundCounter++}`,
         order_id: orderID,
-        status: "requested",
+		status: "accepted",
         amount_minor: 100,
         currency: "CNY",
         reason: payload.reason,
+		decision_mode: "automatic",
+		consumption_state: "unconsumed",
+		access_locked: true,
+		can_cancel: true,
+		created_at: "2026-07-13T12:00:00Z",
       });
       return;
     }
+
+	const refundReadMatch = path.match(/^\/v1\/refunds\/([^/]+)$/);
+	if (method === "GET" && refundReadMatch) {
+		if (refundReadMatch[1] === "rr_missing") {
+			respond(res, 404, { code: "not_found", message: "resource not found" });
+			return;
+		}
+		const succeeded = refundReadMatch[1] === "rr_succeeded";
+		const manual = refundReadMatch[1] === "rr_manual";
+		respond(res, 200, {
+			refund_request_id: refundReadMatch[1], order_id: "ord_42",
+			status: succeeded ? "succeeded" : manual ? "policy_review_required" : "accepted",
+			amount_minor: 100, currency: "CNY",
+			decision_mode: manual ? "manual" : "automatic",
+			consumption_state: manual ? "consumed" : "unconsumed",
+			access_locked: true, can_cancel: !succeeded,
+			created_at: "2026-07-13T12:00:00Z",
+		});
+		return;
+	}
+	const refundCancelMatch = path.match(/^\/v1\/refunds\/([^/]+)\/cancel$/);
+	if (method === "POST" && refundCancelMatch) {
+		if (refundCancelMatch[1] === "rr_too_late") {
+			respond(res, 409, { code: "refund_cancellation_too_late", message: "refund cancellation is too late" });
+			return;
+		}
+		respond(res, 200, { refund_request_id: refundCancelMatch[1], order_id: "ord_42", status: "cancelled", amount_minor: 100, currency: "CNY", decision_mode: "automatic", consumption_state: "unconsumed", access_locked: false, can_cancel: false, created_at: "2026-07-13T12:00:00Z" });
+		return;
+	}
 
     respond(res, 404, { code: "not_found", message: `no mock for ${method} ${path}` });
   }
@@ -604,6 +817,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   return {
     url,
     requests,
+    setAccountOrders: (orders) => { accountOrders = orders; },
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
@@ -618,6 +832,10 @@ function respond(res: http.ServerResponse, status: number, body: unknown): void 
 
 function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: string): Record<string, unknown> {
   const checkoutRequired = nextAction === "create_checkout";
+  const agentVisible = serviceExecutionID === "se_agent_visible";
+  const refundLocked = serviceExecutionID === "se_refund_locked";
+  const vaultDelivery = serviceExecutionID === "se_granted" || serviceExecutionID === "se_vault_none" || serviceExecutionID === "se_vault_denied" || refundLocked;
+  const grantActive = serviceExecutionID === "se_granted";
   return {
     execution: {
       service_execution_id: serviceExecutionID,
@@ -625,11 +843,11 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
       service_contract_version_id: "sdcv_mock",
       compiled_service_graph_id: "csg_mock",
       agent_device_id: "agent_smoke",
-      status: checkoutRequired ? "quote_locked" : "running",
-      phase: checkoutRequired ? "quote" : "pre_purchase",
-      current_capability_id: checkoutRequired ? "precise_lookup" : "fuzzy_disambiguation",
+		status: agentVisible ? "completed" : vaultDelivery ? (grantActive ? "grant_available" : "delivery_issued") : checkoutRequired ? "quote_locked" : nextAction === "select_candidate" ? "human_action_required" : "running",
+      phase: agentVisible ? "completed" : vaultDelivery ? "delivery" : checkoutRequired ? "quote" : "pre_purchase",
+      current_capability_id: agentVisible ? "public_result" : checkoutRequired ? "precise_lookup" : "fuzzy_disambiguation",
       checkout_required: checkoutRequired,
-      next_action: nextAction,
+      next_action: agentVisible ? "completed" : vaultDelivery ? "view_delivery" : nextAction,
       started_at: "2026-07-05T12:00:00Z",
       created_at: "2026-07-05T12:00:00Z",
       updated_at: "2026-07-05T12:00:00Z",
@@ -640,12 +858,12 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
         phase: "pre_purchase",
         agent_visible: true,
         requires_payment: false,
-        requires_human_action: false,
+        requires_human_action: true,
         vault_required: false,
         delivery_email_required: false,
         free_quota_limit: 3,
         quota_subject: "agent_device",
-        input_schema: { type: "object" },
+        input_schema: { type: "object", required: ["keyword"] },
         output_schema: { type: "object" },
       },
       {
@@ -684,30 +902,127 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
         delivery_email_required: false,
         price_amount_minor: 10,
         price_currency: "CNY",
-        input_schema: { type: "object" },
+        input_schema: { type: "object", required: ["keyword"] },
         output_schema: { type: "object" },
       },
     ],
-    events: [],
-    result_items: nextAction === "select_candidate"
+    events: serviceExecutionID === "se_timeline"
+      ? Array.from({ length: 25 }, (_, index) => ({
+          service_execution_event_id: `see_${index + 1}`,
+          service_execution_id: serviceExecutionID,
+          sequence: index + 1,
+          type: index === 24 ? "delivery.issued" : "capability.progressed",
+          status: index === 24 ? "delivery_issued" : "running",
+          phase: index === 24 ? "delivery" : "pre_purchase",
+          capability_id: "generic_capability",
+          redacted_summary: { internal_ref: "must_not_leak" },
+          occurred_at: `2026-07-13T12:${String(index).padStart(2, "0")}:00Z`,
+        }))
+      : [],
+    result_items: agentVisible
+      ? [{
+          service_capability_result_item_id: "scri_visible_1",
+          service_execution_id: serviceExecutionID,
+          capability_id: "public_result",
+          rank: 1,
+          display_title: "Example result",
+          safe_payload: { name: "Example result", status: "active" },
+          created_at: "2026-07-13T12:00:00Z",
+        }]
+      : nextAction === "select_candidate"
       ? [{
           service_capability_result_item_id: "scri_1",
           service_execution_id: serviceExecutionID,
           capability_id: "fuzzy_disambiguation",
-          stable_hash: "hash_candidate_1",
           rank: 1,
           display_title: "小米汽车科技有限公司",
           safe_payload: { company_name: "小米汽车科技有限公司" },
           created_at: "2026-07-05T12:00:00Z",
         }]
-      : [],
+		: [],
+	current_result_items: agentVisible
+		? [{
+				service_capability_result_item_id: "scri_visible_1",
+				service_execution_id: serviceExecutionID,
+				capability_id: "public_result",
+				rank: 1,
+				display_title: "Example result",
+				safe_payload: { name: "Example result", status: "active" },
+				created_at: "2026-07-13T12:00:00Z",
+			}]
+		: nextAction === "select_candidate"
+			? [{
+					service_capability_result_item_id: "scri_1",
+					service_execution_id: serviceExecutionID,
+					capability_id: "fuzzy_disambiguation",
+					rank: 1,
+					display_title: "小米汽车科技有限公司",
+					safe_payload: { company_name: "小米汽车科技有限公司" },
+					created_at: "2026-07-05T12:00:00Z",
+				}]
+			: [],
+	allowed_actions: vaultDelivery || agentVisible
+		? []
+		: nextAction === "select_candidate"
+			? [{ type: "select_candidate", source_capability_id: "fuzzy_disambiguation", requires_human: true }]
+			: checkoutRequired
+				? [{ type: "prepare_quote", capability_id: "precise_lookup", source_capability_id: "fuzzy_disambiguation", requires_human: false }]
+				: [{ type: "invoke_capability", capability_id: "fuzzy_disambiguation", requires_human: false }],
     actions: [],
     checkout_bindings: [],
     payment_bindings: [],
     execution_requests: [],
     provider_invocations: [],
-    delivery_bindings: [],
+    delivery_bindings: agentVisible
+      ? [{
+          service_delivery_binding_id: "sdb_visible",
+          service_execution_id: serviceExecutionID,
+          order_id: "ord_visible",
+          status: "completed",
+          redacted_summary: { delivery_mode: "agent_visible_result" },
+        }]
+      : vaultDelivery
+        ? [{
+            service_delivery_binding_id: "sdb_vault",
+            service_execution_id: serviceExecutionID,
+            order_id: "ord_vault",
+            vault_artifact_id: `vault_${serviceExecutionID}`,
+            ...(grantActive ? { agent_read_grant_id: `grant_${serviceExecutionID}` } : {}),
+            status: grantActive ? "grant_available" : "delivery_issued",
+            grant_status: grantActive ? "active" : "missing",
+            ...(grantActive ? { grant_expires_at: "2026-07-13T12:15:00Z" } : {}),
+            redacted_summary: { delivery_mode: "vault_artifact" },
+          }]
+        : [],
+	current_delivery: agentVisible
+		? {
+				service_delivery_binding_id: "sdb_visible", service_execution_id: serviceExecutionID,
+				capability_id: "public_result", order_id: "ord_visible", status: "completed",
+				redacted_summary: { delivery_mode: "agent_visible_result" },
+			}
+		: vaultDelivery
+			? {
+					service_delivery_binding_id: "sdb_vault", service_execution_id: serviceExecutionID,
+					capability_id: "precise_report", order_id: "ord_vault", vault_artifact_id: `vault_${serviceExecutionID}`,
+					...(grantActive ? { agent_read_grant_id: `grant_${serviceExecutionID}` } : {}),
+					status: grantActive ? "grant_available" : "delivery_issued",
+					grant_status: grantActive ? "active" : "missing",
+					...(grantActive ? { grant_expires_at: "2026-07-13T12:15:00Z" } : {}),
+					redacted_summary: { delivery_mode: "vault_artifact" },
+				}
+			: undefined,
     graph_projection: [],
-    refunds: [],
+    refunds: refundLocked ? [{
+      refund_request_id: "rr_locked",
+      order_id: "ord_vault",
+      status: "policy_review_required",
+      amount_minor: 50,
+      currency: "CNY",
+      decision_mode: "manual",
+      consumption_state: "consumed",
+      access_locked: true,
+      can_cancel: true,
+      created_at: "2026-07-13T12:00:00Z",
+    }] : [],
   };
 }

@@ -2,78 +2,64 @@
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
   "topic": "render-hosts",
-  "title": "Host Rendering And Interaction Requests",
-  "purpose": "Teach the agent how the current V3 CLI renders checkout handoff and missing-data interaction prompts for each host.",
+  "title": "Agent Type And Checkout Handoff Rendering",
+  "purpose": "Use only the handoff fields returned for the current Agent Type and make the human Checkout visible on that surface.",
   "when_to_use": [
-    "The agent needs to choose the right --host value.",
-    "The agent needs to explain what the user will see in terminal, Trae/Codex, Telegram, or Feishu/Lark.",
-    "The flow emits an interaction request instead of immediate checkout."
+    "buy, services checkout, checkout, or pay returned a human handoff.",
+    "The human cannot see the QR image or Checkout link."
   ],
-  "required_state": {
-    "needs": [
-      "correct host selection"
-    ],
-    "optional": [
-      "target for Telegram / Feishu / Lark"
-    ]
-  },
+  "host_contracts": [
+    {
+      "agent_type": "codex-desktop",
+      "default_host": "codex",
+      "responsibility": "attach handoff.qr_local_path and show handoff.url or the returned markdown in the current desktop conversation"
+    },
+    {
+      "agent_type": "codex-cli",
+      "default_host": "terminal",
+      "responsibility": "render only in a terminal the human is actually watching and show the Checkout URL"
+    },
+    {
+      "agent_type": "claude-code-desktop",
+      "default_host": "claude-code",
+      "responsibility": "attach handoff.qr_local_path and show handoff.url or the returned markdown in the current desktop conversation"
+    },
+    {
+      "agent_type": "claude-code-cli",
+      "default_host": "terminal",
+      "responsibility": "render only in a terminal the human is actually watching and show the Checkout URL"
+    },
+    {
+      "agent_type": "workbuddy",
+      "default_host": "plain-chat",
+      "responsibility": "send the returned Checkout URL and any usable image attachment to the current chat"
+    }
+  ],
   "commands": [
     {
-      "intent": "render checkout for terminal",
-      "command": "itpay buy --host terminal --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>",
-      "success_signal": "terminal summary, links, Branded QR local path + mirrors, and an ATTACH block with status=downloaded are printed"
+      "intent": "confirm the current Agent Type contract",
+      "command": "itpay install <agent_type> --json",
+      "success_signal": "the exact default Host and presentation responsibility are returned"
     },
     {
-      "intent": "render checkout or interaction request for Trae / Codex style chat",
-      "command": "itpay buy --host trae --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --require-contact email,phone",
-      "success_signal": "markdown with one inline data: image, an [ATTACH] IDE image reference block, and a structured itpay_input_request block is printed"
-    },
-    {
-      "intent": "render chat-native buttons for Telegram",
-      "command": "itpay buy --host telegram --target <chat_id> --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>",
-      "success_signal": "openclaw_message and presentation payload plus presentation.ide_image_attach (status, local_path, mirrors, must_render_reason) are printed"
-    },
-    {
-      "intent": "render interactive card output for Feishu or Lark",
-      "command": "itpay buy --host feishu --target <open_id_or_chat_id> --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id>",
-      "success_signal": "interactive card JSON plus message.ide_image_attach (status, local_path, mirrors, must_render_reason) is printed"
+      "intent": "recover a Checkout handoff",
+      "command": "itpay checkout --id <checkout_id> --token <display_token> --json",
+      "success_signal": "only handoff fields usable by the current Host are returned"
     }
   ],
   "agent_rules": [
-    "Use --host terminal only when the human is directly watching a terminal.",
-    "Use --host trae in Trae chat; it normalizes to the codex-style markdown renderer.",
-    "Telegram, Feishu, and Lark require --target.",
-    "Current V3 CLI can emit structured interaction requests, but Trae itself does not show a native popup unless a host adapter consumes that block.",
-    "Terminal can render images as ASCII when an image URL is available.",
-    "Telegram and Feishu/Lark can emit selector or input metadata for host-native adapters.",
-    "If an interaction request is emitted, collect the requested values and rerun the relevant command with those values rather than inventing them.",
-    "After buy/checkout/order output, the IDE image attach contract must be honoured: read the file at brand_qr_local_path (or any of brand_qr_mirrors) with the IDE's Read tool so the human sees the QR in the chat window. Do not declare success unless brand_qr_status is \"downloaded\" and the image is visible."
+    "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
+    "A local QR path is not visible until the Agent attaches or renders that file on the human-facing surface.",
+    "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
+    "IM Hosts that require a target must receive --target; the initial five Agent Types currently default to desktop, terminal, or plain-chat Hosts."
   ],
   "forbidden": [
-    "Do not claim Trae currently has a built-in native popup if only markdown is printed.",
-    "Do not handwrite Telegram buttons when the CLI already returns a native presentation payload.",
-    "Do not drop required --target fields for IM hosts."
+    "Do not expose display tokens separately from the tokenized Checkout handoff.",
+    "Do not print base64 images, mirror lists, renderer debug state, or provider QR URLs.",
+    "Do not claim a desktop attachment exists when only a filesystem path was printed."
   ],
   "next_docs": [
-    {
-      "condition": "Need the overall start sequence",
-      "topic": "quickstart",
-      "file": "docs/agent/buyer/quickstart.json"
-    },
-    {
-      "condition": "Need cart-first handoff details",
-      "topic": "cart-checkout",
-      "file": "docs/agent/buyer/cart-checkout.json"
-    }
+    { "condition": "Need payment verification rules", "topic": "payment-flow" }
   ],
-  "search_terms": [
-    "render",
-    "host",
-    "telegram",
-    "trae",
-    "codex",
-    "interaction request",
-    "selector",
-    "输入框"
-  ]
+  "search_terms": ["host", "agent type", "QR", "markdown", "terminal", "desktop", "workbuddy"]
 }

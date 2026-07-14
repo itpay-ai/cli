@@ -13,6 +13,78 @@ import type {
 } from "../client/types.js";
 import { resolveOutput, type OutputSink } from "../render/sink.js";
 
+export interface CommandAction {
+  command: string;
+  reason: string;
+}
+
+export interface CommandEnvelope {
+  status: string;
+  result: Record<string, unknown>;
+  handoff?: Record<string, unknown>;
+  instruction: string;
+  next: CommandAction | null;
+  recovery: CommandAction[];
+}
+
+export interface CommandErrorEnvelope {
+  status: "error";
+  error: { code: string; message: string };
+  instruction: string;
+  next: null;
+  recovery: CommandAction[];
+}
+
+export function isTerminalServiceExecutionStatus(status: string): boolean {
+  return status === "failed" || status === "refunded" || status === "cancelled";
+}
+
+export class CommandContractError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly instruction: string,
+    readonly recovery: CommandAction[],
+  ) {
+    super(message);
+    this.name = "CommandContractError";
+  }
+}
+
+export function writeCommandEnvelope(
+  value: CommandEnvelope | CommandErrorEnvelope,
+  options: { jsonOutput?: boolean; output?: OutputSink; plainResult?: string[] } = {},
+): void {
+  const out = resolveOutput(options.output);
+  if (options.jsonOutput) {
+    out(JSON.stringify(value, null, 2) + "\n");
+    return;
+  }
+  out(`${value.status}\n`);
+  const facts = "result" in value ? value.result : value.error;
+  if (options.plainResult) {
+    for (const line of options.plainResult) out(`${line}\n`);
+  } else {
+    for (const [key, fact] of Object.entries(facts)) {
+      out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+    }
+  }
+  if ("handoff" in value && value.handoff) {
+    for (const [key, fact] of Object.entries(value.handoff)) {
+      out(`handoff.${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+    }
+  }
+  out(`instruction: ${value.instruction}\n`);
+  if (value.next) out(`next: ${value.next.command}\n`);
+  if (value.recovery.length > 0) {
+    out("recovery:\n");
+    for (const action of value.recovery) {
+      out(`  - ${action.command}\n`);
+      out(`    reason: ${action.reason}\n`);
+    }
+  }
+}
+
 export interface AgentNextAction {
   id: string;
   label: string;
@@ -27,7 +99,7 @@ export interface AgentGuidance {
   state: Record<string, unknown>;
   next_actions: AgentNextAction[];
   recovery: AgentNextAction[];
-  visible_results?: Array<{ rank: number; title: string }>;
+  visible_results?: Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }>;
 }
 
 export function attachAgentGuidance<T>(
@@ -45,7 +117,13 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
   out(`${guidance.summary}\n`);
   if (guidance.visible_results?.length) {
     out("results:\n");
-    for (const item of guidance.visible_results) out(`  ${item.rank}. ${item.title}\n`);
+    for (const item of guidance.visible_results) {
+      out(`  ${item.rank}. ${item.title}\n`);
+      for (const [key, value] of Object.entries(item.safe_payload)) {
+        if (key === "name" || key === "company_name" || value === "" || value === undefined || value === null) continue;
+        out(`     ${key}: ${String(value)}\n`);
+      }
+    }
   }
   if (guidance.next_actions.length === 0) {
     out("next actions: none\n");
@@ -162,9 +240,8 @@ export function buildServiceActionGuidance(action: ServiceExecutionAction): Agen
     state: {
       service_execution_id: serviceExecutionID,
       action_type: action.action_type,
-      status: action.status,
-      result_item_id: action.result_item_id,
-      selected_candidate_hash: action.selected_candidate_hash,
+			status: action.status,
+			result_item_id: action.result_item_id,
     },
     next_actions: [
       {
@@ -211,12 +288,12 @@ export function buildServiceHandleGuidance(serviceExecutionID: string, checkoutC
 
 export function errorRecoveryActions(error: unknown): AgentNextAction[] {
   if (!(error instanceof HttpError)) return [];
-  if (error.code === "agent_identity_required") {
+  if (error.code === "agent_identity_required" || error.code === "agent_device_session_required") {
     return [
       {
-        id: "set_agent_identity",
-        label: "Set a stable agent device id",
-        command: "export ITPAY_AGENT_DEVICE_ID=<stable_agent_device_id>",
+        id: "inspect_agent_setup",
+        label: "Inspect supported Agent Type setup",
+        command: "itpay install --json",
       },
     ];
   }
@@ -303,6 +380,7 @@ function buildServiceGuidance(input: {
   const resultItem = input.resultItems?.[0];
   const checkoutID = input.checkoutBindings?.at(-1)?.checkout_id;
   const delivery = input.deliveryBindings?.[0];
+  const deliveryMode = String(delivery?.redacted_summary?.delivery_mode ?? (delivery?.vault_artifact_id ? "vault_artifact" : ""));
   const backendCheckout = input.backendNextActions?.find((action) => action.kind === "create_checkout");
   const nextActions: AgentNextAction[] = [];
   const recovery: AgentNextAction[] = [
@@ -313,7 +391,16 @@ function buildServiceGuidance(input: {
     },
   ];
 
-  if (execution.status === "completed" || execution.next_action === "completed") {
+  if (isTerminalServiceExecutionStatus(execution.status)) {
+    // Terminal executions are inspectable, but no command may advance or replay them.
+  } else if (deliveryMode === "agent_visible_result" && (input.resultItems?.length ?? 0) > 0) {
+    nextActions.push({
+      id: "use_agent_visible_result",
+      label: "Use the safe candidate list shown above",
+      command: `itpay services next ${execution.service_execution_id} --json`,
+      reason: "This result is already visible to the agent. Do not call services read-result; that command is only for Vault deliveries authorized by a human.",
+    });
+  } else if (execution.status === "completed" || execution.next_action === "completed") {
     nextActions.push({
       id: "inspect_order_or_grant",
       label: "Inspect order, claim, or grant from the checkout/order owner",
@@ -372,13 +459,13 @@ function buildServiceGuidance(input: {
         command: `itpay services get ${execution.service_execution_id}`,
       });
     }
-  } else if (input.providerCalled && (input.resultItems?.length ?? 0) === 0) {
+  } else if ((input.providerCalled || execution.next_action === "select_candidate") && (input.resultItems?.length ?? 0) === 0) {
     nextActions.push({
-      id: "refine_search",
-      label: "Ask for a more specific company name before another lookup",
-      command: `itpay services invoke ${execution.service_execution_id} --capability ${execution.current_capability_id ?? "<capability_id>"} --input keyword=<more_specific_company_name>`,
+      id: "start_refined_search",
+      label: "Start a new execution with a more specific company name",
+      command: `itpay services start ${execution.service_id}`,
       requires_human: true,
-      reason: "The provider returned no candidates. Do not repeat the same query.",
+      reason: "No candidates were found. This execution is finished; use one new execution per new keyword.",
     });
   } else if (needsHumanSelection(execution, resultItem)) {
     nextActions.push({
@@ -388,6 +475,12 @@ function buildServiceGuidance(input: {
       requires_human: true,
       reason: "Do not choose a candidate without explicit human confirmation.",
     });
+    nextActions.push({
+      id: "start_another_search",
+      label: "Search another company in a new execution",
+      command: `itpay services start ${execution.service_id}`,
+      reason: "This execution has completed its one keyword lookup; do not reuse it for another keyword.",
+    });
   } else if (prePurchase) {
     const action: AgentNextAction = {
       id: "invoke_capability",
@@ -395,7 +488,7 @@ function buildServiceGuidance(input: {
       command: `itpay services invoke ${execution.service_execution_id} --capability ${prePurchase.capability_id} --input key=value --json`,
     };
     if (prePurchase.free_quota_limit) {
-      action.reason = `Free quota limit: ${prePurchase.free_quota_limit} per ${prePurchase.quota_subject || "subject"}.`;
+      action.reason = `One keyword per execution. Free quota limit: ${prePurchase.free_quota_limit} per ${prePurchase.quota_subject || "subject"}.`;
     }
     nextActions.push(action);
   } else {
@@ -420,6 +513,7 @@ function buildServiceGuidance(input: {
       delivery: delivery
         ? {
             status: delivery.status,
+            delivery_mode: deliveryMode || undefined,
             vault_artifact_id: delivery.vault_artifact_id,
             vault_status: delivery.vault_status,
             vault_payload_state: delivery.vault_payload_state,
@@ -438,18 +532,18 @@ function buildServiceGuidance(input: {
         price_currency: capability.price_currency,
         free_quota_limit: capability.free_quota_limit,
       })),
-      result_items: (input.resultItems ?? []).map((item) => ({
-        result_item_id: item.service_capability_result_item_id,
-        stable_hash: item.stable_hash,
+		result_items: (input.resultItems ?? []).map((item) => ({
+			result_item_id: item.service_capability_result_item_id,
         rank: item.rank,
         display_title: item.display_title,
+        safe_payload: item.safe_payload,
       })),
       effective_quota: input.effectiveQuota,
     },
     next_actions: nextActions,
     recovery,
     ...(input.resultItems?.length
-      ? { visible_results: input.resultItems.map((item) => ({ rank: item.rank, title: item.display_title })) }
+      ? { visible_results: input.resultItems.map((item) => ({ rank: item.rank, title: item.display_title, safe_payload: item.safe_payload })) }
       : {}),
   };
 }
