@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 
 import { HttpClient } from "../client/http.js";
 import { BackendClient } from "../client/backend.js";
+import { declaredAgentType } from "./agent_type.js";
 import { DeviceAuthority } from "./device_authority.js";
 import { OperationJournal } from "./operation_journal.js";
 
@@ -29,8 +30,8 @@ export interface CLIConfig {
 }
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
-export const CLI_VERSION = "2.0.5";
-export const API_CONTRACT_REVISION = "sha256:3e6b650c62fa54eb8b9ea6b86857cfef594313871e2bf1b9f3ca4ff3cc6e1612";
+export const CLI_VERSION = "2.0.7";
+export const API_CONTRACT_REVISION = "sha256:47d42ab7bbe74a806b9ec989384b28ad715ffcf05a5eb913449b8bc224ffcf49";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -47,7 +48,7 @@ export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const baseURL = env.ITPAY_BACKEND_URL || DEFAULT_BASE_URL;
   const bearerToken = env.ITPAY_BEARER_TOKEN || undefined;
-  const agentType = env.ITPAY_AGENT_TYPE || agentTypeFromArgv(process.argv);
+  const agentType = declaredAgentType(env);
   const checkoutCurrency = env.ITPAY_CURRENCY || "CNY";
   const idempotencyKey = env.ITPAY_IDEMPOTENCY_KEY || `cli_${shortRandom()}`;
   const ideImageAttach = env.ITPAY_IDE_IMAGE_ATTACH !== "0";
@@ -85,17 +86,9 @@ export function newBackendClient(config: CLIConfig): BackendClient {
       "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
 	requestAuthorizer: (input) => authority.authorizationHeaders(input),
+    recoverAuthorization: () => authority.recoverAuthorization(),
   });
   return new BackendClient(http);
-}
-
-function agentTypeFromArgv(argv: string[]): string | undefined {
-	for (let index = 0; index < argv.length; index += 1) {
-		const value = argv[index];
-		if (value === "--agent-type") return argv[index + 1];
-		if (value?.startsWith("--agent-type=")) return value.slice("--agent-type=".length);
-	}
-	return undefined;
 }
 
 function shortRandom(): string {

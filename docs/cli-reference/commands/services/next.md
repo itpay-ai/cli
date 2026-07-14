@@ -37,7 +37,7 @@ itpay services next <service_execution_id> [--json]
       { "rank": 1, "title": "<title>", "safe_payload": { "<public_field>": "<value>" } }
     ]
   },
-  "instruction": "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+  "instruction": "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
     "reason": "仅在用户明确选择后锁定来源候选"
@@ -65,10 +65,10 @@ itpay services next <service_execution_id> [--json]
       }
     ]
   },
-  "instruction": "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；如用户选择，必须在当前 Execution 提交对应 rank。",
+  "instruction": "付费模糊搜索已完成。现在把 items 中的编号、title 和 safe_payload 展示给用户，然后停止。本结果是 agent-visible，不要调用 read-result。若用户的目标只是搜索候选企业，任务已经完成；只有用户之后明确选择某个候选并要求继续时，才执行 next.command。不要自动购买后续报告。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
-    "reason": "仅在用户明确选择后锁定来源候选"
+    "reason": "仅在用户明确选择候选并要求继续时执行"
   },
   "recovery": []
 }
@@ -119,7 +119,26 @@ itpay services next <service_execution_id> [--json]
 }
 ```
 
-其他执行阶段只返回 Execution、service、phase、类型化 `allowed_actions` 和一个服务端状态导出的命令。CLI 只把 Backend 的动作类型渲染成命令，不执行 Publication 中的任意 shell 文本。完成或空结果后不得建议重放已失效的 invoke。
+额度耗尽或候选已确认并进入付费 continuation 时，`services next` 必须重复价格、用户确认原话、停止条件和禁止动作；普通单 Execution 的 next 使用 `services checkout`，不暴露 Quote/Cart/Buy 编排。
+
+已有 Checkout 时，Backend 返回 `resume_checkout`，CLI 只能恢复同一 Checkout：
+
+```json
+{
+  "status": "checkout_pending",
+  "result": {
+    "service_execution_id": "<id>",
+    "service_id": "<service_id>",
+    "phase": "checkout",
+    "allowed_actions": [{ "type": "resume_checkout", "requires_human": true }]
+  },
+  "instruction": "当前 Execution 已经有一笔 Checkout。不要创建新的 Quote、Cart、Checkout 或 Execution。现在只执行 next.command，恢复并展示同一 Checkout 的付款入口。",
+  "next": { "command": "itpay services checkout <id> --resume --json", "reason": "恢复同一 Checkout，不创建第二笔" },
+  "recovery": []
+}
+```
+
+付款已确认但 Provider 尚在履约时只能等待并再次读取同一 Execution；不得新建 Execution、Checkout 或再次付款。其他执行阶段只返回 Execution、service、phase、类型化 `allowed_actions` 和一个服务端状态导出的命令。CLI 只把 Backend 的动作类型渲染成命令，不执行 Publication 中的任意 shell 文本。完成或空结果后不得建议重放已失效的 invoke。
 
 ## 退款访问锁
 

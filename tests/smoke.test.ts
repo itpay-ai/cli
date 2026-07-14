@@ -10,7 +10,9 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +49,7 @@ const execFileAsync = promisify(execFile);
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "src/main.ts");
+const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"] as const;
 
 let mock: MockBackendHandle;
 let config: CLIConfig;
@@ -64,6 +67,14 @@ async function runCLI(args: string[], env: Record<string, string>): Promise<{ st
     maxBuffer: 1024 * 1024,
   });
   return { stdout: String(stdout), stderr: String(stderr) };
+}
+
+function withoutQualifiedAgentType(output: string): string {
+  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy) /g, "itpay ");
+}
+
+function assertQualifiedAgentType(output: string, agentType: string): void {
+  assert.match(output, new RegExp(`itpay --agent-type ${agentType} `));
 }
 
 before(async () => {
@@ -205,7 +216,7 @@ test("cart remove parser supports canonical and local scopes across Agent Types"
     const envelope = JSON.parse(result.stdout) as { status: string; result: { cart_item_id: string }; next: { command: string } };
     assert.equal(envelope.status, "removed");
     assert.equal(envelope.result.cart_item_id, "ci_remove");
-    assert.equal(envelope.next.command, "itpay cart next --json");
+    assert.equal(envelope.next.command, `itpay --agent-type ${agentType} cart next --json`);
     assert.equal(result.stderr, "");
   }
 
@@ -218,7 +229,7 @@ test("cart remove parser supports canonical and local scopes across Agent Types"
   ], { ITPAY_BACKEND_URL: mock.url, HOME: localHome });
   const localEnvelope = JSON.parse(localResult.stdout) as { status: string; next: { command: string } };
   assert.equal(localEnvelope.status, "removed_local");
-  assert.equal(localEnvelope.next.command, "itpay cart show --local --json");
+  assert.equal(localEnvelope.next.command, "itpay --agent-type workbuddy cart show --local --json");
 });
 
 test("cart remove validates scope before HTTP and preserves locked handles", async () => {
@@ -278,7 +289,7 @@ test("cart clear parser returns canonical and explicit local contracts across Ag
     const envelope = JSON.parse(result.stdout) as { status: string; result: { server_abandoned: boolean }; next: { command: string } };
     assert.equal(envelope.status, "abandoned");
     assert.equal(envelope.result.server_abandoned, true);
-    assert.equal(envelope.next.command, "itpay catalog list --json");
+    assert.equal(envelope.next.command, `itpay --agent-type ${agentType} catalog list --json`);
     const persisted = CartSession.loadFromFile(join(home, ".itpay-v3", "cart.json"), "CNY");
     assert.equal(persisted.lastCartID, undefined);
     assert.equal(persisted.lastServiceExecutionID, undefined);
@@ -369,7 +380,7 @@ test("cart add derives Host from Agent Type and keeps output contract stable", a
     const envelope = JSON.parse(result.stdout) as { status: string; result: { service_execution_id?: string }; next: { command: string } };
     assert.equal(envelope.status, "added");
     assert.equal(envelope.result.service_execution_id, "se_mock_1");
-    assert.equal(envelope.next.command, "itpay services next se_mock_1 --json");
+    assert.equal(envelope.next.command, `itpay --agent-type ${agentType} services next se_mock_1 --json`);
     const cartRequest = [...mock.requests].reverse().find((request) => request.method === "POST" && request.path === "/v1/carts");
     assert.equal((cartRequest?.body?.client_context as { host?: string } | undefined)?.host, expectedHost);
     assert.equal("buyer_id" in (cartRequest?.body ?? {}), false);
@@ -396,7 +407,7 @@ test("cart add local mode is explicit JSON and makes no HTTP request", async () 
   const envelope = JSON.parse(result.stdout) as { status: string; instruction: string; next: { command: string } };
   assert.equal(envelope.status, "added_local");
   assert.match(envelope.instruction, /未验证目录、价格或服务合同/);
-  assert.equal(envelope.next.command, "itpay cart show --local");
+  assert.equal(envelope.next.command, "itpay --agent-type codex-desktop cart show --local");
   assert.equal(mock.requests.length, requestCount);
 });
 
@@ -459,9 +470,10 @@ test("cart next is compact across every Agent Type and has structured stale-hand
   session.rememberServerCart({ cartID: "cart_empty" });
   session.saveToFile(join(home, ".itpay-v3", "cart.json"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI(["--agent-type", agentType, "cart", "next", "--json"], { HOME: home, ITPAY_BACKEND_URL: mock.url });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -483,7 +495,7 @@ test("cart next is compact across every Agent Type and has structured stale-hand
       const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? ""));
       assert.equal(envelope.status, "error");
       assert.equal(envelope.error.code, "not_found");
-      assert.equal(envelope.recovery[0]?.command, "itpay services list --json");
+      assert.equal(envelope.recovery[0]?.command, "itpay --agent-type codex-cli services list --json");
       return true;
     },
   );
@@ -532,7 +544,7 @@ test("top-level next recovers corrupt local state through the server", () => {
   assert.equal(envelope.next.command, "itpay services list --json");
 });
 
-test("top-level next is identical across every Agent Type", async () => {
+test("top-level next keeps facts stable and preserves every Agent Type", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-next-types-"));
   const session = new CartSession("CNY");
   session.rememberCheckout({
@@ -541,9 +553,10 @@ test("top-level next is identical across every Agent Type", async () => {
   });
   session.saveToFile(join(home, ".itpay-v3", "cart.json"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI(["--agent-type", agentType, "next", "--json"], { HOME: home, ITPAY_BACKEND_URL: mock.url });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -570,6 +583,7 @@ test("services next restores candidate items on the source execution", async () 
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
 		result: { service_execution_id: string; items: Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }> };
+		instruction: string;
 		next: { command: string };
 	};
 	assert.equal(envelope.status, "candidate_selection_available");
@@ -579,6 +593,7 @@ test("services next restores candidate items on the source execution", async () 
 		title: "小米汽车科技有限公司",
 		safe_payload: { company_name: "小米汽车科技有限公司" },
 	});
+	assert.match(envelope.instruction, /候选列表已满足用户目标，在此停止/);
 	assert.match(envelope.next.command, /services action se_candidate_recovery/);
 	assert.doesNotMatch(stdoutCapture.join(""), /service_capability_result_item_id|stable_hash|invocation/);
 });
@@ -657,14 +672,15 @@ test("refund lock takes precedence over delivery guidance", async () => {
 
 });
 
-test("refund-locked delivery is identical across every Agent Type", async () => {
+test("refund-locked delivery keeps facts stable and preserves every Agent Type", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-locked-delivery-"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "next", "se_refund_locked", "--json",
     ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -733,15 +749,17 @@ test("services invoke reads target capability metadata before checkout guidance"
   assert.deepEqual(parsed.result.checkout.price, { amount_minor: 10, currency: "CNY" });
   assert.equal(
     parsed.next.command,
-		"itpay services quote se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
+		"itpay services checkout se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
   );
-  assert.match(parsed.next.reason, /付费 continuation/);
+	assert.equal(parsed.next.reason, "仅在用户明确同意支付 0.10 CNY 后执行；否则停止");
+	assert.match(stdoutCapture.join(""), /然后停止并等待用户明确回复/);
+	assert.match(stdoutCapture.join(""), /不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令/);
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
 	assert.equal(requests.at(-2)?.method, "GET");
 	assert.equal(requests.at(-1)?.method, "POST");
 });
 
-test("services invoke redirects paid capabilities to quote without invoking", async () => {
+test("services invoke rejects paid capabilities and returns only same-execution recovery", async () => {
 	const requestsBefore = mock.requests.length;
 	await assert.rejects(
 		runServicesInvoke(
@@ -755,10 +773,12 @@ test("services invoke redirects paid capabilities to quote without invoking", as
 		(error: unknown) => {
 			assert.ok(error instanceof CommandContractError);
 			assert.equal(error.code, "checkout_required");
+			assert.match(error.instruction, /不要尝试 quote、cart、buy、checkout 或 pay 作为旁路/);
 			assert.equal(
 				error.recovery[0]?.command,
-					"itpay services quote se_paid_direct --capability precise_lookup --input company=example --email <email> --json",
+					"itpay services next se_paid_direct --json",
 			);
+			assert.equal(error.recovery.length, 1);
 			return true;
 		},
 	);
@@ -879,15 +899,16 @@ test("services list validates limit and handles an empty server list", async () 
   assert.equal(envelope.next.command, "itpay catalog list --json");
 });
 
-test("services list is compact and identical across every Agent Type", async () => {
+test("services list is compact, fact-stable, and preserves every Agent Type", async () => {
   await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-services-list-types-"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "list", "--limit", "1", "--json",
     ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -912,14 +933,15 @@ test("services get returns a bounded public timeline", async () => {
   assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|graph_projection|capabilities/);
 });
 
-test("services get is identical across Agent Types and keeps not-found opaque", async () => {
+test("services get keeps facts stable across Agent Types and keeps not-found opaque", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-services-get-types-"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "get", "se_timeline", "--json",
     ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -935,7 +957,7 @@ test("services get is identical across Agent Types and keeps not-found opaque", 
     (error: unknown) => {
       const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? ""));
       assert.equal(envelope.error.code, "not_found");
-      assert.equal(envelope.recovery[0]?.command, "itpay services list --json");
+      assert.equal(envelope.recovery[0]?.command, "itpay --agent-type codex-cli services list --json");
       return true;
     },
   );
@@ -970,14 +992,15 @@ test("services events returns bounded public facts and strips event internals", 
   assert.doesNotMatch(stdoutCapture.join(""), /see_secret|must_not_leak|redacted_summary|provider_header|selected_candidate_hash/);
 });
 
-test("services events parser is identical across Agent Types and validates before HTTP", async () => {
+test("services events keeps facts stable across Agent Types and validates before HTTP", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-service-events-types-"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "events", "se_events", "--after-sequence", "0", "--limit", "3", "--json",
     ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -1301,18 +1324,19 @@ test("canonical cart show is compact and does not read Service Execution", async
   assert.deepEqual(mock.requests.map((request) => `${request.method} ${request.path}`), [`GET /v1/carts/${session.lastCartID}`]);
 });
 
-test("cart show parser supports canonical and local JSON for every Agent Type", async () => {
+test("cart show keeps facts stable and preserves Agent Type in canonical and local JSON", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cart-show-types-"));
   const session = new CartSession("CNY");
   session.rememberServerCart({ cartID: "cart_show_types" });
   session.saveToFile(join(home, ".itpay-v3", "cart.json"));
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI(["--agent-type", agentType, "cart", "show", "--json"], {
       ITPAY_BACKEND_URL: mock.url,
       HOME: home,
     });
-    outputs.push(result.stdout);
+    assertQualifiedAgentType(result.stdout, agentType);
+    outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
@@ -1337,7 +1361,7 @@ test("cart show keeps missing and stale canonical handles recoverable", async ()
   });
   const missingEnvelope = JSON.parse(missing.stdout) as { status: string; recovery: Array<{ command: string }> };
   assert.equal(missingEnvelope.status, "cart_handle_missing");
-  assert.equal(missingEnvelope.recovery[0]?.command, "itpay cart show --local --json");
+  assert.equal(missingEnvelope.recovery[0]?.command, "itpay --agent-type codex-cli cart show --local --json");
 
   const staleHome = mkdtempSync(join(tmpdir(), "itpay-cart-show-stale-"));
   const stale = new CartSession("CNY");
@@ -1759,8 +1783,8 @@ test("readyz probes /v1/readyz", async () => {
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
     status: "ready",
     result: { backend: "available" },
-    instruction: "ItPay 可用，可以读取服务目录。",
-    next: { command: "itpay catalog list", reason: "发现可用服务" },
+    instruction: "ItPay 可用；先完整读取内置 Buyer Skill，再开始服务流程。",
+    next: { command: "itpay skill show itpay-buyer --json", reason: "加载完整操作与安全规则" },
     recovery: [],
   });
 });
@@ -1769,6 +1793,127 @@ test("readyz command supports the documented JSON contract", async () => {
   const result = await runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: mock.url });
   assert.equal(JSON.parse(result.stdout).status, "ready");
   assert.equal(result.stderr, "");
+});
+
+test("CLI fails closed when the Backend compatibility contract is unavailable", async () => {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(426, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ code: "platform_release_unavailable", message: "active platform release is unavailable" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "readyz", "--json"], {
+        ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}`,
+      }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string };
+          instruction: string;
+          next: unknown;
+          recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, "backend_contract_incompatible");
+        assert.match(envelope.instruction, /立即停止/);
+        assert.match(envelope.instruction, /不要尝试 services quote、services checkout、cart、buy 或 pay/);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
+  const result = await runCLI(["readyz", "--json"], {
+    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_AGENT_TYPE: "claude-code-cli",
+  });
+  const envelope = JSON.parse(result.stdout) as { result: { agent_type: string }; next: { command: string } };
+  assert.equal(envelope.result.agent_type, "claude-code-cli");
+  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay-buyer --json");
+});
+
+test("device recover requires confirmation and remains Backend-scoped", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-device-recover-cli-"));
+  await assert.rejects(
+    runCLI(["--agent-type", "workbuddy", "device", "recover", "--json"], {
+      HOME: home,
+      ITPAY_BACKEND_URL: "https://dev.itpay.ai",
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "backend_reset_confirmation_required");
+      return true;
+    },
+  );
+
+  const envelope = JSON.parse((await runCLI([
+    "--agent-type", "workbuddy", "device", "recover", "--confirm-backend-reset", "--json",
+  ], {
+    HOME: home,
+    ITPAY_BACKEND_URL: "https://dev.itpay.ai",
+  })).stdout) as {
+    status: string;
+    result: { backend: string; private_key_preserved: boolean; other_backend_registrations_preserved: boolean };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "backend_registration_absent");
+  assert.equal(envelope.result.backend, "https://dev.itpay.ai");
+  assert.equal(envelope.result.private_key_preserved, true);
+  assert.equal(envelope.result.other_backend_registrations_preserved, true);
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy services list --limit 1 --json");
+});
+
+test("skill show returns the complete packaged Skill and type-aware onboarding", async () => {
+  const untyped = JSON.parse((await runCLI(["skill", "show", "itpay-buyer", "--json"], {})).stdout) as {
+    status: string; result: { skill: string; content: string }; next: { command: string };
+  };
+  assert.equal(untyped.status, "shown");
+  assert.equal(untyped.result.skill, "itpay-buyer");
+  assert.match(untyped.result.content, /## Identity And Sessions/);
+  assert.equal(untyped.next.command, "itpay install --json");
+
+  const typed = JSON.parse((await runCLI([
+    "--agent-type", "codex-desktop", "skill", "show", "itpay-buyer", "--json",
+  ], {})).stdout) as { next: { command: string }; instruction: string };
+  assert.equal(typed.next.command, "itpay --agent-type codex-desktop catalog list --json");
+  assert.match(typed.instruction, /codex-desktop/);
+
+  const workbuddy = JSON.parse((await runCLI([
+    "--agent-type", "workbuddy", "skill", "show", "itpay-buyer", "--json",
+  ], {})).stdout) as typeof typed;
+  assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
+  assert.equal(workbuddy.next.command, "itpay --agent-type workbuddy catalog list --json");
+  assert.match(workbuddy.instruction, /同一 Node\/CLI launcher/);
+});
+
+test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
+  await assert.rejects(
+    runCLI(["skill", "show", "missing", "--json"], {}),
+    (error: unknown) => {
+      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string }; recovery: Array<{ command: string }>;
+      };
+      assert.equal(failure.error.code, "skill_not_found");
+      assert.equal(failure.recovery[0]?.command, "itpay skill show itpay-buyer --json");
+      return true;
+    },
+  );
+  const skillsDir = mkdtempSync(join(tmpdir(), "itpay-skills-invalid-"));
+  mkdirSync(join(skillsDir, "itpay-buyer"));
+  writeFileSync(join(skillsDir, "itpay-buyer", "SKILL.md"), "broken", "utf8");
+  await assert.rejects(
+    runCLI(["skill", "show", "itpay-buyer", "--json"], { ITPAY_CLI_SKILLS_DIR: skillsDir }),
+    (error: unknown) => {
+      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(failure.error.code, "skill_unavailable");
+      return true;
+    },
+  );
 });
 
 test("install returns one official contract for every supported Agent Type", async () => {
@@ -1921,7 +2066,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.5");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.7");
       return true;
     },
   );
@@ -1954,7 +2099,9 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   assert.equal(parsed.status, "human_checkout_required");
   assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
   assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
-  assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending/);
+  assert.match(parsed.instruction, /停止等待/);
+  assert.match(parsed.instruction, /不要创建新 Checkout、Execution 或 Payment Intent/);
+  assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending --json$/);
   assert.equal("agent_guidance" in parsed, false);
   assert.equal("brand_qr_mirrors" in parsed, false);
 });
@@ -2295,11 +2442,14 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal(json.status, "human_checkout_required");
   assert.match(json.handoff.url, /^https:\/\/sandbox\.itpay\.ai\/checkout\/chk_/);
   assert.match(json.handoff.url, /display_token=/);
-  assert.match(json.handoff.qr_image_url ?? "", /^\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
+  assert.match(json.handoff.qr_image_url ?? "", /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
   assert.equal(json.result.capability_id, "precise_report");
   assert.deepEqual(json.result.locked_input, {});
   assert.equal(json.result.amount, "0.50 CNY");
-  assert.match(json.next.command, /itpay checkout --id/);
+  assert.match(json.instruction, /现在只做以下动作/);
+  assert.match(json.instruction, /发送完成后停止并等待用户操作/);
+  assert.match(json.instruction, /不要调用 pay/);
+  assert.match(json.next.command, /itpay checkout --id .* --json$/);
   assert.deepEqual(json.recovery, []);
   assert.equal("service_quote_lock_id" in json, false);
   assert.equal("display_token" in json, false);
@@ -2420,7 +2570,7 @@ test("services read-result returns structured user-action recovery when access i
         assert.equal(envelope.status, "error");
         assert.equal(envelope.error.code, "agent_access_denied");
         assert.match(envelope.instruction, /用户.*授权/);
-        assert.equal(envelope.recovery[0]?.command, `itpay services next ${serviceExecutionID} --json`);
+        assert.equal(envelope.recovery[0]?.command, `itpay --agent-type codex-cli services next ${serviceExecutionID} --json`);
         return true;
       },
     );
@@ -2471,11 +2621,16 @@ test("services action resolves a human-selected candidate rank from the executio
 				rank: 1,
 				title: "小米汽车科技有限公司",
 			},
+			checkout: {
+				capability_id: "precise_report",
+				price: { amount_minor: 50, currency: "CNY" },
+				delivery_email_required: true,
+			},
 		},
-		instruction: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
+		instruction: "已选择 小米汽车科技有限公司。候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 0.50 CNY，并提供用于发送交付认领链接的邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
 		next: {
-			command: "itpay services quote se_select_by_rank --capability precise_report --email <email> --json",
-			reason: "为已确认候选准备报价",
+			command: "itpay services checkout se_select_by_rank --capability precise_report --email <email> --json",
+			reason: "仅在用户明确同意支付 0.50 CNY 并提供真实邮箱后执行；否则停止",
 		},
 		recovery: [{
 			command: "itpay services next se_select_by_rank --json",
@@ -2517,7 +2672,7 @@ test("catalog list supports JSON output", async () => {
   assert.equal(parsed.status, "listed");
   assert.equal(parsed.result.services[0]?.service_id, "svc_qizhidao_company_lookup");
   assert.equal(parsed.result.services[0]?.discovery?.free_quota, 3);
-  assert.equal(parsed.next.command, "itpay services start svc_qizhidao_company_lookup");
+  assert.equal(parsed.next.command, "itpay services start svc_qizhidao_company_lookup --json");
   assert.equal("manifest" in parsed, false);
 });
 
@@ -2545,7 +2700,7 @@ test("catalog empty response does not invent a service id", async () => {
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "catalog_empty");
   assert.deepEqual(parsed.result.services, []);
-  assert.equal(parsed.next.command, "itpay catalog list");
+  assert.equal(parsed.next.command, "itpay catalog list --json");
   assert.match(parsed.instruction, /不要猜测 service_id/);
 });
 
@@ -2699,7 +2854,7 @@ test("order command accepts JSON and returns structured opaque not-found recover
       };
       assert.equal(envelope.status, "error");
       assert.equal(envelope.error.code, "not_found");
-      assert.equal(envelope.recovery[0]?.command, "itpay services list --json");
+      assert.equal(envelope.recovery[0]?.command, "itpay --agent-type codex-cli services list --json");
       return true;
     },
   );
@@ -2951,7 +3106,7 @@ test("refund get returns one compact authoritative snapshot for every Agent Type
 		assert.equal(envelope.status, "shown");
 		assert.equal(envelope.result.refund_status, "accepted");
 		assert.equal(envelope.result.access_locked, true);
-		assert.equal(envelope.next.command, "itpay refund watch rr_1 --json");
+		assert.equal(envelope.next.command, `itpay --agent-type ${agentType} refund watch rr_1 --json`);
 		assert.equal(result.stderr, "");
 	}
 });
@@ -3025,7 +3180,7 @@ test("refund watch timeout is a resumable state, not a refund failure", async ()
 	assert.equal(envelope.status, "watch_timeout");
 	assert.equal(envelope.result.last_status, "accepted");
 	assert.match(envelope.instruction, /不要重复申请/);
-	assert.equal(envelope.next.command, "itpay refund watch rr_pending --json");
+	assert.equal(envelope.next.command, "itpay --agent-type codex-cli refund watch rr_pending --json");
 	assert.equal(result.stderr, "");
 });
 
@@ -3051,7 +3206,7 @@ test("refund cancel releases the lock and requires a new delivery authorization"
 		assert.equal(envelope.status, "cancelled");
 		assert.equal(envelope.result.access_locked, false);
 		assert.match(envelope.instruction, /新的授权/);
-		assert.equal(envelope.next.command, "itpay order ord_42 --json");
+		assert.equal(envelope.next.command, `itpay --agent-type ${agentType} order ord_42 --json`);
 		assert.equal(result.stderr, "");
 	}
 });
@@ -3072,7 +3227,7 @@ test("refund cancel keeps a too-late refund locked and returns state recovery", 
 			};
 			assert.equal(envelope.status, "error");
 			assert.equal(envelope.error.code, "refund_cancellation_too_late");
-			assert.equal(envelope.recovery[0]?.command, "itpay refund get rr_too_late --json");
+			assert.equal(envelope.recovery[0]?.command, "itpay --agent-type codex-cli refund get rr_too_late --json");
 			return true;
 		},
 	);

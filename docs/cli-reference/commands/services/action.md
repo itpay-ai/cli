@@ -26,17 +26,22 @@ itpay services action <service_execution_id> --action <action_type>
   "status": "candidate_selected",
   "result": {
     "service_execution_id": "<id>",
-    "candidate": { "rank": 2, "title": "<title>" }
+    "candidate": { "rank": 2, "title": "<title>" },
+    "checkout": {
+      "capability_id": "<paid_capability_id>",
+      "price": { "amount_minor": 50, "currency": "CNY" },
+      "delivery_email_required": true
+    }
   },
-  "instruction": "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
-  "next": { "command": "itpay services quote <id> --capability <capability_id> --email <email> --json", "reason": "为已确认候选准备报价" },
+  "instruction": "候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明已选择的候选、后续价格和邮箱用途，然后询问是否购买并停止。用户明确同意并提供邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
+  "next": { "command": "itpay services checkout <id> --capability <capability_id> --email <email> --json", "reason": "仅在用户明确同意价格并提供真实邮箱后执行" },
   "recovery": [{ "command": "itpay services next <id> --json", "reason": "重新读取服务端允许的动作" }]
 }
 ```
 
-`next` 来自 action 写入后重新读取的类型化 `allowed_actions`，不是 CLI 根据服务名猜测。若后续不是报价，CLI 渲染该动作对应的通用命令；没有合法动作时返回 `next: null`。非候选 action 仍返回 `action_recorded` 并引导 `services next`。
+`next` 来自 action 写入后重新读取的类型化 `allowed_actions`，不是 CLI 根据服务名猜测。普通单 Execution 的付费 continuation 使用 `services checkout`；候选选择本身不代表用户已经同意购买。没有合法动作时返回 `next: null`。非候选 action 仍返回 `action_recorded` 并引导 `services next`。
 
-rank 不存在、属于旧结果集或其他 Execution、action 不允许、status 非法时均不写 action；返回结构化错误并引导同一 Execution 的 `services next`。相同候选重试幂等；同一结果集改选另一个候选返回冲突，不覆盖已批准事实。
+rank 不存在、属于旧结果集或其他 Execution、action 不允许、status 非法时均不写 action；返回结构化错误并且只引导同一 Execution 的 `services next`。不得新建 Execution、重新 invoke 或构造候选 ID。相同候选重试幂等；同一结果集改选另一个候选返回冲突，不覆盖已批准事实。
 
 ## Agent Type / Host
 

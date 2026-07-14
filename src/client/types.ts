@@ -484,7 +484,7 @@ export interface ServiceExecutionReadModel {
 }
 
 export interface ServiceExecutionAllowedAction {
-  type: "invoke_capability" | "select_candidate" | "prepare_quote" | "wait" | "view_delivery" | string;
+  type: "invoke_capability" | "select_candidate" | "prepare_quote" | "resume_checkout" | "wait" | "view_delivery" | string;
   capability_id?: string;
   source_capability_id?: string;
   requires_human: boolean;

@@ -4,7 +4,9 @@
 
 为当前 Service Execution 的一个付费 Capability 准备 Quote Lock。它只锁定可信输入、候选来源、价格、币种和有效期，不创建 Cart、Checkout、订单或 Provider 调用。
 
-**上游：** `services next` 返回 `prepare_quote`，以及当前 Execution 内已批准的候选或完整 required input。
+本命令是多 Execution 合并付款的高级入口。普通单 Execution 流程应使用 `services checkout`，不要把 `services quote` 当作 Checkout 失败后的替代路径。
+
+**上游：** 用户明确要求合并多个独立 Execution，且每个 Execution 的 Graph 当前都允许 `prepare_quote`。
 
 **下游：** `cart add --quote`。多个独立 Execution 的 Quote 可以加入同一 Cart。
 
@@ -53,6 +55,8 @@ itpay services quote <service_execution_id> --capability <capability_id>
 - `capability_input_invalid`：缺少 required input；不创建 Quote、Cart 或 Checkout。
 - `delivery_email_required`：先说明邮箱用于交付 claim link，再询问用户；禁止代填。
 - 候选未确认、来自其他 Execution、Quote 已存在冲突：Backend 拒绝且不改变 Execution。
+- `service_quote_not_allowed`：当前 Graph 不允许从当前 Execution 状态购买该 capability；不得换 capability、新建 Execution 或尝试其他购买命令，只回到同一 Execution 的 `services next`。
+- Backend 不支持当前交易合同时返回 `backend_contract_incompatible`，必须停止，不能改用 `services checkout`、`cart`、`buy` 或 `pay` 绕过。
 
 ## Agent Type / Host
 

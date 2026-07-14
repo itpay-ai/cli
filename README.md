@@ -4,9 +4,11 @@ The official V3 CLI for Agent-driven ItPay service discovery, checkout, delivery
 
 ```bash
 npm install -g @itpay/cli
+itpay readyz --json
+itpay skill show itpay-buyer --json
 itpay install --json
 itpay --agent-type codex-desktop readyz --json
-itpay --agent-type codex-desktop catalog list --json
+# follow next.command: typed skill show, then catalog list
 ```
 
 The default API is `https://app.itpay.ai`. Set `ITPAY_BACKEND_URL` only for an intentional test or local environment.
@@ -38,7 +40,9 @@ Normative per-command contracts: [CLI Command Reference](docs/cli-reference/inde
 | `claude-code-cli` | `terminal` |
 | `workbuddy` | `plain-chat` |
 
-`--agent-type` identifies the stable runtime and registered Agent instance. `--host` only selects the human presentation surface. Use `itpay install <agent_type> --json` for the exact responsibility.
+`--agent-type` identifies the stable runtime and registered Agent instance. Every returned ItPay command preserves it. Different windows or chats of the same type reuse one Agent Instance; they are not separate identities. `--host` only selects the human presentation surface, and `--target` only routes output to a Host destination. Use `itpay install <agent_type> --json` for the exact responsibility.
+
+The local installation keeps one Ed25519 private key. Each normalized Backend API base URL (`dev`, `test`, `app`, or local) has an independent server device registration, quota lineage, Agent instances, and sessions. A rejected session is renewed and the same request is retried once; revoked v2 registrations are never silently replaced.
 
 ## Command Families
 
@@ -50,7 +54,7 @@ Normative per-command contracts: [CLI Command Reference](docs/cli-reference/inde
 - `order`, `orders`: exact order and account order views.
 - `refund create/list/get/watch/cancel`: Refund Owner flow.
 - `services get/events`: redacted support diagnostics; normal flows should use `services next`.
-- `install`, `docs list/show/search`: offline packaged guidance.
+- `install`, `skill show`, `docs list/show/search`: offline packaged guidance.
 - `pay`: operator escape hatch only; normal buyers use the ItPay Checkout page.
 
 Run `itpay <command> --help` or browse [the command index](docs/cli-reference/index.md) for parameters.
@@ -67,7 +71,7 @@ itpay --agent-type <agent_type> services checkout <service_execution_id> --resum
 itpay checkout --id <checkout_id> --token <display_token> --json
 ```
 
-The local `~/.itpay-v3` directory stores the signed Device Authority, Agent instances, idempotency operations, and recovery handles. Backend state remains authoritative.
+The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-scoped Device registrations and Agent instances, idempotency operations, and recovery handles. Backend state remains authoritative. Do not delete or rotate this identity to recover quota.
 
 ## Environment
 

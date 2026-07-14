@@ -25,8 +25,8 @@ itpay checkout [--id <checkout_id>] [--token <display_token>]
   "status": "human_checkout_required",
   "result": { "checkout_id": "<checkout_id>", "payment": "pending", "amount": "<amount> <currency>" },
   "handoff": { "url": "<checkout_url>", "qr_local_path": "<host_optional_path>", "markdown": "<desktop_optional_markdown>" },
-  "instruction": "把当前 Host 的二维码和付款链接展示给用户，然后等待用户操作；不要创建新 Checkout。",
-  "next": { "command": "itpay checkout --id <checkout_id> --token <display_token>", "reason": "稍后查询同一笔 Checkout 状态" },
+  "instruction": "Backend 尚未确认付款。把当前同一 Checkout 的付款入口重新展示给用户，然后停止等待。不要声称付款成功，不要创建新 Checkout、Execution 或 Payment Intent。稍后仍然只执行 next.command 查询这一笔 Checkout。",
+  "next": { "command": "itpay checkout --id <checkout_id> --token <display_token> --json", "reason": "稍后只查询同一 Checkout" },
   "recovery": []
 }
 ```
@@ -37,8 +37,8 @@ itpay checkout [--id <checkout_id>] [--token <display_token>]
 {
   "status": "completed",
   "result": { "checkout_id": "<checkout_id>", "payment": "verified", "order_id": "<optional_order_id>", "service_execution_id": "<optional_id>" },
-  "instruction": "付款已确认，不要再次展示付款二维码。",
-  "next": { "command": "itpay services next <service_execution_id> --json", "reason": "读取履约状态" },
+  "instruction": "Backend 已确认这笔付款。不要再次展示付款入口，不要调用 pay，不要创建新 Checkout 或 Execution。现在只执行 next.command，读取同一 Execution 的履约结果。",
+  "next": { "command": "itpay services next <service_execution_id> --json", "reason": "读取同一笔已付款 Service Execution" },
   "recovery": []
 }
 ```

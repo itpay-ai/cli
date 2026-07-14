@@ -33,8 +33,8 @@ itpay services checkout <service_execution_id> --resume
     "amount": "<amount> <currency>"
   },
   "handoff": { "url": "<checkout_url>", "qr_local_path": "<host_optional_path>", "markdown": "<host_optional_markdown>" },
-  "instruction": "把二维码和付款链接展示给用户；确认可见前不要查询状态，也不要创建新 Checkout。",
-  "next": { "command": "itpay checkout --id <checkout_id> --token <display_token>", "reason": "跟踪同一笔 Checkout" },
+  "instruction": "把付款链接、可用二维码和金额实际发送给用户，然后停止并等待。不要立即执行 next.command，不要创建第二个 Checkout，不要新建 Execution，不要调用 pay。用户表示已经完成付款或要求查询状态后，只执行 next.command；用户的话本身不是付款成功证明。",
+  "next": { "command": "itpay checkout --id <checkout_id> --token <display_token> --json", "reason": "仅在用户完成付款操作或要求查询后，读取同一 Checkout 的权威状态" },
   "recovery": []
 }
 ```
@@ -79,4 +79,4 @@ itpay services checkout <service_execution_id> --resume
 | `codex-cli` | `handoff={url,qr_local_path}`；普通文本模式在用户可见终端渲染二维码。 |
 | `claude-code-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
 | `claude-code-cli` | `handoff={url,qr_local_path}`；普通文本模式在用户可见终端渲染二维码。 |
-| `workbuddy` | `handoff={url,qr_local_path,qr_image_url}`；发送链接和可用二维码附件，原生行为后续细化。 |
+| `workbuddy` | `handoff={url,qr_local_path,qr_image_url}`；发送可点击链接，优先把本地路径作为图片附件，不能发送本地附件时使用绝对图片 URL；发送金额后停止等待。 |

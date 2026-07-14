@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,10 +42,14 @@ try {
   }));
   assert.equal(installHelp.result.agent_type, "codex-cli");
   assert.equal(installHelp.result.default_api, "https://app.itpay.ai");
-  const skill = readFileSync(join(packageRoot, "skills", "itpay-buyer", "SKILL.md"), "utf8");
-  assert.match(skill, /Envelope Rule/);
-  assert.doesNotMatch(skill, /next_actions/);
-  assert.match(skill, /15 minutes/);
+  const skillHelp = JSON.parse(execFileSync(process.execPath, [
+    entry, "--agent-type", "codex-cli", "skill", "show", "itpay-buyer", "--json",
+  ], { env, encoding: "utf8" }));
+  assert.match(skillHelp.result.content, /Envelope Rule/);
+  assert.doesNotMatch(skillHelp.result.content, /next_actions/);
+  assert.match(skillHelp.result.content, /15 minutes/);
+  assert.match(skillHelp.result.content, /Identity And Sessions/);
+  assert.equal(skillHelp.next.command, "itpay --agent-type codex-cli catalog list --json");
 
   let stderr = "";
   try {

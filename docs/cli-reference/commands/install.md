@@ -6,7 +6,7 @@
 
 **上游：** 安装或更新 `@itpay/cli`。
 
-**下游：** 使用真实 Agent Type 执行 `readyz`，随后读取 Catalog。
+**下游：** 使用真实 Agent Type 执行 `readyz`，随后读取完整 Skill 和 Catalog。
 
 ## 语法与参数
 
@@ -86,6 +86,8 @@ itpay install [target] [--json]
 | `workbuddy` | `plain-chat` | 当前使用通用会话交接，必须发送链接和可用图片。 |
 
 显式 `--host` 可以在后续 commerce 命令覆盖默认 Host，但不会改变 Agent Type 或设备归属。
+
+同一类型的不同窗口、任务和聊天复用当前 Backend 下的同一个 Agent Instance。切换 Backend 会在同一本地私钥下建立独立服务端登记，不会把 dev/test/app 的 Device ID 混用。
 
 ## 异常处理
 

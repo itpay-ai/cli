@@ -39,8 +39,11 @@ export async function runCheckoutPresentation(
   }
 
   const checkoutURL = checkoutPageURL(options.baseURL, options.checkoutID, options.displayToken);
-  const qrPNGURL = presentation.qr_png_url ?? checkoutQRPNGURL(options.baseURL, options.checkoutID, options.displayToken);
-  const nextCommand = `itpay checkout --id ${options.checkoutID} --token ${options.displayToken}`;
+  const qrPNGURL = absolutePublicURL(
+		options.baseURL,
+		presentation.qr_png_url ?? checkoutQRPNGURL(options.baseURL, options.checkoutID, options.displayToken),
+	);
+  const nextCommand = `itpay checkout --id ${options.checkoutID} --token ${options.displayToken} --json`;
   const plan = buildCheckoutQRPlan({
     host,
     checkoutID: options.checkoutID,
@@ -85,19 +88,20 @@ function pendingCheckoutEnvelope(
   }
   if (platform === "markdown") {
     handoff.markdown = buildAgentChatHandoff(plan).markdown;
-  } else if (platform === "plain_chat" && presentation.qr_png_url) {
-    handoff.qr_image_url = presentation.qr_png_url;
+  } else if (platform === "plain_chat" && plan.preferredQRSources[0]) {
+    handoff.qr_image_url = plan.preferredQRSources[0];
   }
+	const amount = formatMoney(presentation.checkout.amount_minor, presentation.checkout.currency);
   return {
     status: "human_checkout_required",
     result: {
       checkout_id: presentation.checkout.checkout_id,
       payment: "pending",
-      amount: formatMoney(presentation.checkout.amount_minor, presentation.checkout.currency),
+      amount,
     },
     handoff,
-    instruction: pendingInstruction(platform),
-    next: { command: nextCommand, reason: "稍后查询同一笔 Checkout 状态" },
+    instruction: pendingInstruction(platform, amount),
+    next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
     recovery: [],
   };
 }
@@ -123,9 +127,9 @@ function terminalCheckoutEnvelope(presentation: CheckoutPresentation): CommandEn
   const recovery: CommandAction[] = [];
   if (payment === "verified") {
     status = "completed";
-    instruction = "付款已确认，不要再次展示付款二维码。";
+    instruction = "Backend 已确认这笔付款。不要再次展示付款入口，不要调用 pay，不要创建新 Checkout 或 Execution。现在只执行 next.command，读取同一 Execution 的履约结果。";
     next = serviceExecutionIDs.length === 1
-      ? { command: `itpay services next ${serviceExecutionIDs[0]} --json`, reason: "读取履约状态" }
+      ? { command: `itpay services next ${serviceExecutionIDs[0]} --json`, reason: "读取同一笔已付款 Service Execution" }
       : presentation.completed_order_id
         ? { command: `itpay order ${presentation.completed_order_id}`, reason: "读取已创建订单" }
         : { command: "itpay orders", reason: "恢复已付款订单" };
@@ -149,10 +153,10 @@ function checkoutPlainResult(result: Record<string, unknown>): string[] {
   return Object.entries(result).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
 }
 
-function pendingInstruction(platform: ReturnType<typeof platformKeyForHost>): string {
-  if (platform === "markdown") return "把 handoff.markdown 原样发送到当前桌面对话；二维码和链接可见后等待用户操作，不要创建新 Checkout。";
-  if (platform === "terminal") return "在用户可见终端展示二维码和付款链接，然后等待用户操作；不要创建新 Checkout。";
-  return "把付款链接和可用二维码附件发送给用户，然后等待用户操作；不要创建新 Checkout。";
+function pendingInstruction(platform: ReturnType<typeof platformKeyForHost>, amount: string): string {
+  if (platform === "markdown") return `Backend 尚未确认付款。把 handoff.markdown 原样发送到当前桌面对话，确认二维码、链接和金额 ${amount} 已对用户可见，然后停止等待。不要创建新 Checkout、Execution 或 Payment Intent；稍后仍然只执行 next.command 查询这一笔 Checkout。`;
+  if (platform === "terminal") return `Backend 尚未确认付款。在用户可见终端展示当前同一 Checkout 的二维码、链接和金额 ${amount}，然后停止等待。不要创建新 Checkout、Execution 或 Payment Intent；稍后仍然只执行 next.command 查询这一笔 Checkout。`;
+  return `Backend 尚未确认付款。把 handoff.url 作为可点击链接发送给用户，优先把 handoff.qr_local_path 作为图片附件发送，不能发送本地附件时使用 handoff.qr_image_url，并说明金额 ${amount}，然后停止等待。不要声称付款成功，不要创建新 Checkout、Execution 或 Payment Intent。稍后仍然只执行 next.command 查询这一笔 Checkout。`;
 }
 
 function formatMoney(amountMinor: number, currency: string): string {
@@ -171,4 +175,13 @@ function checkoutQRPNGURL(baseURL: string | undefined, checkoutID: string, displ
 
 function publicRoot(baseURL: string | undefined): string {
   return (baseURL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+}
+
+function absolutePublicURL(baseURL: string | undefined, value: string): string {
+	try {
+		const root = publicRoot(baseURL);
+		return new URL(value, `${root}/`).toString();
+	} catch {
+		return value;
+	}
 }

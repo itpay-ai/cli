@@ -11,6 +11,7 @@ export async function runCatalogList(
   const services = manifest.manifest.items.map(summarizeService);
   const firstServiceID = manifest.manifest.items.find((item) => item.service_id)?.service_id;
   const empty = services.length === 0;
+  const jsonFlag = options.jsonOutput ? " --json" : "";
   writeCommandEnvelope({
     status: empty ? "catalog_empty" : "listed",
     result: { catalog_version: manifest.version, services },
@@ -18,9 +19,9 @@ export async function runCatalogList(
       ? "当前没有已发布服务；稍后重试，不要猜测 service_id。"
       : "向用户解释主服务、辅助步骤和价格；得到用户意图后再启动对应 service_id。",
     next: empty
-      ? { command: "itpay catalog list", reason: "稍后重新读取已发布目录" }
+      ? { command: `itpay catalog list${jsonFlag}`, reason: "稍后重新读取已发布目录" }
       : {
-          command: `itpay services start ${services.length === 1 && firstServiceID ? firstServiceID : "<service_id>"}`,
+          command: `itpay services start ${services.length === 1 && firstServiceID ? firstServiceID : "<service_id>"}${jsonFlag}`,
           reason: "启动用户选择的服务",
         },
     recovery: [],

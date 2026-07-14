@@ -27,7 +27,7 @@ itpay services invoke <service_execution_id> --capability <capability_id>
     "items": [{ "rank": 1, "title": "<title>", "safe_payload": {} }],
     "quota": { "remaining": 2, "limit": 3 }
   },
-  "instruction": "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+  "instruction": "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
   "next": { "command": "itpay services action <id> --action <action_type> --actor-type human --status approved --candidate <rank> --json", "reason": "记录用户选择" },
   "recovery": []
 }
@@ -35,7 +35,7 @@ itpay services invoke <service_execution_id> --capability <capability_id>
 
 ## 无结果与额度耗尽
 
-无结果时明确说明 Provider 已返回空结果，并根据服务端 graph 决定重试同一 execution 或启动新 execution。额度耗尽时返回付费 capability 的完整 `services quote` 命令，不要求 CLI 自己识别服务。
+无结果时明确说明 Provider 已返回空结果，并根据服务端 graph 决定重试同一 execution 或启动新 execution。额度耗尽时，普通单 Execution 流程返回完整的 `services checkout` 单项快捷命令；`services quote -> cart add --quote -> buy --cart` 只用于用户明确要求把多个独立 Execution 合并付款的高级流程。
 
 ```json
 {
@@ -51,16 +51,16 @@ itpay services invoke <service_execution_id> --capability <capability_id>
       "delivery_email_required": false
     }
   },
-  "instruction": "免费额度已用完且本次未调用 Provider；先向用户说明价格并确认购买。",
+  "instruction": "免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：‘继续当前请求需要支付 0.10 CNY，是否购买？’然后停止并等待用户明确回复。用户明确同意前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。",
   "next": {
-    "command": "itpay services quote <id> --capability <paid_capability_id> --input <key=value> --json",
-    "reason": "准备当前服务的付费 continuation 报价"
+    "command": "itpay services checkout <id> --capability <paid_capability_id> --input <key=value> --json",
+    "reason": "仅在用户明确同意支付 0.10 CNY 后执行；否则停止"
   },
   "recovery": []
 }
 ```
 
-缺少 required input 时返回 `capability_input_invalid`，recovery 给出带占位符的同一 invoke 命令；CLI 和 Backend 都必须在 Provider 调用前拒绝，Backend 还必须在 execution/event/quota/invocation 写入前拒绝。错误调用付费 capability 时返回 `checkout_required` 和可直接运行的 quote 命令；execution 状态、event、ProviderCalled 均保持不变。
+缺少 required input 时返回 `capability_input_invalid`，recovery 给出带占位符的同一 invoke 命令；CLI 和 Backend 都必须在 Provider 调用前拒绝，Backend 还必须在 execution/event/quota/invocation 写入前拒绝。错误调用付费 capability 时不得给出购买旁路，只能回到同一 Execution 的 `services next`；execution 状态、event、ProviderCalled 均保持不变。
 
 ## Agent Type / Host
 
