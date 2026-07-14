@@ -27,7 +27,7 @@ itpay services invoke <service_execution_id> --capability <capability_id>
     "items": [{ "rank": 1, "title": "<title>", "safe_payload": {} }],
     "quota": { "remaining": 2, "limit": 3 }
   },
-  "instruction": "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+  "instruction": "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
   "next": { "command": "itpay services action <id> --action <action_type> --actor-type human --status approved --candidate <rank> --json", "reason": "记录用户选择" },
   "recovery": []
 }

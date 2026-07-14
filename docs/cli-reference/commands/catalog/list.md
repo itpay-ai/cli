@@ -31,7 +31,7 @@ itpay catalog list [--json]
     ]
   },
   "instruction": "向用户解释主服务、辅助步骤和价格；得到用户意图后再启动对应 service_id。",
-  "next": { "command": "itpay services start <service_id>", "reason": "启动用户选择的服务" },
+  "next": { "command": "itpay --agent-type <agent_type> services start <service_id> --json", "reason": "启动用户选择的服务" },
   "recovery": []
 }
 ```

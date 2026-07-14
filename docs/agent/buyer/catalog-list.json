@@ -27,7 +27,8 @@
     "Read the variant IDs and prices from the output; do not invent them.",
     "Explain the customer journey from service_flow instead of presenting every variant as an unrelated service.",
     "State free quota, paid continuation price, email requirement, and claim purpose exactly as published; do not exaggerate or omit conditions.",
-    "If the buyer wants to search by keyword, filter the catalog output client-side (no backend search yet)."
+    "If the buyer wants to search by keyword, filter the catalog output client-side (no backend search yet).",
+    "After services start, submit service keywords only through the returned capability command's --input key=value options; --target is never a search keyword."
   ],
   "next_docs": [
     {

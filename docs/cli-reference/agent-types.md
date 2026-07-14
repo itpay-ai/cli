@@ -1,6 +1,8 @@
 # Agent Type And Host Contract
 
-`--agent-type` 表示谁在运行 CLI，用于设备登记、Agent 实例归属和定制 instruction。`--host` 表示输出展示在哪里，用于选择二维码、链接或消息的渲染方式。两者不可混用。
+`--agent-type` 表示哪类运行时在运行 CLI，用于 Agent 实例归属和定制 instruction。`--host` 表示输出展示在哪里；`--target` 只是在某些 Host 中指定 chat/channel/open ID。三者不可混用，窗口、任务和对话也不是身份。
+
+本地只保存一把 Ed25519 私钥。每个规范化 Backend API base URL 独立登记 Device，因此 dev/test/app 分别拥有自己的 device ID、quota lineage、Agent instances 和 sessions。同一 Backend 下每个 `agent_type` 只有一个 Agent Instance；同类型的不同窗口、任务或聊天复用它，不追踪窗口 ID。
 
 ## 首批支持类型
 
@@ -15,10 +17,14 @@
 ## 通用规则
 
 - commerce 命令必须传 `--agent-type` 或设置 `ITPAY_AGENT_TYPE`。
-- Agent Type 必须稳定；同一运行时不得临时换名。
+- Agent Type 必须真实且稳定；同类型窗口复用同一实例，不得临时换名。
+- `next.command` 和 `recovery.command` 必须保留当前显式 Agent Type，不读取或回退到机器上其他类型。
 - 显式 `--host` 覆盖默认 Host，但不改变已登记的 Agent Type。
+- `--target` 只路由人类展示，不是身份，也不是 capability 业务输入。
 - Host 只影响 `instruction` 和 `handoff`，不得改变金额、订单、权限、quota 或交付状态。
-- 非展示命令在五种 Agent Type 下返回相同业务结果，只允许 instruction 措辞不同。
+- 五种 Agent Type 使用同一命令输入和 JSON 外壳；不得为单个 Agent Type 新增、删除或改名协议字段。
+- 非展示命令在五种 Agent Type 下返回相同业务结果，只允许 `instruction` 措辞不同。只有 Host 客观无法展示某种媒介时，`handoff` 才按既有可选字段做最小裁剪。
+- session 失效时 CLI 只续期并重试原请求一次；再次失败立即返回。revoked v2 Device 不自动换身份。
 
 ## Checkout Handoff 最小合同
 

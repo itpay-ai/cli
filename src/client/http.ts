@@ -30,6 +30,7 @@ export interface HttpClientConfig {
   fetchImpl?: typeof fetch;
   defaultHeaders?: Record<string, string>;
   requestAuthorizer?: (input: { method: string; path: string; body: string }) => Promise<Record<string, string>>;
+  recoverAuthorization?: () => Promise<void>;
 }
 
 export class HttpClient {
@@ -37,6 +38,7 @@ export class HttpClient {
   private readonly fetchImpl: typeof fetch;
   private readonly defaultHeaders: Record<string, string>;
   private readonly requestAuthorizer?: HttpClientConfig["requestAuthorizer"];
+  private readonly recoverAuthorization?: HttpClientConfig["recoverAuthorization"];
 
   constructor(config: HttpClientConfig) {
     this.baseURL = config.baseURL.replace(/\/$/, "");
@@ -47,40 +49,40 @@ export class HttpClient {
       ...(config.defaultHeaders ?? {}),
     };
     this.requestAuthorizer = config.requestAuthorizer;
+    this.recoverAuthorization = config.recoverAuthorization;
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const url = path.startsWith("http") ? path : this.baseURL + path;
-    const headers: Record<string, string> = { ...this.defaultHeaders };
 	const method = options.method ?? "GET";
 	const body = options.body !== undefined ? JSON.stringify(options.body) : "";
-    if (this.requestAuthorizer) {
-      Object.assign(headers, await this.requestAuthorizer({ method, path: new URL(url).pathname + new URL(url).search, body }));
-    }
-    if (options.bearer) {
-      headers.Authorization = `Bearer ${options.bearer}`;
-    }
-    if (options.idempotencyKey) {
-      headers["Idempotency-Key"] = options.idempotencyKey;
-    }
+    const requestPath = new URL(url).pathname + new URL(url).search;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const headers: Record<string, string> = { ...this.defaultHeaders };
+      if (this.requestAuthorizer) {
+        Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body }));
+      }
+      if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`;
+      if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
-    const requestInit: RequestInit = {
-	  method,
-      headers,
-	  ...(options.body !== undefined ? { body } : {}),
-      ...(options.signal ? { signal: options.signal } : {}),
-    };
+      const response = await this.fetchImpl(url, {
+	    method,
+        headers,
+	    ...(options.body !== undefined ? { body } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      const text = await response.text();
+      const parsed = text.length > 0 ? safeParseJson(text) : undefined;
+      if (response.ok) return parsed as T;
 
-    const response = await this.fetchImpl(url, requestInit);
-
-    const text = await response.text();
-    const parsed = text.length > 0 ? safeParseJson(text) : undefined;
-
-    if (!response.ok) {
-      const errPayload = parsed as ErrorResponse | undefined;
-      throw new HttpError(response.status, errPayload, `HTTP ${response.status}`);
+      const error = new HttpError(response.status, parsed as ErrorResponse | undefined, `HTTP ${response.status}`);
+      if (attempt === 0 && error.status === 401 && error.code === "agent_device_session_required" && this.recoverAuthorization) {
+        await this.recoverAuthorization();
+        continue;
+      }
+      throw error;
     }
-    return parsed as T;
+    throw new Error("unreachable HTTP retry state");
   }
 
   get<T>(path: string, options: Omit<RequestOptions, "method" | "body"> = {}): Promise<T> {

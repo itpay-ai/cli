@@ -19,7 +19,12 @@
     {
       "intent": "verify compatibility",
       "command": "itpay --agent-type <agent_type> readyz --json",
-      "success_signal": "status is ready and next points to catalog list"
+      "success_signal": "status is ready and next points to the complete packaged Buyer Skill"
+    },
+    {
+      "intent": "load the complete operating contract",
+      "command": "itpay --agent-type <agent_type> skill show itpay-buyer --json",
+      "success_signal": "status is shown and next points to catalog list with the same Agent Type"
     },
     {
       "intent": "discover published services",
@@ -45,7 +50,9 @@
   "agent_rules": [
     "Use the CLI as the control surface; do not call ItPay APIs directly or hardcode a service workflow.",
     "Treat result as current facts, instruction as how to use those facts, next as the preferred executable action, and recovery as exceptional paths.",
-    "Run one state-changing command at a time and execute the exact next.command unchanged after filling only required user data.",
+    "Run one state-changing command at a time. Treat next.command as the preferred continuation: execute it unchanged after filling required user data only when the current result has not already satisfied the user's goal.",
+    "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
+    "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
     "Start a separate Service Execution for each independent service intent; quota remains shared according to Backend identity policy.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",
     "Agent-visible delivery is returned by services next. Protected delivery is read only by services read-result while a human grant is active.",
@@ -63,7 +70,8 @@
     { "condition": "Need payment recovery", "topic": "payment-flow" },
     { "condition": "Need Host-specific presentation", "topic": "render-hosts" },
     { "condition": "Need order or refund recovery", "topic": "orders-refunds" },
-    { "condition": "Need install details", "topic": "install-and-setup" }
+    { "condition": "Need install or identity details", "topic": "install-and-setup" },
+    { "condition": "Need device session recovery rules", "topic": "identity-and-sessions" }
   ],
-  "search_terms": ["quickstart", "service", "next", "recovery", "delivery", "refund"]
+  "search_terms": ["quickstart", "service", "next", "recovery", "delivery", "refund", "target", "input"]
 }

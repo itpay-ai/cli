@@ -21,6 +21,7 @@
 - [`itpay catalog`](commands/catalog/index.md)
   - [`itpay catalog list`](commands/catalog/list.md)
 - [`itpay install`](commands/install.md) - 查看指定 Agent 的安装说明
+- [`itpay skill show`](commands/skill.md) - 一次读取完整内置 Buyer Skill
 - [`itpay docs`](commands/docs/index.md)
   - [`itpay docs list`](commands/docs/list.md)
   - [`itpay docs show`](commands/docs/show.md)

@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "ItPay CLI for V3 checkout, payment, order, refund, and agent-facing render flows.",
   "type": "module",
   "bin": {

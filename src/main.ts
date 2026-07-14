@@ -4,6 +4,7 @@
 
 import { Command } from "commander";
 import { CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
 import { HttpError } from "./client/http.js";
@@ -27,9 +28,10 @@ import {
   runCartShow,
   runCartShowServer,
 } from "./commands/cart.js";
-import { CommandContractError, printErrorRecovery, writeCommandEnvelope, type CommandAction } from "./commands/guidance.js";
+import { CommandContractError, errorRecoveryActions, printErrorRecovery, writeCommandEnvelope, type CommandAction } from "./commands/guidance.js";
 import { runDocsList, runDocsShow, runDocsSearch } from "./commands/docs.js";
 import { runInstall } from "./commands/install.js";
+import { runSkillShow } from "./commands/skill.js";
 import { runNext } from "./commands/next.js";
 import {
   collectOption,
@@ -51,7 +53,7 @@ program
   .name("itpay")
   .description("V3 ItPay CLI — checkout, payment, order, and refund commands")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
-  .version("2.0.5");
+  .version(CLI_VERSION);
 
 function withHost(value: string | undefined): ClientHost {
   const host = normalizeHost(value);
@@ -133,16 +135,41 @@ function reportCLIError(
   contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[] },
 ): void {
   const commandError = error instanceof CommandContractError ? error : undefined;
+  const deviceError = error instanceof DeviceAuthorizationError ? error : undefined;
+  const stateError = error instanceof DeviceStateError ? error : undefined;
+  const httpRecovery = errorRecoveryActions(error).map((action) => ({
+    command: action.command,
+    reason: action.reason ?? action.label,
+  }));
+  const identityRecovery = error instanceof HttpError &&
+    (error.code === "agent_identity_required" || error.code === "agent_device_session_required");
+  const deviceRecovery: CommandAction[] = deviceError ? [{
+    command: "itpay skill show itpay-buyer --json",
+    reason: "读取身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
+  }] : [];
+  const stateRecovery: CommandAction[] = stateError ? [{
+    command: "itpay skill show itpay-buyer --json",
+    reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
+  }] : [];
+  const authorizationInstruction = stateError
+    ? "当前运行环境无法写入 owner-only Device 状态；请保持同一 Node、CLI 和 Agent Type，在允许持久写入 ~/.itpay-v3 的执行环境中重试。不要手工创建 lock、删除 identity 或换运行时碰运气。"
+    : error instanceof HttpError && error.code === "agent_device_session_required"
+    ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
+    : deviceError?.code === "agent_device_revoked"
+      ? "Backend 已撤销当前 Device 登记；CLI 没有自动创建替代身份。停止重试并请用户或运营恢复登记。"
+      : deviceError
+        ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
+        : undefined;
   if (contract || commandError) {
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: commandError?.code ?? (error instanceof HttpError ? error.code : contract?.code ?? "command_failed"),
+        code: commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      instruction: commandError?.instruction ?? contract?.instruction ?? "检查命令参数后重试。",
+      instruction: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
-      recovery: commandError?.recovery ?? contract?.recovery ?? [],
+      recovery: commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
       output: (text) => { process.stderr.write(text); },
@@ -183,9 +210,10 @@ program
   .description("Probe the V3 backend readiness endpoint")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
-    const backend = newBackendClient(loadConfig());
+    const config = loadConfig();
+    const backend = newBackendClient(config);
     try {
-      await runReadyz(backend, { jsonOutput: Boolean(options.json) });
+      await runReadyz(backend, { jsonOutput: Boolean(options.json), ...(config.agentType ? { agentType: config.agentType } : {}) });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
@@ -195,6 +223,95 @@ program
           { command: "echo $ITPAY_BACKEND_URL", reason: "确认当前 Backend URL" },
           { command: "itpay readyz", reason: "重试可用性检查" },
         ],
+      });
+    }
+  });
+
+// --- device ---------------------------------------------------------------
+
+const deviceCmd = program.command("device").description("Recover local Device registration state after an operator-confirmed Backend reset");
+
+deviceCmd
+  .command("recover")
+  .description("Forget only the selected Backend registration while preserving the local private key")
+  .option("--confirm-backend-reset", "confirm that an operator reset the selected Backend registration database")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    try {
+      if (!config.agentType) {
+        throw new CommandContractError(
+          "agent_type_required",
+          "agent type is required for Backend-scoped Device recovery",
+          "如实声明当前 Agent Type；恢复后必须用同一类型重新登记。",
+          [{ command: "itpay install --json", reason: "选择当前真实 Agent Type" }],
+        );
+      }
+      if (!options.confirmBackendReset) {
+        throw new CommandContractError(
+          "backend_reset_confirmation_required",
+          "--confirm-backend-reset is required",
+          "仅在运营已确认当前 Backend 的 Device 登记数据库被重建或清空后执行；普通 session 失效或 revoked 不得使用。",
+          [{ command: "itpay docs show identity-and-sessions --json", reason: "检查适用边界" }],
+        );
+      }
+      const recovered = await new DeviceAuthority({
+        baseURL: config.baseURL,
+        requestedAgentType: config.agentType,
+        compatibilityHeaders: {},
+      }).recoverBackendReset();
+      writeCommandEnvelope({
+        status: recovered.removed ? "backend_registration_removed" : "backend_registration_absent",
+        result: {
+          backend: config.baseURL,
+          removed_agent_types: recovered.agentTypes,
+          private_key_preserved: true,
+          other_backend_registrations_preserved: true,
+        },
+        instruction: "只读列出 Service Executions，以同一私钥和 Agent Type 重新登记当前 Backend；不要删除 ~/.itpay-v3 或切换运行时。",
+        next: {
+          command: `itpay --agent-type ${config.agentType} services list --limit 1 --json`,
+          reason: "用无业务写入的签名请求重新登记当前 Backend",
+        },
+        recovery: [],
+      }, {
+        jsonOutput: Boolean(options.json),
+        plainResult: [
+          `backend: ${config.baseURL}`,
+          `registration: ${recovered.removed ? "removed" : "already absent"}`,
+          "private_key: preserved",
+          "other_backends: preserved",
+        ],
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "device_recovery_failed",
+        instruction: "仅恢复运营已确认重建的当前 Backend；不要删除整个 Device identity。",
+        recovery: [{ command: "itpay docs show identity-and-sessions --json", reason: "检查 Device 恢复边界" }],
+      });
+    }
+  });
+
+// --- skill ----------------------------------------------------------------
+
+const skillCmd = program.command("skill").description("Read complete packaged Agent skills");
+
+skillCmd
+  .command("show")
+  .description("Show one complete packaged skill")
+  .argument("<name>", "skill name")
+  .option("--json", "output JSON instead of terminal text")
+  .action((name: string, options) => {
+    const config = loadConfig();
+    try {
+      runSkillShow(name, { jsonOutput: Boolean(options.json), ...(config.agentType ? { agentType: config.agentType } : {}) });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "skill_unavailable",
+        instruction: "内置 Skill 缺失或损坏；重新安装同版本 CLI 后重试。",
+        recovery: [{ command: `npm install -g @itpay/cli@${CLI_VERSION}`, reason: "恢复随包发布的 Skill" }],
       });
     }
   });

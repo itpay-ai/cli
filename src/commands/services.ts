@@ -169,7 +169,7 @@ function invokedEnvelope(
   };
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
-		? "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。"
+		? "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。"
     : "Provider 已返回空结果；不要重放当前 execution，按下一步恢复。";
   let next: CommandAction | null = null;
 
@@ -778,7 +778,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 					safe_payload: item.safe_payload,
 				})),
 			},
-			instruction: "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+			instruction: "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
 			next: {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
 				reason: "仅在用户明确选择后锁定来源候选",
@@ -805,7 +805,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 			},
 			instruction: items.length > 0
 				? selection
-					? "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；如用户选择，必须在当前 Execution 提交对应 rank。"
+					? "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；若已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才提交对应 rank。"
 					: "这是当前 Graph 步骤对应的交付；结果已可供 Agent 使用，只使用 safe_payload。"
 				: "Agent-visible 交付已完成但没有结果项；不要调用 read-result 或重放当前 execution。",
 			next: selection ? {

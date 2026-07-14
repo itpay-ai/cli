@@ -5,7 +5,7 @@
 检查当前配置的 ItPay API 是否可用。它只做环境诊断，不登记设备、不创建业务资源。
 
 **上游：** CLI 安装和 Backend URL 配置。
-**下游：** `catalog list` 或失败后的网络/配置修复。
+**下游：** 完整 `itpay-buyer` Skill，随后选择 Agent Type 或读取 Catalog。
 
 ## 语法与参数
 
@@ -23,8 +23,8 @@ itpay readyz [--json]
 {
   "status": "ready",
   "result": { "backend": "available" },
-  "instruction": "ItPay 可用，可以读取服务目录。",
-  "next": { "command": "itpay catalog list", "reason": "发现可用服务" },
+  "instruction": "ItPay 可用；先完整读取内置 Buyer Skill，再开始服务流程。",
+  "next": { "command": "itpay skill show itpay-buyer --json", "reason": "加载完整操作与安全规则" },
   "recovery": []
 }
 ```
@@ -35,5 +35,4 @@ itpay readyz [--json]
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 行为相同；本命令不渲染 Host 内容。
-
+本命令不渲染 Host 内容。若已声明 Agent Type，`result.agent_type` 会确认该类型，且返回的 Skill 命令保留同一 `--agent-type`；未声明时 Skill 会先引导 `install`。

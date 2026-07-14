@@ -12,6 +12,7 @@ import type {
   ServiceExecutionStarted,
 } from "../client/types.js";
 import { resolveOutput, type OutputSink } from "../render/sink.js";
+import { declaredAgentType, qualifyItPayCommand } from "../state/agent_type.js";
 
 export interface CommandAction {
   command: string;
@@ -53,15 +54,17 @@ export class CommandContractError extends Error {
 
 export function writeCommandEnvelope(
   value: CommandEnvelope | CommandErrorEnvelope,
-  options: { jsonOutput?: boolean; output?: OutputSink; plainResult?: string[] } = {},
+  options: { jsonOutput?: boolean; output?: OutputSink; plainResult?: string[]; agentType?: string } = {},
 ): void {
   const out = resolveOutput(options.output);
+  const agentType = options.agentType ?? declaredAgentType();
+  const qualified = qualifyEnvelope(value, agentType);
   if (options.jsonOutput) {
-    out(JSON.stringify(value, null, 2) + "\n");
+    out(JSON.stringify(qualified, null, 2) + "\n");
     return;
   }
-  out(`${value.status}\n`);
-  const facts = "result" in value ? value.result : value.error;
+  out(`${qualified.status}\n`);
+  const facts = "result" in qualified ? qualified.result : qualified.error;
   if (options.plainResult) {
     for (const line of options.plainResult) out(`${line}\n`);
   } else {
@@ -69,16 +72,16 @@ export function writeCommandEnvelope(
       out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
     }
   }
-  if ("handoff" in value && value.handoff) {
-    for (const [key, fact] of Object.entries(value.handoff)) {
+  if ("handoff" in qualified && qualified.handoff) {
+    for (const [key, fact] of Object.entries(qualified.handoff)) {
       out(`handoff.${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
     }
   }
-  out(`instruction: ${value.instruction}\n`);
-  if (value.next) out(`next: ${value.next.command}\n`);
-  if (value.recovery.length > 0) {
+  out(`instruction: ${qualified.instruction}\n`);
+  if (qualified.next) out(`next: ${qualified.next.command}\n`);
+  if (qualified.recovery.length > 0) {
     out("recovery:\n");
-    for (const action of value.recovery) {
+    for (const action of qualified.recovery) {
       out(`  - ${action.command}\n`);
       out(`    reason: ${action.reason}\n`);
     }
@@ -114,6 +117,7 @@ export function attachAgentGuidance<T>(
 
 export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink): void {
   const out = resolveOutput(output);
+  const agentType = declaredAgentType();
   out(`${guidance.summary}\n`);
   if (guidance.visible_results?.length) {
     out("results:\n");
@@ -131,7 +135,7 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
     out("next actions:\n");
     for (const action of guidance.next_actions) {
       out(`  - ${action.label}\n`);
-      out(`    ${action.command}\n`);
+      out(`    ${qualifyItPayCommand(action.command, agentType)}\n`);
       if (action.requires_human) out("    requires human confirmation\n");
       if (action.reason) out(`    reason: ${action.reason}\n`);
     }
@@ -140,9 +144,20 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
     out("recovery:\n");
     for (const action of guidance.recovery) {
       out(`  - ${action.label}\n`);
-      out(`    ${action.command}\n`);
+      out(`    ${qualifyItPayCommand(action.command, agentType)}\n`);
     }
   }
+}
+
+function qualifyEnvelope<T extends CommandEnvelope | CommandErrorEnvelope>(value: T, agentType: string | undefined): T {
+  return {
+    ...value,
+    next: value.next ? { ...value.next, command: qualifyItPayCommand(value.next.command, agentType) } : null,
+    recovery: value.recovery.map((action) => ({
+      ...action,
+      command: qualifyItPayCommand(action.command, agentType),
+    })),
+  };
 }
 
 export function buildCartGuidance(cart: Cart, serviceModel?: ServiceExecutionReadModel): AgentGuidance {
@@ -288,12 +303,22 @@ export function buildServiceHandleGuidance(serviceExecutionID: string, checkoutC
 
 export function errorRecoveryActions(error: unknown): AgentNextAction[] {
   if (!(error instanceof HttpError)) return [];
-  if (error.code === "agent_identity_required" || error.code === "agent_device_session_required") {
+  if (error.code === "agent_identity_required") {
     return [
       {
         id: "inspect_agent_setup",
         label: "Inspect supported Agent Type setup",
         command: "itpay install --json",
+      },
+    ];
+  }
+  if (error.code === "agent_device_session_required") {
+    return [
+      {
+        id: "read_agent_session_rules",
+        label: "Read identity and session recovery rules",
+        command: "itpay skill show itpay-buyer --json",
+        reason: "The CLI already attempted one automatic session renewal; do not rotate identity or loop retries.",
       },
     ];
   }

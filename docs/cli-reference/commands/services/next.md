@@ -37,7 +37,7 @@ itpay services next <service_execution_id> [--json]
       { "rank": 1, "title": "<title>", "safe_payload": { "<public_field>": "<value>" } }
     ]
   },
-  "instruction": "向用户展示编号和 safe_payload；用户选择后只在当前 Execution 提交对应 rank，不要新建 Execution。",
+  "instruction": "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
     "reason": "仅在用户明确选择后锁定来源候选"
@@ -65,7 +65,7 @@ itpay services next <service_execution_id> [--json]
       }
     ]
   },
-  "instruction": "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；如用户选择，必须在当前 Execution 提交对应 rank。",
+  "instruction": "这是当前 Graph 步骤对应的交付。向用户展示编号和 safe_payload；若已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才提交对应 rank。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
     "reason": "仅在用户明确选择后锁定来源候选"

@@ -6,6 +6,7 @@ typed backend methods, render the result. No HTTP, no business truth.
 ## Files
 
 - `readyz.ts` — `GET /v1/readyz`
+- `skill.ts` — load and validate the complete packaged Buyer Skill without Backend access
 - `buy.ts` — `POST /v1/carts` + `POST /v1/checkouts`, then print checkout QR (NOT a provider QR)
 - `checkout.ts` — `GET /v1/checkouts/{id}/presentation?display_token=...`
 - `pay.ts` — `POST /v1/checkouts/{id}/payment-intents` (CLI escape hatch only)

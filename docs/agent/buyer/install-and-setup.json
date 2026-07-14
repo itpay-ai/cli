@@ -3,12 +3,22 @@
   "role": "buyer",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
-  "purpose": "Install the CLI and select one of the five supported Agent Types without confusing Agent Type with Host.",
+  "purpose": "Install the CLI, load the complete Buyer Skill, and select one stable Agent Type without confusing identity, Backend, Host, target, or chat window.",
   "when_to_use": [
     "The CLI is being installed or upgraded.",
     "The agent needs to confirm its stable runtime identity and default output Host."
   ],
   "commands": [
+    {
+      "intent": "verify the API and enter packaged onboarding",
+      "command": "itpay readyz --json",
+      "success_signal": "status is ready and next points to skill show itpay-buyer"
+    },
+    {
+      "intent": "read the complete packaged operating contract",
+      "command": "itpay skill show itpay-buyer --json",
+      "success_signal": "status is shown, result.content contains the complete Skill, and next selects Agent Type or Catalog"
+    },
     {
       "intent": "list supported Agent Types",
       "command": "itpay install --json",
@@ -24,15 +34,19 @@
     "Install with npm install -g @itpay/cli.",
     "Use the default https://app.itpay.ai API unless an environment override is deliberate.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, or workbuddy.",
-    "Agent Type identifies the runtime and device instance. Host only controls human-facing rendering.",
-    "Do not change Agent Type to reset quota or recover a failed command."
+    "One local private key is reused, but each exact Backend API base URL has its own server registration and quota lineage.",
+    "Within one Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
+    "Agent Type identifies the runtime. Host controls rendering and target only identifies a presentation destination.",
+    "Keep the exact Agent Type in every next or recovery command; do not fall back to a type previously used by another runtime.",
+    "Do not change Agent Type or rotate local identity to reset quota or recover a failed command."
   ],
   "forbidden": [
     "Do not use codex, terminal, claude-code, or plain-chat as Agent Types.",
-    "Do not claim that install writes host configuration or registers a device; it only prints instructions."
+    "Do not claim that install writes host configuration or registers a device; it only prints instructions.",
+    "Do not create a new identity for a different window, task, chat, or process of the same Agent Type."
   ],
   "next_docs": [
     { "condition": "Installation is verified", "topic": "quickstart" }
   ],
-  "search_terms": ["install", "agent type", "host", "codex", "claude code", "workbuddy"]
+  "search_terms": ["install", "agent type", "host", "target", "device", "session", "identity", "backend", "codex", "claude code", "workbuddy"]
 }

@@ -7,15 +7,16 @@ import { writeCommandEnvelope } from "./guidance.js";
 export interface RunOptions {
   output?: OutputSink;
   jsonOutput?: boolean;
+  agentType?: string;
 }
 
 export async function runReadyz(backend: BackendClient, options: RunOptions = {}): Promise<void> {
   const response = await backend.readyz();
   writeCommandEnvelope({
     status: response.status,
-    result: { backend: "available" },
-    instruction: "ItPay 可用，可以读取服务目录。",
-    next: { command: "itpay catalog list", reason: "发现可用服务" },
+    result: { backend: "available", ...(options.agentType ? { agent_type: options.agentType } : {}) },
+    instruction: "ItPay 可用；先完整读取内置 Buyer Skill，再开始服务流程。",
+    next: { command: "itpay skill show itpay-buyer --json", reason: "加载完整操作与安全规则" },
     recovery: [],
   }, options);
 }
