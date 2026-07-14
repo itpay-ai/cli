@@ -28,13 +28,17 @@
   "agent_rules": [
     "Normal buyer flow opens the ItPay Checkout page; itpay pay and buy --pay are operator escape hatches.",
     "Use only handoff fields returned for the current Host and make them actually visible to the human.",
+    "Before creating a single-Service Checkout, send the exact price confirmation requested by the current instruction, stop, and wait for explicit human agreement.",
+    "After presenting a Checkout, stop. Run the returned next.command only after the human completes the payment action or asks to query the same Checkout.",
     "Payment is verified only by Backend Checkout or Order state, never by QR rendering, redirect, or user claim.",
     "A terminal payment state must never display another payment handoff."
   ],
   "forbidden": [
     "Do not render a provider QR in place of the ItPay Checkout handoff.",
     "Do not mix a display token from another Checkout.",
-    "Do not create a replacement Checkout after an uncertain response; recover first."
+    "Do not create a replacement Checkout after an uncertain response; recover first.",
+    "Do not use services quote, cart, buy, or pay as a fallback when the single-Service checkout flow fails.",
+    "Do not start another Service Execution to bypass quota, candidate, quote, checkout, or delivery state."
   ],
   "next_docs": [
     { "condition": "Payment is verified", "topic": "orders-refunds" },

@@ -11,6 +11,8 @@ import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -747,15 +749,17 @@ test("services invoke reads target capability metadata before checkout guidance"
   assert.deepEqual(parsed.result.checkout.price, { amount_minor: 10, currency: "CNY" });
   assert.equal(
     parsed.next.command,
-		"itpay services quote se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
+		"itpay services checkout se_quota --capability fuzzy_disambiguation_paid --input keyword=美团 --json",
   );
-  assert.match(parsed.next.reason, /付费 continuation/);
+	assert.equal(parsed.next.reason, "仅在用户明确同意支付 0.10 CNY 后执行；否则停止");
+	assert.match(stdoutCapture.join(""), /然后停止并等待用户明确回复/);
+	assert.match(stdoutCapture.join(""), /不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令/);
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
 	assert.equal(requests.at(-2)?.method, "GET");
 	assert.equal(requests.at(-1)?.method, "POST");
 });
 
-test("services invoke redirects paid capabilities to quote without invoking", async () => {
+test("services invoke rejects paid capabilities and returns only same-execution recovery", async () => {
 	const requestsBefore = mock.requests.length;
 	await assert.rejects(
 		runServicesInvoke(
@@ -769,10 +773,12 @@ test("services invoke redirects paid capabilities to quote without invoking", as
 		(error: unknown) => {
 			assert.ok(error instanceof CommandContractError);
 			assert.equal(error.code, "checkout_required");
+			assert.match(error.instruction, /不要尝试 quote、cart、buy、checkout 或 pay 作为旁路/);
 			assert.equal(
 				error.recovery[0]?.command,
-					"itpay services quote se_paid_direct --capability precise_lookup --input company=example --email <email> --json",
+					"itpay services next se_paid_direct --json",
 			);
+			assert.equal(error.recovery.length, 1);
 			return true;
 		},
 	);
@@ -1789,6 +1795,38 @@ test("readyz command supports the documented JSON contract", async () => {
   assert.equal(result.stderr, "");
 });
 
+test("CLI fails closed when the Backend compatibility contract is unavailable", async () => {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(426, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ code: "platform_release_unavailable", message: "active platform release is unavailable" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "readyz", "--json"], {
+        ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}`,
+      }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string };
+          instruction: string;
+          next: unknown;
+          recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, "backend_contract_incompatible");
+        assert.match(envelope.instruction, /立即停止/);
+        assert.match(envelope.instruction, /不要尝试 services quote、services checkout、cart、buy 或 pay/);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   const result = await runCLI(["readyz", "--json"], {
     ITPAY_BACKEND_URL: mock.url,
@@ -2028,7 +2066,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.6");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.7");
       return true;
     },
   );
@@ -2061,7 +2099,9 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   assert.equal(parsed.status, "human_checkout_required");
   assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
   assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
-  assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending/);
+  assert.match(parsed.instruction, /停止等待/);
+  assert.match(parsed.instruction, /不要创建新 Checkout、Execution 或 Payment Intent/);
+  assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending --json$/);
   assert.equal("agent_guidance" in parsed, false);
   assert.equal("brand_qr_mirrors" in parsed, false);
 });
@@ -2402,11 +2442,14 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal(json.status, "human_checkout_required");
   assert.match(json.handoff.url, /^https:\/\/sandbox\.itpay\.ai\/checkout\/chk_/);
   assert.match(json.handoff.url, /display_token=/);
-  assert.match(json.handoff.qr_image_url ?? "", /^\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
+  assert.match(json.handoff.qr_image_url ?? "", /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
   assert.equal(json.result.capability_id, "precise_report");
   assert.deepEqual(json.result.locked_input, {});
   assert.equal(json.result.amount, "0.50 CNY");
-  assert.match(json.next.command, /itpay checkout --id/);
+  assert.match(json.instruction, /现在只做以下动作/);
+  assert.match(json.instruction, /发送完成后停止并等待用户操作/);
+  assert.match(json.instruction, /不要调用 pay/);
+  assert.match(json.next.command, /itpay checkout --id .* --json$/);
   assert.deepEqual(json.recovery, []);
   assert.equal("service_quote_lock_id" in json, false);
   assert.equal("display_token" in json, false);
@@ -2578,11 +2621,16 @@ test("services action resolves a human-selected candidate rank from the executio
 				rank: 1,
 				title: "小米汽车科技有限公司",
 			},
+			checkout: {
+				capability_id: "precise_report",
+				price: { amount_minor: 50, currency: "CNY" },
+				delivery_email_required: true,
+			},
 		},
-		instruction: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
+		instruction: "已选择 小米汽车科技有限公司。候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 0.50 CNY，并提供用于发送交付认领链接的邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
 		next: {
-			command: "itpay services quote se_select_by_rank --capability precise_report --email <email> --json",
-			reason: "为已确认候选准备报价",
+			command: "itpay services checkout se_select_by_rank --capability precise_report --email <email> --json",
+			reason: "仅在用户明确同意支付 0.50 CNY 并提供真实邮箱后执行；否则停止",
 		},
 		recovery: [{
 			command: "itpay services next se_select_by_rank --json",

@@ -143,6 +143,12 @@ function reportCLIError(
   }));
   const identityRecovery = error instanceof HttpError &&
     (error.code === "agent_identity_required" || error.code === "agent_device_session_required");
+	const incompatible = error instanceof HttpError && (
+		error.code === "client_upgrade_required" ||
+		error.code === "client_compatibility_headers_required" ||
+		error.code === "platform_release_unavailable" ||
+		(error.status === 404 && error.code === "unknown_error")
+	);
   const deviceRecovery: CommandAction[] = deviceError ? [{
     command: "itpay skill show itpay-buyer --json",
     reason: "读取身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
@@ -164,12 +170,14 @@ function reportCLIError(
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
+        code: incompatible ? "backend_contract_incompatible" : commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      instruction: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
+      instruction: incompatible
+		? "当前 Backend 不支持本 CLI 所需的交易合同。立即停止；不要尝试 services quote、services checkout、cart、buy 或 pay 作为替代路径。需要先同步 CLI 与 Backend 版本。"
+		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
-      recovery: commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+      recovery: incompatible ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
       output: (text) => { process.stderr.write(text); },
