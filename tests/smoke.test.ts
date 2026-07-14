@@ -1827,6 +1827,35 @@ test("CLI fails closed when the Backend compatibility contract is unavailable", 
   }
 });
 
+test("CLI stops on Backend internal errors without identity or paid-path recovery", async () => {
+  mock.setServiceError({ status: 500, code: "internal_error", message: "request failed" });
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], {
+        ITPAY_BACKEND_URL: mock.url,
+      }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string };
+          instruction: string;
+          next: unknown;
+          recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, "internal_error");
+        assert.match(envelope.instruction, /Backend 内部故障；立即停止/);
+        assert.match(envelope.instruction, /不要重试、检查或删除 Device 身份/);
+        assert.match(envelope.instruction, /不要.*切换 Backend/);
+        assert.match(envelope.instruction, /quote、checkout、cart、buy、pay/);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  } finally {
+    mock.setServiceError();
+  }
+});
+
 test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   const result = await runCLI(["readyz", "--json"], {
     ITPAY_BACKEND_URL: mock.url,
@@ -2066,7 +2095,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.7");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.8");
       return true;
     },
   );
