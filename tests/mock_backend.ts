@@ -30,6 +30,7 @@ export interface MockBackendHandle {
   url: string;
   requests: RecordedRequest[];
   setAccountOrders: (orders: Array<Record<string, unknown>>) => void;
+  setServiceError: (error?: { status: number; code: string; message: string }) => void;
   close: () => Promise<void>;
 }
 
@@ -51,6 +52,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   const carts: Record<string, Record<string, unknown>> = {};
   const serviceExecutions: Record<string, Record<string, unknown>> = {};
   let accountOrders: Array<Record<string, unknown>> = [];
+  let serviceError: { status: number; code: string; message: string } | undefined;
   const orderByID: Record<string, Record<string, unknown>> = {
     ord_delivery: {
       order_id: "ord_delivery", order_code: "IP-DELIVERY", checkout_id: "chk_delivery", status: "delivered",
@@ -114,6 +116,11 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const path = url.pathname;
 
     res.setHeader("Content-Type", "application/json");
+
+    if (serviceError && path.startsWith("/v1/service-executions")) {
+      respond(res, serviceError.status, { code: serviceError.code, message: serviceError.message });
+      return;
+    }
 
     if (method === "GET" && path === "/v1/readyz") {
       respond(res, 200, { status: "ready", version: "mock" });
@@ -818,6 +825,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     url,
     requests,
     setAccountOrders: (orders) => { accountOrders = orders; },
+    setServiceError: (error) => { serviceError = error; },
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));

@@ -149,6 +149,7 @@ function reportCLIError(
 		error.code === "platform_release_unavailable" ||
 		(error.status === 404 && error.code === "unknown_error")
 	);
+  const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const deviceRecovery: CommandAction[] = deviceError ? [{
     command: "itpay skill show itpay-buyer --json",
     reason: "读取身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
@@ -175,9 +176,11 @@ function reportCLIError(
       },
       instruction: incompatible
 		? "当前 Backend 不支持本 CLI 所需的交易合同。立即停止；不要尝试 services quote、services checkout、cart、buy 或 pay 作为替代路径。需要先同步 CLI 与 Backend 版本。"
+		: backendInternal
+			? "Backend 内部故障；立即停止并向用户报告。不要重试、检查或删除 Device 身份、创建替代 Execution、切换 Backend，或尝试 quote、checkout、cart、buy、pay 等付费路径。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
-      recovery: incompatible ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+      recovery: incompatible || backendInternal ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
       output: (text) => { process.stderr.write(text); },
