@@ -11,6 +11,7 @@ import { HttpError } from "./client/http.js";
 import { runReadyz } from "./commands/readyz.js";
 import { runBuy } from "./commands/buy.js";
 import { runCatalogList } from "./commands/catalog.js";
+import { requirePlatformCompatibility } from "./commands/compatibility.js";
 import { runCheckoutPresentation } from "./commands/checkout.js";
 import { runPay } from "./commands/pay.js";
 import { runOrder } from "./commands/order.js";
@@ -175,7 +176,7 @@ function reportCLIError(
         message: error instanceof Error ? error.message : String(error),
       },
       instruction: incompatible
-		? "当前 Backend 不支持本 CLI 所需的交易合同。立即停止；不要尝试 services quote、services checkout、cart、buy 或 pay 作为替代路径。需要先同步 CLI 与 Backend 版本。"
+		? "立即向用户报告 error.message 并结束本次任务。不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令；不要寻找、安装或切换其他 CLI。只有运营明确提供兼容 CLI 后，才能在新的任务中重新开始。"
 		: backendInternal
 			? "Backend 内部故障；立即停止并向用户报告。不要重试、检查或删除 Device 身份、创建替代 Execution、切换 Backend，或尝试 quote、checkout、cart、buy、pay 等付费路径。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
@@ -224,6 +225,7 @@ program
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
+      await requirePlatformCompatibility(backend);
       await runReadyz(backend, { jsonOutput: Boolean(options.json), ...(config.agentType ? { agentType: config.agentType } : {}) });
     } catch (error) {
       reportCLIError(error, {
@@ -333,8 +335,18 @@ program
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const config = loadConfig();
-    const session = CartSession.loadFromFile(cartSessionPath(), config.checkoutCurrency);
-    runNext(session, { jsonOutput: Boolean(options.json) });
+    try {
+      await requirePlatformCompatibility(newBackendClient(config));
+      const session = CartSession.loadFromFile(cartSessionPath(), config.checkoutCurrency);
+      runNext(session, { jsonOutput: Boolean(options.json) });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "next_unavailable",
+        instruction: "Backend 合同可用后再读取本地恢复句柄；不要根据旧句柄继续交易。",
+        recovery: [],
+      });
+    }
   });
 
 // --- catalog --------------------------------------------------------------
@@ -348,6 +360,7 @@ catalogCmd
   .action(async (options) => {
     const backend = newBackendClient(loadConfig());
     try {
+      await requirePlatformCompatibility(backend);
       await runCatalogList(backend, { jsonOutput: Boolean(options.json) });
     } catch (error) {
       reportCLIError(error, {

@@ -8,6 +8,7 @@
 
 import http from "node:http";
 import { AddressInfo } from "node:net";
+import { API_CONTRACT_REVISION, CLI_VERSION } from "../src/state/config.js";
 
 // Minimal 16x16 brand PNG. Smaller than the real V3 asset but enough
 // for the IDE image viewer smoke tests to assert downloaded bytes.
@@ -124,6 +125,18 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
 
     if (method === "GET" && path === "/v1/readyz") {
       respond(res, 200, { status: "ready", version: "mock" });
+      return;
+    }
+
+    if (method === "GET" && path === "/v1/platform/compatibility") {
+      respond(res, 200, {
+        platform_revision: "v3.mock",
+        schema_revision: "sha256:mock",
+        bootstrap_revision: "mock",
+        api_contract_revision: API_CONTRACT_REVISION,
+        minimum_cli_version: CLI_VERSION,
+        maximum_cli_major: 2,
+      });
       return;
     }
 
