@@ -1815,13 +1815,61 @@ test("CLI fails closed when the Backend compatibility contract is unavailable", 
           recovery: unknown[];
         };
         assert.equal(envelope.error.code, "backend_contract_incompatible");
-        assert.match(envelope.instruction, /立即停止/);
-        assert.match(envelope.instruction, /不要尝试 services quote、services checkout、cart、buy 或 pay/);
+        assert.match(envelope.instruction, /立即向用户报告 error.message 并结束本次任务/);
+        assert.match(envelope.instruction, /不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
         return true;
       },
     );
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("readyz, catalog, and top-level next fail before guidance when the contract hash differs", async () => {
+  const requests: string[] = [];
+  const server = http.createServer((request, response) => {
+    requests.push(request.url ?? "");
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/v1/platform/compatibility") {
+      response.end(JSON.stringify({
+        platform_revision: "v3.contract-mismatch",
+        schema_revision: "sha256:schema",
+        bootstrap_revision: "seed",
+        api_contract_revision: "sha256:old-contract",
+        minimum_cli_version: "2.0.8",
+        maximum_cli_major: 2,
+      }));
+      return;
+    }
+    response.end(JSON.stringify({ status: "unexpected" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    for (const args of [["readyz", "--json"], ["catalog", "list", "--json"], ["next", "--json"]]) {
+      requests.length = 0;
+      const home = mkdtempSync(join(tmpdir(), "itpay-contract-stop-"));
+      await assert.rejects(
+        runCLI(args, { HOME: home, ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}` }),
+        (error: unknown) => {
+          const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+            error: { code: string; message: string };
+            instruction: string;
+            next: unknown;
+            recovery: unknown[];
+          };
+          assert.equal(envelope.error.code, "backend_contract_incompatible");
+          assert.match(envelope.error.message, /sha256:old-contract/);
+          assert.match(envelope.instruction, /不要运行任何其他 itpay/);
+          assert.equal(envelope.next, null);
+          assert.deepEqual(envelope.recovery, []);
+          return true;
+        },
+      );
+      assert.deepEqual(requests, ["/v1/platform/compatibility"]);
+    }
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -2095,7 +2143,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.8");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.9");
       return true;
     },
   );
