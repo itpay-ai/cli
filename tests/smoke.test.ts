@@ -2143,7 +2143,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.9");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.10");
       return true;
     },
   );
