@@ -29,7 +29,7 @@ itpay install [target] [--json]
   "result": {
     "agent_type": "codex-desktop",
     "default_host": "codex",
-    "default_api": "https://app.itpay.ai",
+    "default_api": "https://dev.itpay.ai",
     "install_command": "npm install -g @itpay/cli"
   },
   "instruction": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",

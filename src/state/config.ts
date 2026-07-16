@@ -29,7 +29,7 @@ export interface CLIConfig {
   ideImageDirOverride?: string;
 }
 
-export const DEFAULT_BASE_URL = "https://app.itpay.ai";
+export const DEFAULT_BASE_URL = "https://dev.itpay.ai";
 export const CLI_VERSION = "2.0.9";
 export const API_CONTRACT_REVISION = "sha256:4ad3ff2565cc265a8c98dec3bb92be1cbfee4d37cb78756d929c78ef134a7bca";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";

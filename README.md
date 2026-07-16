@@ -11,7 +11,7 @@ itpay --agent-type codex-desktop readyz --json
 # follow next.command: typed skill show, then catalog list
 ```
 
-The default API is `https://app.itpay.ai`. Set `ITPAY_BACKEND_URL` only for an intentional test or local environment.
+The default API is temporarily `https://dev.itpay.ai` during the 2.0.9 beta. Set `ITPAY_BACKEND_URL` only for an intentional override.
 
 ## Output Contract
 

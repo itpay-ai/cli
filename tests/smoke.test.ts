@@ -102,8 +102,8 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("production backend is the package default", () => {
-  assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
+test("beta backend is the package default", () => {
+  assert.equal(DEFAULT_BASE_URL, "https://dev.itpay.ai");
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
