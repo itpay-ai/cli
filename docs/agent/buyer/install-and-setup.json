@@ -32,7 +32,7 @@
   ],
   "agent_rules": [
     "Install with npm install -g @itpay/cli.",
-    "Use the default https://app.itpay.ai API unless an environment override is deliberate.",
+    "Use the default https://dev.itpay.ai beta API unless an environment override is deliberate.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, or workbuddy.",
     "One local private key is reused, but each exact Backend API base URL has its own server registration and quota lineage.",
     "Within one Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
