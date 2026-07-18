@@ -11,6 +11,7 @@ import type { OutputSink } from "../render/sink.js";
 import type { ClientHost } from "../state/client_context.js";
 import { DEFAULT_BASE_URL } from "../state/config.js";
 import { buildCheckoutQRPlan } from "./buy.js";
+import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 import { type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 
 export interface CheckoutPresentationOptions {
@@ -20,6 +21,7 @@ export interface CheckoutPresentationOptions {
   host?: ClientHost;
   baseURL?: string;
   jsonOutput?: boolean;
+  agentType?: string;
 }
 
 export async function runCheckoutPresentation(
@@ -59,11 +61,15 @@ export async function runCheckoutPresentation(
       currency: item.currency,
     })),
     orderCurrency: presentation.checkout.currency,
+    ...(options.agentType ? { agentType: options.agentType } : {}),
   });
-  await ensureIdeImageAttach(plan, {
-    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
-  });
-  const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand);
+  const platform = platformKeyForHost(host);
+  if (shouldPrepareLocalCheckoutImage(platform)) {
+    await ensureIdeImageAttach(plan, {
+      ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+    });
+  }
+  const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand, options.agentType);
   const plainResult = checkoutPlainResult(envelope.result);
   if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
     plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
@@ -80,18 +86,21 @@ function pendingCheckoutEnvelope(
   checkoutURL: string,
   plan: ReturnType<typeof buildCheckoutQRPlan>,
   nextCommand: string,
+  agentType?: string,
 ): CommandEnvelope {
   const platform = platformKeyForHost(plan.host);
-  const handoff: Record<string, unknown> = { url: checkoutURL };
-  if (plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath) {
-    handoff.qr_local_path = plan.ideImageAttach.localPath;
-  }
-  if (platform === "markdown") {
-    handoff.markdown = buildAgentChatHandoff(plan).markdown;
-  } else if (platform === "plain_chat" && plan.preferredQRSources[0]) {
-    handoff.qr_image_url = plan.preferredQRSources[0];
-  }
 	const amount = formatMoney(presentation.checkout.amount_minor, presentation.checkout.currency);
+  const presentationHandoff = buildCheckoutHandoff({
+    platform,
+    url: checkoutURL,
+    amount,
+    ...(agentType ? { agentType } : {}),
+    ...(plan.preferredQRSources[0] ? { qrImageURL: plan.preferredQRSources[0] } : {}),
+    ...(plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath
+      ? { localPath: plan.ideImageAttach.localPath }
+      : {}),
+    ...(platform === "markdown" ? { markdown: buildAgentChatHandoff(plan).markdown } : {}),
+  });
   return {
     status: "human_checkout_required",
     result: {
@@ -99,8 +108,8 @@ function pendingCheckoutEnvelope(
       payment: "pending",
       amount,
     },
-    handoff,
-    instruction: pendingInstruction(platform, amount),
+    handoff: presentationHandoff.handoff,
+    instruction: presentationHandoff.instruction,
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
     recovery: [],
   };
@@ -151,12 +160,6 @@ function checkoutNeedsHumanHandoff(status: string): boolean {
 
 function checkoutPlainResult(result: Record<string, unknown>): string[] {
   return Object.entries(result).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
-}
-
-function pendingInstruction(platform: ReturnType<typeof platformKeyForHost>, amount: string): string {
-  if (platform === "markdown") return `Backend 尚未确认付款。把 handoff.markdown 原样发送到当前桌面对话，确认二维码、链接和金额 ${amount} 已对用户可见，然后停止等待。不要创建新 Checkout、Execution 或 Payment Intent；稍后仍然只执行 next.command 查询这一笔 Checkout。`;
-  if (platform === "terminal") return `Backend 尚未确认付款。在用户可见终端展示当前同一 Checkout 的二维码、链接和金额 ${amount}，然后停止等待。不要创建新 Checkout、Execution 或 Payment Intent；稍后仍然只执行 next.command 查询这一笔 Checkout。`;
-  return `Backend 尚未确认付款。把 handoff.url 作为可点击链接发送给用户，优先把 handoff.qr_local_path 作为图片附件发送，不能发送本地附件时使用 handoff.qr_image_url，并说明金额 ${amount}，然后停止等待。不要声称付款成功，不要创建新 Checkout、Execution 或 Payment Intent。稍后仍然只执行 next.command 查询这一笔 Checkout。`;
 }
 
 function formatMoney(amountMinor: number, currency: string): string {

@@ -12,7 +12,7 @@
 | `codex-cli` | `terminal` | 在用户可见终端渲染二维码并输出付款链接；若用户不看该终端，要求改用正确 Host。 |
 | `claude-code-desktop` | `claude-code` | 返回桌面对话可展示的 Markdown 图片和付款链接，要求先展示再等待。 |
 | `claude-code-cli` | `terminal` | 在用户可见终端输出二维码和链接，不声称已在桌面对话展示。 |
-| `workbuddy` | `plain-chat` | 初期返回清晰付款链接和通用图片附件信息；原生卡片细节后续补充。 |
+| `workbuddy` | `plain-chat` | 只返回 HTTPS 二维码和付款链接；要求 Agent 用 `present_files` 在右侧预览打开二维码，不返回或检查本地图片路径。 |
 
 ## 通用规则
 
@@ -37,8 +37,9 @@
   },
   "handoff": {
     "url": "<checkout_url>",
-    "qr_local_path": "<optional_local_path>",
-    "markdown": "<optional_host_ready_markdown>"
+    "qr_local_path": "<desktop_optional_local_path>",
+    "qr_image_url": "<workbuddy_optional_absolute_https_png>",
+    "markdown": "<desktop_optional_host_ready_markdown>"
   },
   "instruction": "<agent-type-specific instruction>",
   "next": {
@@ -49,3 +50,15 @@
 ```
 
 只返回当前 Host 能使用的 `handoff` 字段，不返回镜像路径列表、渲染器内部状态或重复的 action 描述。
+
+准确字段集合：
+
+| Agent Type / Host | `handoff` keys |
+|---|---|
+| `codex-desktop / codex` | `url, qr_local_path, markdown` |
+| `claude-code-desktop / claude-code` | `url, qr_local_path, markdown` |
+| `codex-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
+| `claude-code-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
+| `workbuddy / plain-chat` | `url, qr_image_url` |
+
+WorkBuddy instruction 必须直接要求读取 `handoff.qr_image_url` 的完整字符串并作为 `files` 数组唯一元素调用 `present_files`。展示成功或失败后都要停止等待；不能检查本地文件、下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式，因此只有 `workbuddy + plain-chat` 使用该规则。

@@ -83,7 +83,7 @@ itpay install [target] [--json]
 | `codex-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
 | `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
-| `workbuddy` | `plain-chat` | 当前使用通用会话交接，必须发送链接和可用图片。 |
+| `workbuddy` | `plain-chat` | Checkout 返回 `qr_image_url` 时，按当次 instruction 调用 `present_files` 在右侧打开二维码；不检查本地二维码文件。 |
 
 显式 `--host` 可以在后续 commerce 命令覆盖默认 Host，但不会改变 Agent Type 或设备归属。
 

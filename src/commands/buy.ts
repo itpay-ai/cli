@@ -23,6 +23,8 @@ import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
 import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
+import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
+import { qualifyItPayCommand } from "../state/agent_type.js";
 
 export type ContactField = "email" | "phone";
 
@@ -48,6 +50,7 @@ export interface BuyOptions {
   payTimeoutSec?: number;
   // --json
   jsonOutput?: boolean;
+  agentType?: string;
 }
 
 export type BuyResult = {
@@ -133,6 +136,7 @@ export async function runBuy(
   const checkoutID = checkout.checkout.checkout_id;
   const displayToken = checkout.display_token;
   const checkoutURL = tokenizedCheckoutURL(checkout.checkout_url, displayToken, checkout.qr_payload);
+  const qrPNGURL = checkout.qr_png_url ? absolutePublicURL(config.baseURL, checkout.qr_png_url) : undefined;
 
   const orderItems = cart.items.map((item) => ({
     title: item.title,
@@ -183,8 +187,9 @@ export async function runBuy(
     nextAction: checkout.checkout.next_action,
     orderItems,
     orderCurrency: checkout.checkout.currency,
+    ...(options.agentType ? { agentType: options.agentType } : {}),
   };
-  if (checkout.qr_png_url) planInput.qrPNGURL = checkout.qr_png_url;
+  if (qrPNGURL) planInput.qrPNGURL = qrPNGURL;
   if (paymentIntent) {
     planInput.paymentIntentID = paymentIntent.payment_intent_id;
     planInput.paymentMethod = paymentIntent.payment_method_type;
@@ -192,12 +197,14 @@ export async function runBuy(
   }
   const plan = buildCheckoutQRPlan(planInput);
 
-  // --- Download brand QR for IDE image attach (every output mode) ---
-  await ensureIdeImageAttach(plan, {
-    enabled: config.ideImageAttach,
-    ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-  });
+  // --- Download a local QR only for desktop Markdown hosts ---
+  if (shouldPrepareLocalCheckoutImage(platformKeyForHost(options.host))) {
+    await ensureIdeImageAttach(plan, {
+      enabled: config.ideImageAttach,
+      ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    });
+  }
 
   // --- Output ---
   if (options.jsonOutput) {
@@ -208,8 +215,9 @@ export async function runBuy(
       displayToken,
       plan,
       waitStatus,
-      ...(checkout.qr_png_url ? { qrPNGURL: checkout.qr_png_url } : {}),
+      ...(qrPNGURL ? { qrPNGURL } : {}),
       ...(paymentIntent ? { paymentIntent } : {}),
+      ...(options.agentType ? { agentType: options.agentType } : {}),
     });
     writeCommandEnvelope(envelope, { jsonOutput: true, ...(options.output ? { output: options.output } : {}) });
     return {
@@ -251,22 +259,15 @@ function buildBuyEnvelope(input: {
   plan: RenderPlan;
   paymentIntent?: PaymentIntent;
   waitStatus: "verified" | "timeout" | "skipped";
+  agentType?: string;
 }): CommandEnvelope {
   const verified = input.waitStatus === "verified";
   const platform = platformKeyForHost(input.plan.host);
-  const handoff: Record<string, unknown> = { url: input.checkoutURL };
-  if (input.plan.ideImageAttach?.status === "downloaded" && input.plan.ideImageAttach.localPath) {
-    handoff.qr_local_path = input.plan.ideImageAttach.localPath;
-  }
-  if (platform === "markdown") {
-    handoff.markdown = buildAgentChatHandoff(input.plan).markdown;
-  } else if (platform === "plain_chat" && input.qrPNGURL) {
-    handoff.qr_image_url = input.qrPNGURL;
-  }
+  const amount = formatMoney(input.cart.amount_minor, input.cart.currency);
   const result: Record<string, unknown> = {
     checkout_id: input.checkoutID,
     payment: verified ? "verified" : "pending",
-    amount: formatMoney(input.cart.amount_minor, input.cart.currency),
+    amount,
     item_count: input.cart.items.length,
     ...(input.paymentIntent ? {
       payment_intent_id: input.paymentIntent.payment_intent_id,
@@ -283,20 +284,25 @@ function buildBuyEnvelope(input: {
       recovery: [],
     };
   }
+  const presentationHandoff = buildCheckoutHandoff({
+    platform,
+    url: input.checkoutURL,
+    amount,
+    ...(input.agentType ? { agentType: input.agentType } : {}),
+    ...(input.qrPNGURL ? { qrImageURL: input.qrPNGURL } : {}),
+    ...(input.plan.ideImageAttach?.status === "downloaded" && input.plan.ideImageAttach.localPath
+      ? { localPath: input.plan.ideImageAttach.localPath }
+      : {}),
+    ...(platform === "markdown" ? { markdown: buildAgentChatHandoff(input.plan).markdown } : {}),
+  });
   return {
     status: "human_checkout_required",
     result,
-    handoff,
-    instruction: buyHandoffInstruction(platform),
+    handoff: presentationHandoff.handoff,
+    instruction: presentationHandoff.instruction,
     next: { command: `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "稍后查询同一笔 Checkout 状态" },
     recovery: [],
   };
-}
-
-function buyHandoffInstruction(platform: ReturnType<typeof platformKeyForHost>): string {
-  if (platform === "markdown") return "把 handoff.markdown 原样发送到当前桌面对话；二维码和链接可见后等待用户操作，不要创建新 Checkout。";
-  if (platform === "terminal") return "在用户可见终端展示 handoff 中的付款入口，然后等待用户操作；不要创建新 Checkout。";
-  return "把 handoff.url 和可用二维码附件发送给用户，然后等待用户操作；不要创建新 Checkout。";
 }
 
 // --- SSE wait for payment verification ---
@@ -348,10 +354,14 @@ export function buildCheckoutQRPlan(input: {
   paymentMethod?: string;
   paymentStatus?: string;
   paymentIntentID?: string;
+  agentType?: string;
 }): RenderPlan {
   const summary = `Scan the QR or open ${input.checkoutURL} to start the human checkout flow.`;
   const isPayment = input.paymentIntentID != null;
-  const afterCommand = `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`;
+  const afterCommand = qualifyItPayCommand(
+    `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`,
+    input.agentType,
+  );
 
   const platform: RenderPlan["platform"] = {
     text: summary,
@@ -412,5 +422,13 @@ function tokenizedCheckoutURL(checkoutURL: string, displayToken: string, qrPaylo
   } catch {
     const separator = checkoutURL.includes("?") ? "&" : "?";
     return `${checkoutURL}${separator}display_token=${encodeURIComponent(displayToken)}`;
+  }
+}
+
+function absolutePublicURL(baseURL: string, value: string): string {
+  try {
+    return new URL(value, baseURL.endsWith("/") ? baseURL : `${baseURL}/`).toString();
+  } catch {
+    return value;
   }
 }

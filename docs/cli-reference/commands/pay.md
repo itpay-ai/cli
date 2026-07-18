@@ -98,6 +98,6 @@ API 安全合同要求后端验证 display token 是该 Checkout 当前有效的
 | `codex-cli` | `terminal` | 只在用户可见终端展示渠道动作。 |
 | `claude-code-desktop` | `claude-code` | 把安全 handoff 发到当前桌面对话。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示渠道动作。 |
-| `workbuddy` | `plain-chat` | 把二维码或钱包链接发送到当前会话。 |
+| `workbuddy` | `plain-chat` | 有 `qr_image_url` 时按当次 instruction 调用 `present_files`；只有钱包链接时发送链接。展示后停止，不立即查询或创建替代付款。 |
 
 Host 只改变 instruction；Payment Intent ID、金额、状态、重试语义和权限必须一致。

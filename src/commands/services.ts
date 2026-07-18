@@ -12,6 +12,7 @@ import type { ClientHost } from "../state/client_context.js";
 import type { OutputSink } from "../render/sink.js";
 import { dispatchRender, type DispatchOptions } from "../render/index.js";
 import { ensureIdeImageAttach } from "../render/ide.js";
+import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 import { buildAgentChatHandoff } from "../render/markdown.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
@@ -471,6 +472,7 @@ export async function runServicesCheckout(
     isTTY?: boolean;
     jsonOutput?: boolean;
     fetchImpl?: typeof fetch;
+    agentType?: string;
     resume?: boolean;
     persistHandoff?: (handoff: {
       serviceExecutionID: string;
@@ -551,6 +553,7 @@ export async function runServicesCheckout(
       currency: item.currency,
     })),
     orderCurrency: checkout.checkout.currency,
+    ...(options.agentType ? { agentType: options.agentType } : {}),
   });
 
   options.persistHandoff?.({
@@ -574,12 +577,14 @@ export async function runServicesCheckout(
     });
     return;
   }
-  await ensureIdeImageAttach(plan, {
-    enabled: config.ideImageAttach,
-    ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-  });
-  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, config.baseURL);
+  if (shouldPrepareLocalCheckoutImage(platform)) {
+    await ensureIdeImageAttach(plan, {
+      enabled: config.ideImageAttach,
+      ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    });
+  }
+  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, config.baseURL, options.agentType);
   const plainResult = [
     `service_execution_id: ${response.binding.service_execution_id}`,
     `checkout_id: ${checkoutID}`,
@@ -1138,19 +1143,22 @@ function buildServicesCheckoutEnvelope(
   checkoutURL: string,
   plan: ReturnType<typeof buildCheckoutQRPlan>,
   baseURL: string,
+  agentType?: string,
 ): CommandEnvelope {
   const checkout = response.checkout;
   const platform = platformKeyForHost(plan.host);
-  const handoff: Record<string, unknown> = { url: checkoutURL };
-  if (plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath) {
-    handoff.qr_local_path = plan.ideImageAttach.localPath;
-  }
-  if (platform === "markdown") {
-    handoff.markdown = buildAgentChatHandoff(plan).markdown;
-  } else if (platform === "plain_chat" && checkout.qr_png_url) {
-    handoff.qr_image_url = absolutePublicURL(baseURL, checkout.qr_png_url);
-  }
 	const amount = formatMoney(checkout.checkout.amount_minor, checkout.checkout.currency);
+  const presentationHandoff = buildCheckoutHandoff({
+    platform,
+    url: checkoutURL,
+    amount,
+    ...(agentType ? { agentType } : {}),
+    ...(checkout.qr_png_url ? { qrImageURL: absolutePublicURL(baseURL, checkout.qr_png_url) } : {}),
+    ...(plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath
+      ? { localPath: plan.ideImageAttach.localPath }
+      : {}),
+    ...(platform === "markdown" ? { markdown: buildAgentChatHandoff(plan).markdown } : {}),
+  });
   return {
     status: "human_checkout_required",
     result: {
@@ -1160,8 +1168,8 @@ function buildServicesCheckoutEnvelope(
       locked_input: response.locked_input,
       amount,
     },
-    handoff,
-    instruction: checkoutInstruction(platform, amount),
+    handoff: presentationHandoff.handoff,
+    instruction: presentationHandoff.instruction,
     next: {
       command: `itpay checkout --id ${checkout.checkout.checkout_id} --token ${checkout.display_token} --json`,
       reason: "仅在用户完成付款操作或要求查询后，读取同一 Checkout 的权威状态",
@@ -1175,12 +1183,6 @@ function checkoutCapabilityID(
   fallback = "",
 ): string {
   return response.capability_id || fallback;
-}
-
-function checkoutInstruction(platform: ReturnType<typeof platformKeyForHost>, amount: string): string {
-  if (platform === "markdown") return `把 handoff.markdown 原样发送到当前桌面对话，确认二维码、付款链接和金额 ${amount} 都已实际对用户可见，然后停止等待。不要立即执行 next.command，不要创建第二个 Checkout、Execution 或调用 pay；用户完成付款操作或要求查询后，只执行 next.command。`;
-  if (platform === "terminal") return `在用户可见终端展示二维码、付款链接和金额 ${amount}，然后停止等待。不要立即执行 next.command，不要创建第二个 Checkout、Execution 或调用 pay；用户完成付款操作或要求查询后，只执行 next.command。`;
-  return `现在只做以下动作：1）把 handoff.url 作为可点击付款链接发送给用户；2）优先把 handoff.qr_local_path 作为图片附件发送，不能发送本地附件时使用 handoff.qr_image_url；3）明确告诉用户本次金额是 ${amount}；4）发送完成后停止并等待用户操作。不要立即执行 next.command，不要创建第二个 Checkout，不要新建 Execution，不要调用 pay。用户表示已经完成付款或要求查询状态后，只执行 next.command；用户的话本身不是付款成功证明。`;
 }
 
 function absolutePublicURL(baseURL: string, value: string): string {

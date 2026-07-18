@@ -818,6 +818,7 @@ program
       const buyOptions = {
         cartSession: session,
         host,
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         ...(options.cart ? { cartID: options.cart } : {}),
         ...(options.target ? { target: options.target } : {}),
         ...(options.ref ? { clientReferenceID: options.ref } : {}),
@@ -869,6 +870,7 @@ program
         checkoutID,
         displayToken,
         host,
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         baseURL: config.baseURL,
         jsonOutput: Boolean(options.json),
       });
@@ -938,6 +940,7 @@ program
         displayToken,
         method: options.method,
         host,
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         ...(options.refresh ? { refreshAction: true } : {}),
         ...(jsonOutput ? { jsonOutput: true } : {}),
       });
@@ -1277,6 +1280,7 @@ services
         lockedInput: parseKeyValueList(options.input),
         resume: Boolean(options.resume),
         host: withHost(options.host ?? defaultHostForAgentType(config.agentType)),
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         ...(options.target ? { target: options.target } : {}),
         ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
         ...(options.qrFile ? { qrFilePath: options.qrFile } : {}),

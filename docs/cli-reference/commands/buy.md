@@ -87,9 +87,9 @@ itpay buy \
   },
   "handoff": {
     "url": "<tokenized_checkout_url>",
-    "qr_local_path": "<optional_host_ready_file>",
+    "qr_local_path": "<desktop_optional_host_ready_file>",
     "markdown": "<desktop_only_optional_markdown>",
-    "qr_image_url": "<plain_chat_only_optional_url>"
+    "qr_image_url": "<workbuddy_only_absolute_https_png>"
   },
   "instruction": "<current_host_instruction>",
   "next": {
@@ -102,7 +102,7 @@ itpay buy \
 
 `handoff` 只保留当前 Host 可以使用的字段。不得返回二维码 base64、镜像路径数组、renderer 状态、原始后端 DTO 或重复的 `agent_action`。
 
-**Instruction：** 先把 handoff 中的付款入口实际展示给用户，再等待用户操作；不要创建第二个 Checkout。
+**Instruction：** 必须使用下方 Agent Type 表定义的展示动作；展示完成或失败后停止。只有用户明确表示已付款或要求查询时才执行 `next.command`，并以后端状态为准。
 
 ### `--pay` 已观察到付款事件
 
@@ -159,9 +159,9 @@ itpay buy \
 | Agent Type | 默认 Host | JSON handoff | Instruction |
 |---|---|---|---|
 | `codex-desktop` | `codex` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 `handoff.markdown` 原样发到当前 Codex 对话，确认二维码和链接可见后等待。 |
-| `codex-cli` | `terminal` | `url`、可用时 `qr_local_path` | 非 JSON 模式在用户可见终端渲染二维码；始终保留付款链接。 |
+| `codex-cli` | `terminal` | `url` | 非 JSON 模式在用户可见终端渲染二维码；始终保留付款链接。 |
 | `claude-code-desktop` | `claude-code` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 Markdown handoff 发到当前桌面对话，不能只输出本地路径。 |
-| `claude-code-cli` | `terminal` | `url`、可用时 `qr_local_path` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
-| `workbuddy` | `plain-chat` | `url`、可用时 `qr_local_path` 和 `qr_image_url` | 发送链接和可用图片附件，不虚构原生卡片。 |
+| `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
+| `workbuddy` | `plain-chat` | `url, qr_image_url` | 读取完整 `qr_image_url` 并作为 `files` 数组唯一元素调用 `present_files`；右侧打开后发送金额和链接并停止，不读取本地文件。 |
 
 显式 `--host` 可以覆盖展示方式，但不会改变 Agent Type、设备身份、金额、权限或交易状态。
