@@ -1,7 +1,7 @@
 // Render plan entry point. `dispatch` runs the right renderer based
-// on the host. Every render path goes through `ensureIdeImageAttach`
-// so the brand QR gets downloaded to /tmp and the IDE attach is in
-// place before any renderer (or the JSON output) is produced.
+// on the host. Desktop Markdown and terminal renderers prepare a local
+// image; plain-chat and IM renderers keep the server URL and never create
+// an unused local attachment.
 
 import type { ClientHost } from "../state/client_context.js";
 import { renderTerminal } from "./terminal.js";
@@ -27,9 +27,10 @@ export interface DispatchOptions {
 }
 
 export async function dispatchRender(plan: RenderPlan, options: DispatchOptions): Promise<void> {
-  await ensureIdeImageAttach(plan, options);
-
   const key = platformKeyForHost(plan.host);
+  if (key === "markdown" || key === "terminal") {
+    await ensureIdeImageAttach(plan, options);
+  }
   switch (key) {
     case "terminal": {
       const terminalOptions = {

@@ -706,6 +706,14 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       const intentID = `pi_${paymentIntentCounter++}`;
       const paymentMethod = String(requests.at(-1)?.body?.payment_method_type ?? "alipay");
       const status = checkoutID?.includes("verified") ? "verified" : checkoutID?.includes("refunded") ? "refunded" : "waiting_user_payment";
+      const action = checkoutID?.includes("qr_only")
+        ? { qr_image_url: `https://qr.alipay.com/mock-${intentID}` }
+        : checkoutID?.includes("wallet_only")
+          ? { mobile_wallet_url: `alipays://platformapi/startapp?payment_intent_id=${intentID}` }
+          : {
+              qr_image_url: `https://qr.alipay.com/mock-${intentID}`,
+              mobile_wallet_url: `alipays://platformapi/startapp?payment_intent_id=${intentID}`,
+            };
       respond(res, 202, {
         payment_intent_id: intentID,
         checkout_id: checkoutID,
@@ -713,10 +721,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         payment_method_type: paymentMethod,
         amount_minor: 100,
         currency: "CNY",
-        ...(status === "waiting_user_payment" ? { action: {
-          qr_image_url: `https://qr.alipay.com/mock-${intentID}`,
-          mobile_wallet_url: `alipays://platformapi/startapp?payment_intent_id=${intentID}`,
-        } } : {}),
+        ...(status === "waiting_user_payment" ? { action } : {}),
       });
       return;
     }

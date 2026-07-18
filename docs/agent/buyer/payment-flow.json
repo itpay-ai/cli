@@ -30,6 +30,7 @@
     "Use only handoff fields returned for the current Host and make them actually visible to the human.",
     "Before creating a single-Service Checkout, send the exact price confirmation requested by the current instruction, stop, and wait for explicit human agreement.",
     "After presenting a Checkout, stop. Run the returned next.command only after the human completes the payment action or asks to query the same Checkout.",
+    "For workbuddy with plain-chat, present the returned HTTPS QR with present_files exactly as instructed; presentation failure falls back only to handoff.url and never creates another payment resource.",
     "Payment is verified only by Backend Checkout or Order state, never by QR rendering, redirect, or user claim.",
     "A terminal payment state must never display another payment handoff."
   ],

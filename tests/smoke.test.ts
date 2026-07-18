@@ -32,6 +32,7 @@ import { runBuy, buildCheckoutQRPlan } from "../src/commands/buy.js";
 import { CommandContractError, buildServiceInvokedGuidance, buildServiceReadModelGuidance, errorRecoveryActions } from "../src/commands/guidance.js";
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
+import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
@@ -2019,6 +2020,10 @@ test("install returns one official contract for every supported Agent Type", asy
       install_command: "npm install -g @itpay/cli",
     });
     assert.match(envelope.instruction, /始终传这个 Agent Type/);
+    if (agentType === "workbuddy") {
+      assert.match(envelope.instruction, /present_files/);
+      assert.match(envelope.instruction, /不要检查本地二维码文件/);
+    }
     assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
     assert.equal(result.stderr, "");
   }
@@ -2143,13 +2148,14 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.10");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.11");
       return true;
     },
   );
 });
 
 test("checkout reads canonical presentation with display_token", async () => {
+  const before = mock.requests.length;
   await runCheckoutPresentation(backend, {
     checkoutID: "chk_demo",
     displayToken: "cdt_demo",
@@ -2159,7 +2165,7 @@ test("checkout reads canonical presentation with display_token", async () => {
   const req = mock.requests.find((item) => item.path === "/v1/checkouts/chk_demo/presentation?display_token=cdt_demo")!;
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/checkouts/chk_demo/presentation?display_token=cdt_demo");
-  assert.ok(mock.requests.some((item) => item.path === "/v1/checkouts/chk_demo/qr.png?display_token=cdt_demo"));
+  assert.equal(mock.requests.slice(before).some((item) => item.path === "/v1/checkouts/chk_demo/qr.png?display_token=cdt_demo"), false);
 });
 
 test("checkout pending JSON returns one compact human handoff", async () => {
@@ -2176,11 +2182,73 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   assert.equal(parsed.status, "human_checkout_required");
   assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
   assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
+  assert.match(parsed.handoff.markdown, /itpay checkout --id chk_pending --token cdt_pending --json/);
   assert.match(parsed.instruction, /停止等待/);
-  assert.match(parsed.instruction, /不要创建新 Checkout、Execution 或 Payment Intent/);
+  assert.match(parsed.instruction, /不要创建新 Checkout、Payment Intent 或 Execution/);
   assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending --json$/);
   assert.equal("agent_guidance" in parsed, false);
   assert.equal("brand_qr_mirrors" in parsed, false);
+});
+
+test("workbuddy checkout JSON returns only the HTTPS QR handoff and exact tool instruction", async () => {
+  const before = mock.requests.length;
+  const result = await runCLI([
+    "--agent-type", "workbuddy", "checkout",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: mkdtempSync(join(tmpdir(), "itpay-workbuddy-checkout-")),
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    status: string;
+    result: Record<string, unknown>;
+    handoff: Record<string, string>;
+    instruction: string;
+    next: { command: string };
+    recovery: unknown[];
+  };
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.status, "human_checkout_required");
+  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["qr_image_url", "url"]);
+  assert.match(envelope.handoff.qr_image_url ?? "", /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_pending\/qr\.png\?display_token=cdt_pending$/);
+  assert.match(envelope.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+  assert.match(envelope.instruction, /如果 present_files 失败，只发送 handoff\.url/);
+  assert.match(envelope.instruction, /不要调用 pay/);
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
+  assert.deepEqual(envelope.recovery, []);
+  assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), false);
+});
+
+test("workbuddy checkout falls back to the Checkout URL when no QR URL exists", () => {
+  const result = buildCheckoutHandoff({
+    agentType: "workbuddy",
+    platform: "plain_chat",
+    url: "https://example.test/checkout/chk_no_qr",
+    amount: "1.00 CNY",
+  });
+  assert.deepEqual(result.handoff, { url: "https://example.test/checkout/chk_no_qr" });
+  assert.match(result.instruction, /本次没有返回可展示的二维码/);
+  assert.match(result.instruction, /发送 handoff\.url/);
+  assert.match(result.instruction, /不要调用 present_files/);
+  assert.doesNotMatch(result.instruction, /读取 handoff\.qr_image_url/);
+});
+
+test("explicit terminal Host overrides WorkBuddy presentation without changing Agent Type", async () => {
+  const result = await runCLI([
+    "--agent-type", "workbuddy", "checkout", "--host", "terminal",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    ITPAY_BACKEND_URL: mock.url,
+    HOME: mkdtempSync(join(tmpdir(), "itpay-workbuddy-terminal-")),
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    handoff: Record<string, string>;
+    instruction: string;
+    next: { command: string };
+  };
+  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
+  assert.doesNotMatch(envelope.instruction, /present_files/);
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
 });
 
 test("checkout completed never prepares or recommends another payment handoff", async () => {
@@ -2302,12 +2370,30 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     const envelope = JSON.parse(result.stdout) as {
       status: string;
       handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string };
+      instruction: string;
     };
     assert.equal(envelope.status, "human_checkout_required");
     assert.match(envelope.handoff.url, /display_token=/);
-    assert.ok(envelope.handoff.qr_local_path);
-    assert.equal(Boolean(envelope.handoff.markdown), expectedHost === "codex" || expectedHost === "claude-code");
+    const desktop = expectedHost === "codex" || expectedHost === "claude-code";
+    const expectedHandoffKeys = desktop
+      ? ["markdown", "qr_local_path", "url"]
+      : expectedHost === "plain-chat"
+        ? ["qr_image_url", "url"]
+        : ["url"];
+    assert.deepEqual(Object.keys(envelope.handoff).sort(), expectedHandoffKeys);
+    assert.equal(Boolean(envelope.handoff.markdown), desktop);
     assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat");
+    assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), desktop);
+    if (agentType === "workbuddy") {
+      assert.match(envelope.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+      assert.match(envelope.instruction, /然后停止等待/);
+      assert.match(envelope.instruction, /不要检查本地文件/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files/);
+    }
+    if (desktop) {
+      assert.match(envelope.handoff.markdown ?? "", new RegExp(`itpay --agent-type ${agentType} checkout --id`));
+    }
     const cartRequest = mock.requests.slice(before).find((request) => request.method === "POST" && request.path === "/v1/carts");
     assert.equal((cartRequest?.body as { client_context?: { host?: string } })?.client_context?.host, expectedHost);
   }
@@ -2348,6 +2434,7 @@ test("main checkout without args uses saved checkout id and display token", asyn
   });
   session.saveToFile(sessionPath);
 
+  const before = mock.requests.length;
   await runCLI(["checkout"], {
     ITPAY_BACKEND_URL: mock.url,
     ITPAY_CART_SESSION_PATH: sessionPath,
@@ -2358,7 +2445,7 @@ test("main checkout without args uses saved checkout id and display token", asyn
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/checkouts/chk_saved/presentation?display_token=cdt_saved");
   assert.doesNotMatch(req.path, /undefined/);
-  assert.ok(mock.requests.some((item) => item.path === "/v1/checkouts/chk_saved/qr.png?display_token=cdt_saved"));
+  assert.equal(mock.requests.slice(before).some((item) => item.path === "/v1/checkouts/chk_saved/qr.png?display_token=cdt_saved"), false);
 });
 
 test("expired saved service checkout token returns an executable resume instruction", async () => {
@@ -2443,6 +2530,13 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     assert.equal(Object.keys(envelope.result).length, 4);
     assert.deepEqual(Object.keys(envelope.handoff).sort(), ["mobile_wallet_url", "qr_image_url"]);
     assert.match(envelope.next.command, /checkout --id .* --token .* --json/);
+    if (agentType === "workbuddy") {
+      assert.match(envelope.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+      assert.match(envelope.instruction, /金额 1\.00 CNY/);
+      assert.match(envelope.instruction, /停止等待/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files/);
+    }
     instructions.push(envelope.instruction);
   }
   assert.equal(new Set(instructions).size, 3);
@@ -2459,6 +2553,37 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     },
   );
   assert.equal(mock.requests.length, before);
+});
+
+test("workbuddy pay instructions reference only provider actions that exist", async () => {
+  for (const [checkoutID, expectedKeys] of [
+    ["chk_pay_qr_only", ["qr_image_url"]],
+    ["chk_pay_wallet_only", ["mobile_wallet_url"]],
+  ] as const) {
+    const output: string[] = [];
+    await runPay(backend, {
+      checkoutID,
+      displayToken: `cdt_${checkoutID}`,
+      method: "alipay",
+      host: "plain-chat",
+      agentType: "workbuddy",
+      jsonOutput: true,
+      output: (line) => output.push(line),
+    });
+    const envelope = JSON.parse(output.join("")) as {
+      handoff: Record<string, string>;
+      instruction: string;
+    };
+    assert.deepEqual(Object.keys(envelope.handoff), expectedKeys);
+    if (checkoutID.includes("qr_only")) {
+      assert.match(envelope.instruction, /present_files/);
+      assert.match(envelope.instruction, /把 handoff\.qr_image_url 作为可点击链接/);
+      assert.doesNotMatch(envelope.instruction, /mobile_wallet_url/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
+      assert.match(envelope.instruction, /handoff\.mobile_wallet_url/);
+    }
+  }
 });
 
 test("pay recovers only the display token saved for the same checkout", async () => {
@@ -2502,9 +2627,11 @@ test("pay never returns a payment handoff for verified or refunded intents", asy
 
 test("services checkout JSON returns ItPay checkout handoff, not provider QR", async () => {
   const stdoutCaptureJSON: string[] = [];
+  const before = mock.requests.length;
   await runServicesCheckout(backend, config, "se_demo", "precise_report", {
     email: "buyer@example.com",
     host: "plain-chat",
+    agentType: "workbuddy",
     jsonOutput: true,
     output: (line) => stdoutCaptureJSON.push(line),
   });
@@ -2520,11 +2647,13 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.match(json.handoff.url, /^https:\/\/sandbox\.itpay\.ai\/checkout\/chk_/);
   assert.match(json.handoff.url, /display_token=/);
   assert.match(json.handoff.qr_image_url ?? "", /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
+  assert.deepEqual(Object.keys(json.handoff).sort(), ["qr_image_url", "url"]);
   assert.equal(json.result.capability_id, "precise_report");
   assert.deepEqual(json.result.locked_input, {});
   assert.equal(json.result.amount, "0.50 CNY");
-  assert.match(json.instruction, /现在只做以下动作/);
-  assert.match(json.instruction, /发送完成后停止并等待用户操作/);
+  assert.match(json.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+  assert.match(json.instruction, /然后停止等待/);
+  assert.match(json.instruction, /不要检查本地文件/);
   assert.match(json.instruction, /不要调用 pay/);
   assert.match(json.next.command, /itpay checkout --id .* --json$/);
   assert.deepEqual(json.recovery, []);
@@ -2534,7 +2663,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal("agent_action" in json, false);
   assert.equal("brand_qr_mirrors" in json, false);
   assert.ok(!JSON.stringify(json).includes("qr.alipay.com"));
-  assert.ok(mock.requests.some((req) => req.path.includes("/qr.png?display_token=")));
+  assert.equal(mock.requests.slice(before).some((req) => req.path.includes("/qr.png?display_token=")), false);
   assert.equal(JSON.stringify(json).includes("agent_access_token"), false);
 
   const displayToken = json.next.command.match(/--token ([^ ]+)/)?.[1];
@@ -3364,7 +3493,7 @@ test("runBuy mirrors the brand QR into the canonical directory", async () => {
   assert.ok(stat.size > 0);
 });
 
-test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
+test("runBuy disables desktop IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -3375,7 +3504,7 @@ test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   });
   const result = await runBuy(backend, { ...config, ideImageAttach: false }, {
     cartSession: session,
-    host: "plain-chat",
+    host: "codex",
     output: silent,
   });
   assert.equal(result.kind, "checkout_rendered");
@@ -3388,7 +3517,7 @@ test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   assert.equal(lastReq.path, "/v1/checkouts");
 });
 
-test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => {
+test("runBuy surfaces desktop attach failure when the brand QR HTTP fails", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -3406,8 +3535,7 @@ test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => 
   };
   const result = await runBuy(backend, config, {
     cartSession: session,
-    host: "telegram",
-    target: "chat-fail",
+    host: "codex",
     fetchImpl: failingFetch,
     output: silent,
   });
@@ -3432,6 +3560,7 @@ test("runBuy JSON output exposes only the current Host handoff", async () => {
   await runBuy(backend, config, {
     cartSession: session,
     host: "plain-chat",
+    agentType: "workbuddy",
     jsonOutput: true,
     output: jsonSink,
   });
@@ -3444,7 +3573,7 @@ test("runBuy JSON output exposes only the current Host handoff", async () => {
   assert.equal(json.status, "human_checkout_required");
   assert.deepEqual(json.result, { checkout_id: json.result.checkout_id, payment: "pending", amount: "1.00 CNY", item_count: 1 });
   assert.match(json.handoff.url, /display_token=/);
-  assert.ok(json.handoff.qr_local_path);
+  assert.deepEqual(Object.keys(json.handoff).sort(), ["qr_image_url", "url"]);
   assert.match(json.handoff.qr_image_url ?? "", /\/qr\.png\?display_token=/);
   assert.match(json.next.command, /checkout --id .* --token .* --json/);
   assert.equal("brand_qr_mirrors" in json, false);
