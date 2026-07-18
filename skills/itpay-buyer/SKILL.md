@@ -70,6 +70,7 @@ Run `next.command` only after the human says they acted or asks for status. QR r
 
 - Agent-visible results come from `services next`; do not use `read-result` for them.
 - Protected results require a current 15-minute human grant scoped to one delivery, approved fields, and frozen Agent audience.
+- If `services next` returns `result_preparing`, authorization is already complete. Run only its same-Execution `next.command`; do not pay, authorize, start, or call `read-result` again.
 - An Execution may have delivery history; follow `services next` for the Backend-selected current delivery.
 - A pending refund locks delivery and revokes active grants. Follow the returned refund command and state.
 

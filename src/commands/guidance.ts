@@ -474,7 +474,7 @@ function buildServiceGuidance(input: {
         command: `itpay services checkout ${execution.service_execution_id} --capability ${capabilityID}${emailRequired ? " --email <email>" : ""} --json`,
         requires_human: true,
         reason: emailRequired
-          ? "Ask the human for their email. It is used to send the protected result claim link; never invent or substitute an address."
+          ? deliveryEmailGuidance(checkoutCapability?.delivery_email_purpose)
           : "This capability returns an agent-visible result after payment and does not require a delivery email.",
       });
     } else {
@@ -553,6 +553,7 @@ function buildServiceGuidance(input: {
         requires_payment: capability.requires_payment,
         vault_required: capability.vault_required,
         delivery_email_required: capability.delivery_email_required,
+        delivery_email_purpose: capability.delivery_email_purpose,
         price_amount_minor: capability.price_amount_minor,
         price_currency: capability.price_currency,
         free_quota_limit: capability.free_quota_limit,
@@ -571,6 +572,19 @@ function buildServiceGuidance(input: {
       ? { visible_results: input.resultItems.map((item) => ({ rank: item.rank, title: item.display_title, safe_payload: item.safe_payload })) }
       : {}),
   };
+}
+
+function deliveryEmailGuidance(purpose?: ServiceCapability["delivery_email_purpose"]): string {
+  switch (purpose) {
+    case "receipt":
+      return "Ask the human for their email. It is used to send the order receipt; never invent or substitute an address.";
+    case "claim":
+      return "Ask the human for their email. It is used to send the protected result claim link; never invent or substitute an address.";
+    case "receipt_and_claim":
+      return "Ask the human for their email. It is used to send the order receipt and protected result claim link; never invent or substitute an address.";
+    default:
+      return "Ask the human for the required email and state only the Backend-declared purpose; never invent or substitute an address.";
+  }
 }
 
 function firstPrePurchaseCapability(capabilities: ServiceCapability[]): ServiceCapability | undefined {

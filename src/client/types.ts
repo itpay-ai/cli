@@ -267,6 +267,7 @@ export interface ServiceCapability {
   requires_human_action: boolean;
   vault_required: boolean;
   delivery_email_required: boolean;
+  delivery_email_purpose?: "receipt" | "claim" | "receipt_and_claim" | "delivery";
   price_amount_minor?: number;
   price_currency?: string;
   free_quota_limit?: number;
@@ -464,6 +465,13 @@ export interface ServiceDeliveryBinding {
   grant_status?: string;
   grant_expires_at?: string;
   redacted_summary?: Record<string, unknown>;
+  preparation?: {
+    status: "pending" | "running" | "completed" | "partial" | "failed";
+    total_nodes: number;
+    completed_nodes: number;
+    succeeded_nodes: number;
+    failed_nodes: number;
+  };
 }
 
 export interface ServiceExecutionReadModel {
