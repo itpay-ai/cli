@@ -47,7 +47,7 @@ try {
   ], { env, encoding: "utf8" }));
   assert.match(skillHelp.result.content, /Envelope Rule/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
-  assert.match(skillHelp.result.content, /15 minutes/);
+  assert.match(skillHelp.result.content, /15-minute human grant/);
   assert.match(skillHelp.result.content, /Identity And Sessions/);
   assert.equal(skillHelp.next.command, "itpay --agent-type codex-cli catalog list --json");
 

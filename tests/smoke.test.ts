@@ -3447,7 +3447,7 @@ test("runBuy mirrors the brand QR into the canonical directory", async () => {
   assert.ok(stat.size > 0);
 });
 
-test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
+test("runBuy disables desktop IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -3458,7 +3458,7 @@ test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   });
   const result = await runBuy(backend, { ...config, ideImageAttach: false }, {
     cartSession: session,
-    host: "plain-chat",
+    host: "codex",
     output: silent,
   });
   assert.equal(result.kind, "checkout_rendered");
@@ -3471,7 +3471,7 @@ test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   assert.equal(lastReq.path, "/v1/checkouts");
 });
 
-test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => {
+test("runBuy surfaces desktop attach failure when the brand QR HTTP fails", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -3489,8 +3489,7 @@ test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => 
   };
   const result = await runBuy(backend, config, {
     cartSession: session,
-    host: "telegram",
-    target: "chat-fail",
+    host: "codex",
     fetchImpl: failingFetch,
     output: silent,
   });
