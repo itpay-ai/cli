@@ -162,6 +162,6 @@ itpay buy \
 | `codex-cli` | `terminal` | `url` | 非 JSON 模式在用户可见终端渲染二维码；始终保留付款链接。 |
 | `claude-code-desktop` | `claude-code` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 Markdown handoff 发到当前桌面对话，不能只输出本地路径。 |
 | `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
-| `workbuddy` | `plain-chat` | `url, qr_image_url` | 读取完整 `qr_image_url` 并作为 `files` 数组唯一元素调用 `present_files`；右侧打开后发送金额和链接并停止，不读取本地文件。 |
+| `workbuddy` | `plain-chat` | `url, qr_image_url?` | 有 `qr_image_url` 时调用 `present_files`；没有时只发送金额和 `url` 且不调用工具。两者都停止，不读取本地文件。 |
 
 显式 `--host` 可以覆盖展示方式，但不会改变 Agent Type、设备身份、金额、权限或交易状态。

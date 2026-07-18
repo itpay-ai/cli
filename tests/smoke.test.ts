@@ -32,6 +32,7 @@ import { runBuy, buildCheckoutQRPlan } from "../src/commands/buy.js";
 import { CommandContractError, buildServiceInvokedGuidance, buildServiceReadModelGuidance, errorRecoveryActions } from "../src/commands/guidance.js";
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
+import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
@@ -2218,6 +2219,20 @@ test("workbuddy checkout JSON returns only the HTTPS QR handoff and exact tool i
   assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), false);
 });
 
+test("workbuddy checkout falls back to the Checkout URL when no QR URL exists", () => {
+  const result = buildCheckoutHandoff({
+    agentType: "workbuddy",
+    platform: "plain_chat",
+    url: "https://example.test/checkout/chk_no_qr",
+    amount: "1.00 CNY",
+  });
+  assert.deepEqual(result.handoff, { url: "https://example.test/checkout/chk_no_qr" });
+  assert.match(result.instruction, /本次没有返回可展示的二维码/);
+  assert.match(result.instruction, /发送 handoff\.url/);
+  assert.match(result.instruction, /不要调用 present_files/);
+  assert.doesNotMatch(result.instruction, /读取 handoff\.qr_image_url/);
+});
+
 test("explicit terminal Host overrides WorkBuddy presentation without changing Agent Type", async () => {
   const result = await runCLI([
     "--agent-type", "workbuddy", "checkout", "--host", "terminal",
@@ -2538,6 +2553,37 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     },
   );
   assert.equal(mock.requests.length, before);
+});
+
+test("workbuddy pay instructions reference only provider actions that exist", async () => {
+  for (const [checkoutID, expectedKeys] of [
+    ["chk_pay_qr_only", ["qr_image_url"]],
+    ["chk_pay_wallet_only", ["mobile_wallet_url"]],
+  ] as const) {
+    const output: string[] = [];
+    await runPay(backend, {
+      checkoutID,
+      displayToken: `cdt_${checkoutID}`,
+      method: "alipay",
+      host: "plain-chat",
+      agentType: "workbuddy",
+      jsonOutput: true,
+      output: (line) => output.push(line),
+    });
+    const envelope = JSON.parse(output.join("")) as {
+      handoff: Record<string, string>;
+      instruction: string;
+    };
+    assert.deepEqual(Object.keys(envelope.handoff), expectedKeys);
+    if (checkoutID.includes("qr_only")) {
+      assert.match(envelope.instruction, /present_files/);
+      assert.match(envelope.instruction, /把 handoff\.qr_image_url 作为可点击链接/);
+      assert.doesNotMatch(envelope.instruction, /mobile_wallet_url/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
+      assert.match(envelope.instruction, /handoff\.mobile_wallet_url/);
+    }
+  }
 });
 
 test("pay recovers only the display token saved for the same checkout", async () => {

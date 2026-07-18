@@ -61,4 +61,4 @@
 | `claude-code-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
 | `workbuddy / plain-chat` | `url, qr_image_url` |
 
-WorkBuddy instruction 必须直接要求读取 `handoff.qr_image_url` 的完整字符串并作为 `files` 数组唯一元素调用 `present_files`。展示成功或失败后都要停止等待；不能检查本地文件、下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式，因此只有 `workbuddy + plain-chat` 使用该规则。
+WorkBuddy instruction 只在 `handoff.qr_image_url` 存在时要求读取其完整字符串并作为 `files` 数组唯一元素调用 `present_files`。如果该可选字段不存在，必须直接发送 `handoff.url`，明确不要调用 `present_files`。两种情况都要停止等待；不能检查本地文件、下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式，因此只有 `workbuddy + plain-chat` 使用该规则。

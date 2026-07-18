@@ -54,7 +54,15 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
       amount,
     },
     ...(hasAction ? { handoff } : {}),
-    instruction: payInstruction(options, verified, terminal, hasAction, Boolean(handoff.qr_image_url), amount),
+    instruction: payInstruction(
+      options,
+      verified,
+      terminal,
+      hasAction,
+      Boolean(handoff.qr_image_url),
+      Boolean(handoff.mobile_wallet_url),
+      amount,
+    ),
     next: {
       command: `itpay checkout --id ${options.checkoutID} --token ${options.displayToken} --json`,
       reason: verified ? "读取权威订单和履约状态" : "读取同一 Checkout 的权威付款状态",
@@ -63,13 +71,22 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
   };
 }
 
-function payInstruction(options: PayOptions, verified: boolean, terminal: boolean, hasAction: boolean, hasQR: boolean, amount: string): string {
+function payInstruction(
+  options: PayOptions,
+  verified: boolean,
+  terminal: boolean,
+  hasAction: boolean,
+  hasQR: boolean,
+  hasWallet: boolean,
+  amount: string,
+): string {
   if (verified) return "付款已确认；不要再次展示付款动作，继续读取同一 Checkout。";
   if (terminal) return "Payment Intent 已终止；不要自行创建替代付款，回到同一 Checkout 读取恢复方向。";
   if (!hasAction) return "Payment Intent 尚未返回可展示动作；不要猜测渠道链接，回到同一 Checkout 查询。";
   const platform = platformKeyForHost(options.host);
   if (isWorkBuddyPlainChat(options.agentType, platform)) {
-    if (hasQR) return `这是受控逃生入口。读取 handoff.qr_image_url 的完整字符串，原样作为 files 数组唯一元素调用 present_files({ files: ["<完整 qr_image_url>"] })；右侧预览打开后说明金额 ${amount}、发送可用钱包链接并停止等待。如果 present_files 失败，只发送可用钱包链接并停止。不要立即查询、创建替代 Checkout 或 Payment Intent。`;
+    if (hasQR && hasWallet) return `这是受控逃生入口。读取 handoff.qr_image_url 的完整字符串，原样作为 files 数组唯一元素调用 present_files({ files: ["<完整 qr_image_url>"] })；右侧预览打开后说明金额 ${amount}、发送 handoff.mobile_wallet_url 并停止等待。如果 present_files 失败，发送 handoff.qr_image_url 和 handoff.mobile_wallet_url 并说明二维码预览未打开，然后停止。不要立即查询、创建替代 Checkout 或 Payment Intent。`;
+    if (hasQR) return `这是受控逃生入口。读取 handoff.qr_image_url 的完整字符串，原样作为 files 数组唯一元素调用 present_files({ files: ["<完整 qr_image_url>"] })；右侧预览打开后说明金额 ${amount} 并停止等待。如果 present_files 失败，把 handoff.qr_image_url 作为可点击链接发送给用户并说明二维码预览未打开，然后停止。不要立即查询、创建替代 Checkout 或 Payment Intent。`;
     return `这是受控逃生入口。说明金额 ${amount}，把 handoff.mobile_wallet_url 作为可点击链接发送给用户，然后停止等待；不要立即查询、创建替代 Checkout 或 Payment Intent。`;
   }
   if (options.host === "codex" || options.host === "claude-code") return "这是受控逃生入口；把 handoff 中的二维码或钱包链接实际发到当前桌面对话，然后停止等待。";

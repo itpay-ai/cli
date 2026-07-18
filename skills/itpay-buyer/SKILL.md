@@ -60,7 +60,7 @@ When `status` is `human_checkout_required`, make the amount, ItPay Checkout QR, 
 
 - Desktop Agents: send `handoff.markdown` unchanged; confirm QR, amount, and link are visible, then stop.
 - CLI Agents: show the terminal QR, amount, and link in the watched terminal, then stop; never claim a desktop image was shown.
-- WorkBuddy with `plain-chat`: use the complete `handoff.qr_image_url` as the only `files` element in `present_files`. Confirm the right-side QR preview opened, show amount and `handoff.url`, then stop.
+- WorkBuddy with `plain-chat`: when `handoff.qr_image_url` exists, use its complete value as the only `files` element in `present_files`; confirm the right-side QR preview opened, show amount and `handoff.url`, then stop. If it is absent, send amount and `handoff.url`, do not call `present_files`, then stop.
 - If WorkBuddy `present_files` fails, send only `handoff.url`, report the failure, and stop. Never inspect files, switch Node, rebuild a QR, call `pay`, or create another Checkout.
 - An explicit `--host` overrides presentation only. It never changes Agent identity or payment state.
 

@@ -32,7 +32,7 @@
     {
       "agent_type": "workbuddy",
       "default_host": "plain-chat",
-      "responsibility": "use the exact HTTPS handoff.qr_image_url as the only files element in present_files, confirm the right-side QR preview opened, show the Checkout URL and amount, then stop"
+      "responsibility": "when handoff.qr_image_url exists, use its exact HTTPS value as the only files element in present_files; otherwise send the Checkout URL without calling present_files; show the amount and stop"
     }
   ],
   "commands": [
