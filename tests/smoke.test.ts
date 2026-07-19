@@ -3069,7 +3069,7 @@ test("services start returns only the documented capability entrypoint", async (
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "ready");
   assert.equal(parsed.result.service_id, "svc_qizhidao_company_lookup");
-  assert.equal(parsed.result.capability.capability_id, "fuzzy_disambiguation");
+  assert.equal(parsed.result.capability.capability_id, "company_name_suggestion");
   assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
   assert.match(parsed.next.command, /--input keyword=<value> --json$/);
   assert.equal("execution" in parsed, false);
