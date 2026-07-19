@@ -903,6 +903,19 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
     },
     capabilities: [
       {
+        capability_id: "company_name_suggestion",
+        phase: "pre_purchase",
+        agent_visible: true,
+        requires_payment: false,
+        requires_human_action: true,
+        vault_required: false,
+        delivery_email_required: false,
+        free_quota_limit: 3,
+        quota_subject: "agent_device",
+        input_schema: { type: "object", required: ["keyword"] },
+        output_schema: { type: "object" },
+      },
+      {
         capability_id: "fuzzy_disambiguation",
         phase: "pre_purchase",
         agent_visible: true,

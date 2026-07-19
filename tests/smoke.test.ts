@@ -785,22 +785,23 @@ test("services invoke reads target capability metadata before checkout guidance"
 
 test("services invoke returns a terminal zero-result contract", async () => {
   await runServicesInvoke(
-    backend, config, "se_empty", "fuzzy_disambiguation", { keyword: "北京赢在未来公司" },
+    backend, config, "se_empty", "company_name_suggestion", { keyword: "北京赢在未来公司" },
     { jsonOutput: true, output: stdoutSink },
   );
-  const envelope = JSON.parse(stdoutCapture.join("")) as {
-    status: string;
-    result: { query: { keyword: string }; items: unknown[]; quota: { remaining: number; limit: number } };
-    instruction: string; next: unknown; recovery: unknown[];
-  };
-  assert.equal(envelope.status, "no_result");
-  assert.deepEqual(envelope.result.query, { keyword: "北京赢在未来公司" });
-  assert.deepEqual(envelope.result.items, []);
-  assert.deepEqual(envelope.result.quota, { remaining: 1, limit: 3 });
-  assert.match(envelope.instruction, /0 个结果并停止/);
-  assert.match(envelope.instruction, /不要修改、缩短或猜测/);
-  assert.equal(envelope.next, null);
-  assert.deepEqual(envelope.recovery, []);
+  const envelope = JSON.parse(stdoutCapture.join(""));
+  assert.deepEqual(envelope, {
+    status: "no_result",
+    result: {
+      service_execution_id: "se_empty",
+      capability_id: "company_name_suggestion",
+      query: { keyword: "北京赢在未来公司" },
+      items: [],
+      quota: { remaining: 1, limit: 3 },
+    },
+    instruction: "没有找到与“北京赢在未来公司”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。",
+    next: null,
+    recovery: [],
+  });
 });
 
 test("services invoke rejects paid capabilities and returns only same-execution recovery", async () => {
