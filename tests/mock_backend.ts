@@ -31,7 +31,11 @@ export interface MockBackendHandle {
   url: string;
   requests: RecordedRequest[];
   setAccountOrders: (orders: Array<Record<string, unknown>>) => void;
-  setServiceError: (error?: { status: number; code: string; message: string }) => void;
+  setServiceError: (error?: {
+    status: number; code: string; message: string;
+    service_execution_id?: string; provider_called?: boolean;
+    effective_quota?: { bucket: string; subject_type: string; limit: number; remaining: number; exhausted: boolean; replenishment: string };
+  }) => void;
   close: () => Promise<void>;
 }
 
@@ -53,7 +57,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   const carts: Record<string, Record<string, unknown>> = {};
   const serviceExecutions: Record<string, Record<string, unknown>> = {};
   let accountOrders: Array<Record<string, unknown>> = [];
-  let serviceError: { status: number; code: string; message: string } | undefined;
+  let serviceError: Parameters<MockBackendHandle["setServiceError"]>[0];
   const orderByID: Record<string, Record<string, unknown>> = {
     ord_delivery: {
       order_id: "ord_delivery", order_code: "IP-DELIVERY", checkout_id: "chk_delivery", status: "delivered",
@@ -119,7 +123,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     res.setHeader("Content-Type", "application/json");
 
     if (serviceError && path.startsWith("/v1/service-executions")) {
-      respond(res, serviceError.status, { code: serviceError.code, message: serviceError.message });
+      const { status, ...body } = serviceError;
+      respond(res, status, body);
       return;
     }
 
@@ -454,6 +459,24 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             replenishment: "purchase_finalized",
           },
           next_actions: [{ kind: "create_checkout", capability_id: "fuzzy_disambiguation_paid", requires_human: true }],
+        });
+        return;
+      }
+      if (serviceExecutionID === "se_empty") {
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        model.execution = { ...(model.execution as Record<string, unknown>), status: "completed", next_action: "none" };
+        serviceExecutions[serviceExecutionID] = model;
+        respond(res, 200, {
+          execution: model.execution,
+          invocation: {
+            service_capability_invocation_id: "sci_empty", service_execution_id: serviceExecutionID,
+            capability_id: capabilityID, status: "succeeded", created_at: "2026-07-19T12:00:00Z",
+          },
+          result_items: [], provider_called: true,
+          effective_quota: {
+            bucket: "company_name_suggestion", subject_type: "device_lineage", limit: 3,
+            remaining: 1, exhausted: false, replenishment: "purchase_finalized",
+          },
         });
         return;
       }

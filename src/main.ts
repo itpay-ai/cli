@@ -154,6 +154,8 @@ function reportCLIError(
   const providerConnectionUnavailable = error instanceof HttpError && error.code === "provider_connection_unavailable";
   const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
   const providerRejected = error instanceof HttpError && error.code === "provider_rejected";
+  const providerInputRejected = error instanceof HttpError && error.code === "provider_input_rejected";
+  const providerContractMismatch = error instanceof HttpError && error.code === "provider_contract_mismatch";
   const capabilityInputInvalid = error instanceof HttpError && error.code === "capability_input_invalid";
   const deviceRecovery: CommandAction[] = deviceError ? [{
     command: "itpay skill show itpay-buyer --json",
@@ -179,6 +181,18 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
+      ...(error instanceof HttpError && error.payload?.service_execution_id ? {
+        result: {
+          service_execution_id: error.payload.service_execution_id,
+          provider_called: error.payload.provider_called === true,
+          ...(error.payload.effective_quota ? {
+            quota: {
+              remaining: error.payload.effective_quota.remaining,
+              limit: error.payload.effective_quota.limit,
+            },
+          } : {}),
+        },
+      } : {}),
       instruction: incompatible
 		? "立即向用户报告 error.message 并结束本次任务。不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令；不要寻找、安装或切换其他 CLI。只有运营明确提供兼容 CLI 后，才能在新的任务中重新开始。"
 		: backendInternal
@@ -186,14 +200,18 @@ function reportCLIError(
 		: providerConnectionUnavailable
 			? "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。"
 		: providerTemporary
-			? "上游服务暂时不可用；向用户逐字报告 error.message 并停止，不要自动重试。请求是否可能计费以 Backend 的消费事实为准；只有用户明确要求再次查询后，才可按 next/recovery 重新开始。"
+			? "上游服务暂时不可用；向用户逐字报告 error.message 和 result.quota 并停止，不要自动重试、不要创建新 Execution。只有用户之后明确提出新请求，才可重新开始。"
+		: providerInputRejected
+			? `Provider 明确拒绝了该输入：${error instanceof Error ? error.message : String(error)}。请向用户报告 error.message 和 result.quota 并停止。不要自行修改输入、不要重试、不要创建新 Execution；只有用户明确提供新输入后才能重新查询。`
+		: providerContractMismatch
+			? "Provider 响应与已发布契约不一致。这不是用户输入问题。立即停止，不要修改输入、不要重试、不要创建新 Execution，也不要进入付费路径；向用户报告平台故障和 result.quota。"
 		: providerRejected
-			? "上游拒绝了本次输入；向用户逐字报告 error.message 并停止，不要重试同一 Execution。Provider 已收到响应，本次请求可能计费；只有用户提供修正后的输入后，才可按 next/recovery 继续。"
+			? "Provider 拒绝了本次请求，但未声明这是输入错误；向用户逐字报告 error.message 和 result.quota 并停止。不要修改输入、不要重试、不要创建新 Execution。"
 		: capabilityInputInvalid
 			? "输入未通过本地校验，上游尚未被调用且用户额度未变化。向用户逐字报告 error.message 并停止，不要原样重试或运行其他恢复命令。用户提供修正后的输入后，继续使用当前未结束的 Execution。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
-      recovery: incompatible || backendInternal || providerConnectionUnavailable || providerTemporary || providerRejected || capabilityInputInvalid ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+      recovery: incompatible || backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
       output: (text) => { process.stderr.write(text); },

@@ -13,6 +13,7 @@ Use the CLI as the only ItPay control surface. Never recreate API calls or hardc
 ## Envelope Rule
 
 - Keep one honest Agent Type, CLI/Node launcher, and Host permission context. Supported types: `codex-desktop`, `codex-cli`, `claude-code-desktop`, `claude-code-cli`, `workbuddy`.
+- WorkBuddy: before any ItPay Bash command that persists `~/.itpay-v3`, set the Shell tool parameter `dangerouslyDisableSandbox` to `true`. If the human denies that permission, the command did not run: stop and report it. Never switch Node, delete identity, edit locks, or change Agent Type.
 - Windows, tasks, chats, processes, and model sessions are not new Agents. Never rotate Agent Type or identity to reset quota.
 - Read `status` and `result` as facts, follow `instruction`, and execute at most the applicable `next.command`; use `recovery` only when it cannot continue.
 - `next.command` is not unconditional. If the result satisfies the user's goal, present useful facts and stop; never dump the whole envelope.
@@ -90,6 +91,8 @@ itpay --agent-type <agent_type> refund get <refund_request_id> --json
 Reuse the same Execution and Checkout. Never start another Execution, create another Checkout, change payment route, or replay a capability to bypass quota, selection, payment, delivery, grant, or refund state.
 
 `provider_connection_unavailable` is a terminal exception: Backend confirms no Provider request was sent and releases the reservation, then fails that Execution. Stop with no recovery command. Only after an operator confirms connectivity is restored and the human explicitly asks to query again may you start a new Execution.
+
+`no_result` is a completed Provider call with zero items. Show the query, zero results, and the returned quota, then stop. Never shorten, rewrite, or guess another input. `provider_input_rejected`, `provider_temporarily_unavailable`, and `provider_contract_mismatch` are also terminal for the current request: report the exact safe message and quota facts, run no recovery command, and wait for a new explicit human request.
 
 ## Safety
 

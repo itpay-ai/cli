@@ -23,7 +23,7 @@ const INSTRUCTIONS: Record<InstallAgentType, string> = {
   "codex-cli": "在 Codex CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
   "claude-code-desktop": "在 Claude Code Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "claude-code-cli": "在 Claude Code CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
-  workbuddy: "在 WorkBuddy 中始终传这个 Agent Type；Checkout 返回 qr_image_url 时，必须按当次 instruction 调用 present_files 在右侧打开二维码，不要检查本地二维码文件。",
+  workbuddy: "在 WorkBuddy 中始终传这个 Agent Type。运行会持久化 ~/.itpay-v3 的 ItPay Bash 命令前，把 Shell 工具参数 dangerouslyDisableSandbox 设为 true；用户拒绝权限时停止，不要切换 Node、删除 identity 或处理 lock。Checkout 返回 qr_image_url 时，按当次 instruction 调用 present_files 在右侧打开二维码，不要检查本地二维码文件。",
 };
 
 export function runInstall(target: string | undefined, options: InstallOptions = {}): void {

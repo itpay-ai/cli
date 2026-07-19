@@ -31,6 +31,7 @@ export interface CommandEnvelope {
 export interface CommandErrorEnvelope {
   status: "error";
   error: { code: string; message: string };
+  result?: Record<string, unknown>;
   instruction: string;
   next: null;
   recovery: CommandAction[];
@@ -64,12 +65,17 @@ export function writeCommandEnvelope(
     return;
   }
   out(`${qualified.status}\n`);
-  const facts = "result" in qualified ? qualified.result : qualified.error;
+  const facts = "error" in qualified ? qualified.error : qualified.result;
   if (options.plainResult) {
     for (const line of options.plainResult) out(`${line}\n`);
   } else {
     for (const [key, fact] of Object.entries(facts)) {
       out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+    }
+    if ("error" in qualified && qualified.result) {
+      for (const [key, fact] of Object.entries(qualified.result)) {
+        out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+      }
     }
   }
   if ("handoff" in qualified && qualified.handoff) {
@@ -485,13 +491,7 @@ function buildServiceGuidance(input: {
       });
     }
   } else if ((input.providerCalled || execution.next_action === "select_candidate") && (input.resultItems?.length ?? 0) === 0) {
-    nextActions.push({
-      id: "start_refined_search",
-      label: "Start a new execution with a more specific company name",
-      command: `itpay services start ${execution.service_id}`,
-      requires_human: true,
-      reason: "No candidates were found. This execution is finished; use one new execution per new keyword.",
-    });
+    // Terminal empty result: a later explicit human request starts a new flow.
   } else if (needsHumanSelection(execution, resultItem)) {
     nextActions.push({
       id: "select_result_item",
@@ -499,12 +499,6 @@ function buildServiceGuidance(input: {
       command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank>`,
       requires_human: true,
       reason: "Do not choose a candidate without explicit human confirmation.",
-    });
-    nextActions.push({
-      id: "start_another_search",
-      label: "Search another company in a new execution",
-      command: `itpay services start ${execution.service_id}`,
-      reason: "This execution has completed its one keyword lookup; do not reuse it for another keyword.",
     });
   } else if (prePurchase) {
     const action: AgentNextAction = {

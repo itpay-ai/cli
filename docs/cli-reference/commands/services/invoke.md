@@ -5,7 +5,7 @@
 调用当前 phase 允许的非付费 Agent-visible capability。输入先按 capability schema 校验，校验失败不得迁移 execution 或记录 Provider 已调用。
 
 **上游：** `services start/next` 明确返回 invoke。
-**下游：** 候选结果、人工 action、付费 Quote 或新 execution。
+**下游：** 候选结果、人工 action 或付费 Quote。一次 invoke 没有结果或返回 Provider 错误时必须停止；只有用户之后明确提供新输入，才启动新的 execution。
 
 ## 语法与参数
 
@@ -33,9 +33,31 @@ itpay services invoke <service_execution_id> --capability <capability_id>
 }
 ```
 
-## 无结果与额度耗尽
+## 无结果
 
-无结果时明确说明 Provider 已返回空结果，并根据服务端 graph 决定重试同一 execution 或启动新 execution。额度耗尽时，普通单 Execution 流程返回完整的 `services checkout` 单项快捷命令；`services quote -> cart add --quote -> buy --cart` 只用于用户明确要求把多个独立 Execution 合并付款的高级流程。
+Provider 已收到请求但没有匹配项时，该 invocation 成功完成、提交一次真实额度消费并返回权威剩余额度。CLI 不提供可自动执行的下一步：Agent 必须展示 0 个结果并停止，不得缩短、改写或猜测输入。
+
+```json
+{
+  "status": "no_result",
+  "result": {
+    "service_execution_id": "<id>",
+    "capability_id": "company_name_suggestion",
+    "query": { "keyword": "北京赢在未来公司" },
+    "items": [],
+    "quota": { "remaining": 1, "limit": 3 }
+  },
+  "instruction": "没有找到与“北京赢在未来公司”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。",
+  "next": null,
+  "recovery": []
+}
+```
+
+文本输出只包含 execution、capability、keyword、`results: 0`、quota 和同一条 instruction；不得附带 Provider raw payload、Operation ID 或调试信息。
+
+## 额度耗尽
+
+额度耗尽时，普通单 Execution 流程返回完整的 `services checkout` 单项快捷命令；`services quote -> cart add --quote -> buy --cart` 只用于用户明确要求把多个独立 Execution 合并付款的高级流程。
 
 ```json
 {
@@ -80,6 +102,46 @@ itpay services invoke <service_execution_id> --capability <capability_id>
 ```
 
 该终态不允许 CLI 猜测网络修复、重复 invoke 或转入购买。连接恢复后也不能复用失败 Execution；必须同时满足“运营已确认恢复”和“用户明确要求再次查询”，才创建新 Execution。
+
+## Provider 输入、临时和契约错误
+
+Provider 已收到请求时，Backend 返回同一 Execution 的权威调用和额度事实。CLI 不读取 raw payload，也不自行推断错误种类。
+
+明确输入错误：
+
+```json
+{
+  "status": "error",
+  "error": { "code": "provider_input_rejected", "message": "输入的名称不合法" },
+  "result": {
+    "service_execution_id": "<id>",
+    "provider_called": true,
+    "quota": { "remaining": 0, "limit": 3 }
+  },
+  "instruction": "Provider 明确拒绝了该输入：输入的名称不合法。请向用户报告 error.message 和 result.quota 并停止。不要自行修改输入、不要重试、不要创建新 Execution；只有用户明确提供新输入后才能重新查询。",
+  "next": null,
+  "recovery": []
+}
+```
+
+契约错误：
+
+```json
+{
+  "status": "error",
+  "error": { "code": "provider_contract_mismatch", "message": "provider response did not match the published contract" },
+  "result": {
+    "service_execution_id": "<id>",
+    "provider_called": true,
+    "quota": { "remaining": 0, "limit": 3 }
+  },
+  "instruction": "Provider 响应与已发布契约不一致。这不是用户输入问题。立即停止，不要修改输入、不要重试、不要创建新 Execution，也不要进入付费路径；向用户报告平台故障和 result.quota。",
+  "next": null,
+  "recovery": []
+}
+```
+
+`provider_temporarily_unavailable` 同样必须停止且不得自动重试。输入错误、临时错误和契约错误都不得返回 `next.command` 或 recovery 命令；新的 Provider 请求只允许来自用户后续明确提出的新输入。
 
 ## Agent Type / Host
 

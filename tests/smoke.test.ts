@@ -783,6 +783,26 @@ test("services invoke reads target capability metadata before checkout guidance"
 	assert.equal(requests.at(-1)?.method, "POST");
 });
 
+test("services invoke returns a terminal zero-result contract", async () => {
+  await runServicesInvoke(
+    backend, config, "se_empty", "fuzzy_disambiguation", { keyword: "北京赢在未来公司" },
+    { jsonOutput: true, output: stdoutSink },
+  );
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { query: { keyword: string }; items: unknown[]; quota: { remaining: number; limit: number } };
+    instruction: string; next: unknown; recovery: unknown[];
+  };
+  assert.equal(envelope.status, "no_result");
+  assert.deepEqual(envelope.result.query, { keyword: "北京赢在未来公司" });
+  assert.deepEqual(envelope.result.items, []);
+  assert.deepEqual(envelope.result.quota, { remaining: 1, limit: 3 });
+  assert.match(envelope.instruction, /0 个结果并停止/);
+  assert.match(envelope.instruction, /不要修改、缩短或猜测/);
+  assert.equal(envelope.next, null);
+  assert.deepEqual(envelope.recovery, []);
+});
+
 test("services invoke rejects paid capabilities and returns only same-execution recovery", async () => {
 	const requestsBefore = mock.requests.length;
 	await assert.rejects(
@@ -1268,10 +1288,10 @@ test("service guidance emits executable human selection action", () => {
     guidance.next_actions[0]?.command,
     "itpay services action se_select --action select_candidate --actor-type human --status approved --candidate <rank>",
   );
-  assert.equal(guidance.next_actions[1]?.command, "itpay services start svc_qizhidao_company_lookup");
+  assert.equal(guidance.next_actions.length, 1);
 });
 
-test("empty lookup starts a new execution instead of reusing a closed one", () => {
+test("empty lookup is terminal and does not offer another provider call", () => {
   const guidance = buildServiceReadModelGuidance({
     execution: {
       service_execution_id: "se_empty", service_id: "svc_company", service_contract_version_id: "scv_1",
@@ -1286,8 +1306,7 @@ test("empty lookup starts a new execution instead of reusing a closed one", () =
       status: "succeeded", created_at: "2026-07-12T00:00:00Z",
     }],
   });
-  assert.equal(guidance.next_actions[0]?.command, "itpay services start svc_company");
-  assert.doesNotMatch(guidance.next_actions[0]?.command ?? "", /services invoke/);
+  assert.deepEqual(guidance.next_actions, []);
 });
 
 test("service recovery guides backend outage retries", () => {
@@ -1928,20 +1947,28 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
   }
 });
 
-test("CLI gives bounded instructions for provider rejection and temporary failure", async () => {
+test("CLI distinguishes provider input, temporary, contract, and generic failures", async () => {
   for (const item of [
-    { status: 422, code: "provider_rejected", message: "输入不合法", instruction: /只有用户提供修正后的输入后/ },
+    { status: 422, code: "provider_input_rejected", message: "输入不合法", instruction: /明确拒绝了该输入/ },
     { status: 503, code: "provider_temporarily_unavailable", message: "查询超时", instruction: /不要自动重试/ },
+    { status: 502, code: "provider_contract_mismatch", message: "provider response did not match the published contract", instruction: /不是用户输入问题/ },
+    { status: 422, code: "provider_rejected", message: "provider rejected the request", instruction: /未声明这是输入错误/ },
   ]) {
-    mock.setServiceError(item);
+    mock.setServiceError({
+      ...item, service_execution_id: "se_failed", provider_called: true,
+      effective_quota: { bucket: "company_name_suggestion", subject_type: "device_lineage", limit: 3, remaining: 1, exhausted: false, replenishment: "purchase_finalized" },
+    });
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
-          error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+          error: { code: string; message: string };
+          result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
+          instruction: string; next: unknown; recovery: unknown[];
         };
         assert.equal(envelope.error.code, item.code);
         assert.equal(envelope.error.message, item.message);
+        assert.deepEqual(envelope.result, { service_execution_id: "se_failed", provider_called: true, quota: { remaining: 1, limit: 3 } });
         assert.match(envelope.instruction, item.instruction);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
@@ -2065,6 +2092,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next.command, "itpay --agent-type workbuddy catalog list --json");
   assert.match(workbuddy.instruction, /同一 Node\/CLI launcher/);
+  assert.match(workbuddy.instruction, /dangerouslyDisableSandbox/);
 });
 
 test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
@@ -2246,7 +2274,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.12");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.13");
       return true;
     },
   );

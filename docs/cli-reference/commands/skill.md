@@ -14,4 +14,4 @@ itpay [--agent-type <agent_type>] skill show itpay-buyer [--json]
 
 Skill 是操作和安全合同，不是服务端业务状态。执行时仍以每个命令当前 envelope 的 `result`、`instruction` 和 `next` 为准。
 
-所有 Agent Type 使用相同的 JSON 外壳、字段和命令参数。`workbuddy` 只在 `instruction` 中额外强调保持同一 Node/CLI launcher、持久写权限和减少内部诊断转述；它不改变输入或输出 schema。
+所有 Agent Type 使用相同的 JSON 外壳、字段和命令参数。`workbuddy` 只在 `instruction` 中额外要求：写入 `~/.itpay-v3` 前把 Shell 工具参数 `dangerouslyDisableSandbox` 设为 `true`；权限被拒绝时停止，不切换 Node、不删除 identity、不处理 lock。它不改变输入或输出 schema。

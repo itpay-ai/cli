@@ -194,6 +194,18 @@ export interface PlatformCompatibility {
 export interface ErrorResponse {
   code: string;
   message: string;
+  service_execution_id?: string;
+  provider_called?: boolean;
+  effective_quota?: EffectiveQuota;
+}
+
+export interface EffectiveQuota {
+  bucket: string;
+  subject_type: string;
+  limit: number;
+  remaining: number;
+  exhausted: boolean;
+  replenishment: string;
 }
 
 // --- Catalog types (from GET /v1/catalog/manifest) ---
@@ -343,14 +355,7 @@ export interface ServiceCapabilityInvoked {
   invocation?: ServiceCapabilityInvocation;
   result_items: ServiceCapabilityResultItem[];
   provider_called: boolean;
-  effective_quota?: {
-    bucket: string;
-    subject_type: string;
-    limit: number;
-    remaining: number;
-    exhausted: boolean;
-    replenishment: string;
-  };
+  effective_quota?: EffectiveQuota;
   next_actions?: Array<{
     kind: string;
     capability_id?: string;

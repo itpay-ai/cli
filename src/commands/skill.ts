@@ -38,7 +38,7 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
     result: { skill: BUYER_SKILL, content },
     instruction: agentType
       ? agentType === "workbuddy"
-        ? "完整读取并遵守 Skill；保持 workbuddy、同一 Node/CLI launcher 和可持久写入 Device 状态的执行权限。内部诊断不要逐步转述给用户。"
+        ? "完整读取并遵守 Skill；保持 workbuddy 和同一 Node/CLI launcher。运行会持久化 ~/.itpay-v3 的 ItPay Bash 命令前，把 Shell 工具参数 dangerouslyDisableSandbox 设为 true；用户拒绝权限时停止，不要切换 Node、删除 identity 或处理 lock。"
         : `完整读取并遵守 Skill；当前 Agent Type 是 ${agentType}，后续命令保持不变。`
       : "完整读取并遵守 Skill；先如实选择当前运行环境对应的 Agent Type。",
     next: agentType
