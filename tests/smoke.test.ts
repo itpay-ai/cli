@@ -1984,22 +1984,43 @@ test("CLI stops a known-no-effect provider connection failure without retry or p
     status: 503,
     code: "provider_connection_unavailable",
     message: "provider request was not sent; reserved quota was released",
+    service_execution_id: "se_failed",
+    provider_called: false,
+    effective_quota: {
+      bucket: "company_name_suggestion",
+      subject_type: "device_lineage",
+      limit: 3,
+      remaining: 3,
+      exhausted: false,
+      replenishment: "purchase_finalized",
+    },
   });
   try {
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
-          error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+          error: { code: string; message: string };
+          result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
+          instruction: string;
+          next: unknown;
+          recovery: unknown[];
         };
-        assert.equal(envelope.error.code, "provider_connection_unavailable");
-        assert.equal(envelope.error.message, "provider request was not sent; reserved quota was released");
-        assert.match(envelope.instruction, /预留免费额度已释放/);
-        assert.match(envelope.instruction, /不要自动重试、不要继续同一 Execution/);
-        assert.match(envelope.instruction, /不要进入任何付费路径/);
-        assert.match(envelope.instruction, /运营确认连接恢复且用户明确要求/);
-        assert.equal(envelope.next, null);
-        assert.deepEqual(envelope.recovery, []);
+        assert.deepEqual(envelope, {
+          status: "error",
+          error: {
+            code: "provider_connection_unavailable",
+            message: "provider request was not sent; reserved quota was released",
+          },
+          result: {
+            service_execution_id: "se_failed",
+            provider_called: false,
+            quota: { remaining: 3, limit: 3 },
+          },
+          instruction: "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。",
+          next: null,
+          recovery: [],
+        });
         return true;
       },
     );
