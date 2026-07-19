@@ -783,6 +783,27 @@ test("services invoke reads target capability metadata before checkout guidance"
 	assert.equal(requests.at(-1)?.method, "POST");
 });
 
+test("services invoke returns a terminal zero-result contract", async () => {
+  await runServicesInvoke(
+    backend, config, "se_empty", "company_name_suggestion", { keyword: "北京赢在未来公司" },
+    { jsonOutput: true, output: stdoutSink },
+  );
+  const envelope = JSON.parse(stdoutCapture.join(""));
+  assert.deepEqual(envelope, {
+    status: "no_result",
+    result: {
+      service_execution_id: "se_empty",
+      capability_id: "company_name_suggestion",
+      query: { keyword: "北京赢在未来公司" },
+      items: [],
+      quota: { remaining: 1, limit: 3 },
+    },
+    instruction: "没有找到与“北京赢在未来公司”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。",
+    next: null,
+    recovery: [],
+  });
+});
+
 test("services invoke rejects paid capabilities and returns only same-execution recovery", async () => {
 	const requestsBefore = mock.requests.length;
 	await assert.rejects(
@@ -1268,10 +1289,10 @@ test("service guidance emits executable human selection action", () => {
     guidance.next_actions[0]?.command,
     "itpay services action se_select --action select_candidate --actor-type human --status approved --candidate <rank>",
   );
-  assert.equal(guidance.next_actions[1]?.command, "itpay services start svc_qizhidao_company_lookup");
+  assert.equal(guidance.next_actions.length, 1);
 });
 
-test("empty lookup starts a new execution instead of reusing a closed one", () => {
+test("empty lookup is terminal and does not offer another provider call", () => {
   const guidance = buildServiceReadModelGuidance({
     execution: {
       service_execution_id: "se_empty", service_id: "svc_company", service_contract_version_id: "scv_1",
@@ -1286,8 +1307,7 @@ test("empty lookup starts a new execution instead of reusing a closed one", () =
       status: "succeeded", created_at: "2026-07-12T00:00:00Z",
     }],
   });
-  assert.equal(guidance.next_actions[0]?.command, "itpay services start svc_company");
-  assert.doesNotMatch(guidance.next_actions[0]?.command ?? "", /services invoke/);
+  assert.deepEqual(guidance.next_actions, []);
 });
 
 test("service recovery guides backend outage retries", () => {
@@ -1839,8 +1859,7 @@ test("CLI fails closed when the Backend compatibility contract is unavailable", 
           recovery: unknown[];
         };
         assert.equal(envelope.error.code, "backend_contract_incompatible");
-        assert.match(envelope.instruction, /立即向用户报告 error.message 并结束本次任务/);
-        assert.match(envelope.instruction, /不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令/);
+        assert.match(envelope.instruction, /Backend 未提供可验证的兼容 CLI 版本/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
         return true;
@@ -1862,7 +1881,7 @@ test("readyz, catalog, and top-level next fail before guidance when the contract
         schema_revision: "sha256:schema",
         bootstrap_revision: "seed",
         api_contract_revision: "sha256:old-contract",
-        minimum_cli_version: "2.0.8",
+        minimum_cli_version: "2.0.14",
         maximum_cli_major: 2,
       }));
       return;
@@ -1880,20 +1899,65 @@ test("readyz, catalog, and top-level next fail before guidance when the contract
         (error: unknown) => {
           const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
             error: { code: string; message: string };
+            result: { current_cli_version: string; required_cli_version: string };
             instruction: string;
             next: unknown;
-            recovery: unknown[];
+            recovery: Array<{ command: string; reason: string }>;
           };
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
-          assert.match(envelope.instruction, /不要运行任何其他 itpay/);
+          assert.deepEqual(envelope.result, {
+            current_cli_version: "2.0.13",
+            required_cli_version: "2.0.14",
+          });
+          assert.equal(
+            envelope.instruction,
+            "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。",
+          );
           assert.equal(envelope.next, null);
-          assert.deepEqual(envelope.recovery, []);
+          assert.deepEqual(envelope.recovery, [{
+            command: "npm install -g @itpay/cli@2.0.14",
+            reason: "安装 Backend 指定的兼容 CLI 版本",
+          }]);
           return true;
         },
       );
       assert.deepEqual(requests, ["/v1/platform/compatibility"]);
     }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("CLI never guesses an upgrade version from an invalid compatibility contract", async () => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      platform_revision: "v3.invalid-version",
+      schema_revision: "sha256:schema",
+      bootstrap_revision: "seed",
+      api_contract_revision: "sha256:other-contract",
+      minimum_cli_version: "latest",
+      maximum_cli_major: 2,
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    await assert.rejects(
+      runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}` }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          result?: unknown;
+          instruction: string;
+          recovery: unknown[];
+        };
+        assert.equal(envelope.result, undefined);
+        assert.match(envelope.instruction, /Backend 未提供可验证的兼容 CLI 版本/);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -1928,20 +1992,28 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
   }
 });
 
-test("CLI gives bounded instructions for provider rejection and temporary failure", async () => {
+test("CLI distinguishes provider input, temporary, contract, and generic failures", async () => {
   for (const item of [
-    { status: 422, code: "provider_rejected", message: "输入不合法", instruction: /只有用户提供修正后的输入后/ },
+    { status: 422, code: "provider_input_rejected", message: "输入不合法", instruction: /明确拒绝了该输入/ },
     { status: 503, code: "provider_temporarily_unavailable", message: "查询超时", instruction: /不要自动重试/ },
+    { status: 502, code: "provider_contract_mismatch", message: "provider response did not match the published contract", instruction: /不是用户输入问题/ },
+    { status: 422, code: "provider_rejected", message: "provider rejected the request", instruction: /未声明这是输入错误/ },
   ]) {
-    mock.setServiceError(item);
+    mock.setServiceError({
+      ...item, service_execution_id: "se_failed", provider_called: true,
+      effective_quota: { bucket: "company_name_suggestion", subject_type: "device_lineage", limit: 3, remaining: 1, exhausted: false, replenishment: "purchase_finalized" },
+    });
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
-          error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+          error: { code: string; message: string };
+          result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
+          instruction: string; next: unknown; recovery: unknown[];
         };
         assert.equal(envelope.error.code, item.code);
         assert.equal(envelope.error.message, item.message);
+        assert.deepEqual(envelope.result, { service_execution_id: "se_failed", provider_called: true, quota: { remaining: 1, limit: 3 } });
         assert.match(envelope.instruction, item.instruction);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
@@ -1957,22 +2029,43 @@ test("CLI stops a known-no-effect provider connection failure without retry or p
     status: 503,
     code: "provider_connection_unavailable",
     message: "provider request was not sent; reserved quota was released",
+    service_execution_id: "se_failed",
+    provider_called: false,
+    effective_quota: {
+      bucket: "company_name_suggestion",
+      subject_type: "device_lineage",
+      limit: 3,
+      remaining: 3,
+      exhausted: false,
+      replenishment: "purchase_finalized",
+    },
   });
   try {
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
-          error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+          error: { code: string; message: string };
+          result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
+          instruction: string;
+          next: unknown;
+          recovery: unknown[];
         };
-        assert.equal(envelope.error.code, "provider_connection_unavailable");
-        assert.equal(envelope.error.message, "provider request was not sent; reserved quota was released");
-        assert.match(envelope.instruction, /预留免费额度已释放/);
-        assert.match(envelope.instruction, /不要自动重试、不要继续同一 Execution/);
-        assert.match(envelope.instruction, /不要进入任何付费路径/);
-        assert.match(envelope.instruction, /运营确认连接恢复且用户明确要求/);
-        assert.equal(envelope.next, null);
-        assert.deepEqual(envelope.recovery, []);
+        assert.deepEqual(envelope, {
+          status: "error",
+          error: {
+            code: "provider_connection_unavailable",
+            message: "provider request was not sent; reserved quota was released",
+          },
+          result: {
+            service_execution_id: "se_failed",
+            provider_called: false,
+            quota: { remaining: 3, limit: 3 },
+          },
+          instruction: "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。",
+          next: null,
+          recovery: [],
+        });
         return true;
       },
     );
@@ -2065,6 +2158,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next.command, "itpay --agent-type workbuddy catalog list --json");
   assert.match(workbuddy.instruction, /同一 Node\/CLI launcher/);
+  assert.match(workbuddy.instruction, /dangerouslyDisableSandbox/);
 });
 
 test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
@@ -2246,7 +2340,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.12");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.13");
       return true;
     },
   );
@@ -3019,7 +3113,7 @@ test("services start returns only the documented capability entrypoint", async (
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "ready");
   assert.equal(parsed.result.service_id, "svc_qizhidao_company_lookup");
-  assert.equal(parsed.result.capability.capability_id, "fuzzy_disambiguation");
+  assert.equal(parsed.result.capability.capability_id, "company_name_suggestion");
   assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
   assert.match(parsed.next.command, /--input keyword=<value> --json$/);
   assert.equal("execution" in parsed, false);

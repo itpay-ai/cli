@@ -11,6 +11,11 @@ export async function requirePlatformCompatibility(backend: BackendClient): Prom
   throw new HttpError(426, {
     code: "client_upgrade_required",
     message: `CLI ${CLI_VERSION} contract ${API_CONTRACT_REVISION} is incompatible with platform ${platform.platform_revision} contract ${platform.api_contract_revision} (minimum CLI ${platform.minimum_cli_version}, maximum major ${platform.maximum_cli_major})`,
+    minimum_cli_version: platform.minimum_cli_version,
+    maximum_cli_major: platform.maximum_cli_major,
+    platform_revision: platform.platform_revision,
+    api_contract_revision: platform.api_contract_revision,
+    upgrade_command: `npm install -g @itpay/cli@${platform.minimum_cli_version}`,
   }, "CLI is incompatible with the active ItPay platform release");
 }
 

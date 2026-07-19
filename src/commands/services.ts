@@ -164,13 +164,14 @@ function invokedEnvelope(
   const baseResult: Record<string, unknown> = {
     service_execution_id: response.execution.service_execution_id,
     capability_id: requestedCapability.capability_id,
+    query: input,
     items,
     ...(quota ? { quota } : {}),
   };
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
 		? "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。"
-    : "Provider 已返回空结果；不要重放当前 execution，按下一步恢复。";
+    : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
   let next: CommandAction | null = null;
 
   if (response.effective_quota?.exhausted) {
@@ -209,9 +210,7 @@ function invokedEnvelope(
 			reason: "在当前 Execution 记录用户选择",
     };
   } else if (items.length === 0) {
-    next = response.provider_called
-      ? { command: `itpay services start ${response.execution.service_id}`, reason: "为新的服务输入启动新 execution" }
-      : { command: `itpay services next ${response.execution.service_execution_id} --json`, reason: "读取服务端恢复动作" };
+    next = null;
   }
 
   return {
@@ -225,9 +224,14 @@ function serviceResultPlainLines(result: Record<string, unknown>): string[] {
     `service_execution_id: ${String(result.service_execution_id)}`,
     `capability_id: ${String(result.capability_id)}`,
   ];
+  const items = result.items as Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }>;
+  const query = result.query as Record<string, unknown> | undefined;
+  if (query) {
+    for (const [key, value] of Object.entries(query)) lines.push(`${key}: ${String(value)}`);
+  }
+  if (items.length === 0) lines.push("results: 0");
   if (result.quota) lines.push(`quota: ${JSON.stringify(result.quota)}`);
   if (result.checkout) lines.push(`checkout: ${JSON.stringify(result.checkout)}`);
-  const items = result.items as Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }>;
   if (items.length > 0) {
     lines.push("items:");
     for (const item of items) {
@@ -238,6 +242,11 @@ function serviceResultPlainLines(result: Record<string, unknown>): string[] {
     }
   }
   return lines;
+}
+
+function queryText(input: Record<string, unknown>): string {
+  const value = Object.values(input).find((item) => typeof item === "string" && item.trim() !== "");
+  return typeof value === "string" ? value : JSON.stringify(input);
 }
 
 function missingRequiredInput(schema: Record<string, unknown> | undefined, input: Record<string, unknown>): string[] {
@@ -913,12 +922,12 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				? selection
 					? "Agent-visible 搜索已完成。向用户展示 items 中的编号、title 和 safe_payload，然后停止；不要调用 read-result。只有用户明确选择候选并要求继续时，才执行 next.command。"
 					: "这是当前 Graph 步骤对应的交付；结果已可供 Agent 使用，只使用 safe_payload。"
-				: "Agent-visible 交付已完成但没有结果项；不要调用 read-result 或重放当前 execution。",
+				: "Agent-visible 交付已完成但有 0 个结果。向用户展示空结果并停止；不要调用 read-result、重放当前 Execution、修改输入或创建新 Execution。",
 			next: selection ? {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
 				reason: "仅在用户明确选择后锁定来源候选",
 			} : null,
-      recovery: items.length > 0 ? [] : [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "检查交付时间线" }],
+			recovery: [],
     };
   }
   if (deliveryMode === "vault_artifact") {

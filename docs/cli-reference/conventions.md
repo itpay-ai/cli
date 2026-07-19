@@ -70,6 +70,9 @@ next: <one command>
 - 用户口头说“已付款”不是支付事实；仅服务端 `verified` 状态有效。
 - `agent_device_session_required` 只触发一次 session 续期和同请求重试；第二次失败必须返回，不得循环或换身份。
 - `device_state_unwritable` 表示当前运行环境不能可靠持久化 `~/.itpay-v3`；保持同一 Agent Type 与 CLI/Node launcher，恢复 Host 写权限后重试原命令，不得手工造 lock、删除身份或换运行时碰运气。
+- WorkBuddy 在运行会持久化 `~/.itpay-v3` 的 ItPay Bash 命令前，必须把 Shell 工具参数 `dangerouslyDisableSandbox` 设为 `true`。若用户拒绝该权限，命令尚未执行：停止并报告，不得切换 Node、删除 identity、手工处理 lock 或换 Agent Type。
+- `provider_input_rejected` 只表示 Provider 明确声明输入无效；`provider_contract_mismatch` 表示响应无法按已发布契约解释，绝不能归咎于用户输入。两者都必须停止且没有自动 recovery。
+- `backend_contract_incompatible` 只有在 Backend 返回合法 `minimum_cli_version` 时才能提供一个精确的 `npm install -g @itpay/cli@<version>` recovery。不得使用 `latest`、解析 message 猜版本或继续任何业务命令；升级后必须先用 `itpay --version` 核对完全一致，再重新运行 `readyz`。
 
 ## Instruction 模板
 
