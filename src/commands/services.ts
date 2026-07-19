@@ -187,7 +187,12 @@ function invokedEnvelope(
         delivery_email_required: checkoutCapability.delivery_email_required,
       };
       const price = capabilityPrice(checkoutCapability);
-      instruction = purchaseConfirmationInstruction("quota_exhausted", price, checkoutCapability.delivery_email_required);
+      instruction = purchaseConfirmationInstruction(
+        "quota_exhausted",
+        price,
+        checkoutCapability.delivery_email_required,
+        checkoutCapability.delivery_email_purpose,
+      );
       next = {
 				command: checkoutCommand(response.execution.service_execution_id, checkoutCapability, input),
 				reason: `仅在用户明确同意支付 ${price} 后执行；否则停止`,
@@ -265,17 +270,32 @@ function purchaseConfirmationInstruction(
 	context: "quota_exhausted" | "candidate_selected",
 	price: string,
 	deliveryEmailRequired: boolean,
+	deliveryEmailPurpose?: ServiceCapability["delivery_email_purpose"],
 	candidateTitle = "",
 ): string {
+	const emailPurpose = deliveryEmailPurposeText(deliveryEmailPurpose);
 	if (context === "quota_exhausted") {
 		return deliveryEmailRequired
-			? `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：继续当前请求需要支付 ${price}，交付还需要用户邮箱；请确认是否购买并提供邮箱。然后停止并等待。用户明确同意并提供真实邮箱前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`
+			? `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：继续当前请求需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止并等待。用户明确同意并提供真实邮箱前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`
 			: `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：“继续当前请求需要支付 ${price}，是否购买？”然后停止并等待用户明确回复。用户明确同意前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`;
 	}
 	const selected = candidateTitle ? `已选择 ${candidateTitle}。` : "当前候选已经确认。";
 	return deliveryEmailRequired
-		? `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 ${price}，并提供用于发送交付认领链接的邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。`
+		? `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。`
 		: `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：“继续购买后续服务需要支付 ${price}，是否购买？”然后停止。用户明确同意前，不要执行 next.command，不要创建新 Execution 或 Checkout。`;
+}
+
+function deliveryEmailPurposeText(purpose?: ServiceCapability["delivery_email_purpose"]): string {
+	switch (purpose) {
+		case "receipt":
+			return "用于发送订单收据的真实邮箱";
+		case "claim":
+			return "用于发送交付认领链接的真实邮箱";
+		case "receipt_and_claim":
+			return "用于发送订单收据和交付认领链接的真实邮箱";
+		default:
+			return "服务端声明用途的真实邮箱";
+	}
 }
 
 function paidContinuation(
@@ -302,6 +322,7 @@ function paidContinuation(
 				price: { amount_minor: capability.price_amount_minor, currency: capability.price_currency },
 			} : {}),
 			delivery_email_required: capability.delivery_email_required,
+			...(capability.delivery_email_purpose ? { delivery_email_purpose: capability.delivery_email_purpose } : {}),
 		},
 		next: {
 			command: checkoutCommand(model.execution.service_execution_id, capability, input, !stateBacked),
@@ -380,7 +401,13 @@ export async function runServicesAction(
 				...(continuation ? { checkout: continuation.checkout } : {}),
 			},
 			instruction: continuation
-				? purchaseConfirmationInstruction("candidate_selected", continuation.price, continuation.capability.delivery_email_required, selection.title)
+				? purchaseConfirmationInstruction(
+					"candidate_selected",
+					continuation.price,
+					continuation.capability.delivery_email_required,
+					continuation.capability.delivery_email_purpose,
+					selection.title,
+				)
 				: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
 			next,
 			recovery: [{
@@ -897,19 +924,26 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   if (deliveryMode === "vault_artifact") {
     const grantStatus = normalizeGrantStatus(delivery?.grant_status);
     const grantActive = grantStatus === "active";
+    const grantPending = grantStatus === "pending";
     return {
-      status: grantActive ? "grant_active" : "human_authorization_required",
+      status: grantActive ? "grant_active" : grantPending ? "result_preparing" : "human_authorization_required",
       result: {
         service_execution_id: execution.service_execution_id,
-				...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
+        ...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
         delivery_mode: deliveryMode,
         grant_status: grantStatus,
+        ...(delivery?.preparation ? { preparation: delivery.preparation } : {}),
         ...(grantActive && delivery?.grant_expires_at ? { grant_expires_at: delivery.grant_expires_at } : {}),
       },
       instruction: grantActive
-			? "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。"
-			: "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
-      next: {
+        ? "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。"
+        : grantPending
+          ? "用户已经完成授权，服务端正在按已发布执行图准备交付内容。不要再次付款、再次授权、新建 Execution 或调用 read-result；只执行 next.command 查询同一 Execution。"
+          : "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
+      next: grantPending ? {
+        command: `itpay services next ${execution.service_execution_id} --json`,
+        reason: "等待同一 Execution 的交付准备完成",
+      } : {
         command: `itpay services read-result ${execution.service_execution_id} --json`,
         reason: grantActive ? "读取当前有效 grant 的结果" : "仅在用户确认授权后执行",
       },
@@ -934,6 +968,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 					execution.status === "quota_exhausted" ? "quota_exhausted" : "candidate_selected",
 					continuation.price,
 					continuation.capability.delivery_email_required,
+					continuation.capability.delivery_email_purpose,
 				),
 				next: continuation.next,
 				recovery: [],

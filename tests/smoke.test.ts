@@ -103,8 +103,8 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("beta backend is the package default", () => {
-  assert.equal(DEFAULT_BASE_URL, "https://dev.itpay.ai");
+test("production backend is the package default", () => {
+  assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -641,6 +641,29 @@ test("services next recommends immediate read only for an active grant", async (
   assert.equal(envelope.next.command, "itpay services read-result se_granted --json");
 });
 
+test("services next makes pending grant a strict result-preparing wait state", async () => {
+  const model = await backend.getServiceExecution("se_vault_none");
+  model.current_delivery = {
+    ...model.current_delivery!,
+    grant_status: "pending",
+    preparation: { status: "running", total_nodes: 4, completed_nodes: 2, succeeded_nodes: 2, failed_nodes: 0 },
+  };
+  const pendingBackend = { getServiceExecution: async () => model } as unknown as BackendClient;
+  await runServicesNext(pendingBackend, "se_vault_none", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    instruction: string;
+    next: { command: string };
+    result: { preparation: { total_nodes: number; completed_nodes: number } };
+  };
+  assert.equal(envelope.status, "result_preparing");
+  assert.match(envelope.instruction, /不要再次付款、再次授权、新建 Execution 或调用 read-result/);
+  assert.equal(envelope.next.command, "itpay services next se_vault_none --json");
+  assert.deepEqual(envelope.result.preparation, {
+    status: "running", total_nodes: 4, completed_nodes: 2, succeeded_nodes: 2, failed_nodes: 0,
+  });
+});
+
 test("services next uses the current Vault delivery after an older agent-visible delivery", async () => {
 	const model = await backend.getServiceExecution("se_granted");
 	model.delivery_bindings.unshift({
@@ -724,7 +747,7 @@ test("protected checkout explains that email delivers the claim link", () => {
   }, [{
     capability_id: "precise_report", phase: "paid_fulfillment", agent_visible: false,
     requires_payment: true, requires_human_action: false, vault_required: true,
-    delivery_email_required: true, price_amount_minor: 50, price_currency: "CNY",
+    delivery_email_required: true, delivery_email_purpose: "claim", price_amount_minor: 50, price_currency: "CNY",
   }]);
   assert.equal(guidance.next_actions[0]?.command, "itpay services checkout se_precise --capability precise_report --email <email> --json");
   assert.match(guidance.next_actions[0]?.reason ?? "", /claim link/);
@@ -1905,6 +1928,52 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
   }
 });
 
+test("CLI gives bounded instructions for provider rejection and temporary failure", async () => {
+  for (const item of [
+    { status: 422, code: "provider_rejected", message: "输入不合法", instruction: /只有用户提供修正后的输入后/ },
+    { status: 503, code: "provider_temporarily_unavailable", message: "查询超时", instruction: /不要自动重试/ },
+  ]) {
+    mock.setServiceError(item);
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, item.code);
+        assert.equal(envelope.error.message, item.message);
+        assert.match(envelope.instruction, item.instruction);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  }
+  mock.setServiceError();
+});
+
+test("CLI stops invalid capability input before recovery commands", async () => {
+	mock.setServiceError({ status: 400, code: "capability_input_invalid", message: "keyword is required" });
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string }; instruction: string; next: unknown; recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, "capability_input_invalid");
+        assert.match(envelope.instruction, /上游尚未被调用且用户额度未变化/);
+        assert.match(envelope.instruction, /继续使用当前未结束的 Execution/);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  } finally {
+    mock.setServiceError();
+  }
+});
+
 test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   const result = await runCLI(["readyz", "--json"], {
     ITPAY_BACKEND_URL: mock.url,
@@ -2831,9 +2900,10 @@ test("services action resolves a human-selected candidate rank from the executio
 				capability_id: "precise_report",
 				price: { amount_minor: 50, currency: "CNY" },
 				delivery_email_required: true,
+				delivery_email_purpose: "claim",
 			},
 		},
-		instruction: "已选择 小米汽车科技有限公司。候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 0.50 CNY，并提供用于发送交付认领链接的邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
+		instruction: "已选择 小米汽车科技有限公司。候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 0.50 CNY，并提供用于发送交付认领链接的真实邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
 		next: {
 			command: "itpay services checkout se_select_by_rank --capability precise_report --email <email> --json",
 			reason: "仅在用户明确同意支付 0.50 CNY 并提供真实邮箱后执行；否则停止",

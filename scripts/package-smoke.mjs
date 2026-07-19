@@ -41,7 +41,7 @@ try {
     encoding: "utf8",
   }));
   assert.equal(installHelp.result.agent_type, "codex-cli");
-  assert.equal(installHelp.result.default_api, "https://dev.itpay.ai");
+  assert.equal(installHelp.result.default_api, "https://app.itpay.ai");
   const skillHelp = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay-buyer", "--json",
   ], { env, encoding: "utf8" }));

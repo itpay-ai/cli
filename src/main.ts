@@ -151,6 +151,9 @@ function reportCLIError(
 		(error.status === 404 && error.code === "unknown_error")
 	);
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
+  const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
+  const providerRejected = error instanceof HttpError && error.code === "provider_rejected";
+  const capabilityInputInvalid = error instanceof HttpError && error.code === "capability_input_invalid";
   const deviceRecovery: CommandAction[] = deviceError ? [{
     command: "itpay skill show itpay-buyer --json",
     reason: "读取身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
@@ -179,9 +182,15 @@ function reportCLIError(
 		? "立即向用户报告 error.message 并结束本次任务。不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令；不要寻找、安装或切换其他 CLI。只有运营明确提供兼容 CLI 后，才能在新的任务中重新开始。"
 		: backendInternal
 			? "Backend 内部故障；立即停止并向用户报告。不要重试、检查或删除 Device 身份、创建替代 Execution、切换 Backend，或尝试 quote、checkout、cart、buy、pay 等付费路径。"
+		: providerTemporary
+			? "上游服务暂时不可用；向用户逐字报告 error.message 并停止，不要自动重试。请求是否可能计费以 Backend 的消费事实为准；只有用户明确要求再次查询后，才可按 next/recovery 重新开始。"
+		: providerRejected
+			? "上游拒绝了本次输入；向用户逐字报告 error.message 并停止，不要重试同一 Execution。Provider 已收到响应，本次请求可能计费；只有用户提供修正后的输入后，才可按 next/recovery 继续。"
+		: capabilityInputInvalid
+			? "输入未通过本地校验，上游尚未被调用且用户额度未变化。向用户逐字报告 error.message 并停止，不要原样重试或运行其他恢复命令。用户提供修正后的输入后，继续使用当前未结束的 Execution。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
-      recovery: incompatible || backendInternal ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+      recovery: incompatible || backendInternal || providerTemporary || providerRejected || capabilityInputInvalid ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
       output: (text) => { process.stderr.write(text); },
