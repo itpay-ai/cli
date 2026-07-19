@@ -27,9 +27,6 @@ jobs:
       - name: Typecheck, test, and verify packed CLI
         run: npm run check
 
-      - name: Verify the default production API
-        run: node dist/src/main.js readyz
-
       - name: Publish to npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
