@@ -89,6 +89,8 @@ itpay --agent-type <agent_type> refund get <refund_request_id> --json
 
 Reuse the same Execution and Checkout. Never start another Execution, create another Checkout, change payment route, or replay a capability to bypass quota, selection, payment, delivery, grant, or refund state.
 
+`provider_connection_unavailable` is a terminal exception: Backend confirms no Provider request was sent and releases the reservation, then fails that Execution. Stop with no recovery command. Only after an operator confirms connectivity is restored and the human explicitly asks to query again may you start a new Execution.
+
 ## Safety
 
 - Never invent service, capability, item, Checkout, Order, grant, or refund IDs.

@@ -1952,6 +1952,35 @@ test("CLI gives bounded instructions for provider rejection and temporary failur
   mock.setServiceError();
 });
 
+test("CLI stops a known-no-effect provider connection failure without retry or paid recovery", async () => {
+  mock.setServiceError({
+    status: 503,
+    code: "provider_connection_unavailable",
+    message: "provider request was not sent; reserved quota was released",
+  });
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_BACKEND_URL: mock.url }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, "provider_connection_unavailable");
+        assert.equal(envelope.error.message, "provider request was not sent; reserved quota was released");
+        assert.match(envelope.instruction, /预留免费额度已释放/);
+        assert.match(envelope.instruction, /不要自动重试、不要继续同一 Execution/);
+        assert.match(envelope.instruction, /不要进入任何付费路径/);
+        assert.match(envelope.instruction, /运营确认连接恢复且用户明确要求/);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  } finally {
+    mock.setServiceError();
+  }
+});
+
 test("CLI stops invalid capability input before recovery commands", async () => {
 	mock.setServiceError({ status: 400, code: "capability_input_invalid", message: "keyword is required" });
   try {
@@ -2217,7 +2246,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.11");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.12");
       return true;
     },
   );

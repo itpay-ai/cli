@@ -62,6 +62,25 @@ itpay services invoke <service_execution_id> --capability <capability_id>
 
 缺少 required input 时返回 `capability_input_invalid`，recovery 给出带占位符的同一 invoke 命令；CLI 和 Backend 都必须在 Provider 调用前拒绝，Backend 还必须在 execution/event/quota/invocation 写入前拒绝。错误调用付费 capability 时不得给出购买旁路，只能回到同一 Execution 的 `services next`；execution 状态、event、ProviderCalled 均保持不变。
 
+## Provider 请求前连接失败
+
+如果 Backend 能确认请求未发出，返回固定的终态错误，不暴露 DNS、IP、Provider URL 或凭证诊断：
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "provider_connection_unavailable",
+    "message": "provider request was not sent; reserved quota was released"
+  },
+  "instruction": "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。",
+  "next": null,
+  "recovery": []
+}
+```
+
+该终态不允许 CLI 猜测网络修复、重复 invoke 或转入购买。连接恢复后也不能复用失败 Execution；必须同时满足“运营已确认恢复”和“用户明确要求再次查询”，才创建新 Execution。
+
 ## Agent Type / Host
 
 `codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 的 safe result 一致。instruction 可以适配对话表述，但不得隐藏 quota、价格或 schema 错误。
