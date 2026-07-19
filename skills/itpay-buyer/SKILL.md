@@ -31,6 +31,8 @@ itpay --agent-type <agent_type> readyz --json
 
 Follow the returned `next.command`. After typed `readyz`, read this complete Skill again, then continue to Catalog.
 
+If `backend_contract_incompatible` returns `result.required_cli_version`, stop every ItPay business command. Run only its exact `npm install -g @itpay/cli@<version>` recovery; never substitute `latest`. Confirm `itpay --version` exactly matches the required version, then restart with typed `readyz`. Never change Agent Type or Device identity to bypass compatibility.
+
 ## Identity And Sessions
 
 - One local Ed25519 private key represents this installation. Never expose, copy, delete, or rotate it during normal recovery.

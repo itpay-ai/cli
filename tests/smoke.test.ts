@@ -1859,8 +1859,7 @@ test("CLI fails closed when the Backend compatibility contract is unavailable", 
           recovery: unknown[];
         };
         assert.equal(envelope.error.code, "backend_contract_incompatible");
-        assert.match(envelope.instruction, /立即向用户报告 error.message 并结束本次任务/);
-        assert.match(envelope.instruction, /不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令/);
+        assert.match(envelope.instruction, /Backend 未提供可验证的兼容 CLI 版本/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
         return true;
@@ -1882,7 +1881,7 @@ test("readyz, catalog, and top-level next fail before guidance when the contract
         schema_revision: "sha256:schema",
         bootstrap_revision: "seed",
         api_contract_revision: "sha256:old-contract",
-        minimum_cli_version: "2.0.8",
+        minimum_cli_version: "2.0.14",
         maximum_cli_major: 2,
       }));
       return;
@@ -1900,20 +1899,65 @@ test("readyz, catalog, and top-level next fail before guidance when the contract
         (error: unknown) => {
           const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
             error: { code: string; message: string };
+            result: { current_cli_version: string; required_cli_version: string };
             instruction: string;
             next: unknown;
-            recovery: unknown[];
+            recovery: Array<{ command: string; reason: string }>;
           };
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
-          assert.match(envelope.instruction, /不要运行任何其他 itpay/);
+          assert.deepEqual(envelope.result, {
+            current_cli_version: "2.0.13",
+            required_cli_version: "2.0.14",
+          });
+          assert.equal(
+            envelope.instruction,
+            "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。",
+          );
           assert.equal(envelope.next, null);
-          assert.deepEqual(envelope.recovery, []);
+          assert.deepEqual(envelope.recovery, [{
+            command: "npm install -g @itpay/cli@2.0.14",
+            reason: "安装 Backend 指定的兼容 CLI 版本",
+          }]);
           return true;
         },
       );
       assert.deepEqual(requests, ["/v1/platform/compatibility"]);
     }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("CLI never guesses an upgrade version from an invalid compatibility contract", async () => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      platform_revision: "v3.invalid-version",
+      schema_revision: "sha256:schema",
+      bootstrap_revision: "seed",
+      api_contract_revision: "sha256:other-contract",
+      minimum_cli_version: "latest",
+      maximum_cli_major: 2,
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    await assert.rejects(
+      runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}` }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          result?: unknown;
+          instruction: string;
+          recovery: unknown[];
+        };
+        assert.equal(envelope.result, undefined);
+        assert.match(envelope.instruction, /Backend 未提供可验证的兼容 CLI 版本/);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

@@ -150,6 +150,9 @@ function reportCLIError(
 		error.code === "platform_release_unavailable" ||
 		(error.status === 404 && error.code === "unknown_error")
 	);
+  const requiredCLIVersion = incompatible && error instanceof HttpError && /^\d+\.\d+\.\d+$/.test(error.payload?.minimum_cli_version ?? "")
+    ? error.payload!.minimum_cli_version
+    : undefined;
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const providerConnectionUnavailable = error instanceof HttpError && error.code === "provider_connection_unavailable";
   const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
@@ -181,7 +184,12 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(error instanceof HttpError && error.payload?.service_execution_id ? {
+      ...(requiredCLIVersion ? {
+        result: {
+          current_cli_version: CLI_VERSION,
+          required_cli_version: requiredCLIVersion,
+        },
+      } : error instanceof HttpError && error.payload?.service_execution_id ? {
         result: {
           service_execution_id: error.payload.service_execution_id,
           provider_called: error.payload.provider_called === true,
@@ -194,7 +202,9 @@ function reportCLIError(
         },
       } : {}),
       instruction: incompatible
-		? "立即向用户报告 error.message 并结束本次任务。不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令；不要寻找、安装或切换其他 CLI。只有运营明确提供兼容 CLI 后，才能在新的任务中重新开始。"
+		? requiredCLIVersion
+      ? "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。"
+      : "立即向用户报告 error.message 并结束本次任务。Backend 未提供可验证的兼容 CLI 版本；不要运行其他 ItPay 或 npm 命令，不要猜测版本、切换 Agent Type 或删除 Device 身份。"
 		: backendInternal
 			? "Backend 内部故障；立即停止并向用户报告。不要重试、检查或删除 Device 身份、创建替代 Execution、切换 Backend，或尝试 quote、checkout、cart、buy、pay 等付费路径。"
 		: providerConnectionUnavailable
@@ -211,7 +221,13 @@ function reportCLIError(
 			? "输入未通过本地校验，上游尚未被调用且用户额度未变化。向用户逐字报告 error.message 并停止，不要原样重试或运行其他恢复命令。用户提供修正后的输入后，继续使用当前未结束的 Execution。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
-      recovery: incompatible || backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+      recovery: incompatible
+        ? requiredCLIVersion
+          ? [{ command: `npm install -g @itpay/cli@${requiredCLIVersion}`, reason: "安装 Backend 指定的兼容 CLI 版本" }]
+          : []
+        : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
+          ? []
+          : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
       output: (text) => { process.stderr.write(text); },

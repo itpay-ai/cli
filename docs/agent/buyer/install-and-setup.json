@@ -32,6 +32,8 @@
   ],
   "agent_rules": [
     "Install with npm install -g @itpay/cli.",
+    "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and run only the exact npm install recovery returned by the CLI; never replace its version with latest.",
+    "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
     "Use the default https://app.itpay.ai API unless an environment override is deliberate.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, or workbuddy.",
     "One local private key is reused, but each exact Backend API base URL has its own server registration and quota lineage.",

@@ -194,6 +194,11 @@ export interface PlatformCompatibility {
 export interface ErrorResponse {
   code: string;
   message: string;
+  minimum_cli_version?: string;
+  maximum_cli_major?: number;
+  platform_revision?: string;
+  api_contract_revision?: string;
+  upgrade_command?: string;
   service_execution_id?: string;
   provider_called?: boolean;
   effective_quota?: EffectiveQuota;
