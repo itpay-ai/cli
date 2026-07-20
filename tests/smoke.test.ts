@@ -1890,7 +1890,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
         schema_revision: "sha256:schema",
         bootstrap_revision: "seed",
         api_contract_revision: "sha256:old-contract",
-        minimum_cli_version: "2.0.14",
+        minimum_cli_version: "2.0.15",
         maximum_cli_major: 2,
       }));
       return;
@@ -1916,8 +1916,8 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.13",
-            required_cli_version: "2.0.14",
+            current_cli_version: "2.0.14",
+            required_cli_version: "2.0.15",
           });
           assert.equal(
             envelope.instruction,
@@ -1925,7 +1925,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           );
           assert.equal(envelope.next, null);
           assert.deepEqual(envelope.recovery, [{
-            command: "npm install -g @itpay/cli@2.0.14",
+            command: "npm install -g @itpay/cli@2.0.15",
             reason: "安装 Backend 指定的兼容 CLI 版本",
           }]);
           return true;
@@ -2351,7 +2351,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.13");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.14");
       return true;
     },
   );
