@@ -1,4 +1,5 @@
-// CLI configuration loader. Reads config from environment only. Checkout
+// CLI configuration loader. The production Backend is pinned to app.itpay.ai;
+// environment variables configure only non-Backend runtime details. Checkout
 // display-token persistence belongs to the cart session file, protected with
 // owner-only permissions. Provider secrets are explicitly out of scope here.
 
@@ -46,7 +47,7 @@ export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
-  const baseURL = env.ITPAY_BACKEND_URL || DEFAULT_BASE_URL;
+  const baseURL = DEFAULT_BASE_URL;
   const bearerToken = env.ITPAY_BEARER_TOKEN || undefined;
   const agentType = declaredAgentType(env);
   const checkoutCurrency = env.ITPAY_CURRENCY || "CNY";

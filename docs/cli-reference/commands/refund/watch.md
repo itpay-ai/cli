@@ -1,5 +1,7 @@
 # `itpay refund watch`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 轮询同一退款直到终态或 timeout。命令内部可以读取多次，但对外只输出一个最终信封，不把无变化轮询刷入 Agent 上下文。中断后可无副作用重跑。

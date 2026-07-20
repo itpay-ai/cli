@@ -1,6 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "payment-flow",
   "title": "Human Checkout Handoff And Payment Verification",
   "purpose": "Show the ItPay Checkout to the human and recover authoritative payment state without creating duplicate payment resources.",
@@ -42,8 +43,21 @@
     "Do not start another Service Execution to bypass quota, candidate, quote, checkout, or delivery state."
   ],
   "next_docs": [
-    { "condition": "Payment is verified", "topic": "orders-refunds" },
-    { "condition": "The current Host cannot display the handoff", "topic": "render-hosts" }
+    {
+      "condition": "Payment is verified",
+      "topic": "orders-refunds"
+    },
+    {
+      "condition": "The current Host cannot display the handoff",
+      "topic": "render-hosts"
+    }
   ],
-  "search_terms": ["payment", "checkout", "QR", "display token", "resume", "verified"]
+  "search_terms": [
+    "payment",
+    "checkout",
+    "QR",
+    "display token",
+    "resume",
+    "verified"
+  ]
 }

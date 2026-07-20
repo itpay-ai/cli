@@ -1,5 +1,7 @@
 # Output And Error Contract
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 目标
 
 CLI 输出是给 Agent 执行的协议，不是后端 DTO 的调试转储。默认输出适合人阅读；`--json` 使用同一语义的稳定机器合同。调试事实只由明确的诊断命令返回。

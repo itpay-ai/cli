@@ -1,6 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "render-hosts",
   "title": "Agent Type And Checkout Handoff Rendering",
   "purpose": "Use only the handoff fields returned for the current Agent Type and make the human Checkout visible on that surface.",
@@ -61,7 +62,18 @@
     "Do not inspect, download, or regenerate a local QR file for WorkBuddy."
   ],
   "next_docs": [
-    { "condition": "Need payment verification rules", "topic": "payment-flow" }
+    {
+      "condition": "Need payment verification rules",
+      "topic": "payment-flow"
+    }
   ],
-  "search_terms": ["host", "agent type", "QR", "markdown", "terminal", "desktop", "workbuddy"]
+  "search_terms": [
+    "host",
+    "agent type",
+    "QR",
+    "markdown",
+    "terminal",
+    "desktop",
+    "workbuddy"
+  ]
 }

@@ -1,5 +1,7 @@
 # Agent Type And Host Contract
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 `--agent-type` 表示哪类运行时在运行 CLI，用于 Agent 实例归属和定制 instruction。`--host` 表示输出展示在哪里；`--target` 只是在某些 Host 中指定 chat/channel/open ID。三者不可混用，窗口、任务和对话也不是身份。
 
 本地只保存一把 Ed25519 私钥。每个规范化 Backend API base URL 独立登记 Device，因此 dev/test/app 分别拥有自己的 device ID、quota lineage、Agent instances 和 sessions。同一 Backend 下每个 `agent_type` 只有一个 Agent Instance；同类型的不同窗口、任务或聊天复用它，不追踪窗口 ID。

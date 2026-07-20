@@ -1,6 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "quickstart",
   "title": "ItPay CLI Buyer Quickstart",
   "purpose": "Run the shortest safe discovery, Service Execution, Checkout, delivery, and refund flow using server-returned next commands.",
@@ -11,19 +12,23 @@
   "required_state": {
     "needs": [
       "the real supported Agent Type",
-      "the default API or an intentional ITPAY_BACKEND_URL override"
+      "the fixed production Backend https://app.itpay.ai"
     ],
-    "must_not_need": ["Admin access", "Provider secrets", "raw payload access"]
+    "must_not_need": [
+      "Admin access",
+      "Provider secrets",
+      "raw payload access"
+    ]
   },
   "commands": [
     {
-      "intent": "verify compatibility",
+      "intent": "verify fixed production Backend availability",
       "command": "itpay --agent-type <agent_type> readyz --json",
-      "success_signal": "status is ready and next points to the complete packaged Buyer Skill"
+      "success_signal": "status is ready and next points to the complete packaged ItPay Skill"
     },
     {
       "intent": "load the complete operating contract",
-      "command": "itpay --agent-type <agent_type> skill show itpay-buyer --json",
+      "command": "itpay --agent-type <agent_type> skill show itpay --json",
       "success_signal": "status is shown and next points to catalog list with the same Agent Type"
     },
     {
@@ -65,13 +70,43 @@
     "Do not bypass a grant, refund lock, ownership error or compatibility gate."
   ],
   "next_docs": [
-    { "condition": "Need service catalog language", "topic": "catalog-list" },
-    { "condition": "Need Cart and Checkout routing", "topic": "cart-checkout" },
-    { "condition": "Need payment recovery", "topic": "payment-flow" },
-    { "condition": "Need Host-specific presentation", "topic": "render-hosts" },
-    { "condition": "Need order or refund recovery", "topic": "orders-refunds" },
-    { "condition": "Need install or identity details", "topic": "install-and-setup" },
-    { "condition": "Need device session recovery rules", "topic": "identity-and-sessions" }
+    {
+      "condition": "Need service catalog language",
+      "topic": "catalog-list"
+    },
+    {
+      "condition": "Need Cart and Checkout routing",
+      "topic": "cart-checkout"
+    },
+    {
+      "condition": "Need payment recovery",
+      "topic": "payment-flow"
+    },
+    {
+      "condition": "Need Host-specific presentation",
+      "topic": "render-hosts"
+    },
+    {
+      "condition": "Need order or refund recovery",
+      "topic": "orders-refunds"
+    },
+    {
+      "condition": "Need install or identity details",
+      "topic": "install-and-setup"
+    },
+    {
+      "condition": "Need device session recovery rules",
+      "topic": "identity-and-sessions"
+    }
   ],
-  "search_terms": ["quickstart", "service", "next", "recovery", "delivery", "refund", "target", "input"]
+  "search_terms": [
+    "quickstart",
+    "service",
+    "next",
+    "recovery",
+    "delivery",
+    "refund",
+    "target",
+    "input"
+  ]
 }

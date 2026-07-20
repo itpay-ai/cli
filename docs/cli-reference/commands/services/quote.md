@@ -1,5 +1,7 @@
 # `itpay services quote`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 为当前 Service Execution 的一个付费 Capability 准备 Quote Lock。它只锁定可信输入、候选来源、价格、币种和有效期，不创建 Cart、Checkout、订单或 Provider 调用。

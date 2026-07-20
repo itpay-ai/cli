@@ -1,5 +1,7 @@
 # `itpay catalog`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 命令范围
 
 读取已发布的服务目录，帮助 Agent 发现可启动的通用服务。Catalog 只描述产品和入口，不执行服务、不创建购物车。

@@ -1,5 +1,7 @@
 # `itpay services checkout`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 为单个 Service Execution 快速创建或恢复 Checkout，并按 Host 向人交接付款入口。它是 `services quote -> cart add --quote -> buy --cart` 的单项快捷方式，必须复用相同的 Quote、Cart 和 Checkout Use Case。

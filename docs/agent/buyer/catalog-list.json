@@ -1,6 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "catalog-list",
   "title": "Browse ItPay V3 Service Catalog",
   "purpose": "Teach the agent how to browse and display available catalog services to the buyer.",

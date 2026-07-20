@@ -1,6 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "cart-checkout",
   "title": "Canonical Cart And Checkout Routing",
   "purpose": "Use the canonical server Cart and route service-backed lines through Service Execution without hardcoded service logic.",
@@ -43,8 +44,20 @@
     "Do not treat QR display as payment verification."
   ],
   "next_docs": [
-    { "condition": "Checkout handoff is ready", "topic": "payment-flow" },
-    { "condition": "Host rendering needs clarification", "topic": "render-hosts" }
+    {
+      "condition": "Checkout handoff is ready",
+      "topic": "payment-flow"
+    },
+    {
+      "condition": "Host rendering needs clarification",
+      "topic": "render-hosts"
+    }
   ],
-  "search_terms": ["cart", "checkout", "service execution", "resume", "contact"]
+  "search_terms": [
+    "cart",
+    "checkout",
+    "service execution",
+    "resume",
+    "contact"
+  ]
 }

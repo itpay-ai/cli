@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+echo "pre-commit: running lint"
+npm run lint
+
+echo "pre-commit: running tests"
+npm test

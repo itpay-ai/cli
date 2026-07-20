@@ -7,7 +7,7 @@ import { declaredAgentType } from "../state/agent_type.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 
 const commandDir = dirname(fileURLToPath(import.meta.url));
-const BUYER_SKILL = "itpay-buyer";
+const ITPAY_SKILL = "itpay";
 
 export interface SkillOptions {
   jsonOutput?: boolean;
@@ -17,25 +17,25 @@ export interface SkillOptions {
 
 export function runSkillShow(name: string, options: SkillOptions = {}): void {
   const normalized = name.trim().toLowerCase();
-  if (normalized !== BUYER_SKILL) {
+  if (normalized !== ITPAY_SKILL) {
     throw new CommandContractError(
       "skill_not_found",
       `skill not found: ${name}`,
-      `当前 CLI 只内置 ${BUYER_SKILL}；不要猜测 Skill 名称。`,
-      [{ command: `itpay skill show ${BUYER_SKILL} --json`, reason: "读取完整 Buyer Skill" }],
+      `当前 CLI 只内置 ${ITPAY_SKILL}；不要猜测 Skill 名称。`,
+      [{ command: `itpay skill show ${ITPAY_SKILL} --json`, reason: "读取完整 ItPay Skill" }],
     );
   }
   let content: string;
   try {
     content = readFileSync(findSkillPath(), "utf8");
   } catch {
-    throw new Error("packaged skill is unavailable: itpay-buyer");
+    throw new Error("packaged skill is unavailable: itpay");
   }
   validateSkill(content);
   const agentType = options.agentType ?? declaredAgentType();
   const envelope = {
     status: "shown",
-    result: { skill: BUYER_SKILL, content },
+    result: { skill: ITPAY_SKILL, content },
     instruction: agentType
       ? agentType === "workbuddy"
         ? "完整读取并遵守 Skill；保持 workbuddy 和同一 Node/CLI launcher。运行会持久化 ~/.itpay-v3 的 ItPay Bash 命令前，把 Shell 工具参数 dangerouslyDisableSandbox 设为 true；用户拒绝权限时停止，不要切换 Node、删除 identity 或处理 lock。"
@@ -55,16 +55,16 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
 
 function findSkillPath(): string {
   if (process.env.ITPAY_CLI_SKILLS_DIR) {
-    return resolve(process.env.ITPAY_CLI_SKILLS_DIR, BUYER_SKILL, "SKILL.md");
+    return resolve(process.env.ITPAY_CLI_SKILLS_DIR, ITPAY_SKILL, "SKILL.md");
   }
-  const packagePath = resolve(commandDir, "..", "..", "..", "skills", BUYER_SKILL, "SKILL.md");
+  const packagePath = resolve(commandDir, "..", "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
   if (existsSync(packagePath)) return packagePath;
-  return resolve(commandDir, "..", "..", "skills", BUYER_SKILL, "SKILL.md");
+  return resolve(commandDir, "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
 }
 
 function validateSkill(content: string): void {
   const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-  if (!frontmatter || !/^name:\s*itpay-buyer\s*$/m.test(frontmatter) || !/^description:\s*(?:>|\S)/m.test(frontmatter)) {
-    throw new Error("invalid packaged skill: itpay-buyer");
+  if (!frontmatter || !/^name:\s*itpay\s*$/m.test(frontmatter) || !/^description:\s*(?:>|\S)/m.test(frontmatter)) {
+    throw new Error("invalid packaged skill: itpay");
   }
 }

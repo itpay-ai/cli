@@ -1,9 +1,10 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
-  "purpose": "Install the CLI, load the complete Buyer Skill, and select one stable Agent Type without confusing identity, Backend, Host, target, or chat window.",
+  "purpose": "Install the CLI, load the complete ItPay Skill, and select one stable Agent Type without confusing identity, Backend, Host, target, or chat window.",
   "when_to_use": [
     "The CLI is being installed or upgraded.",
     "The agent needs to confirm its stable runtime identity and default output Host."
@@ -12,11 +13,11 @@
     {
       "intent": "verify the API and enter packaged onboarding",
       "command": "itpay readyz --json",
-      "success_signal": "status is ready and next points to skill show itpay-buyer"
+      "success_signal": "status is ready and next points to skill show itpay"
     },
     {
       "intent": "read the complete packaged operating contract",
-      "command": "itpay skill show itpay-buyer --json",
+      "command": "itpay skill show itpay --json",
       "success_signal": "status is shown, result.content contains the complete Skill, and next selects Agent Type or Catalog"
     },
     {
@@ -32,23 +33,40 @@
   ],
   "agent_rules": [
     "Install with npm install -g @itpay/cli.",
+    "The production Backend is fixed to https://app.itpay.ai and cannot be redirected by runtime environment variables.",
     "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and run only the exact npm install recovery returned by the CLI; never replace its version with latest.",
     "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
-    "Use the default https://app.itpay.ai API unless an environment override is deliberate.",
+    "The production Backend is fixed to https://app.itpay.ai and cannot be redirected by runtime environment variables.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, or workbuddy.",
-    "One local private key is reused, but each exact Backend API base URL has its own server registration and quota lineage.",
-    "Within one Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
+    "One local private key is reused with the https://app.itpay.ai production Device registration and quota lineage.",
+    "Within the production Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
     "Agent Type identifies the runtime. Host controls rendering and target only identifies a presentation destination.",
     "Keep the exact Agent Type in every next or recovery command; do not fall back to a type previously used by another runtime.",
     "Do not change Agent Type or rotate local identity to reset quota or recover a failed command."
   ],
   "forbidden": [
     "Do not use codex, terminal, claude-code, or plain-chat as Agent Types.",
+    "Do not set or suggest a Backend URL override; production CLI traffic always targets https://app.itpay.ai.",
     "Do not claim that install writes host configuration or registers a device; it only prints instructions.",
     "Do not create a new identity for a different window, task, chat, or process of the same Agent Type."
   ],
   "next_docs": [
-    { "condition": "Installation is verified", "topic": "quickstart" }
+    {
+      "condition": "Installation is verified",
+      "topic": "quickstart"
+    }
   ],
-  "search_terms": ["install", "agent type", "host", "target", "device", "session", "identity", "backend", "codex", "claude code", "workbuddy"]
+  "search_terms": [
+    "install",
+    "agent type",
+    "host",
+    "target",
+    "device",
+    "session",
+    "identity",
+    "backend",
+    "codex",
+    "claude code",
+    "workbuddy"
+  ]
 }

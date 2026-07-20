@@ -1,18 +1,19 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "identity-and-sessions",
   "title": "Device Identity And Session Recovery",
-  "purpose": "Explain stable local identity, Backend-scoped registrations, Agent Type instances, and bounded automatic session recovery.",
+  "purpose": "Explain stable local identity, the fixed app.itpay.ai production registration, Agent Type instances, and bounded automatic session recovery.",
   "when_to_use": [
     "A different Agent window or runtime starts using an existing CLI installation.",
     "The CLI reports device_state_unwritable, or the Backend reports agent_identity_required, agent_device_session_required, or agent_device_revoked.",
-    "The configured ITPAY_BACKEND_URL changes between dev, test, and app."
+    "An operator confirms that the app.itpay.ai Device registration database was reset."
   ],
   "identity_model": {
     "local_key": "One owner-only Ed25519 private key for the local installation.",
-    "backend_registration": "One independent server registration per normalized Backend API base URL.",
-    "agent_instance": "One instance per agent_type under each Backend registration; same-type windows and chats reuse it.",
+    "backend_registration": "One production Device registration for https://app.itpay.ai; runtime environment variables cannot redirect the CLI.",
+    "agent_instance": "One instance per agent_type under the production registration; same-type windows and chats reuse it.",
     "presentation": "Host and target route output only and never identify the Agent or provide business input."
   },
   "automatic_recovery": [
@@ -29,36 +30,56 @@
   "commands": [
     {
       "intent": "reload the complete rules",
-      "command": "itpay --agent-type <agent_type> skill show itpay-buyer --json",
+      "command": "itpay --agent-type <agent_type> skill show itpay --json",
       "success_signal": "the full Skill is returned and next keeps the same Agent Type"
     },
     {
-      "intent": "confirm the selected Backend is available",
+      "intent": "confirm app.itpay.ai is available",
       "command": "itpay --agent-type <agent_type> readyz --json",
       "success_signal": "Backend is available and onboarding returns to the Skill"
     },
     {
-      "intent": "recover after an operator-confirmed reset of the selected Backend registration database",
+      "intent": "recover after an operator-confirmed reset of the app.itpay.ai Device registration database",
       "command": "itpay --agent-type <agent_type> device recover --confirm-backend-reset --json",
-      "success_signal": "only the selected Backend registration is removed; the private key and other Backend registrations remain"
+      "success_signal": "only the app.itpay.ai registration is removed and the private key remains"
     }
   ],
   "agent_rules": [
     "Use the real runtime type and keep it stable across every command in the flow.",
     "Keep the same CLI/Node launcher and Host-approved permission context for the whole flow.",
     "Treat a new window, chat, task, or process of the same runtime as the same Agent Type, not a new identity.",
-    "Expect dev, test, and app to have separate device IDs, quota lineage, Agent instances, and sessions even on the same machine.",
-    "After automatic recovery fails, stop and report the exact code, Backend URL, Agent Type, and command family without exposing private keys or tokens."
+    "Expect all production CLI traffic to use https://app.itpay.ai; do not set or suggest a Backend URL override.",
+    "After automatic recovery fails, stop and report the exact code, app.itpay.ai, Agent Type, and command family without exposing private keys or tokens."
   ],
   "forbidden": [
     "Do not delete ~/.itpay-v3, rotate the key, switch Agent Type, or repeatedly retry to obtain fresh quota.",
     "Do not use device recover for session expiry, revocation, quota recovery, or an unconfirmed Backend failure.",
-    "Do not copy a server device ID from one Backend registration into another.",
+    "Do not redirect the CLI to dev, test, local, or any non-app.itpay.ai Backend.",
     "Do not use --target as identity or service input."
   ],
   "next_docs": [
-    { "condition": "Identity is healthy", "topic": "quickstart" },
-    { "condition": "Need setup details", "topic": "install-and-setup" }
+    {
+      "condition": "Identity is healthy",
+      "topic": "quickstart"
+    },
+    {
+      "condition": "Need setup details",
+      "topic": "install-and-setup"
+    }
   ],
-  "search_terms": ["identity", "device", "session", "login", "authentication", "agent type", "backend", "revoked", "recover", "unwritable", "lock", "window", "chat"]
+  "search_terms": [
+    "identity",
+    "device",
+    "session",
+    "login",
+    "authentication",
+    "agent type",
+    "backend",
+    "revoked",
+    "recover",
+    "unwritable",
+    "lock",
+    "window",
+    "chat"
+  ]
 }

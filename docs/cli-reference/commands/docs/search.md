@@ -1,5 +1,7 @@
 # `itpay docs search`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 在内置 topic 的名称、标题、用途和 `search_terms` 中进行不区分大小写的包含搜索。它不搜索完整正文或业务数据。

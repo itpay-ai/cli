@@ -1,5 +1,7 @@
 # `itpay cart clear`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 放弃未锁定的 canonical cart。`--local` 只清理本地句柄和草稿，不声称服务端资源已取消。

@@ -1,5 +1,7 @@
 # `itpay checkout`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 读取并恢复一笔已存在 Checkout 的公开展示状态。它不创建新 Checkout，也不把“用户说已付款”当作付款成功。

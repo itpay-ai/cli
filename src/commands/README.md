@@ -1,12 +1,14 @@
 # CLI Commands
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 Each command is a small orchestration file: parse input, call one or more
 typed backend methods, render the result. No HTTP, no business truth.
 
 ## Files
 
 - `readyz.ts` — `GET /v1/readyz`
-- `skill.ts` — load and validate the complete packaged Buyer Skill without Backend access
+- `skill.ts` — load and validate the complete packaged ItPay Skill shared by Buyer and future Seller workflows without Backend access
 - `buy.ts` — `POST /v1/carts` + `POST /v1/checkouts`, then print checkout QR (NOT a provider QR)
 - `checkout.ts` — `GET /v1/checkouts/{id}/presentation?display_token=...`
 - `pay.ts` — `POST /v1/checkouts/{id}/payment-intents` (CLI escape hatch only)
