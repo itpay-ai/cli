@@ -1,5 +1,7 @@
 # `itpay cart add`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 把一个已发布 Catalog offer 或一个已准备的 Service Quote 加入 canonical server Cart。Catalog 服务行先进入 `services next`；Quote 行已经锁定输入和价格，可以与其他独立 Execution 的 Quote 一起结算。

@@ -1,5 +1,7 @@
 # `itpay docs`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 命令范围
 
 浏览 npm 包内置的 Agent 操作文档。它是运行时自助说明，不读取服务端业务数据。

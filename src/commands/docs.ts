@@ -10,6 +10,7 @@ const commandDir = dirname(fileURLToPath(import.meta.url));
 
 interface AgentDoc extends Record<string, unknown> {
   schema_version: string;
+  product_scope: string;
   topic: string;
   title: string;
   purpose: string;
@@ -126,6 +127,7 @@ function parseDoc(raw: string, file: string): AgentDoc {
   const value = JSON.parse(raw) as Partial<AgentDoc>;
   if (
     typeof value.schema_version !== "string" ||
+    typeof value.product_scope !== "string" ||
     typeof value.topic !== "string" ||
     typeof value.title !== "string" ||
     typeof value.purpose !== "string"

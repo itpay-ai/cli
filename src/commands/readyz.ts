@@ -15,8 +15,8 @@ export async function runReadyz(backend: BackendClient, options: RunOptions = {}
   writeCommandEnvelope({
     status: response.status,
     result: { backend: "available", ...(options.agentType ? { agent_type: options.agentType } : {}) },
-    instruction: "ItPay 可用；先完整读取内置 Buyer Skill，再开始服务流程。",
-    next: { command: "itpay skill show itpay-buyer --json", reason: "加载完整操作与安全规则" },
+    instruction: "ItPay 可用；先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。sell 将来也使用同一入口，但当前尚未实现。",
+    next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
     recovery: [],
   }, options);
 }

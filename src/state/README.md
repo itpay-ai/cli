@@ -1,23 +1,25 @@
 # CLI State
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 Local CLI configuration and owner-only recovery state. The CLI never stores
-provider secrets. It stores one local Device signing key, Backend-scoped
-registrations and sessions, idempotency handles, and the last checkout-scoped
+provider secrets. It stores one local Device signing key, the fixed
+`https://app.itpay.ai` production registration and sessions, idempotency handles, and the last checkout-scoped
 display token needed to resume the same checkout.
 
 ## Files
 
-- `config.ts` — `loadConfig()` reads `ITPAY_*` environment variables and
-  builds a `BackendClient`. Used by every command in `main.ts`.
+- `config.ts` — `loadConfig()` pins the Backend to `https://app.itpay.ai`,
+  reads non-Backend `ITPAY_*` settings, and builds a `BackendClient`. Used by every command in `main.ts`.
 - `agent_type.ts` — reads the explicitly declared runtime type and preserves it
   in generated ItPay commands.
-- `device_authority.ts` — keeps one local Ed25519 key and one registration per
-  normalized Backend URL, with one Agent Instance per Agent Type.
+- `device_authority.ts` — keeps one local Ed25519 key and the production
+  `https://app.itpay.ai` registration, with one Agent Instance per Agent Type.
 
 ## Rules
 
 - Keep the private key and Device state owner-only (`0600`); never expose them
-  in command output or copy server IDs between Backend registrations.
+  in command output or redirect production CLI traffic away from `https://app.itpay.ai`.
 - Reuse one Agent Instance for all windows and chats of the same Agent Type.
 - Serialize Device state changes with an atomic owner-only directory lock and
   atomic file replacement. Return `device_state_unwritable` when the Host

@@ -1,5 +1,7 @@
 # `itpay install`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 读取当前 CLI 内置的 Agent Type 安装合同。它只说明 npm 安装、默认 API、默认 Host 和下一条验证命令；不修改宿主配置、不登记设备，也不调用 Backend。
@@ -29,18 +31,18 @@ itpay install [target] [--json]
   "result": {
     "agent_type": "codex-desktop",
     "default_host": "codex",
-    "default_api": "https://dev.itpay.ai",
+    "default_api": "https://app.itpay.ai",
     "install_command": "npm install -g @itpay/cli"
   },
   "instruction": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "next": {
     "command": "itpay --agent-type codex-desktop readyz --json",
-    "reason": "验证 CLI 与默认 ItPay API 的兼容性"
+    "reason": "验证固定生产 ItPay API 的可用性"
   },
   "recovery": [
     {
       "command": "itpay docs show install-and-setup",
-      "reason": "查看环境覆盖和首次使用说明"
+      "reason": "查看固定生产后端和首次使用说明"
     }
   ]
 }

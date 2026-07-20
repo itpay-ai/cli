@@ -1,5 +1,7 @@
 # `itpay services events`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 按 sequence 升序读取一笔 Service Execution 的受限诊断事件。它只用于解释异常或支持排查，不是正常业务流程，不返回事件 ID、内部摘要、Provider 数据或受保护交付内容。

@@ -1,5 +1,7 @@
 # `itpay cart remove`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 从未锁定的 canonical cart 删除一个 line。删除不会影响已创建的 Checkout 或订单；如果该 line 是某个未付款 Service Execution 在 Cart 中的最后一个引用，Backend 会在同一事务中取消该 execution。
@@ -16,7 +18,7 @@ itpay cart remove --local --variant <catalog_variant_id> --offer <offer_id> [--j
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `--line <cart_item_id>` | 否 | canonical Cart line；省略时使用当前 Backend URL 下最后保存的 line。 |
+| `--line <cart_item_id>` | 否 | canonical Cart line；省略时使用固定 `https://app.itpay.ai` 后端下最后保存的 line。 |
 | `--local` | 否 | 只修改显式本地草稿，不请求 Backend。 |
 | `--variant <catalog_variant_id>` | local 时是 | 与 `--offer` 一起标识本地草稿 line。 |
 | `--offer <offer_id>` | local 时是 | 与 `--variant` 一起标识本地草稿 line。 |

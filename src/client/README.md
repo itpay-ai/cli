@@ -1,5 +1,7 @@
 # CLI Client
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 Thin HTTP/JSON client for the V3 backend. One module per concern.
 
 ## Files

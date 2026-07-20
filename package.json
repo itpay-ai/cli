@@ -1,7 +1,7 @@
 {
   "name": "@itpay/cli",
   "version": "2.0.10",
-  "description": "ItPay CLI for V3 checkout, payment, order, refund, and agent-facing render flows.",
+  "description": "The single ItPay CLI entry point for buy workflows and future sell workflows.",
   "type": "module",
   "bin": {
     "itp": "bin/itp",
@@ -43,6 +43,7 @@
   "devDependencies": {
     "@types/node": "^22.7.5",
     "@types/qrcode": "^1.5.5",
+    "c8": "^10.1.3",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   },
@@ -52,12 +53,14 @@
     "start": "node dist/src/main.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist",
-    "check": "npm run lint && npm test && npm run test:package",
+    "check": "npm run lint && npm run test:coverage && npm run test:package",
     "pack:dry-run": "npm run clean && npm run build && npm pack --dry-run --ignore-scripts",
+    "prepare": "node scripts/install-git-hooks.mjs",
     "test:package": "npm run clean && npm run build && node scripts/package-smoke.mjs",
     "prepack": "npm run clean && npm run build",
     "prepublishOnly": "npm run check",
     "test": "tsx --test tests/*.test.ts",
+    "test:coverage": "c8 --all --src src --extension .ts --exclude=src/client/types.ts --exclude=tests/** --exclude=scripts/** --reporter=text --reporter=lcov --check-coverage --lines 85 --statements 85 --functions 90 --branches 70 npm test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

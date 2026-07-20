@@ -2,6 +2,8 @@
 
 本目录是 ItPay CLI 的规范性命令合同。它定义命令应向人和 Agent 返回什么、如何指导下一步，以及失败后如何恢复。当前实现与本文档不一致时，以本文档作为后续校准目标。
 
+> **统一产品边界：** `itpay` 是唯一公开的 CLI 入口，`$itpay` 是对应的用户侧 Skill 调用方式。在同一个产品入口下，两个顶层 commerce 动作是 `buy` 和 `sell`：Buyer 流程当前可用；Seller 流程未来仍使用同一入口，当前尚未实现。不得拆分出独立 Buyer 或 Seller 产品入口。
+
 企知道可以作为示例数据出现，但任何命令、字段、状态和 instruction 都不得依赖某个服务。服务差异只能来自 Catalog、Service Contract、Capability metadata 和服务端状态。
 
 ## 使用约定
@@ -21,7 +23,7 @@
 - [`itpay catalog`](commands/catalog/index.md)
   - [`itpay catalog list`](commands/catalog/list.md)
 - [`itpay install`](commands/install.md) - 查看指定 Agent 的安装说明
-- [`itpay skill show`](commands/skill.md) - 一次读取完整内置 Buyer Skill
+- [`itpay skill show`](commands/skill.md) - 一次读取完整内置 ItPay Skill
 - [`itpay docs`](commands/docs/index.md)
   - [`itpay docs list`](commands/docs/list.md)
   - [`itpay docs show`](commands/docs/show.md)

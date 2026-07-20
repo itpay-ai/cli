@@ -52,7 +52,7 @@ import {
 const program = new Command();
 program
   .name("itpay")
-  .description("V3 ItPay CLI — checkout, payment, order, and refund commands")
+  .description("V3 ItPay CLI — one entry point for buy workflows and future sell workflows")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
   .version(CLI_VERSION);
 
@@ -152,11 +152,11 @@ function reportCLIError(
 	);
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const deviceRecovery: CommandAction[] = deviceError ? [{
-    command: "itpay skill show itpay-buyer --json",
-    reason: "读取身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
+    command: "itpay skill show itpay --json",
+    reason: "读取 ItPay 身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
   }] : [];
   const stateRecovery: CommandAction[] = stateError ? [{
-    command: "itpay skill show itpay-buyer --json",
+    command: "itpay skill show itpay --json",
     reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
   }] : [];
   const authorizationInstruction = stateError
@@ -225,16 +225,14 @@ program
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await requirePlatformCompatibility(backend);
       await runReadyz(backend, { jsonOutput: Boolean(options.json), ...(config.agentType ? { agentType: config.agentType } : {}) });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "backend_unavailable",
-        instruction: "检查 ITPAY_BACKEND_URL 后重试；后端恢复前不要继续下单。",
+        instruction: "固定生产后端 https://app.itpay.ai 当前不可用；后端恢复前不要继续下单，也不要切换到其他地址。",
         recovery: [
-          { command: "echo $ITPAY_BACKEND_URL", reason: "确认当前 Backend URL" },
-          { command: "itpay readyz", reason: "重试可用性检查" },
+          { command: "itpay readyz", reason: "重试固定生产后端的可用性检查" },
         ],
       });
     }
@@ -246,7 +244,7 @@ const deviceCmd = program.command("device").description("Recover local Device re
 
 deviceCmd
   .command("recover")
-  .description("Forget only the selected Backend registration while preserving the local private key")
+  .description("Forget only the app.itpay.ai registration while preserving the local private key")
   .option("--confirm-backend-reset", "confirm that an operator reset the selected Backend registration database")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
@@ -255,7 +253,7 @@ deviceCmd
       if (!config.agentType) {
         throw new CommandContractError(
           "agent_type_required",
-          "agent type is required for Backend-scoped Device recovery",
+          "agent type is required for app.itpay.ai Device recovery",
           "如实声明当前 Agent Type；恢复后必须用同一类型重新登记。",
           [{ command: "itpay install --json", reason: "选择当前真实 Agent Type" }],
         );

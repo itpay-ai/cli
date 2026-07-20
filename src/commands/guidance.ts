@@ -316,8 +316,8 @@ export function errorRecoveryActions(error: unknown): AgentNextAction[] {
     return [
       {
         id: "read_agent_session_rules",
-        label: "Read identity and session recovery rules",
-        command: "itpay skill show itpay-buyer --json",
+        label: "Read ItPay identity and session recovery rules",
+        command: "itpay skill show itpay --json",
         reason: "The CLI already attempted one automatic session renewal; do not rotate identity or loop retries.",
       },
     ];
@@ -363,13 +363,8 @@ export function errorRecoveryActions(error: unknown): AgentNextAction[] {
     return [
       {
         id: "retry_after_backend_recovers",
-        label: "Retry after the ItPay backend is reachable",
+        label: "Retry after app.itpay.ai is reachable",
         command: "itpay readyz",
-      },
-      {
-        id: "check_backend_url",
-        label: "Check the configured backend URL",
-        command: "echo $ITPAY_BACKEND_URL",
       },
     ];
   }

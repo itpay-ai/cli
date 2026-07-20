@@ -41,15 +41,16 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { DEFAULT_BASE_URL, type CLIConfig } from "../src/state/config.js";
+import { DEFAULT_BASE_URL, loadConfig, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
 const execFileAsync = promisify(execFile);
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
-const CLI_ENTRY = resolve(CLI_ROOT, "src/main.ts");
+const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
 const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"] as const;
+const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
 
 let mock: MockBackendHandle;
 let config: CLIConfig;
@@ -61,7 +62,7 @@ let stdoutSink: OutputSink;
 async function runCLI(args: string[], env: Record<string, string>): Promise<{ stdout: string; stderr: string }> {
   const { stdout, stderr } = await execFileAsync(TSX_BIN, [CLI_ENTRY, ...args], {
     cwd: CLI_ROOT,
-    env: { ...process.env, ...env },
+    env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, ...env },
     encoding: "utf8",
     timeout: 10_000,
     maxBuffer: 1024 * 1024,
@@ -102,8 +103,16 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("beta backend is the package default", () => {
-  assert.equal(DEFAULT_BASE_URL, "https://dev.itpay.ai");
+test("production backend is pinned to app.itpay.ai", () => {
+  assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
+  assert.equal(loadConfig({
+    ITPAY_BACKEND_URL: "https://dev.itpay.ai",
+    ITPAY_IDEMPOTENCY_KEY: "config-test",
+  }).baseURL, DEFAULT_BASE_URL);
+  assert.equal(loadConfig({
+    ITPAY_CLI_TEST_TRANSPORT_URL: "http://127.0.0.1:4321",
+    ITPAY_IDEMPOTENCY_KEY: "config-test",
+  }).baseURL, DEFAULT_BASE_URL);
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -210,7 +219,7 @@ test("cart remove parser supports canonical and local scopes across Agent Types"
     session.rememberServerCart({ cartID: `cart_remove_${agentType}`, cartItemID: "ci_remove", serviceExecutionID: "se_remove" });
     session.saveToFile(join(home, ".itpay-v3", "cart.json"));
     const result = await runCLI(["--agent-type", agentType, "cart", "remove", "--line", "ci_remove", "--json"], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       HOME: home,
     });
     const envelope = JSON.parse(result.stdout) as { status: string; result: { cart_item_id: string }; next: { command: string } };
@@ -226,7 +235,7 @@ test("cart remove parser supports canonical and local scopes across Agent Types"
   local.saveToFile(join(localHome, ".itpay-v3", "cart.json"));
   const localResult = await runCLI([
     "--agent-type", "workbuddy", "cart", "remove", "--local", "--variant", "v", "--offer", "o", "--json",
-  ], { ITPAY_BACKEND_URL: mock.url, HOME: localHome });
+  ], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: localHome });
   const localEnvelope = JSON.parse(localResult.stdout) as { status: string; next: { command: string } };
   assert.equal(localEnvelope.status, "removed_local");
   assert.equal(localEnvelope.next.command, "itpay --agent-type workbuddy cart show --local --json");
@@ -237,7 +246,7 @@ test("cart remove validates scope before HTTP and preserves locked handles", asy
   await assert.rejects(
     execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "cart", "remove", "--variant", "v", "--offer", "o", "--json"], {
       cwd: CLI_ROOT,
-      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-cart-remove-invalid-")) },
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-cart-remove-invalid-")) },
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -283,7 +292,7 @@ test("cart clear parser returns canonical and explicit local contracts across Ag
     session.rememberServerCart({ cartID: `cart_clear_${agentType}`, cartItemID: "ci_clear", serviceExecutionID: "se_clear" });
     session.saveToFile(join(home, ".itpay-v3", "cart.json"));
     const result = await runCLI(["--agent-type", agentType, "cart", "clear", "--json"], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       HOME: home,
     });
     const envelope = JSON.parse(result.stdout) as { status: string; result: { server_abandoned: boolean }; next: { command: string } };
@@ -302,7 +311,7 @@ test("cart clear parser returns canonical and explicit local contracts across Ag
   local.saveToFile(join(localHome, ".itpay-v3", "cart.json"));
   const requestCount = mock.requests.length;
   const localResult = await runCLI(["--agent-type", "workbuddy", "cart", "clear", "--local", "--json"], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: localHome,
   });
   const localEnvelope = JSON.parse(localResult.stdout) as { status: string; result: { server_abandoned: boolean; local_state_cleared: boolean } };
@@ -374,7 +383,7 @@ test("cart add derives Host from Agent Type and keeps output contract stable", a
       "--input", JSON.stringify({ keyword: "example" }),
       "--json",
     ], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       HOME: mkdtempSync(join(tmpdir(), `itpay-cart-add-${agentType}-`)),
     });
     const envelope = JSON.parse(result.stdout) as { status: string; result: { service_execution_id?: string }; next: { command: string } };
@@ -401,7 +410,7 @@ test("cart add local mode is explicit JSON and makes no HTTP request", async () 
     "--local",
     "--json",
   ], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: mkdtempSync(join(tmpdir(), "itpay-cart-add-local-")),
   });
   const envelope = JSON.parse(result.stdout) as { status: string; instruction: string; next: { command: string } };
@@ -422,7 +431,7 @@ test("cart add validates identifiers, quantity and JSON object before mutation",
     await assert.rejects(
       execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", ...testCase.args], {
         cwd: CLI_ROOT,
-        env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-cart-add-invalid-")) },
+        env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-cart-add-invalid-")) },
         encoding: "utf8",
         timeout: 10_000,
         maxBuffer: 1024 * 1024,
@@ -471,7 +480,7 @@ test("cart next is compact across every Agent Type and has structured stale-hand
   session.saveToFile(join(home, ".itpay-v3", "cart.json"));
   const outputs: string[] = [];
   for (const agentType of AGENT_TYPES) {
-    const result = await runCLI(["--agent-type", agentType, "cart", "next", "--json"], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    const result = await runCLI(["--agent-type", agentType, "cart", "next", "--json"], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     assertQualifiedAgentType(result.stdout, agentType);
     outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
@@ -486,7 +495,7 @@ test("cart next is compact across every Agent Type and has structured stale-hand
   await assert.rejects(
     execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "cart", "next", "--json"], {
       cwd: CLI_ROOT,
-      env: { ...process.env, HOME: staleHome, ITPAY_BACKEND_URL: mock.url },
+      env: { ...CLI_TEST_PROCESS_ENV, HOME: staleHome, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url },
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -554,7 +563,7 @@ test("top-level next keeps facts stable and preserves every Agent Type", async (
   session.saveToFile(join(home, ".itpay-v3", "cart.json"));
   const outputs: string[] = [];
   for (const agentType of AGENT_TYPES) {
-    const result = await runCLI(["--agent-type", agentType, "next", "--json"], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    const result = await runCLI(["--agent-type", agentType, "next", "--json"], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     assertQualifiedAgentType(result.stdout, agentType);
     outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
@@ -678,7 +687,7 @@ test("refund-locked delivery keeps facts stable and preserves every Agent Type",
   for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "next", "se_refund_locked", "--json",
-    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    ], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     assertQualifiedAgentType(result.stdout, agentType);
     outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
@@ -906,7 +915,7 @@ test("services list is compact, fact-stable, and preserves every Agent Type", as
   for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "list", "--limit", "1", "--json",
-    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    ], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     assertQualifiedAgentType(result.stdout, agentType);
     outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
@@ -939,7 +948,7 @@ test("services get keeps facts stable across Agent Types and keeps not-found opa
   for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "get", "se_timeline", "--json",
-    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    ], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     assertQualifiedAgentType(result.stdout, agentType);
     outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
@@ -949,7 +958,7 @@ test("services get keeps facts stable across Agent Types and keeps not-found opa
   await assert.rejects(
     execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "services", "get", "se_missing", "--json"], {
       cwd: CLI_ROOT,
-      env: { ...process.env, HOME: home, ITPAY_BACKEND_URL: mock.url },
+      env: { ...CLI_TEST_PROCESS_ENV, HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url },
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -998,7 +1007,7 @@ test("services events keeps facts stable across Agent Types and validates before
   for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "events", "se_events", "--after-sequence", "0", "--limit", "3", "--json",
-    ], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+    ], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     assertQualifiedAgentType(result.stdout, agentType);
     outputs.push(withoutQualifiedAgentType(result.stdout));
     assert.equal(result.stderr, "");
@@ -1009,7 +1018,7 @@ test("services events keeps facts stable across Agent Types and validates before
   await assert.rejects(
     runCLI(["--agent-type", "codex-cli", "services", "events", "se_events", "--limit", "101", "--json"], {
       HOME: home,
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     }),
     (error: unknown) => {
       const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
@@ -1269,7 +1278,7 @@ test("empty lookup starts a new execution instead of reusing a closed one", () =
 test("service recovery guides backend outage retries", () => {
   const recovery = errorRecoveryActions(new HttpError(503, { code: "unavailable", message: "backend unavailable" }, "HTTP 503"));
   assert.equal(recovery[0]?.command, "itpay readyz");
-  assert.equal(recovery[1]?.command, "echo $ITPAY_BACKEND_URL");
+  assert.equal(recovery.length, 1);
 });
 
 test("cart show returns an explicit local draft contract", () => {
@@ -1332,7 +1341,7 @@ test("cart show keeps facts stable and preserves Agent Type in canonical and loc
   const outputs: string[] = [];
   for (const agentType of AGENT_TYPES) {
     const result = await runCLI(["--agent-type", agentType, "cart", "show", "--json"], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       HOME: home,
     });
     assertQualifiedAgentType(result.stdout, agentType);
@@ -1347,7 +1356,7 @@ test("cart show keeps facts stable and preserves Agent Type in canonical and loc
   runCartAdd(local, { catalogItemID: "i", catalogVariantID: "v", offerID: "o", quantity: 1, output: silent });
   local.saveToFile(join(localHome, ".itpay-v3", "cart.json"));
   const localResult = await runCLI(["--agent-type", "workbuddy", "cart", "show", "--local", "--json"], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: localHome,
   });
   assert.equal(JSON.parse(localResult.stdout).status, "shown_local");
@@ -1356,7 +1365,7 @@ test("cart show keeps facts stable and preserves Agent Type in canonical and loc
 test("cart show keeps missing and stale canonical handles recoverable", async () => {
   const emptyHome = mkdtempSync(join(tmpdir(), "itpay-cart-show-missing-"));
   const missing = await runCLI(["--agent-type", "codex-cli", "cart", "show", "--json"], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: emptyHome,
   });
   const missingEnvelope = JSON.parse(missing.stdout) as { status: string; recovery: Array<{ command: string }> };
@@ -1370,7 +1379,7 @@ test("cart show keeps missing and stale canonical handles recoverable", async ()
   await assert.rejects(
     execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "cart", "show", "--json"], {
       cwd: CLI_ROOT,
-      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: staleHome },
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: staleHome },
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -1783,19 +1792,19 @@ test("readyz probes /v1/readyz", async () => {
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
     status: "ready",
     result: { backend: "available" },
-    instruction: "ItPay 可用；先完整读取内置 Buyer Skill，再开始服务流程。",
-    next: { command: "itpay skill show itpay-buyer --json", reason: "加载完整操作与安全规则" },
+    instruction: "ItPay 可用；先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。sell 将来也使用同一入口，但当前尚未实现。",
+    next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
     recovery: [],
   });
 });
 
 test("readyz command supports the documented JSON contract", async () => {
-  const result = await runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: mock.url });
+  const result = await runCLI(["readyz", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
   assert.equal(JSON.parse(result.stdout).status, "ready");
   assert.equal(result.stderr, "");
 });
 
-test("CLI fails closed when the Backend compatibility contract is unavailable", async () => {
+test("commerce entrypoints fail closed when the Backend compatibility contract is unavailable", async () => {
   const server = http.createServer((_request, response) => {
     response.writeHead(426, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ code: "platform_release_unavailable", message: "active platform release is unavailable" }));
@@ -1804,8 +1813,8 @@ test("CLI fails closed when the Backend compatibility contract is unavailable", 
   const address = server.address() as AddressInfo;
   try {
     await assert.rejects(
-      runCLI(["--agent-type", "workbuddy", "readyz", "--json"], {
-        ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}`,
+      runCLI(["--agent-type", "workbuddy", "catalog", "list", "--json"], {
+        ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}`,
       }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
@@ -1827,7 +1836,7 @@ test("CLI fails closed when the Backend compatibility contract is unavailable", 
   }
 });
 
-test("readyz, catalog, and top-level next fail before guidance when the contract hash differs", async () => {
+test("catalog and top-level next fail before guidance when the contract hash differs", async () => {
   const requests: string[] = [];
   const server = http.createServer((request, response) => {
     requests.push(request.url ?? "");
@@ -1848,11 +1857,11 @@ test("readyz, catalog, and top-level next fail before guidance when the contract
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
   try {
-    for (const args of [["readyz", "--json"], ["catalog", "list", "--json"], ["next", "--json"]]) {
+    for (const args of [["catalog", "list", "--json"], ["next", "--json"]]) {
       requests.length = 0;
       const home = mkdtempSync(join(tmpdir(), "itpay-contract-stop-"));
       await assert.rejects(
-        runCLI(args, { HOME: home, ITPAY_BACKEND_URL: `http://127.0.0.1:${address.port}` }),
+        runCLI(args, { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}` }),
         (error: unknown) => {
           const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
             error: { code: string; message: string };
@@ -1880,7 +1889,7 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
   try {
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], {
-        ITPAY_BACKEND_URL: mock.url,
+        ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
@@ -1906,12 +1915,12 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
 
 test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   const result = await runCLI(["readyz", "--json"], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     ITPAY_AGENT_TYPE: "claude-code-cli",
   });
   const envelope = JSON.parse(result.stdout) as { result: { agent_type: string }; next: { command: string } };
   assert.equal(envelope.result.agent_type, "claude-code-cli");
-  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay-buyer --json");
+  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay --json");
 });
 
 test("device recover requires confirmation and remains Backend-scoped", async () => {
@@ -1919,7 +1928,6 @@ test("device recover requires confirmation and remains Backend-scoped", async ()
   await assert.rejects(
     runCLI(["--agent-type", "workbuddy", "device", "recover", "--json"], {
       HOME: home,
-      ITPAY_BACKEND_URL: "https://dev.itpay.ai",
     }),
     (error: unknown) => {
       const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
@@ -1932,36 +1940,37 @@ test("device recover requires confirmation and remains Backend-scoped", async ()
     "--agent-type", "workbuddy", "device", "recover", "--confirm-backend-reset", "--json",
   ], {
     HOME: home,
-    ITPAY_BACKEND_URL: "https://dev.itpay.ai",
   })).stdout) as {
     status: string;
     result: { backend: string; private_key_preserved: boolean; other_backend_registrations_preserved: boolean };
     next: { command: string };
   };
   assert.equal(envelope.status, "backend_registration_absent");
-  assert.equal(envelope.result.backend, "https://dev.itpay.ai");
+  assert.equal(envelope.result.backend, "https://app.itpay.ai");
   assert.equal(envelope.result.private_key_preserved, true);
   assert.equal(envelope.result.other_backend_registrations_preserved, true);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy services list --limit 1 --json");
 });
 
 test("skill show returns the complete packaged Skill and type-aware onboarding", async () => {
-  const untyped = JSON.parse((await runCLI(["skill", "show", "itpay-buyer", "--json"], {})).stdout) as {
+  const untyped = JSON.parse((await runCLI(["skill", "show", "itpay", "--json"], {})).stdout) as {
     status: string; result: { skill: string; content: string }; next: { command: string };
   };
   assert.equal(untyped.status, "shown");
-  assert.equal(untyped.result.skill, "itpay-buyer");
+  assert.equal(untyped.result.skill, "itpay");
+  assert.match(untyped.result.content, /## One Entry Point, Two Action Domains/);
+  assert.match(untyped.result.content, /Seller workflows.*not implemented/);
   assert.match(untyped.result.content, /## Identity And Sessions/);
   assert.equal(untyped.next.command, "itpay install --json");
 
   const typed = JSON.parse((await runCLI([
-    "--agent-type", "codex-desktop", "skill", "show", "itpay-buyer", "--json",
+    "--agent-type", "codex-desktop", "skill", "show", "itpay", "--json",
   ], {})).stdout) as { next: { command: string }; instruction: string };
   assert.equal(typed.next.command, "itpay --agent-type codex-desktop catalog list --json");
   assert.match(typed.instruction, /codex-desktop/);
 
   const workbuddy = JSON.parse((await runCLI([
-    "--agent-type", "workbuddy", "skill", "show", "itpay-buyer", "--json",
+    "--agent-type", "workbuddy", "skill", "show", "itpay", "--json",
   ], {})).stdout) as typeof typed;
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next.command, "itpay --agent-type workbuddy catalog list --json");
@@ -1976,15 +1985,15 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
         error: { code: string }; recovery: Array<{ command: string }>;
       };
       assert.equal(failure.error.code, "skill_not_found");
-      assert.equal(failure.recovery[0]?.command, "itpay skill show itpay-buyer --json");
+      assert.equal(failure.recovery[0]?.command, "itpay skill show itpay --json");
       return true;
     },
   );
   const skillsDir = mkdtempSync(join(tmpdir(), "itpay-skills-invalid-"));
-  mkdirSync(join(skillsDir, "itpay-buyer"));
-  writeFileSync(join(skillsDir, "itpay-buyer", "SKILL.md"), "broken", "utf8");
+  mkdirSync(join(skillsDir, "itpay"));
+  writeFileSync(join(skillsDir, "itpay", "SKILL.md"), "broken", "utf8");
   await assert.rejects(
-    runCLI(["skill", "show", "itpay-buyer", "--json"], { ITPAY_CLI_SKILLS_DIR: skillsDir }),
+    runCLI(["skill", "show", "itpay", "--json"], { ITPAY_CLI_SKILLS_DIR: skillsDir }),
     (error: unknown) => {
       const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
       assert.equal(failure.error.code, "skill_unavailable");
@@ -2077,12 +2086,14 @@ test("docs show returns only one complete topic with structured recovery", async
   const shown = await runCLI(["docs", "show", "quickstart", "--json"], {});
   const envelope = JSON.parse(shown.stdout) as {
     status: string;
-    result: { topic: string; content: { topic: string; title: string } };
+    result: { topic: string; content: { topic: string; title: string; product_scope: string } };
     next: null;
   };
   assert.equal(envelope.status, "shown");
   assert.equal(envelope.result.topic, "quickstart");
   assert.equal(envelope.result.content.topic, "quickstart");
+  assert.match(envelope.result.content.product_scope, /two top-level commerce actions are buy and sell/);
+  assert.match(envelope.result.content.product_scope, /Seller workflows.*not implemented/);
   assert.equal(envelope.next, null);
 
   await assert.rejects(
@@ -2207,7 +2218,7 @@ test("checkout command accepts the documented JSON form", async () => {
   const result = await runCLI([
     "--agent-type", "codex-desktop", "checkout",
     "--id", "chk_completed", "--token", "cdt_completed", "--json",
-  ], { ITPAY_BACKEND_URL: mock.url });
+  ], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
   assert.equal(JSON.parse(result.stdout).status, "completed");
   assert.equal(result.stderr, "");
 });
@@ -2219,7 +2230,7 @@ test("main buy persists checkout recovery state and consumes local cart", async 
   await runCLI(
     ["buy", "--host", "plain-chat", "--item", "item_1", "--variant", "v_cli", "--offer", "o_cli"],
     {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       ITPAY_CART_SESSION_PATH: sessionPath,
       ITPAY_IDE_IMAGE_ATTACH: "0",
       ITPAY_IDEMPOTENCY_KEY: "cli_command_key",
@@ -2296,7 +2307,7 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     const result = await runCLI([
       "--agent-type", agentType, "buy", "--item", "item_1", "--variant", "v_1", "--offer", "o_1", "--json",
     ], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       HOME: mkdtempSync(join(tmpdir(), `itpay-buy-host-${agentType}-`)),
     });
     const envelope = JSON.parse(result.stdout) as {
@@ -2326,7 +2337,7 @@ test("buy rejects invalid source, contact and numeric parameters before mutation
     const home = mkdtempSync(join(tmpdir(), "itpay-buy-invalid-"));
     const before = mock.requests.length;
     await assert.rejects(
-      runCLI(["--agent-type", "codex-cli", "buy", ...entry.args, "--json"], { ITPAY_BACKEND_URL: mock.url, HOME: home }),
+      runCLI(["--agent-type", "codex-cli", "buy", ...entry.args, "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home }),
       (error: unknown) => {
         const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
         assert.equal(envelope.error.code, entry.code);
@@ -2349,7 +2360,7 @@ test("main checkout without args uses saved checkout id and display token", asyn
   session.saveToFile(sessionPath);
 
   await runCLI(["checkout"], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     ITPAY_CART_SESSION_PATH: sessionPath,
     ITPAY_IDE_IMAGE_ATTACH: "0",
   });
@@ -2374,7 +2385,7 @@ test("expired saved service checkout token returns an executable resume instruct
 
   await assert.rejects(
     runCLI(["checkout"], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       ITPAY_CART_SESSION_PATH: sessionPath,
       ITPAY_IDE_IMAGE_ATTACH: "0",
     }),
@@ -2388,7 +2399,7 @@ test("expired saved service checkout token returns an executable resume instruct
 test("progressive service instructions execute unchanged across CLI processes", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-progressive-"));
   const env = {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     ITPAY_AGENT_TYPE: "codex-desktop",
     ITPAY_IDE_IMAGE_ATTACH: "0",
     HOME: home,
@@ -2435,7 +2446,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
   for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
     const result = await runCLI([
       "--agent-type", agentType, "pay", "--checkout", `chk_${agentType}`, "--token", `cdt_${agentType}`, "--method", "alipay", "--json",
-    ], { HOME: mkdtempSync(join(tmpdir(), `itpay-pay-${agentType}-`)), ITPAY_BACKEND_URL: mock.url });
+    ], { HOME: mkdtempSync(join(tmpdir(), `itpay-pay-${agentType}-`)), ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     const envelope = JSON.parse(result.stdout) as {
       status: string; result: Record<string, unknown>; handoff: Record<string, string>; instruction: string; next: { command: string };
     };
@@ -2450,7 +2461,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
   const before = mock.requests.length;
   await assert.rejects(
     runCLI(["--agent-type", "codex-cli", "pay", "--checkout", "chk_invalid", "--token", "cdt_invalid", "--method", "cash", "--json"], {
-      HOME: mkdtempSync(join(tmpdir(), "itpay-pay-invalid-")), ITPAY_BACKEND_URL: mock.url,
+      HOME: mkdtempSync(join(tmpdir(), "itpay-pay-invalid-")), ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     }),
     (error: unknown) => {
       const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
@@ -2468,14 +2479,14 @@ test("pay recovers only the display token saved for the same checkout", async ()
   session.saveToFile(join(home, ".itpay-v3", "cart.json"));
 
   const recovered = await runCLI(["--agent-type", "codex-cli", "pay", "--checkout", "chk_saved_pay", "--method", "alipay", "--json"], {
-    HOME: home, ITPAY_BACKEND_URL: mock.url,
+    HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
   });
   assert.match(JSON.parse(recovered.stdout).next.command, /--token cdt_saved_pay --json$/);
 
   const before = mock.requests.length;
   await assert.rejects(
     runCLI(["--agent-type", "codex-cli", "pay", "--checkout", "chk_other", "--method", "alipay", "--json"], {
-      HOME: home, ITPAY_BACKEND_URL: mock.url,
+      HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     }),
     (error: unknown) => {
       const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
@@ -2605,7 +2616,7 @@ test("services read-result relies on device authority instead of a checkout toke
 
 test("services next and read-result commands accept the documented JSON form", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-delivery-"));
-  const env = { ITPAY_BACKEND_URL: mock.url, HOME: home };
+  const env = { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home };
   for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
     const nextResult = await runCLI([
       "--agent-type", agentType, "services", "next", "se_granted", "--json",
@@ -2631,7 +2642,7 @@ test("services read-result returns structured user-action recovery when access i
         CLI_ENTRY, "--agent-type", "codex-cli", "services", "read-result", serviceExecutionID, "--json",
       ], {
         cwd: CLI_ROOT,
-        env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+        env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
         encoding: "utf8",
         timeout: 10_000,
         maxBuffer: 1024 * 1024,
@@ -2731,7 +2742,7 @@ test("services action command accepts the documented --json form", async () => {
     "--action", "select_candidate", "--actor-type", "human", "--status", "approved",
     "--candidate", "1", "--json",
   ], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: home,
   });
 	assert.equal(JSON.parse(result.stdout).status, "candidate_selected");
@@ -2808,7 +2819,7 @@ test("services start command accepts --json after the subcommand", async () => {
   const result = await runCLI([
     "--agent-type", "codex-cli", "services", "start", "svc_qizhidao_company_lookup", "--json",
   ], {
-    ITPAY_BACKEND_URL: mock.url,
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: home,
   });
   assert.equal(JSON.parse(result.stdout).status, "ready");
@@ -2913,14 +2924,14 @@ test("order command accepts JSON and returns structured opaque not-found recover
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-order-"));
   const result = await runCLI([
     "--agent-type", "codex-cli", "order", "ord_delivery", "--json",
-  ], { ITPAY_BACKEND_URL: mock.url, HOME: home });
+  ], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home });
   assert.equal(JSON.parse(result.stdout).status, "delivered");
   assert.equal(result.stderr, "");
 
   await assert.rejects(
     execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "order", "ord_missing", "--json"], {
       cwd: CLI_ROOT,
-      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -3011,7 +3022,7 @@ test("orders JSON contract is stable for every supported Agent Type", async () =
   }]);
   for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
     const result = await runCLI(["--agent-type", agentType, "orders", "--limit", "1", "--json"], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       ITPAY_BEARER_TOKEN: "account_token",
       HOME: mkdtempSync(join(tmpdir(), `itpay-orders-${agentType}-`)),
     });
@@ -3065,7 +3076,7 @@ test("refund list parser accepts child options for every supported Agent Type", 
     const result = await runCLI([
       "--agent-type", agentType, "refund", "list", "--order", "ord_locked", "--json",
     ], {
-      ITPAY_BACKEND_URL: mock.url,
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       HOME: mkdtempSync(join(tmpdir(), `itpay-refund-list-${agentType}-`)),
     });
     const envelope = JSON.parse(result.stdout) as { status: string; result: { refunds: Array<{ refund_request_id: string }> } };
@@ -3080,7 +3091,7 @@ test("refund list rejects a missing order before HTTP", async () => {
   await assert.rejects(
     execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "list", "--json"], {
       cwd: CLI_ROOT,
-      env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-refund-list-missing-")) },
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: mkdtempSync(join(tmpdir(), "itpay-refund-list-missing-")) },
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -3136,7 +3147,7 @@ test("refund create parses child options and signs with device authority", async
 	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "create", "--order", "ord_42", "--reason", "buyer_requested", "--json"], {
 			HOME: home,
-			ITPAY_BACKEND_URL: mock.url,
+			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
 			ITPAY_IDEMPOTENCY_KEY: `refund_command_key_${agentType}`,
 		});
 		assert.equal(JSON.parse(result.stdout).status, "requested");
@@ -3152,7 +3163,7 @@ test("refund create rejects a missing order before HTTP with structured recovery
 	await assert.rejects(
 		execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "create", "--json"], {
 			cwd: CLI_ROOT,
-			env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+			env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
 			encoding: "utf8",
 			timeout: 10_000,
 			maxBuffer: 1024 * 1024,
@@ -3175,7 +3186,7 @@ test("refund get returns one compact authoritative snapshot for every Agent Type
 	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "get", "rr_1", "--json"], {
 			HOME: home,
-			ITPAY_BACKEND_URL: mock.url,
+			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
 		});
 		const envelope = JSON.parse(result.stdout) as {
 			status: string; result: { refund_status: string; access_locked: boolean }; next: { command: string };
@@ -3193,7 +3204,7 @@ test("refund get keeps missing and foreign refund IDs opaque", async () => {
 	await assert.rejects(
 		execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "get", "rr_missing", "--json"], {
 			cwd: CLI_ROOT,
-			env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+			env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
 			encoding: "utf8",
 			timeout: 10_000,
 			maxBuffer: 1024 * 1024,
@@ -3233,7 +3244,7 @@ test("refund watch emits one terminal envelope for every Agent Type", async () =
 	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "watch", "rr_succeeded", "--json"], {
 			HOME: home,
-			ITPAY_BACKEND_URL: mock.url,
+			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
 		});
 		const envelope = JSON.parse(result.stdout) as {
 			status: string; result: { refund_status: string; access_locked: boolean }; next: unknown;
@@ -3250,7 +3261,7 @@ test("refund watch timeout is a resumable state, not a refund failure", async ()
 	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-watch-timeout-"));
 	const result = await runCLI([
 		"--agent-type", "codex-cli", "refund", "watch", "rr_pending", "--interval", "1", "--timeout", "0.01", "--json",
-	], { HOME: home, ITPAY_BACKEND_URL: mock.url });
+	], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
 	const envelope = JSON.parse(result.stdout) as {
 		status: string; result: { last_status: string }; instruction: string; next: { command: string };
 	};
@@ -3275,7 +3286,7 @@ test("refund cancel releases the lock and requires a new delivery authorization"
 	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "cancel", "rr_active", "--reason", "buyer_cancelled", "--json"], {
 			HOME: home,
-			ITPAY_BACKEND_URL: mock.url,
+			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
 		});
 		const envelope = JSON.parse(result.stdout) as {
 			status: string; result: { order_id: string; access_locked: boolean }; instruction: string; next: { command: string };
@@ -3293,7 +3304,7 @@ test("refund cancel keeps a too-late refund locked and returns state recovery", 
 	await assert.rejects(
 		execFileAsync(TSX_BIN, [CLI_ENTRY, "--agent-type", "codex-cli", "refund", "cancel", "rr_too_late", "--json"], {
 			cwd: CLI_ROOT,
-			env: { ...process.env, ITPAY_BACKEND_URL: mock.url, HOME: home },
+			env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
 			encoding: "utf8",
 			timeout: 10_000,
 			maxBuffer: 1024 * 1024,

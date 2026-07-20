@@ -1,5 +1,7 @@
 # `itpay docs show`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 读取一个指定 Agent 文档 topic。这是 docs 命令族中唯一返回完整文档内容的命令；不会级联读取其他 topic，也不访问 Backend。

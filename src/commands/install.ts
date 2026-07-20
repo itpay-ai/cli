@@ -66,9 +66,9 @@ export function runInstall(target: string | undefined, options: InstallOptions =
     instruction: INSTRUCTIONS[normalized],
     next: {
       command: `itpay --agent-type ${normalized} readyz --json`,
-      reason: "验证 CLI 与默认 ItPay API 的兼容性",
+      reason: "验证固定生产 ItPay API 的可用性",
     },
-    recovery: [{ command: "itpay docs show install-and-setup", reason: "查看环境覆盖和首次使用说明" }],
+    recovery: [{ command: "itpay docs show install-and-setup", reason: "查看固定生产后端和首次使用说明" }],
   }, options);
 }
 

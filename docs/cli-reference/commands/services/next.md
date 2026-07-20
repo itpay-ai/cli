@@ -1,5 +1,7 @@
 # `itpay services next`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 读取一笔 Service Execution 的当前状态，并只返回一个首选下一步。若交付模式允许 Agent 直接读取，本命令同时返回完整 safe result。

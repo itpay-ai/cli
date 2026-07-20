@@ -1,5 +1,7 @@
 # `itpay orders`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 列出当前 account-scoped Buyer session 可见的订单摘要，用于恢复订单，不返回交付 payload。

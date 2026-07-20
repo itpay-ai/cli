@@ -1,17 +1,25 @@
 ---
-name: itpay-buyer
+name: itpay
 description: >
-  Use the ItPay CLI when a human asks an Agent to discover services, use a
-  capability, buy a result, show a Checkout, recover an interrupted flow,
-  read a human-granted result, or manage a refund.
+  Use the single ItPay entry point when a human asks an Agent to buy or sell
+  through ItPay. Buyer workflows cover service discovery, purchase, Checkout,
+  delivery, recovery, and refunds. Seller workflows are not yet implemented.
 ---
 
-# ItPay Buyer
+# ItPay
 
 Use the CLI as the only ItPay control surface. Do not recreate API calls or hardcode a service-specific sequence.
 
+## One Entry Point, Two Action Domains
+
+- `itpay` is the only CLI entry point, and `$itpay` is the only user-facing Skill invocation. Never create or route users to a separate Buyer or Seller entry point.
+- `buy` and `sell` are the two top-level ItPay action domains.
+- Buyer workflows are available now. Seller workflows will use this same `itpay` entry point, but are not implemented in the current release.
+- Do not invent Seller commands, onboarding, listings, or successful Seller state before that workflow ships.
+
 ## Critical Rules
 
+- The production CLI Backend is fixed to `https://app.itpay.ai`. Never use an environment variable, alternate launcher, or recovery path to redirect it.
 - Keep one honest Agent Type, one CLI/Node launcher, and one Host-approved permission context for the whole flow.
 - Treat `next.command` as the preferred continuation, not an unconditional command. If the current result already satisfies the user's stated goal, present it and stop.
 - Keep internal parsing, retries, sandbox diagnosis, and command translation out of the user response; report useful progress, results, and real human decisions only.
@@ -22,7 +30,7 @@ Use the CLI as the only ItPay control surface. Do not recreate API calls or hard
 ```bash
 npm install -g @itpay/cli
 itpay readyz --json
-itpay skill show itpay-buyer --json
+itpay skill show itpay --json
 itpay install --json
 itpay install <agent_type> --json
 itpay --agent-type <agent_type> readyz --json
@@ -35,12 +43,11 @@ Supported types are `codex-desktop`, `codex-cli`, `claude-code-desktop`, `claude
 ## Identity And Sessions
 
 - One local Ed25519 private key represents this ItPay installation. Never expose, copy, or rotate it to recover quota.
-- Device registrations are scoped by exact Backend API base URL. `dev`, `test`, and `app` therefore have separate server device IDs, quota lineage, Agent instances, and sessions while using the same local key.
-- Each Backend registration has one Agent Instance per `agent_type`. Different windows and chats of the same type reuse it; different types get separate instances under that registration.
+- The CLI uses one production Device registration at `https://app.itpay.ai` with one Agent Instance per `agent_type`. Different windows and chats of the same type reuse it; different types get separate instances under that registration.
 - Every commerce command must keep the explicit `--agent-type` returned in `next` and `recovery`, or use one stable `ITPAY_AGENT_TYPE`. Never fall back to another type previously used on the machine.
 - The CLI renews an expired or rejected device session and retries the same request exactly once. If that retry still fails, stop and report it; do not loop, create a new identity, or switch Agent Type.
 - A revoked v2 device is not replaced automatically. It requires an explicit operator recovery path.
-- If an operator confirms that one Backend registration database was reset, use `device recover --confirm-backend-reset` for that selected Backend only. This preserves the private key and every other Backend registration; never use it for ordinary session expiry or revocation.
+- If an operator confirms that the `https://app.itpay.ai` Device registration database was reset, use `device recover --confirm-backend-reset`. This preserves the private key; never use it for ordinary session expiry or revocation.
 - `--host` selects presentation. `--target` is only the destination chat/channel/open ID required by some Hosts. Neither is business input or identity.
 
 ## Envelope Rule
@@ -109,7 +116,7 @@ itpay --agent-type <agent_type> device recover --confirm-backend-reset --json
 itpay docs list --json
 itpay docs search <term> --json
 itpay docs show <topic> --json
-itpay skill show itpay-buyer --json
+itpay skill show itpay --json
 ```
 
 The normative command contracts are packaged under `docs/cli-reference`.

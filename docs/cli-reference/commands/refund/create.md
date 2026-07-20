@@ -1,5 +1,7 @@
 # `itpay refund create`
 
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+
 ## 范围与意义
 
 为一笔订单提交退款意图。Refund Owner 从订单推导 Buyer、支付、金额、币种、消费事实和审核策略；Agent 只提交订单和用户原因。
