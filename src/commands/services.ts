@@ -12,6 +12,7 @@ import type { ClientHost } from "../state/client_context.js";
 import type { OutputSink } from "../render/sink.js";
 import { dispatchRender, type DispatchOptions } from "../render/index.js";
 import { ensureIdeImageAttach } from "../render/ide.js";
+import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 import { buildAgentChatHandoff } from "../render/markdown.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
@@ -163,13 +164,14 @@ function invokedEnvelope(
   const baseResult: Record<string, unknown> = {
     service_execution_id: response.execution.service_execution_id,
     capability_id: requestedCapability.capability_id,
+    query: input,
     items,
     ...(quota ? { quota } : {}),
   };
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
 		? "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。"
-    : "Provider 已返回空结果；不要重放当前 execution，按下一步恢复。";
+    : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
   let next: CommandAction | null = null;
 
   if (response.effective_quota?.exhausted) {
@@ -186,7 +188,12 @@ function invokedEnvelope(
         delivery_email_required: checkoutCapability.delivery_email_required,
       };
       const price = capabilityPrice(checkoutCapability);
-      instruction = purchaseConfirmationInstruction("quota_exhausted", price, checkoutCapability.delivery_email_required);
+      instruction = purchaseConfirmationInstruction(
+        "quota_exhausted",
+        price,
+        checkoutCapability.delivery_email_required,
+        checkoutCapability.delivery_email_purpose,
+      );
       next = {
 				command: checkoutCommand(response.execution.service_execution_id, checkoutCapability, input),
 				reason: `仅在用户明确同意支付 ${price} 后执行；否则停止`,
@@ -203,9 +210,7 @@ function invokedEnvelope(
 			reason: "在当前 Execution 记录用户选择",
     };
   } else if (items.length === 0) {
-    next = response.provider_called
-      ? { command: `itpay services start ${response.execution.service_id}`, reason: "为新的服务输入启动新 execution" }
-      : { command: `itpay services next ${response.execution.service_execution_id} --json`, reason: "读取服务端恢复动作" };
+    next = null;
   }
 
   return {
@@ -219,9 +224,14 @@ function serviceResultPlainLines(result: Record<string, unknown>): string[] {
     `service_execution_id: ${String(result.service_execution_id)}`,
     `capability_id: ${String(result.capability_id)}`,
   ];
+  const items = result.items as Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }>;
+  const query = result.query as Record<string, unknown> | undefined;
+  if (query) {
+    for (const [key, value] of Object.entries(query)) lines.push(`${key}: ${String(value)}`);
+  }
+  if (items.length === 0) lines.push("results: 0");
   if (result.quota) lines.push(`quota: ${JSON.stringify(result.quota)}`);
   if (result.checkout) lines.push(`checkout: ${JSON.stringify(result.checkout)}`);
-  const items = result.items as Array<{ rank: number; title: string; safe_payload: Record<string, unknown> }>;
   if (items.length > 0) {
     lines.push("items:");
     for (const item of items) {
@@ -232,6 +242,11 @@ function serviceResultPlainLines(result: Record<string, unknown>): string[] {
     }
   }
   return lines;
+}
+
+function queryText(input: Record<string, unknown>): string {
+  const value = Object.values(input).find((item) => typeof item === "string" && item.trim() !== "");
+  return typeof value === "string" ? value : JSON.stringify(input);
 }
 
 function missingRequiredInput(schema: Record<string, unknown> | undefined, input: Record<string, unknown>): string[] {
@@ -264,17 +279,32 @@ function purchaseConfirmationInstruction(
 	context: "quota_exhausted" | "candidate_selected",
 	price: string,
 	deliveryEmailRequired: boolean,
+	deliveryEmailPurpose?: ServiceCapability["delivery_email_purpose"],
 	candidateTitle = "",
 ): string {
+	const emailPurpose = deliveryEmailPurposeText(deliveryEmailPurpose);
 	if (context === "quota_exhausted") {
 		return deliveryEmailRequired
-			? `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：继续当前请求需要支付 ${price}，交付还需要用户邮箱；请确认是否购买并提供邮箱。然后停止并等待。用户明确同意并提供真实邮箱前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`
+			? `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：继续当前请求需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止并等待。用户明确同意并提供真实邮箱前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`
 			: `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：“继续当前请求需要支付 ${price}，是否购买？”然后停止并等待用户明确回复。用户明确同意前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`;
 	}
 	const selected = candidateTitle ? `已选择 ${candidateTitle}。` : "当前候选已经确认。";
 	return deliveryEmailRequired
-		? `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 ${price}，并提供用于发送交付认领链接的邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。`
+		? `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。`
 		: `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：“继续购买后续服务需要支付 ${price}，是否购买？”然后停止。用户明确同意前，不要执行 next.command，不要创建新 Execution 或 Checkout。`;
+}
+
+function deliveryEmailPurposeText(purpose?: ServiceCapability["delivery_email_purpose"]): string {
+	switch (purpose) {
+		case "receipt":
+			return "用于发送订单收据的真实邮箱";
+		case "claim":
+			return "用于发送交付认领链接的真实邮箱";
+		case "receipt_and_claim":
+			return "用于发送订单收据和交付认领链接的真实邮箱";
+		default:
+			return "服务端声明用途的真实邮箱";
+	}
 }
 
 function paidContinuation(
@@ -301,6 +331,7 @@ function paidContinuation(
 				price: { amount_minor: capability.price_amount_minor, currency: capability.price_currency },
 			} : {}),
 			delivery_email_required: capability.delivery_email_required,
+			...(capability.delivery_email_purpose ? { delivery_email_purpose: capability.delivery_email_purpose } : {}),
 		},
 		next: {
 			command: checkoutCommand(model.execution.service_execution_id, capability, input, !stateBacked),
@@ -379,7 +410,13 @@ export async function runServicesAction(
 				...(continuation ? { checkout: continuation.checkout } : {}),
 			},
 			instruction: continuation
-				? purchaseConfirmationInstruction("candidate_selected", continuation.price, continuation.capability.delivery_email_required, selection.title)
+				? purchaseConfirmationInstruction(
+					"candidate_selected",
+					continuation.price,
+					continuation.capability.delivery_email_required,
+					continuation.capability.delivery_email_purpose,
+					selection.title,
+				)
 				: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
 			next,
 			recovery: [{
@@ -471,6 +508,7 @@ export async function runServicesCheckout(
     isTTY?: boolean;
     jsonOutput?: boolean;
     fetchImpl?: typeof fetch;
+    agentType?: string;
     resume?: boolean;
     persistHandoff?: (handoff: {
       serviceExecutionID: string;
@@ -551,6 +589,7 @@ export async function runServicesCheckout(
       currency: item.currency,
     })),
     orderCurrency: checkout.checkout.currency,
+    ...(options.agentType ? { agentType: options.agentType } : {}),
   });
 
   options.persistHandoff?.({
@@ -574,12 +613,14 @@ export async function runServicesCheckout(
     });
     return;
   }
-  await ensureIdeImageAttach(plan, {
-    enabled: config.ideImageAttach,
-    ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-  });
-  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, config.baseURL);
+  if (shouldPrepareLocalCheckoutImage(platform)) {
+    await ensureIdeImageAttach(plan, {
+      enabled: config.ideImageAttach,
+      ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    });
+  }
+  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, config.baseURL, options.agentType);
   const plainResult = [
     `service_execution_id: ${response.binding.service_execution_id}`,
     `checkout_id: ${checkoutID}`,
@@ -881,30 +922,37 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				? selection
 					? "Agent-visible 搜索已完成。向用户展示 items 中的编号、title 和 safe_payload，然后停止；不要调用 read-result。只有用户明确选择候选并要求继续时，才执行 next.command。"
 					: "这是当前 Graph 步骤对应的交付；结果已可供 Agent 使用，只使用 safe_payload。"
-				: "Agent-visible 交付已完成但没有结果项；不要调用 read-result 或重放当前 execution。",
+				: "Agent-visible 交付已完成但有 0 个结果。向用户展示空结果并停止；不要调用 read-result、重放当前 Execution、修改输入或创建新 Execution。",
 			next: selection ? {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
 				reason: "仅在用户明确选择后锁定来源候选",
 			} : null,
-      recovery: items.length > 0 ? [] : [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "检查交付时间线" }],
+			recovery: [],
     };
   }
   if (deliveryMode === "vault_artifact") {
     const grantStatus = normalizeGrantStatus(delivery?.grant_status);
     const grantActive = grantStatus === "active";
+    const grantPending = grantStatus === "pending";
     return {
-      status: grantActive ? "grant_active" : "human_authorization_required",
+      status: grantActive ? "grant_active" : grantPending ? "result_preparing" : "human_authorization_required",
       result: {
         service_execution_id: execution.service_execution_id,
-				...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
+        ...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
         delivery_mode: deliveryMode,
         grant_status: grantStatus,
+        ...(delivery?.preparation ? { preparation: delivery.preparation } : {}),
         ...(grantActive && delivery?.grant_expires_at ? { grant_expires_at: delivery.grant_expires_at } : {}),
       },
       instruction: grantActive
-			? "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。"
-			: "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
-      next: {
+        ? "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。"
+        : grantPending
+          ? "用户已经完成授权，服务端正在按已发布执行图准备交付内容。不要再次付款、再次授权、新建 Execution 或调用 read-result；只执行 next.command 查询同一 Execution。"
+          : "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
+      next: grantPending ? {
+        command: `itpay services next ${execution.service_execution_id} --json`,
+        reason: "等待同一 Execution 的交付准备完成",
+      } : {
         command: `itpay services read-result ${execution.service_execution_id} --json`,
         reason: grantActive ? "读取当前有效 grant 的结果" : "仅在用户确认授权后执行",
       },
@@ -929,6 +977,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 					execution.status === "quota_exhausted" ? "quota_exhausted" : "candidate_selected",
 					continuation.price,
 					continuation.capability.delivery_email_required,
+					continuation.capability.delivery_email_purpose,
 				),
 				next: continuation.next,
 				recovery: [],
@@ -1138,19 +1187,22 @@ function buildServicesCheckoutEnvelope(
   checkoutURL: string,
   plan: ReturnType<typeof buildCheckoutQRPlan>,
   baseURL: string,
+  agentType?: string,
 ): CommandEnvelope {
   const checkout = response.checkout;
   const platform = platformKeyForHost(plan.host);
-  const handoff: Record<string, unknown> = { url: checkoutURL };
-  if (plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath) {
-    handoff.qr_local_path = plan.ideImageAttach.localPath;
-  }
-  if (platform === "markdown") {
-    handoff.markdown = buildAgentChatHandoff(plan).markdown;
-  } else if (platform === "plain_chat" && checkout.qr_png_url) {
-    handoff.qr_image_url = absolutePublicURL(baseURL, checkout.qr_png_url);
-  }
 	const amount = formatMoney(checkout.checkout.amount_minor, checkout.checkout.currency);
+  const presentationHandoff = buildCheckoutHandoff({
+    platform,
+    url: checkoutURL,
+    amount,
+    ...(agentType ? { agentType } : {}),
+    ...(checkout.qr_png_url ? { qrImageURL: absolutePublicURL(baseURL, checkout.qr_png_url) } : {}),
+    ...(plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath
+      ? { localPath: plan.ideImageAttach.localPath }
+      : {}),
+    ...(platform === "markdown" ? { markdown: buildAgentChatHandoff(plan).markdown } : {}),
+  });
   return {
     status: "human_checkout_required",
     result: {
@@ -1160,8 +1212,8 @@ function buildServicesCheckoutEnvelope(
       locked_input: response.locked_input,
       amount,
     },
-    handoff,
-    instruction: checkoutInstruction(platform, amount),
+    handoff: presentationHandoff.handoff,
+    instruction: presentationHandoff.instruction,
     next: {
       command: `itpay checkout --id ${checkout.checkout.checkout_id} --token ${checkout.display_token} --json`,
       reason: "仅在用户完成付款操作或要求查询后，读取同一 Checkout 的权威状态",
@@ -1175,12 +1227,6 @@ function checkoutCapabilityID(
   fallback = "",
 ): string {
   return response.capability_id || fallback;
-}
-
-function checkoutInstruction(platform: ReturnType<typeof platformKeyForHost>, amount: string): string {
-  if (platform === "markdown") return `把 handoff.markdown 原样发送到当前桌面对话，确认二维码、付款链接和金额 ${amount} 都已实际对用户可见，然后停止等待。不要立即执行 next.command，不要创建第二个 Checkout、Execution 或调用 pay；用户完成付款操作或要求查询后，只执行 next.command。`;
-  if (platform === "terminal") return `在用户可见终端展示二维码、付款链接和金额 ${amount}，然后停止等待。不要立即执行 next.command，不要创建第二个 Checkout、Execution 或调用 pay；用户完成付款操作或要求查询后，只执行 next.command。`;
-  return `现在只做以下动作：1）把 handoff.url 作为可点击付款链接发送给用户；2）优先把 handoff.qr_local_path 作为图片附件发送，不能发送本地附件时使用 handoff.qr_image_url；3）明确告诉用户本次金额是 ${amount}；4）发送完成后停止并等待用户操作。不要立即执行 next.command，不要创建第二个 Checkout，不要新建 Execution，不要调用 pay。用户表示已经完成付款或要求查询状态后，只执行 next.command；用户的话本身不是付款成功证明。`;
 }
 
 function absolutePublicURL(baseURL: string, value: string): string {

@@ -85,7 +85,7 @@ itpay install [target] [--json]
 | `codex-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
 | `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
-| `workbuddy` | `plain-chat` | 当前使用通用会话交接，必须发送链接和可用图片。 |
+| `workbuddy` | `plain-chat` | 会持久化 `~/.itpay-v3` 的 Bash 调用先设 Shell 工具参数 `dangerouslyDisableSandbox=true`；拒绝权限时停止，不切换 Node、不删除 identity、不处理 lock。Checkout 返回 `qr_image_url` 时按 instruction 调用 `present_files`。 |
 
 显式 `--host` 可以在后续 commerce 命令覆盖默认 Host，但不会改变 Agent Type 或设备归属。
 

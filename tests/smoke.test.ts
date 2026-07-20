@@ -32,6 +32,7 @@ import { runBuy, buildCheckoutQRPlan } from "../src/commands/buy.js";
 import { CommandContractError, buildServiceInvokedGuidance, buildServiceReadModelGuidance, errorRecoveryActions } from "../src/commands/guidance.js";
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
+import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
@@ -649,6 +650,29 @@ test("services next recommends immediate read only for an active grant", async (
   assert.equal(envelope.next.command, "itpay services read-result se_granted --json");
 });
 
+test("services next makes pending grant a strict result-preparing wait state", async () => {
+  const model = await backend.getServiceExecution("se_vault_none");
+  model.current_delivery = {
+    ...model.current_delivery!,
+    grant_status: "pending",
+    preparation: { status: "running", total_nodes: 4, completed_nodes: 2, succeeded_nodes: 2, failed_nodes: 0 },
+  };
+  const pendingBackend = { getServiceExecution: async () => model } as unknown as BackendClient;
+  await runServicesNext(pendingBackend, "se_vault_none", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    instruction: string;
+    next: { command: string };
+    result: { preparation: { total_nodes: number; completed_nodes: number } };
+  };
+  assert.equal(envelope.status, "result_preparing");
+  assert.match(envelope.instruction, /不要再次付款、再次授权、新建 Execution 或调用 read-result/);
+  assert.equal(envelope.next.command, "itpay services next se_vault_none --json");
+  assert.deepEqual(envelope.result.preparation, {
+    status: "running", total_nodes: 4, completed_nodes: 2, succeeded_nodes: 2, failed_nodes: 0,
+  });
+});
+
 test("services next uses the current Vault delivery after an older agent-visible delivery", async () => {
 	const model = await backend.getServiceExecution("se_granted");
 	model.delivery_bindings.unshift({
@@ -732,7 +756,7 @@ test("protected checkout explains that email delivers the claim link", () => {
   }, [{
     capability_id: "precise_report", phase: "paid_fulfillment", agent_visible: false,
     requires_payment: true, requires_human_action: false, vault_required: true,
-    delivery_email_required: true, price_amount_minor: 50, price_currency: "CNY",
+    delivery_email_required: true, delivery_email_purpose: "claim", price_amount_minor: 50, price_currency: "CNY",
   }]);
   assert.equal(guidance.next_actions[0]?.command, "itpay services checkout se_precise --capability precise_report --email <email> --json");
   assert.match(guidance.next_actions[0]?.reason ?? "", /claim link/);
@@ -766,6 +790,27 @@ test("services invoke reads target capability metadata before checkout guidance"
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
 	assert.equal(requests.at(-2)?.method, "GET");
 	assert.equal(requests.at(-1)?.method, "POST");
+});
+
+test("services invoke returns a terminal zero-result contract", async () => {
+  await runServicesInvoke(
+    backend, config, "se_empty", "company_name_suggestion", { keyword: "北京赢在未来公司" },
+    { jsonOutput: true, output: stdoutSink },
+  );
+  const envelope = JSON.parse(stdoutCapture.join(""));
+  assert.deepEqual(envelope, {
+    status: "no_result",
+    result: {
+      service_execution_id: "se_empty",
+      capability_id: "company_name_suggestion",
+      query: { keyword: "北京赢在未来公司" },
+      items: [],
+      quota: { remaining: 1, limit: 3 },
+    },
+    instruction: "没有找到与“北京赢在未来公司”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。",
+    next: null,
+    recovery: [],
+  });
 });
 
 test("services invoke rejects paid capabilities and returns only same-execution recovery", async () => {
@@ -1253,10 +1298,10 @@ test("service guidance emits executable human selection action", () => {
     guidance.next_actions[0]?.command,
     "itpay services action se_select --action select_candidate --actor-type human --status approved --candidate <rank>",
   );
-  assert.equal(guidance.next_actions[1]?.command, "itpay services start svc_qizhidao_company_lookup");
+  assert.equal(guidance.next_actions.length, 1);
 });
 
-test("empty lookup starts a new execution instead of reusing a closed one", () => {
+test("empty lookup is terminal and does not offer another provider call", () => {
   const guidance = buildServiceReadModelGuidance({
     execution: {
       service_execution_id: "se_empty", service_id: "svc_company", service_contract_version_id: "scv_1",
@@ -1271,8 +1316,7 @@ test("empty lookup starts a new execution instead of reusing a closed one", () =
       status: "succeeded", created_at: "2026-07-12T00:00:00Z",
     }],
   });
-  assert.equal(guidance.next_actions[0]?.command, "itpay services start svc_company");
-  assert.doesNotMatch(guidance.next_actions[0]?.command ?? "", /services invoke/);
+  assert.deepEqual(guidance.next_actions, []);
 });
 
 test("service recovery guides backend outage retries", () => {
@@ -1824,8 +1868,7 @@ test("commerce entrypoints fail closed when the Backend compatibility contract i
           recovery: unknown[];
         };
         assert.equal(envelope.error.code, "backend_contract_incompatible");
-        assert.match(envelope.instruction, /立即向用户报告 error.message 并结束本次任务/);
-        assert.match(envelope.instruction, /不要运行任何其他 itpay、npm、which、device、docs、cart、orders 或 services 命令/);
+        assert.match(envelope.instruction, /Backend 未提供可验证的兼容 CLI 版本/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
         return true;
@@ -1847,7 +1890,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
         schema_revision: "sha256:schema",
         bootstrap_revision: "seed",
         api_contract_revision: "sha256:old-contract",
-        minimum_cli_version: "2.0.8",
+        minimum_cli_version: "2.0.14",
         maximum_cli_major: 2,
       }));
       return;
@@ -1865,20 +1908,65 @@ test("catalog and top-level next fail before guidance when the contract hash dif
         (error: unknown) => {
           const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
             error: { code: string; message: string };
+            result: { current_cli_version: string; required_cli_version: string };
             instruction: string;
             next: unknown;
-            recovery: unknown[];
+            recovery: Array<{ command: string; reason: string }>;
           };
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
-          assert.match(envelope.instruction, /不要运行任何其他 itpay/);
+          assert.deepEqual(envelope.result, {
+            current_cli_version: "2.0.13",
+            required_cli_version: "2.0.14",
+          });
+          assert.equal(
+            envelope.instruction,
+            "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。",
+          );
           assert.equal(envelope.next, null);
-          assert.deepEqual(envelope.recovery, []);
+          assert.deepEqual(envelope.recovery, [{
+            command: "npm install -g @itpay/cli@2.0.14",
+            reason: "安装 Backend 指定的兼容 CLI 版本",
+          }]);
           return true;
         },
       );
       assert.deepEqual(requests, ["/v1/platform/compatibility"]);
     }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("compatibility-gated CLI never guesses an upgrade version from an invalid contract", async () => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      platform_revision: "v3.invalid-version",
+      schema_revision: "sha256:schema",
+      bootstrap_revision: "seed",
+      api_contract_revision: "sha256:other-contract",
+      minimum_cli_version: "latest",
+      maximum_cli_major: 2,
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    await assert.rejects(
+      runCLI(["catalog", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}` }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          result?: unknown;
+          instruction: string;
+          recovery: unknown[];
+        };
+        assert.equal(envelope.result, undefined);
+        assert.match(envelope.instruction, /Backend 未提供可验证的兼容 CLI 版本/);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -1903,6 +1991,110 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
         assert.match(envelope.instruction, /不要重试、检查或删除 Device 身份/);
         assert.match(envelope.instruction, /不要.*切换 Backend/);
         assert.match(envelope.instruction, /quote、checkout、cart、buy、pay/);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  } finally {
+    mock.setServiceError();
+  }
+});
+
+test("CLI distinguishes provider input, temporary, contract, and generic failures", async () => {
+  for (const item of [
+    { status: 422, code: "provider_input_rejected", message: "输入不合法", instruction: /明确拒绝了该输入/ },
+    { status: 503, code: "provider_temporarily_unavailable", message: "查询超时", instruction: /不要自动重试/ },
+    { status: 502, code: "provider_contract_mismatch", message: "provider response did not match the published contract", instruction: /不是用户输入问题/ },
+    { status: 422, code: "provider_rejected", message: "provider rejected the request", instruction: /未声明这是输入错误/ },
+  ]) {
+    mock.setServiceError({
+      ...item, service_execution_id: "se_failed", provider_called: true,
+      effective_quota: { bucket: "company_name_suggestion", subject_type: "device_lineage", limit: 3, remaining: 1, exhausted: false, replenishment: "purchase_finalized" },
+    });
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string; message: string };
+          result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
+          instruction: string; next: unknown; recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, item.code);
+        assert.equal(envelope.error.message, item.message);
+        assert.deepEqual(envelope.result, { service_execution_id: "se_failed", provider_called: true, quota: { remaining: 1, limit: 3 } });
+        assert.match(envelope.instruction, item.instruction);
+        assert.equal(envelope.next, null);
+        assert.deepEqual(envelope.recovery, []);
+        return true;
+      },
+    );
+  }
+  mock.setServiceError();
+});
+
+test("CLI stops a known-no-effect provider connection failure without retry or paid recovery", async () => {
+  mock.setServiceError({
+    status: 503,
+    code: "provider_connection_unavailable",
+    message: "provider request was not sent; reserved quota was released",
+    service_execution_id: "se_failed",
+    provider_called: false,
+    effective_quota: {
+      bucket: "company_name_suggestion",
+      subject_type: "device_lineage",
+      limit: 3,
+      remaining: 3,
+      exhausted: false,
+      replenishment: "purchase_finalized",
+    },
+  });
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string; message: string };
+          result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
+          instruction: string;
+          next: unknown;
+          recovery: unknown[];
+        };
+        assert.deepEqual(envelope, {
+          status: "error",
+          error: {
+            code: "provider_connection_unavailable",
+            message: "provider request was not sent; reserved quota was released",
+          },
+          result: {
+            service_execution_id: "se_failed",
+            provider_called: false,
+            quota: { remaining: 3, limit: 3 },
+          },
+          instruction: "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。",
+          next: null,
+          recovery: [],
+        });
+        return true;
+      },
+    );
+  } finally {
+    mock.setServiceError();
+  }
+});
+
+test("CLI stops invalid capability input before recovery commands", async () => {
+	mock.setServiceError({ status: 400, code: "capability_input_invalid", message: "keyword is required" });
+  try {
+    await assert.rejects(
+      runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url }),
+      (error: unknown) => {
+        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          error: { code: string }; instruction: string; next: unknown; recovery: unknown[];
+        };
+        assert.equal(envelope.error.code, "capability_input_invalid");
+        assert.match(envelope.instruction, /上游尚未被调用且用户额度未变化/);
+        assert.match(envelope.instruction, /继续使用当前未结束的 Execution/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
         return true;
@@ -1975,6 +2167,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next.command, "itpay --agent-type workbuddy catalog list --json");
   assert.match(workbuddy.instruction, /同一 Node\/CLI launcher/);
+  assert.match(workbuddy.instruction, /dangerouslyDisableSandbox/);
 });
 
 test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
@@ -2028,6 +2221,10 @@ test("install returns one official contract for every supported Agent Type", asy
       install_command: "npm install -g @itpay/cli",
     });
     assert.match(envelope.instruction, /始终传这个 Agent Type/);
+    if (agentType === "workbuddy") {
+      assert.match(envelope.instruction, /present_files/);
+      assert.match(envelope.instruction, /不要检查本地二维码文件/);
+    }
     assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
     assert.equal(result.stderr, "");
   }
@@ -2154,13 +2351,14 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.10");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.13");
       return true;
     },
   );
 });
 
 test("checkout reads canonical presentation with display_token", async () => {
+  const before = mock.requests.length;
   await runCheckoutPresentation(backend, {
     checkoutID: "chk_demo",
     displayToken: "cdt_demo",
@@ -2170,7 +2368,7 @@ test("checkout reads canonical presentation with display_token", async () => {
   const req = mock.requests.find((item) => item.path === "/v1/checkouts/chk_demo/presentation?display_token=cdt_demo")!;
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/checkouts/chk_demo/presentation?display_token=cdt_demo");
-  assert.ok(mock.requests.some((item) => item.path === "/v1/checkouts/chk_demo/qr.png?display_token=cdt_demo"));
+  assert.equal(mock.requests.slice(before).some((item) => item.path === "/v1/checkouts/chk_demo/qr.png?display_token=cdt_demo"), false);
 });
 
 test("checkout pending JSON returns one compact human handoff", async () => {
@@ -2187,11 +2385,73 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   assert.equal(parsed.status, "human_checkout_required");
   assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
   assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
+  assert.match(parsed.handoff.markdown, /itpay checkout --id chk_pending --token cdt_pending --json/);
   assert.match(parsed.instruction, /停止等待/);
-  assert.match(parsed.instruction, /不要创建新 Checkout、Execution 或 Payment Intent/);
+  assert.match(parsed.instruction, /不要创建新 Checkout、Payment Intent 或 Execution/);
   assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending --json$/);
   assert.equal("agent_guidance" in parsed, false);
   assert.equal("brand_qr_mirrors" in parsed, false);
+});
+
+test("workbuddy checkout JSON returns only the HTTPS QR handoff and exact tool instruction", async () => {
+  const before = mock.requests.length;
+  const result = await runCLI([
+    "--agent-type", "workbuddy", "checkout",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: mkdtempSync(join(tmpdir(), "itpay-workbuddy-checkout-")),
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    status: string;
+    result: Record<string, unknown>;
+    handoff: Record<string, string>;
+    instruction: string;
+    next: { command: string };
+    recovery: unknown[];
+  };
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.status, "human_checkout_required");
+  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["qr_image_url", "url"]);
+  assert.equal(envelope.handoff.qr_image_url, "https://app.itpay.ai/v1/checkouts/chk_pending/qr.png?display_token=cdt_pending");
+  assert.match(envelope.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+  assert.match(envelope.instruction, /如果 present_files 失败，只发送 handoff\.url/);
+  assert.match(envelope.instruction, /不要调用 pay/);
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
+  assert.deepEqual(envelope.recovery, []);
+  assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), false);
+});
+
+test("workbuddy checkout falls back to the Checkout URL when no QR URL exists", () => {
+  const result = buildCheckoutHandoff({
+    agentType: "workbuddy",
+    platform: "plain_chat",
+    url: "https://example.test/checkout/chk_no_qr",
+    amount: "1.00 CNY",
+  });
+  assert.deepEqual(result.handoff, { url: "https://example.test/checkout/chk_no_qr" });
+  assert.match(result.instruction, /本次没有返回可展示的二维码/);
+  assert.match(result.instruction, /发送 handoff\.url/);
+  assert.match(result.instruction, /不要调用 present_files/);
+  assert.doesNotMatch(result.instruction, /读取 handoff\.qr_image_url/);
+});
+
+test("explicit terminal Host overrides WorkBuddy presentation without changing Agent Type", async () => {
+  const result = await runCLI([
+    "--agent-type", "workbuddy", "checkout", "--host", "terminal",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: mkdtempSync(join(tmpdir(), "itpay-workbuddy-terminal-")),
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    handoff: Record<string, string>;
+    instruction: string;
+    next: { command: string };
+  };
+  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
+  assert.doesNotMatch(envelope.instruction, /present_files/);
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
 });
 
 test("checkout completed never prepares or recommends another payment handoff", async () => {
@@ -2313,12 +2573,30 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     const envelope = JSON.parse(result.stdout) as {
       status: string;
       handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string };
+      instruction: string;
     };
     assert.equal(envelope.status, "human_checkout_required");
     assert.match(envelope.handoff.url, /display_token=/);
-    assert.ok(envelope.handoff.qr_local_path);
-    assert.equal(Boolean(envelope.handoff.markdown), expectedHost === "codex" || expectedHost === "claude-code");
+    const desktop = expectedHost === "codex" || expectedHost === "claude-code";
+    const expectedHandoffKeys = desktop
+      ? ["markdown", "qr_local_path", "url"]
+      : expectedHost === "plain-chat"
+        ? ["qr_image_url", "url"]
+        : ["url"];
+    assert.deepEqual(Object.keys(envelope.handoff).sort(), expectedHandoffKeys);
+    assert.equal(Boolean(envelope.handoff.markdown), desktop);
     assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat");
+    assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), desktop);
+    if (agentType === "workbuddy") {
+      assert.match(envelope.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+      assert.match(envelope.instruction, /然后停止等待/);
+      assert.match(envelope.instruction, /不要检查本地文件/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files/);
+    }
+    if (desktop) {
+      assert.match(envelope.handoff.markdown ?? "", new RegExp(`itpay --agent-type ${agentType} checkout --id`));
+    }
     const cartRequest = mock.requests.slice(before).find((request) => request.method === "POST" && request.path === "/v1/carts");
     assert.equal((cartRequest?.body as { client_context?: { host?: string } })?.client_context?.host, expectedHost);
   }
@@ -2359,6 +2637,7 @@ test("main checkout without args uses saved checkout id and display token", asyn
   });
   session.saveToFile(sessionPath);
 
+  const before = mock.requests.length;
   await runCLI(["checkout"], {
     ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     ITPAY_CART_SESSION_PATH: sessionPath,
@@ -2369,7 +2648,7 @@ test("main checkout without args uses saved checkout id and display token", asyn
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/checkouts/chk_saved/presentation?display_token=cdt_saved");
   assert.doesNotMatch(req.path, /undefined/);
-  assert.ok(mock.requests.some((item) => item.path === "/v1/checkouts/chk_saved/qr.png?display_token=cdt_saved"));
+  assert.equal(mock.requests.slice(before).some((item) => item.path === "/v1/checkouts/chk_saved/qr.png?display_token=cdt_saved"), false);
 });
 
 test("expired saved service checkout token returns an executable resume instruction", async () => {
@@ -2454,6 +2733,13 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     assert.equal(Object.keys(envelope.result).length, 4);
     assert.deepEqual(Object.keys(envelope.handoff).sort(), ["mobile_wallet_url", "qr_image_url"]);
     assert.match(envelope.next.command, /checkout --id .* --token .* --json/);
+    if (agentType === "workbuddy") {
+      assert.match(envelope.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+      assert.match(envelope.instruction, /金额 1\.00 CNY/);
+      assert.match(envelope.instruction, /停止等待/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files/);
+    }
     instructions.push(envelope.instruction);
   }
   assert.equal(new Set(instructions).size, 3);
@@ -2470,6 +2756,37 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     },
   );
   assert.equal(mock.requests.length, before);
+});
+
+test("workbuddy pay instructions reference only provider actions that exist", async () => {
+  for (const [checkoutID, expectedKeys] of [
+    ["chk_pay_qr_only", ["qr_image_url"]],
+    ["chk_pay_wallet_only", ["mobile_wallet_url"]],
+  ] as const) {
+    const output: string[] = [];
+    await runPay(backend, {
+      checkoutID,
+      displayToken: `cdt_${checkoutID}`,
+      method: "alipay",
+      host: "plain-chat",
+      agentType: "workbuddy",
+      jsonOutput: true,
+      output: (line) => output.push(line),
+    });
+    const envelope = JSON.parse(output.join("")) as {
+      handoff: Record<string, string>;
+      instruction: string;
+    };
+    assert.deepEqual(Object.keys(envelope.handoff), expectedKeys);
+    if (checkoutID.includes("qr_only")) {
+      assert.match(envelope.instruction, /present_files/);
+      assert.match(envelope.instruction, /把 handoff\.qr_image_url 作为可点击链接/);
+      assert.doesNotMatch(envelope.instruction, /mobile_wallet_url/);
+    } else {
+      assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
+      assert.match(envelope.instruction, /handoff\.mobile_wallet_url/);
+    }
+  }
 });
 
 test("pay recovers only the display token saved for the same checkout", async () => {
@@ -2513,9 +2830,11 @@ test("pay never returns a payment handoff for verified or refunded intents", asy
 
 test("services checkout JSON returns ItPay checkout handoff, not provider QR", async () => {
   const stdoutCaptureJSON: string[] = [];
+  const before = mock.requests.length;
   await runServicesCheckout(backend, config, "se_demo", "precise_report", {
     email: "buyer@example.com",
     host: "plain-chat",
+    agentType: "workbuddy",
     jsonOutput: true,
     output: (line) => stdoutCaptureJSON.push(line),
   });
@@ -2531,11 +2850,13 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.match(json.handoff.url, /^https:\/\/sandbox\.itpay\.ai\/checkout\/chk_/);
   assert.match(json.handoff.url, /display_token=/);
   assert.match(json.handoff.qr_image_url ?? "", /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_\d+\/qr\.png\?display_token=/);
+  assert.deepEqual(Object.keys(json.handoff).sort(), ["qr_image_url", "url"]);
   assert.equal(json.result.capability_id, "precise_report");
   assert.deepEqual(json.result.locked_input, {});
   assert.equal(json.result.amount, "0.50 CNY");
-  assert.match(json.instruction, /现在只做以下动作/);
-  assert.match(json.instruction, /发送完成后停止并等待用户操作/);
+  assert.match(json.instruction, /present_files\(\{ files: \["<完整 qr_image_url>"\] \}\)/);
+  assert.match(json.instruction, /然后停止等待/);
+  assert.match(json.instruction, /不要检查本地文件/);
   assert.match(json.instruction, /不要调用 pay/);
   assert.match(json.next.command, /itpay checkout --id .* --json$/);
   assert.deepEqual(json.recovery, []);
@@ -2545,7 +2866,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal("agent_action" in json, false);
   assert.equal("brand_qr_mirrors" in json, false);
   assert.ok(!JSON.stringify(json).includes("qr.alipay.com"));
-  assert.ok(mock.requests.some((req) => req.path.includes("/qr.png?display_token=")));
+  assert.equal(mock.requests.slice(before).some((req) => req.path.includes("/qr.png?display_token=")), false);
   assert.equal(JSON.stringify(json).includes("agent_access_token"), false);
 
   const displayToken = json.next.command.match(/--token ([^ ]+)/)?.[1];
@@ -2713,9 +3034,10 @@ test("services action resolves a human-selected candidate rank from the executio
 				capability_id: "precise_report",
 				price: { amount_minor: 50, currency: "CNY" },
 				delivery_email_required: true,
+				delivery_email_purpose: "claim",
 			},
 		},
-		instruction: "已选择 小米汽车科技有限公司。候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 0.50 CNY，并提供用于发送交付认领链接的邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
+		instruction: "已选择 小米汽车科技有限公司。候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 0.50 CNY，并提供用于发送交付认领链接的真实邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
 		next: {
 			command: "itpay services checkout se_select_by_rank --capability precise_report --email <email> --json",
 			reason: "仅在用户明确同意支付 0.50 CNY 并提供真实邮箱后执行；否则停止",
@@ -2802,7 +3124,7 @@ test("services start returns only the documented capability entrypoint", async (
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "ready");
   assert.equal(parsed.result.service_id, "svc_qizhidao_company_lookup");
-  assert.equal(parsed.result.capability.capability_id, "fuzzy_disambiguation");
+  assert.equal(parsed.result.capability.capability_id, "company_name_suggestion");
   assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
   assert.match(parsed.next.command, /--input keyword=<value> --json$/);
   assert.equal("execution" in parsed, false);
@@ -3375,7 +3697,7 @@ test("runBuy mirrors the brand QR into the canonical directory", async () => {
   assert.ok(stat.size > 0);
 });
 
-test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
+test("runBuy disables desktop IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -3386,7 +3708,7 @@ test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   });
   const result = await runBuy(backend, { ...config, ideImageAttach: false }, {
     cartSession: session,
-    host: "plain-chat",
+    host: "codex",
     output: silent,
   });
   assert.equal(result.kind, "checkout_rendered");
@@ -3399,7 +3721,7 @@ test("runBuy disables IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async () => {
   assert.equal(lastReq.path, "/v1/checkouts");
 });
 
-test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => {
+test("runBuy surfaces desktop attach failure when the brand QR HTTP fails", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -3417,8 +3739,7 @@ test("runBuy surfaces attach failure when the brand QR HTTP fails", async () => 
   };
   const result = await runBuy(backend, config, {
     cartSession: session,
-    host: "telegram",
-    target: "chat-fail",
+    host: "codex",
     fetchImpl: failingFetch,
     output: silent,
   });
@@ -3443,6 +3764,7 @@ test("runBuy JSON output exposes only the current Host handoff", async () => {
   await runBuy(backend, config, {
     cartSession: session,
     host: "plain-chat",
+    agentType: "workbuddy",
     jsonOutput: true,
     output: jsonSink,
   });
@@ -3455,7 +3777,7 @@ test("runBuy JSON output exposes only the current Host handoff", async () => {
   assert.equal(json.status, "human_checkout_required");
   assert.deepEqual(json.result, { checkout_id: json.result.checkout_id, payment: "pending", amount: "1.00 CNY", item_count: 1 });
   assert.match(json.handoff.url, /display_token=/);
-  assert.ok(json.handoff.qr_local_path);
+  assert.deepEqual(Object.keys(json.handoff).sort(), ["qr_image_url", "url"]);
   assert.match(json.handoff.qr_image_url ?? "", /\/qr\.png\?display_token=/);
   assert.match(json.next.command, /checkout --id .* --token .* --json/);
   assert.equal("brand_qr_mirrors" in json, false);

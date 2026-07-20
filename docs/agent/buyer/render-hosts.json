@@ -33,7 +33,7 @@
     {
       "agent_type": "workbuddy",
       "default_host": "plain-chat",
-      "responsibility": "send the returned Checkout URL and any usable image attachment to the current chat"
+      "responsibility": "when handoff.qr_image_url exists, use its exact HTTPS value as the only files element in present_files; otherwise send the Checkout URL without calling present_files; show the amount and stop"
     }
   ],
   "commands": [
@@ -50,14 +50,16 @@
   ],
   "agent_rules": [
     "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
-    "A local QR path is not visible until the Agent attaches or renders that file on the human-facing surface.",
+    "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
+    "For workbuddy with plain-chat, call present_files exactly as the returned instruction says. If it fails, send only handoff.url, report that the preview did not open, and stop.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target; the initial five Agent Types currently default to desktop, terminal, or plain-chat Hosts."
   ],
   "forbidden": [
     "Do not expose display tokens separately from the tokenized Checkout handoff.",
     "Do not print base64 images, mirror lists, renderer debug state, or provider QR URLs.",
-    "Do not claim a desktop attachment exists when only a filesystem path was printed."
+    "Do not claim a desktop attachment exists when only a filesystem path was printed.",
+    "Do not inspect, download, or regenerate a local QR file for WorkBuddy."
   ],
   "next_docs": [
     {

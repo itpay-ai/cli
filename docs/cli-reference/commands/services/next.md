@@ -67,7 +67,7 @@ itpay services next <service_execution_id> [--json]
       }
     ]
   },
-  "instruction": "付费模糊搜索已完成。现在把 items 中的编号、title 和 safe_payload 展示给用户，然后停止。本结果是 agent-visible，不要调用 read-result。若用户的目标只是搜索候选企业，任务已经完成；只有用户之后明确选择某个候选并要求继续时，才执行 next.command。不要自动购买后续报告。",
+  "instruction": "付费 Agent-visible 搜索已完成。现在把 items 中的编号、title 和 safe_payload 展示给用户，然后停止。本结果是 agent-visible，不要调用 read-result。若用户的目标只是候选搜索，任务已经完成；只有用户之后明确选择某个候选并要求继续时，才执行 next.command。不要自动购买后续报告。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
     "reason": "仅在用户明确选择候选并要求继续时执行"
@@ -95,6 +95,33 @@ itpay services next <service_execution_id> [--json]
   "next": {
     "command": "itpay services read-result <id> --json",
     "reason": "仅在用户确认授权后执行"
+  },
+  "recovery": []
+}
+```
+
+用户已经授权、但服务端仍在按已发布执行图准备 Vault 交付时，必须只轮询同一 Execution：
+
+```json
+{
+  "status": "result_preparing",
+  "result": {
+    "service_execution_id": "<id>",
+    "capability_id": "<capability_id>",
+    "delivery_mode": "vault_artifact",
+    "grant_status": "pending",
+    "preparation": {
+      "status": "running",
+      "total_nodes": 4,
+      "completed_nodes": 2,
+      "succeeded_nodes": 2,
+      "failed_nodes": 0
+    }
+  },
+  "instruction": "用户已经完成授权，服务端正在按已发布执行图准备交付内容。不要再次付款、再次授权、新建 Execution 或调用 read-result；只执行 next.command 查询同一 Execution。",
+  "next": {
+    "command": "itpay services next <id> --json",
+    "reason": "等待同一 Execution 的交付准备完成"
   },
   "recovery": []
 }

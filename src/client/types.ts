@@ -194,6 +194,23 @@ export interface PlatformCompatibility {
 export interface ErrorResponse {
   code: string;
   message: string;
+  minimum_cli_version?: string;
+  maximum_cli_major?: number;
+  platform_revision?: string;
+  api_contract_revision?: string;
+  upgrade_command?: string;
+  service_execution_id?: string;
+  provider_called?: boolean;
+  effective_quota?: EffectiveQuota;
+}
+
+export interface EffectiveQuota {
+  bucket: string;
+  subject_type: string;
+  limit: number;
+  remaining: number;
+  exhausted: boolean;
+  replenishment: string;
 }
 
 // --- Catalog types (from GET /v1/catalog/manifest) ---
@@ -267,6 +284,7 @@ export interface ServiceCapability {
   requires_human_action: boolean;
   vault_required: boolean;
   delivery_email_required: boolean;
+  delivery_email_purpose?: "receipt" | "claim" | "receipt_and_claim" | "delivery";
   price_amount_minor?: number;
   price_currency?: string;
   free_quota_limit?: number;
@@ -342,14 +360,7 @@ export interface ServiceCapabilityInvoked {
   invocation?: ServiceCapabilityInvocation;
   result_items: ServiceCapabilityResultItem[];
   provider_called: boolean;
-  effective_quota?: {
-    bucket: string;
-    subject_type: string;
-    limit: number;
-    remaining: number;
-    exhausted: boolean;
-    replenishment: string;
-  };
+  effective_quota?: EffectiveQuota;
   next_actions?: Array<{
     kind: string;
     capability_id?: string;
@@ -464,6 +475,13 @@ export interface ServiceDeliveryBinding {
   grant_status?: string;
   grant_expires_at?: string;
   redacted_summary?: Record<string, unknown>;
+  preparation?: {
+    status: "pending" | "running" | "completed" | "partial" | "failed";
+    total_nodes: number;
+    completed_nodes: number;
+    succeeded_nodes: number;
+    failed_nodes: number;
+  };
 }
 
 export interface ServiceExecutionReadModel {

@@ -34,6 +34,9 @@
   "agent_rules": [
     "Install with npm install -g @itpay/cli.",
     "The production Backend is fixed to https://app.itpay.ai and cannot be redirected by runtime environment variables.",
+    "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and run only the exact npm install recovery returned by the CLI; never replace its version with latest.",
+    "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
+    "The production Backend is fixed to https://app.itpay.ai and cannot be redirected by runtime environment variables.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, or workbuddy.",
     "One local private key is reused with the https://app.itpay.ai production Device registration and quota lineage.",
     "Within the production Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",

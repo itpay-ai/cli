@@ -31,6 +31,7 @@ export interface CommandEnvelope {
 export interface CommandErrorEnvelope {
   status: "error";
   error: { code: string; message: string };
+  result?: Record<string, unknown>;
   instruction: string;
   next: null;
   recovery: CommandAction[];
@@ -64,12 +65,17 @@ export function writeCommandEnvelope(
     return;
   }
   out(`${qualified.status}\n`);
-  const facts = "result" in qualified ? qualified.result : qualified.error;
+  const facts = "error" in qualified ? qualified.error : qualified.result;
   if (options.plainResult) {
     for (const line of options.plainResult) out(`${line}\n`);
   } else {
     for (const [key, fact] of Object.entries(facts)) {
       out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+    }
+    if ("error" in qualified && qualified.result) {
+      for (const [key, fact] of Object.entries(qualified.result)) {
+        out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+      }
     }
   }
   if ("handoff" in qualified && qualified.handoff) {
@@ -469,7 +475,7 @@ function buildServiceGuidance(input: {
         command: `itpay services checkout ${execution.service_execution_id} --capability ${capabilityID}${emailRequired ? " --email <email>" : ""} --json`,
         requires_human: true,
         reason: emailRequired
-          ? "Ask the human for their email. It is used to send the protected result claim link; never invent or substitute an address."
+          ? deliveryEmailGuidance(checkoutCapability?.delivery_email_purpose)
           : "This capability returns an agent-visible result after payment and does not require a delivery email.",
       });
     } else {
@@ -480,13 +486,7 @@ function buildServiceGuidance(input: {
       });
     }
   } else if ((input.providerCalled || execution.next_action === "select_candidate") && (input.resultItems?.length ?? 0) === 0) {
-    nextActions.push({
-      id: "start_refined_search",
-      label: "Start a new execution with a more specific company name",
-      command: `itpay services start ${execution.service_id}`,
-      requires_human: true,
-      reason: "No candidates were found. This execution is finished; use one new execution per new keyword.",
-    });
+    // Terminal empty result: a later explicit human request starts a new flow.
   } else if (needsHumanSelection(execution, resultItem)) {
     nextActions.push({
       id: "select_result_item",
@@ -494,12 +494,6 @@ function buildServiceGuidance(input: {
       command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank>`,
       requires_human: true,
       reason: "Do not choose a candidate without explicit human confirmation.",
-    });
-    nextActions.push({
-      id: "start_another_search",
-      label: "Search another company in a new execution",
-      command: `itpay services start ${execution.service_id}`,
-      reason: "This execution has completed its one keyword lookup; do not reuse it for another keyword.",
     });
   } else if (prePurchase) {
     const action: AgentNextAction = {
@@ -548,6 +542,7 @@ function buildServiceGuidance(input: {
         requires_payment: capability.requires_payment,
         vault_required: capability.vault_required,
         delivery_email_required: capability.delivery_email_required,
+        delivery_email_purpose: capability.delivery_email_purpose,
         price_amount_minor: capability.price_amount_minor,
         price_currency: capability.price_currency,
         free_quota_limit: capability.free_quota_limit,
@@ -566,6 +561,19 @@ function buildServiceGuidance(input: {
       ? { visible_results: input.resultItems.map((item) => ({ rank: item.rank, title: item.display_title, safe_payload: item.safe_payload })) }
       : {}),
   };
+}
+
+function deliveryEmailGuidance(purpose?: ServiceCapability["delivery_email_purpose"]): string {
+  switch (purpose) {
+    case "receipt":
+      return "Ask the human for their email. It is used to send the order receipt; never invent or substitute an address.";
+    case "claim":
+      return "Ask the human for their email. It is used to send the protected result claim link; never invent or substitute an address.";
+    case "receipt_and_claim":
+      return "Ask the human for their email. It is used to send the order receipt and protected result claim link; never invent or substitute an address.";
+    default:
+      return "Ask the human for the required email and state only the Backend-declared purpose; never invent or substitute an address.";
+  }
 }
 
 function firstPrePurchaseCapability(capabilities: ServiceCapability[]): ServiceCapability | undefined {
