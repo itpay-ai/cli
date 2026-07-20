@@ -35,7 +35,12 @@ jobs:
             TAG=next
           fi
           if npm view "@itpay/cli@$VERSION" version &>/dev/null; then
-            echo "Version $VERSION already published — skipping"
+            PUBLISHED_GIT_HEAD=$(npm view "@itpay/cli@$VERSION" gitHead)
+            if [[ "$PUBLISHED_GIT_HEAD" != "$GITHUB_SHA" ]]; then
+              echo "Version $VERSION belongs to $PUBLISHED_GIT_HEAD, not $GITHUB_SHA — bump package version" >&2
+              exit 1
+            fi
+            echo "Version $VERSION already published from this commit — skipping"
           else
             npm publish --access public --tag "$TAG"
             echo "Published @itpay/cli@$VERSION with dist-tag $TAG"
