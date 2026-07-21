@@ -10,7 +10,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -42,7 +42,7 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { DEFAULT_BASE_URL, loadConfig, type CLIConfig } from "../src/state/config.js";
+import { DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -83,6 +83,7 @@ before(async () => {
   mock = await startMockBackend();
   config = {
     baseURL: mock.url,
+    environment: "production",
     checkoutCurrency: "CNY",
     idempotencyKey: "cli_smoke_key",
     ideImageAttach: true,
@@ -104,16 +105,39 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("production backend is pinned to app.itpay.ai", () => {
+test("Backend override accepts only official production and dev origins", () => {
   assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
   assert.equal(loadConfig({
     ITPAY_BACKEND_URL: "https://dev.itpay.ai",
     ITPAY_IDEMPOTENCY_KEY: "config-test",
-  }).baseURL, DEFAULT_BASE_URL);
+  }).baseURL, DEV_BASE_URL);
+  assert.equal(loadConfig({
+    ITPAY_BACKEND_URL: "https://dev.itpay.ai/",
+    ITPAY_IDEMPOTENCY_KEY: "config-test",
+  }).environment, "development");
   assert.equal(loadConfig({
     ITPAY_CLI_TEST_TRANSPORT_URL: "http://127.0.0.1:4321",
     ITPAY_IDEMPOTENCY_KEY: "config-test",
   }).baseURL, DEFAULT_BASE_URL);
+  for (const value of [
+    "http://dev.itpay.ai", "https://test.itpay.ai", "https://dev.itpay.ai/path",
+    "https://dev.itpay.ai?x=1", "https://127.0.0.1", "http://localhost:8080",
+  ]) {
+    assert.throws(() => loadConfig({ ITPAY_BACKEND_URL: value, ITPAY_IDEMPOTENCY_KEY: "config-test" }), /only supports/);
+  }
+});
+
+test("production and dev keep separate cart and operation state", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-backend-state-"));
+  const productionEnv = { HOME: home };
+  const developmentEnv = { HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL };
+  assert.equal(cartSessionPath(productionEnv), join(home, ".itpay-v3", "cart.json"));
+  assert.equal(cartSessionPath(developmentEnv), join(home, ".itpay-v3", "cart.dev.json"));
+
+  await operationID(loadConfig(productionEnv), "same-operation");
+  await operationID(loadConfig(developmentEnv), "same-operation");
+  assert.ok(existsSync(join(home, ".itpay-v3", "operations.json")));
+  assert.ok(existsSync(join(home, ".itpay-v3", "operations.dev.json")));
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -1835,7 +1859,7 @@ test("readyz probes /v1/readyz", async () => {
   assert.equal(req.path, "/v1/readyz");
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
     status: "ready",
-    result: { backend: "available" },
+    result: { backend: "available", backend_url: "https://app.itpay.ai", environment: "production" },
     instruction: "ItPay 可用；先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。sell 将来也使用同一入口，但当前尚未实现。",
     next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
     recovery: [],
@@ -1890,7 +1914,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
         schema_revision: "sha256:schema",
         bootstrap_revision: "seed",
         api_contract_revision: "sha256:old-contract",
-        minimum_cli_version: "2.0.15",
+        minimum_cli_version: "2.0.16",
         maximum_cli_major: 2,
       }));
       return;
@@ -1916,8 +1940,8 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.14",
-            required_cli_version: "2.0.15",
+            current_cli_version: "2.0.15",
+            required_cli_version: "2.0.16",
           });
           assert.equal(
             envelope.instruction,
@@ -1925,7 +1949,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           );
           assert.equal(envelope.next, null);
           assert.deepEqual(envelope.recovery, [{
-            command: "npm install -g @itpay/cli@2.0.15",
+            command: "npm install -g @itpay/cli@2.0.16",
             reason: "安装 Backend 指定的兼容 CLI 版本",
           }]);
           return true;
@@ -2113,6 +2137,44 @@ test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   const envelope = JSON.parse(result.stdout) as { result: { agent_type: string }; next: { command: string } };
   assert.equal(envelope.result.agent_type, "claude-code-cli");
   assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay --json");
+});
+
+test("dev Backend is explicit and preserved in every next command", async () => {
+  const result = await runCLI(["readyz", "--json"], {
+    ITPAY_BACKEND_URL: DEV_BASE_URL,
+    ITPAY_AGENT_TYPE: "workbuddy",
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    result: { backend_url: string; environment: string };
+    instruction: string;
+    next: { command: string };
+  };
+  assert.deepEqual(envelope.result, {
+    backend: "available",
+    backend_url: DEV_BASE_URL,
+    environment: "development",
+    agent_type: "workbuddy",
+  });
+  assert.match(envelope.instruction, /dev Backend/);
+  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${DEV_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
+});
+
+test("forbidden Backend override fails before any request", async () => {
+  const requestsBefore = mock.requests.length;
+  await assert.rejects(
+    runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: "https://evil.example" }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
+      };
+      assert.equal(envelope.error.code, "backend_override_forbidden");
+      assert.match(envelope.instruction, /https:\/\/dev\.itpay\.ai/);
+      assert.equal(envelope.next, null);
+      assert.deepEqual(envelope.recovery, []);
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, requestsBefore);
 });
 
 test("device recover requires confirmation and remains Backend-scoped", async () => {
@@ -2351,7 +2413,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.14");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.15");
       return true;
     },
   );

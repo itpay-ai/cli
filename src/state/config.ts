@@ -1,5 +1,5 @@
-// CLI configuration loader. The production Backend is pinned to app.itpay.ai;
-// environment variables configure only non-Backend runtime details. Checkout
+// CLI configuration loader. Production defaults to app.itpay.ai; the only
+// allowed override is the official dev Backend. Checkout
 // display-token persistence belongs to the cart session file, protected with
 // owner-only permissions. Provider secrets are explicitly out of scope here.
 
@@ -15,6 +15,7 @@ import { OperationJournal } from "./operation_journal.js";
 
 export interface CLIConfig {
   baseURL: string;
+  environment: "production" | "development";
   bearerToken?: string;
   agentType?: string;
   checkoutCurrency: string;
@@ -31,23 +32,57 @@ export interface CLIConfig {
 }
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
-export const CLI_VERSION = "2.0.14";
+export const DEV_BASE_URL = "https://dev.itpay.ai";
+export const CLI_VERSION = "2.0.15";
 export const API_CONTRACT_REVISION = "sha256:7f4c40b082292bf823631bcd37d452f4a8537153e30636d5eb3a2b24a77ce602";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
 
+export class BackendOverrideError extends Error {
+  readonly code = "backend_override_forbidden";
+
+  constructor() {
+    super(`ITPAY_BACKEND_URL only supports ${DEFAULT_BASE_URL} or ${DEV_BASE_URL}`);
+    this.name = "BackendOverrideError";
+  }
+}
+
+export function resolveBackendURL(env: NodeJS.ProcessEnv = process.env): string {
+  const requested = env.ITPAY_BACKEND_URL?.trim();
+  if (!requested || requested === DEFAULT_BASE_URL || requested === `${DEFAULT_BASE_URL}/`) return DEFAULT_BASE_URL;
+  if (requested === DEV_BASE_URL || requested === `${DEV_BASE_URL}/`) return DEV_BASE_URL;
+  throw new BackendOverrideError();
+}
+
+export function qualifyBackendCommand(command: string, env: NodeJS.ProcessEnv = process.env): string {
+  const requested = env.ITPAY_BACKEND_URL?.trim();
+  if (requested !== DEV_BASE_URL && requested !== `${DEV_BASE_URL}/`) return command;
+  if (!command.startsWith("itpay ") || command.startsWith(`ITPAY_BACKEND_URL=${DEV_BASE_URL} `)) return command;
+  return `ITPAY_BACKEND_URL=${DEV_BASE_URL} ${command}`;
+}
+
+function stateFilename(filename: string, baseURL: string): string {
+  if (baseURL !== DEV_BASE_URL) return filename;
+  const dot = filename.lastIndexOf(".");
+  return dot < 0 ? `${filename}.dev` : `${filename.slice(0, dot)}.dev${filename.slice(dot)}`;
+}
+
+function stateDir(env: NodeJS.ProcessEnv): string {
+  return resolve(env.HOME || homedir(), CART_SESSION_DEFAULT_DIR);
+}
+
 export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {
   if (env.ITPAY_CART_SESSION_PATH) {
     return resolve(env.ITPAY_CART_SESSION_PATH);
   }
-  const dir = resolve(homedir(), CART_SESSION_DEFAULT_DIR);
+  const dir = stateDir(env);
   mkdirSync(dir, { recursive: true });
-  return resolve(dir, CART_SESSION_FILENAME);
+  return resolve(dir, stateFilename(CART_SESSION_FILENAME, resolveBackendURL(env)));
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
-  const baseURL = DEFAULT_BASE_URL;
+  const baseURL = resolveBackendURL(env);
   const bearerToken = env.ITPAY_BEARER_TOKEN || undefined;
   const agentType = declaredAgentType(env);
   const checkoutCurrency = env.ITPAY_CURRENCY || "CNY";
@@ -56,10 +91,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const ideImageDirOverride = env.ITPAY_IDE_IMAGE_DIR_OVERRIDE;
   return {
     baseURL,
-	...(agentType ? { agentType } : {}),
+    environment: baseURL === DEV_BASE_URL ? "development" : "production",
+    ...(agentType ? { agentType } : {}),
     checkoutCurrency,
     idempotencyKey,
-    ...(!env.ITPAY_IDEMPOTENCY_KEY ? { operationJournal: new OperationJournal(resolve(homedir(), CART_SESSION_DEFAULT_DIR, OPERATION_JOURNAL_FILENAME)) } : {}),
+    ...(!env.ITPAY_IDEMPOTENCY_KEY ? { operationJournal: new OperationJournal(resolve(stateDir(env), stateFilename(OPERATION_JOURNAL_FILENAME, baseURL))) } : {}),
     ideImageAttach,
     ...(ideImageDirOverride ? { ideImageDirOverride } : {}),
     ...(bearerToken ? { bearerToken } : {}),
@@ -72,21 +108,21 @@ export function operationID(config: CLIConfig, operationKey: string): Promise<st
 }
 
 export function newBackendClient(config: CLIConfig): BackendClient {
-	const authority = new DeviceAuthority({
-		baseURL: config.baseURL,
-		...(config.agentType ? { requestedAgentType: config.agentType } : {}),
-		compatibilityHeaders: {
-			"X-ItPay-CLI-Version": CLI_VERSION,
-			"X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
-		},
-	});
+  const authority = new DeviceAuthority({
+    baseURL: config.baseURL,
+    ...(config.agentType ? { requestedAgentType: config.agentType } : {}),
+    compatibilityHeaders: {
+      "X-ItPay-CLI-Version": CLI_VERSION,
+      "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
+    },
+  });
   const http = new HttpClient({
     baseURL: config.baseURL,
     defaultHeaders: {
       "X-ItPay-CLI-Version": CLI_VERSION,
       "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
-	requestAuthorizer: (input) => authority.authorizationHeaders(input),
+    requestAuthorizer: (input) => authority.authorizationHeaders(input),
     recoverAuthorization: () => authority.recoverAuthorization(),
   });
   return new BackendClient(http);

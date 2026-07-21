@@ -3,7 +3,7 @@
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { BackendOverrideError, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
@@ -136,6 +136,7 @@ function reportCLIError(
   contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[] },
 ): void {
   const commandError = error instanceof CommandContractError ? error : undefined;
+  const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
   const deviceError = error instanceof DeviceAuthorizationError ? error : undefined;
   const stateError = error instanceof DeviceStateError ? error : undefined;
   const httpRecovery = errorRecoveryActions(error).map((action) => ({
@@ -177,11 +178,11 @@ function reportCLIError(
       : deviceError
         ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
         : undefined;
-  if (contract || commandError) {
+  if (contract || commandError || backendOverrideError) {
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: incompatible ? "backend_contract_incompatible" : commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
+        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
       ...(requiredCLIVersion ? {
@@ -219,6 +220,8 @@ function reportCLIError(
 			? "Provider 拒绝了本次请求，但未声明这是输入错误；向用户逐字报告 error.message 和 result.quota 并停止。不要修改输入、不要重试、不要创建新 Execution。"
 		: capabilityInputInvalid
 			? "输入未通过本地校验，上游尚未被调用且用户额度未变化。向用户逐字报告 error.message 并停止，不要原样重试或运行其他恢复命令。用户提供修正后的输入后，继续使用当前未结束的 Execution。"
+		: backendOverrideError
+			? "移除 ITPAY_BACKEND_URL 使用正式环境，或准确设置为 https://dev.itpay.ai。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
       recovery: incompatible
@@ -227,9 +230,9 @@ function reportCLIError(
           : []
         : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
           ? []
-          : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+          : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
-      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : {}),
+      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError ? { jsonOutput: process.argv.includes("--json") } : {}),
       output: (text) => { process.stderr.write(text); },
     });
     process.exitCode = 1;
@@ -271,14 +274,17 @@ program
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runReadyz(backend, { jsonOutput: Boolean(options.json), ...(config.agentType ? { agentType: config.agentType } : {}) });
+      await runReadyz(backend, {
+        jsonOutput: Boolean(options.json), backendURL: config.baseURL, environment: config.environment,
+        ...(config.agentType ? { agentType: config.agentType } : {}),
+      });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "backend_unavailable",
-        instruction: "固定生产后端 https://app.itpay.ai 当前不可用；后端恢复前不要继续下单，也不要切换到其他地址。",
+        instruction: `当前官方 Backend ${config.baseURL} 不可用；恢复前不要继续下单，也不要切换环境。`,
         recovery: [
-          { command: "itpay readyz", reason: "重试固定生产后端的可用性检查" },
+          { command: "itpay readyz", reason: "重试当前官方 Backend 的可用性检查" },
         ],
       });
     }
@@ -286,11 +292,11 @@ program
 
 // --- device ---------------------------------------------------------------
 
-const deviceCmd = program.command("device").description("Recover local Device registration state after an operator-confirmed Backend reset");
+const deviceCmd = program.command("device").description("Recover the current official Backend registration after an operator-confirmed reset");
 
 deviceCmd
   .command("recover")
-  .description("Forget only the app.itpay.ai registration while preserving the local private key")
+  .description("Forget only the current official Backend registration while preserving the local private key")
   .option("--confirm-backend-reset", "confirm that an operator reset the selected Backend registration database")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
@@ -299,7 +305,7 @@ deviceCmd
       if (!config.agentType) {
         throw new CommandContractError(
           "agent_type_required",
-          "agent type is required for app.itpay.ai Device recovery",
+          `agent type is required for ${config.baseURL} Device recovery`,
           "如实声明当前 Agent Type；恢复后必须用同一类型重新登记。",
           [{ command: "itpay install --json", reason: "选择当前真实 Agent Type" }],
         );
