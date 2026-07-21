@@ -20,8 +20,8 @@ if (
 const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = (input, init) => {
   const source = new URL(input instanceof Request ? input.url : String(input));
-  if (source.origin !== "https://app.itpay.ai") {
-    throw new Error(`CLI attempted a non-production Backend: ${source.origin}`);
+  if (source.origin !== "https://app.itpay.ai" && source.origin !== "https://dev.itpay.ai") {
+    throw new Error(`CLI attempted a non-official Backend: ${source.origin}`);
   }
   const routed = new URL(source.pathname + source.search, transport);
   return nativeFetch(routed, init);

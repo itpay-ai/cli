@@ -13,6 +13,7 @@ import type {
 } from "../client/types.js";
 import { resolveOutput, type OutputSink } from "../render/sink.js";
 import { declaredAgentType, qualifyItPayCommand } from "../state/agent_type.js";
+import { qualifyBackendCommand } from "../state/config.js";
 
 export interface CommandAction {
   command: string;
@@ -141,7 +142,7 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
     out("next actions:\n");
     for (const action of guidance.next_actions) {
       out(`  - ${action.label}\n`);
-      out(`    ${qualifyItPayCommand(action.command, agentType)}\n`);
+      out(`    ${qualifyBackendCommand(qualifyItPayCommand(action.command, agentType))}\n`);
       if (action.requires_human) out("    requires human confirmation\n");
       if (action.reason) out(`    reason: ${action.reason}\n`);
     }
@@ -150,7 +151,7 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
     out("recovery:\n");
     for (const action of guidance.recovery) {
       out(`  - ${action.label}\n`);
-      out(`    ${qualifyItPayCommand(action.command, agentType)}\n`);
+      out(`    ${qualifyBackendCommand(qualifyItPayCommand(action.command, agentType))}\n`);
     }
   }
 }
@@ -158,10 +159,10 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
 function qualifyEnvelope<T extends CommandEnvelope | CommandErrorEnvelope>(value: T, agentType: string | undefined): T {
   return {
     ...value,
-    next: value.next ? { ...value.next, command: qualifyItPayCommand(value.next.command, agentType) } : null,
+    next: value.next ? { ...value.next, command: qualifyBackendCommand(qualifyItPayCommand(value.next.command, agentType)) } : null,
     recovery: value.recovery.map((action) => ({
       ...action,
-      command: qualifyItPayCommand(action.command, agentType),
+      command: qualifyBackendCommand(qualifyItPayCommand(action.command, agentType)),
     })),
   };
 }
@@ -369,7 +370,7 @@ export function errorRecoveryActions(error: unknown): AgentNextAction[] {
     return [
       {
         id: "retry_after_backend_recovers",
-        label: "Retry after app.itpay.ai is reachable",
+        label: "Retry after the selected official Backend is reachable",
         command: "itpay readyz",
       },
     ];

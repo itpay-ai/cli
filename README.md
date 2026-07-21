@@ -15,7 +15,7 @@ itpay --agent-type codex-desktop readyz --json
 # follow next.command: typed skill show, then catalog list
 ```
 
-The production Backend is permanently pinned to `https://app.itpay.ai`. Runtime environment variables cannot redirect the CLI to another Backend.
+The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit tests may set `ITPAY_BACKEND_URL=https://dev.itpay.ai`; every other Backend URL is rejected before network or local state access.
 
 ## Output Contract
 
@@ -46,11 +46,11 @@ Normative per-command contracts: [CLI Command Reference](docs/cli-reference/inde
 
 `--agent-type` identifies the stable runtime and registered Agent instance. Every returned ItPay command preserves it. Different windows or chats of the same type reuse one Agent Instance; they are not separate identities. `--host` only selects the human presentation surface, and `--target` only routes output to a Host destination. Use `itpay install <agent_type> --json` for the exact responsibility.
 
-The local installation keeps one Ed25519 private key and one production Device registration for `https://app.itpay.ai`, with one Agent Instance per Agent Type. A rejected session is renewed and the same request is retried once; revoked v2 registrations are never silently replaced.
+The local installation keeps one Ed25519 private key and a separate registration for each official Backend, with one Agent Instance per Agent Type under each registration. A rejected session is renewed and the same request is retried once; revoked v2 registrations are never silently replaced.
 
 ## Command Families
 
-- `readyz`: fixed production Backend liveness; `catalog list`: compatibility-gated discovery.
+- `readyz`: selected official Backend liveness; `catalog list`: compatibility-gated discovery.
 - `services start/invoke/action/checkout/next`: generic Service Execution flow.
 - `cart add/show/remove/clear/next`, `buy`: canonical Cart and ordinary Checkout flow.
 - `checkout`: authoritative payment and fulfillment recovery.
@@ -75,11 +75,12 @@ itpay --agent-type <agent_type> services checkout <service_execution_id> --resum
 itpay checkout --id <checkout_id> --token <display_token> --json
 ```
 
-The local `~/.itpay-v3` directory stores one owner-only signing key, the `https://app.itpay.ai` Device registration and Agent instances, idempotency operations, and recovery handles. Backend state remains authoritative. Do not delete or rotate this identity to recover quota.
+The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-scoped Device registrations and Agent instances, idempotency operations, and recovery handles. Production uses `cart.json` / `operations.json`; dev uses `cart.dev.json` / `operations.dev.json`. Backend state remains authoritative. Do not delete or rotate this identity to recover quota.
 
 ## Environment
 
 - `ITPAY_AGENT_TYPE`: stable alternative to global `--agent-type`.
+- `ITPAY_BACKEND_URL`: optional test override; only the exact official URL `https://dev.itpay.ai` is accepted. Unset it for production.
 - `ITPAY_BEARER_TOKEN`: account-scoped Buyer session for account-only commands such as `orders`.
 - `ITPAY_CART_SESSION_PATH`: local recovery-state path override.
 - `ITPAY_CURRENCY`: ordinary Cart currency, default `CNY`.

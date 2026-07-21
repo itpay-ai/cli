@@ -12,7 +12,7 @@
   "required_state": {
     "needs": [
       "the real supported Agent Type",
-      "the fixed production Backend https://app.itpay.ai"
+      "one official Backend: production https://app.itpay.ai by default, or explicit test https://dev.itpay.ai"
     ],
     "must_not_need": [
       "Admin access",
@@ -22,7 +22,7 @@
   },
   "commands": [
     {
-      "intent": "verify fixed production Backend availability",
+      "intent": "verify the selected official Backend availability",
       "command": "itpay --agent-type <agent_type> readyz --json",
       "success_signal": "status is ready and next points to the complete packaged ItPay Skill"
     },
@@ -57,6 +57,7 @@
     "Treat result as current facts, instruction as how to use those facts, next as the preferred executable action, and recovery as exceptional paths.",
     "Run one state-changing command at a time. Treat next.command as the preferred continuation: execute it unchanged after filling required user data only when the current result has not already satisfied the user's goal.",
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
+    "When testing dev, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://dev.itpay.ai prefix is preserved.",
     "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
     "Start a separate Service Execution for each independent service intent; quota remains shared according to Backend identity policy.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",

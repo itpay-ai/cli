@@ -51,7 +51,7 @@ Backend  -> account/entitlement/order authorization
 不应该改变：
 
 - 现有 CLI 私钥位置、Device 注册协议、签名格式和一次性 session 恢复规则。
-- `https://app.itpay.ai` production Backend 固定规则。
+- 默认 `https://app.itpay.ai`，且仅允许准确 `https://dev.itpay.ai` 测试 override 的官方 Backend 规则。
 - Checkout 外部人类确认和服务端支付状态权威性。
 
 ## 3. Scope

@@ -18,7 +18,7 @@ itpay cart remove --local --variant <catalog_variant_id> --offer <offer_id> [--j
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `--line <cart_item_id>` | 否 | canonical Cart line；省略时使用固定 `https://app.itpay.ai` 后端下最后保存的 line。 |
+| `--line <cart_item_id>` | 否 | canonical Cart line；省略时使用当前官方 Backend 对应本地状态中最后保存的 line。 |
 | `--local` | 否 | 只修改显式本地草稿，不请求 Backend。 |
 | `--variant <catalog_variant_id>` | local 时是 | 与 `--offer` 一起标识本地草稿 line。 |
 | `--offer <offer_id>` | local 时是 | 与 `--variant` 一起标识本地草稿 line。 |

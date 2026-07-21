@@ -37,12 +37,12 @@ itpay install [target] [--json]
   "instruction": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "next": {
     "command": "itpay --agent-type codex-desktop readyz --json",
-    "reason": "验证固定生产 ItPay API 的可用性"
+    "reason": "验证当前官方 ItPay API 的可用性"
   },
   "recovery": [
     {
       "command": "itpay docs show install-and-setup",
-      "reason": "查看固定生产后端和首次使用说明"
+      "reason": "查看官方 Backend 和首次使用说明"
     }
   ]
 }
