@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
-const [version, outputArg] = process.argv.slice(2);
-if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg) {
-  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory>");
+const [version, outputArg, formatArg] = process.argv.slice(2);
+if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg || (formatArg && formatArg !== "--single-file")) {
+  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--single-file]");
 }
 
+const singleFile = formatArg === "--single-file";
 const output = resolve(outputArg);
 const vendor = join(output, "vendor", "itpay-cli");
 const scratch = mkdtempSync(join(tmpdir(), "itpay-platform-bundle-"));
@@ -38,10 +39,28 @@ try {
   rmSync(vendor, { recursive: true, force: true });
   mkdirSync(join(vendor, "package"), { recursive: true });
   cpSync(installed, join(vendor, "package"), { recursive: true });
+  if (singleFile) {
+    const { buildSync } = await import("esbuild");
+    buildSync({
+      entryPoints: [join(installed, "bin", "itp")],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node18",
+      outfile: join(vendor, "itpay-cli.bundle.mjs"),
+      banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
+    });
+    const dependencyRoot = join(scratch, "node_modules");
+    cpSync(dependencyRoot, join(vendor, "licenses"), {
+      recursive: true,
+      filter: (source) => source === dependencyRoot || lstatSync(source).isDirectory() || /^licen[cs]e(?:[._-].*)?$/i.test(basename(source)),
+    });
+  }
   rmSync(installed, { recursive: true, force: true });
   const scope = dirname(installed);
   if (existsSync(scope)) rmSync(scope, { recursive: true, force: true });
-  renameSync(join(scratch, "node_modules"), join(vendor, "node_modules"));
+  if (singleFile) rmSync(join(scratch, "node_modules"), { recursive: true, force: true });
+  else renameSync(join(scratch, "node_modules"), join(vendor, "node_modules"));
   cpSync(join(scratch, "package-lock.json"), join(vendor, "package-lock.json"));
 
   const dependencyLock = readFileSync(join(vendor, "package-lock.json"));
@@ -49,6 +68,7 @@ try {
     schemaVersion: 1,
     package: "@itpay/cli",
     version,
+    format: singleFile ? "single-file-esm" : "npm-tree",
     npmIntegrity: metadata["dist.integrity"],
     sourceGitSha: metadata.gitHead,
     generatedAt: new Date().toISOString(),
@@ -58,7 +78,7 @@ try {
   mkdirSync(output, { recursive: true });
   writeFileSync(join(output, "bundle.lock.json"), JSON.stringify(lock, null, 2) + "\n");
 
-  const entry = join(vendor, "package", "bin", "itp");
+  const entry = singleFile ? join(vendor, "itpay-cli.bundle.mjs") : join(vendor, "package", "bin", "itp");
   const actual = execFileSync(process.execPath, [entry, "--version"], { encoding: "utf8" }).trim();
   if (actual !== version) throw new Error(`bundle reported ${actual}, expected ${version}`);
   process.stdout.write(`built @itpay/cli@${version} in ${output}\n`);
