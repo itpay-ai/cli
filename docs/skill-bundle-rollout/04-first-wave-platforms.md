@@ -18,6 +18,10 @@
 - 本地 Agent 使用 Device Authority；ChatGPT 云端使用远程 MCP OAuth，两者不共享凭据。
 - 不在运行时安装 `latest`，不回退到全局 CLI，不复制 CLI 源码继续分叉开发。
 
+## CLI 更新机制
+
+四个平台仓库每小时错峰检查 npm `@itpay/cli` 的正式版。发现版本高于各自 `bundle.lock.json` 后，调用 CLI `main` 上的统一 reusable workflow，重建对应格式的 bundle、运行仓库测试，并以平台仓库自己的 `GITHUB_TOKEN` 创建更新 PR。该流程不需要 PAT，也不会自动合并或发布商店版本。
+
 ## 已发现的现有资产
 
 `itpay-ai/skill` 是旧的多平台通用仓库，固定 CLI 2.0.11，并对 bundle 做过平台 Agent Type patch。首批独立仓库只复用其已验证的 wrapper/test 思路，不再手工 patch CLI。旧仓库在迁移完成前保留，之后再决定归档或改为索引仓库。

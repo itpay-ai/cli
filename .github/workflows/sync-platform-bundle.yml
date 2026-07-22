@@ -1,0 +1,153 @@
+name: Sync platform CLI bundle
+
+on:
+  workflow_call:
+    inputs:
+      bundle-format:
+        description: Bundle format written to bundle.lock.json
+        required: true
+        type: string
+      version-files:
+        description: Comma-separated JSON files whose top-level version follows the CLI
+        required: true
+        type: string
+      skill-path:
+        description: Platform Skill directory
+        default: skills/itpay
+        type: string
+
+concurrency:
+  group: sync-itpay-cli-${{ github.repository }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout platform repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          path: platform
+
+      - name: Checkout bundle tooling
+        uses: actions/checkout@v7
+        with:
+          repository: itpay-ai/cli
+          ref: main
+          path: cli
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Resolve published version
+        id: version
+        working-directory: platform
+        env:
+          SKILL_PATH: ${{ inputs.skill-path }}
+        run: |
+          set -euo pipefail
+          VERSION=$(npm view @itpay/cli dist-tags.latest)
+          CURRENT=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").version)')
+          echo "Published: $VERSION; bundled: $CURRENT"
+          if [[ "$VERSION" == "$CURRENT" ]]; then
+            echo "update=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "update=true" >> "$GITHUB_OUTPUT"
+            echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+            echo "BRANCH=automation/itpay-cli-$VERSION" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install bundle tooling
+        if: steps.version.outputs.update == 'true'
+        working-directory: cli
+        run: npm ci --ignore-scripts
+
+      - name: Prepare update branch
+        if: steps.version.outputs.update == 'true'
+        working-directory: platform
+        run: |
+          set -euo pipefail
+          git config user.name "itpay-bundle-bot"
+          git config user.email "itpay-bundle-bot@users.noreply.github.com"
+          git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
+          git switch -C "$BRANCH" "$GITHUB_SHA"
+
+      - name: Rebuild bundle
+        if: steps.version.outputs.update == 'true'
+        working-directory: cli
+        env:
+          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          SKILL_PATH: ${{ inputs.skill-path }}
+        run: |
+          set -euo pipefail
+          case "$BUNDLE_FORMAT" in
+            npm-tree) EXTRA=() ;;
+            single-file-esm) EXTRA=(--single-file) ;;
+            *) echo "Unsupported bundle format: $BUNDLE_FORMAT" >&2; exit 1 ;;
+          esac
+          node scripts/build-platform-bundle.mjs "$VERSION" "$GITHUB_WORKSPACE/platform/$SKILL_PATH" "${EXTRA[@]}"
+
+      - name: Update platform versions
+        if: steps.version.outputs.update == 'true'
+        working-directory: platform
+        env:
+          VERSION_FILES: ${{ inputs.version-files }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const [version, value] = process.argv.slice(1);
+            for (const file of value.split(",")) {
+              const json = JSON.parse(fs.readFileSync(file, "utf8"));
+              json.version = version;
+              fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+            }
+          ' "$VERSION" "$VERSION_FILES"
+
+      - name: Verify platform bundle
+        if: steps.version.outputs.update == 'true'
+        working-directory: platform
+        env:
+          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          SKILL_PATH: ${{ inputs.skill-path }}
+        run: |
+          npm test
+          node -e '
+            const lock = require("./" + process.env.SKILL_PATH + "/bundle.lock.json");
+            if (lock.version !== process.env.VERSION || lock.format !== process.env.BUNDLE_FORMAT) process.exit(1);
+          '
+          git diff --check
+
+      - name: Push update branch
+        if: steps.version.outputs.update == 'true'
+        working-directory: platform
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "chore: update bundled CLI to $VERSION"
+          git push --force-with-lease --set-upstream origin "$BRANCH"
+
+      - name: Open update pull request
+        if: steps.version.outputs.update == 'true'
+        working-directory: platform
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_URL=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url')
+          if [[ -z "$PR_URL" ]]; then
+            BODY=$(printf 'Updates the bundled CLI to `@itpay/cli@%s`.\n\n- Rebuilt from the published npm package\n- Refreshed integrity and source metadata\n- Passed the platform bundle test\n' "$VERSION")
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "chore: update bundled CLI to $VERSION" --body "$BODY")
+          fi
+          echo "$PR_URL"
