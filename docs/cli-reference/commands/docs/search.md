@@ -68,4 +68,4 @@ itpay docs search <query> [--json]
 
 ## Agent Type / Host
 
-五种正式 Agent Type 行为相同。本命令不产生 Host handoff。
+七种正式 Agent Type 行为相同。本命令不产生 Host handoff。

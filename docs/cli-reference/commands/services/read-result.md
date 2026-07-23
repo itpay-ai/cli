@@ -97,4 +97,4 @@ itpay services next <id> --json
 
 ## Agent Type / Host
 
-同一 Buyer account 下已登记的 `codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 可按政策领取同一订单授权；每个类型仍需自己的有效 Device Authority。五种类型返回相同字段、TTL 和错误，不因 Host 扩大 grant scope。
+同一 Buyer account 下已登记的 `codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 可按政策领取同一订单授权；每个类型仍需自己的有效 Device Authority。七种类型返回相同字段、TTL 和错误，不因 Host 扩大 grant scope。

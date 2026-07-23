@@ -59,6 +59,7 @@
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
     "When testing dev, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://dev.itpay.ai prefix is preserved.",
     "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
+    "OpenClaw must pass the current entry as --host and an IM destination as --target. Kimi Code follows the standard terminal CLI flow.",
     "Start a separate Service Execution for each independent service intent; quota remains shared according to Backend identity policy.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",
     "Agent-visible delivery is returned by services next. Protected delivery is read only by services read-result while a human grant is active.",

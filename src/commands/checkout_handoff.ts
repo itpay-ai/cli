@@ -1,4 +1,6 @@
 import { platformKeyForHost } from "../render/plan.js";
+import type { RenderPlan } from "../render/plan.js";
+import { buildOpenClawTelegramAction } from "../render/telegram.js";
 
 export type CheckoutPlatform = ReturnType<typeof platformKeyForHost>;
 
@@ -10,6 +12,8 @@ interface CheckoutHandoffInput {
   localPath?: string;
   markdown?: string;
   amount: string;
+  plan?: RenderPlan;
+  target?: string;
 }
 
 export function shouldPrepareLocalCheckoutImage(platform: CheckoutPlatform): boolean {
@@ -30,6 +34,11 @@ export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
     if (input.markdown) handoff.markdown = input.markdown;
   } else if (input.platform === "plain_chat" && input.qrImageURL) {
     handoff.qr_image_url = input.qrImageURL;
+  } else if (input.platform === "telegram" && input.qrImageURL) {
+    handoff.qr_image_url = input.qrImageURL;
+  }
+  if (input.agentType?.trim().toLowerCase() === "openclaw" && input.platform === "telegram" && input.plan && input.target) {
+    handoff.agent_action = buildOpenClawTelegramAction(input.plan, input.target);
   }
 
   return {

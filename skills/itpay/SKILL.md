@@ -20,7 +20,7 @@ Use the CLI as the only ItPay control surface. Never recreate API calls or hardc
 ## Critical Rules
 
 - The CLI defaults to production `https://app.itpay.ai`. Only an explicit test may use the exact prefix `ITPAY_BACKEND_URL=https://dev.itpay.ai`; never use another Backend. While testing dev, execute every returned command unchanged so that prefix is preserved.
-- Keep one honest Agent Type, one CLI/Node launcher, and one Host-approved permission context for the whole flow. Supported types: `codex-desktop`, `codex-cli`, `claude-code-desktop`, `claude-code-cli`, `workbuddy`.
+- Keep one honest Agent Type, one CLI/Node launcher, and one Host-approved permission context for the whole flow. Supported types: `codex-desktop`, `codex-cli`, `claude-code-desktop`, `claude-code-cli`, `workbuddy`, `kimi-code`, `openclaw`.
 - WorkBuddy: before any ItPay Bash command that persists `~/.itpay-v3`, set the Shell tool parameter `dangerouslyDisableSandbox` to `true`. If the human denies that permission, the command did not run: stop and report it.
 - Windows, tasks, chats, processes, and model sessions are not new Agents. Never rotate Agent Type or identity to reset quota.
 - Treat `next.command` as the preferred continuation, not an unconditional command. If the current result already satisfies the user's stated goal, present it and stop.

@@ -85,4 +85,4 @@ Quote 模式返回：
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种类型都写入真实 Agent Type。默认 Host 分别是 `codex`、`terminal`、`claude-code`、`terminal`、`plain-chat`。业务输出合同相同；此命令本身不显示二维码。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种类型都写入真实 Agent Type。默认 Host 分别是 `codex`、`terminal`、`claude-code`、`terminal`、`plain-chat`。业务输出合同相同；此命令本身不显示二维码。

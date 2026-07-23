@@ -44,4 +44,4 @@ itpay services --help
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 共享状态机；Agent Type 只影响身份归属和 Host instruction，不允许影响 quota 规则或服务能力。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 共享状态机；Agent Type 只影响身份归属和 Host instruction，不允许影响 quota 规则或服务能力。

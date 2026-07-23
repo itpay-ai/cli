@@ -60,4 +60,4 @@ itpay services list [--limit <number>] [--json]
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 返回相同列表格式；Agent instance 权限决定可见范围。本命令没有 Host handoff。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 返回相同列表格式；Agent instance 权限决定可见范围。本命令没有 Host handoff。

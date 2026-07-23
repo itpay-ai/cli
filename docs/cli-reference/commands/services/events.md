@@ -72,4 +72,4 @@ CLI 只投影：`sequence`、`type`、`status`、`phase`、可选 `capability_id
 
 ## Agent Type / Host
 
-五种正式 Agent Type 的事件字段、鉴权和 redaction 完全相同；Host 不影响可见性，也不产生 handoff。
+七种正式 Agent Type 的事件字段、鉴权和 redaction 完全相同；Host 不影响可见性，也不产生 handoff。

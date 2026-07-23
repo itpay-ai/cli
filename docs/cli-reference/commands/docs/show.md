@@ -67,4 +67,4 @@ topic 不存在返回 `doc_not_found`：
 
 ## Agent Type / Host
 
-五种正式 Agent Type 使用同一 topic。topic 若包含多种 Host 指导，Agent 只采用与自身 Agent Type 和当前 Host 匹配的部分。
+七种正式 Agent Type 使用同一 topic。topic 若包含多种 Host 指导，Agent 只采用与自身 Agent Type 和当前 Host 匹配的部分。

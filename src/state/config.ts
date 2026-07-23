@@ -33,11 +33,19 @@ export interface CLIConfig {
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
-export const CLI_VERSION = "2.0.15";
+export const CLI_VERSION = "2.0.16";
 export const API_CONTRACT_REVISION = "sha256:7f4c40b082292bf823631bcd37d452f4a8537153e30636d5eb3a2b24a77ce602";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
+
+export type CLIDistribution = "npm" | "openclaw-skill-bundle" | "kimi-plugin-bundle";
+
+export function cliDistribution(env: NodeJS.ProcessEnv = process.env): CLIDistribution {
+  if (env.ITPAY_DISTRIBUTION === "openclaw-skill-bundle") return "openclaw-skill-bundle";
+  if (env.ITPAY_DISTRIBUTION === "kimi-plugin-bundle") return "kimi-plugin-bundle";
+  return "npm";
+}
 
 export class BackendOverrideError extends Error {
   readonly code = "backend_override_forbidden";

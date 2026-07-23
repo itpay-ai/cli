@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.0.15",
+  "version": "2.0.16",
   "description": "The single ItPay CLI entry point for buy workflows and future sell workflows.",
   "type": "module",
   "bin": {

@@ -86,4 +86,4 @@ Checkout 句柄返回：
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 的状态、instruction 和下一步完全相同。本命令不产生二维码或 Host handoff。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 的状态、instruction 和下一步完全相同。本命令不产生二维码或 Host handoff。

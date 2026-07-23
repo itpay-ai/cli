@@ -32,4 +32,4 @@ itpay refund --help
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种类型使用同一签名 Device Authority 和退款状态机；Host 不影响退款资格。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种类型使用同一签名 Device Authority 和退款状态机；Host 不影响退款资格。

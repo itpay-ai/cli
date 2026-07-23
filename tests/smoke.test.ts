@@ -50,7 +50,7 @@ const execFileAsync = promisify(execFile);
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
-const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"] as const;
+const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "kimi-code", "openclaw"] as const;
 const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
 
 let mock: MockBackendHandle;
@@ -72,7 +72,7 @@ async function runCLI(args: string[], env: Record<string, string>): Promise<{ st
 }
 
 function withoutQualifiedAgentType(output: string): string {
-  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy) /g, "itpay ");
+  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy|kimi-code|openclaw) /g, "itpay ");
 }
 
 function assertQualifiedAgentType(output: string, agentType: string): void {
@@ -156,6 +156,8 @@ test("agent type selects the default client surface", () => {
   assert.equal(defaultHostForAgentType("claude-code-desktop"), "claude-code");
   assert.equal(defaultHostForAgentType("claude-code-cli"), "terminal");
   assert.equal(defaultHostForAgentType("workbuddy"), "plain-chat");
+  assert.equal(defaultHostForAgentType("kimi-code"), "terminal");
+  assert.equal(defaultHostForAgentType("openclaw"), undefined);
 });
 
 test("validateContext enforces --target for IM hosts", () => {
@@ -166,6 +168,21 @@ test("validateContext enforces --target for IM hosts", () => {
   }
   assert.equal(validateContext("terminal", undefined), undefined);
   assert.equal(validateContext("telegram", "chat-1"), undefined);
+});
+
+test("OpenClaw requires an explicit entry before starting a service", async () => {
+  const before = mock.requests.length;
+  await assert.rejects(
+    runCLI(["--agent-type", "openclaw", "services", "start", "svc_demo", "--json"], {
+      HOME: mkdtempSync(join(tmpdir(), "itpay-openclaw-host-")),
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "host_required");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, before);
 });
 
 // --- cart session --------------------------------------------------------
@@ -238,7 +255,7 @@ test("server cart remove and abandon call canonical backend routes", async () =>
 });
 
 test("cart remove parser supports canonical and local scopes across Agent Types", async () => {
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const home = mkdtempSync(join(tmpdir(), `itpay-cart-remove-${agentType}-`));
     const session = new CartSession("CNY");
     session.rememberServerCart({ cartID: `cart_remove_${agentType}`, cartItemID: "ci_remove", serviceExecutionID: "se_remove" });
@@ -311,7 +328,7 @@ test("server cart clear preserves recovery handles when canonical cart is locked
 });
 
 test("cart clear parser returns canonical and explicit local contracts across Agent Types", async () => {
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const home = mkdtempSync(join(tmpdir(), `itpay-cart-clear-${agentType}-`));
     const session = new CartSession("CNY");
     session.rememberServerCart({ cartID: `cart_clear_${agentType}`, cartItemID: "ci_clear", serviceExecutionID: "se_clear" });
@@ -1769,14 +1786,14 @@ test("dispatchInteractionRequest (telegram) emits selector buttons for chat host
     openclaw_message: { command: string[] };
     presentation: {
       format: string;
-      buttons: Array<{ intent?: string; ref?: string; label: string }>;
+      buttons: Array<{ label: string; action: { type: string; value?: string } }>;
       selector_request: { type: string; selection_mode: string };
     };
   };
   assert.equal(parsed.presentation.format, "text_inline_buttons");
   assert.equal(parsed.presentation.selector_request.type, "itpay_selector_request");
-  assert.equal(parsed.presentation.buttons[0]!.intent, "submit_selector_option");
-  assert.equal(parsed.presentation.buttons[0]!.ref, "pick_payment_method:alipay");
+  assert.equal(parsed.presentation.buttons[0]!.action.type, "callback");
+  assert.equal(parsed.presentation.buttons[0]!.action.value, "itp:submit_selector_option:pick_payment_method:alipay");
   assert.ok(parsed.openclaw_message.command.includes("chat-99"));
 });
 
@@ -1940,7 +1957,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.15",
+            current_cli_version: "2.0.16",
             required_cli_version: "2.0.16",
           });
           assert.equal(
@@ -1956,6 +1973,47 @@ test("catalog and top-level next fail before guidance when the contract hash dif
         },
       );
       assert.deepEqual(requests, ["/v1/platform/compatibility"]);
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("bundle distributions return platform updates instead of npm recovery", async () => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      platform_revision: "v3.contract-mismatch",
+      schema_revision: "sha256:schema",
+      bootstrap_revision: "seed",
+      api_contract_revision: "sha256:old-contract",
+      minimum_cli_version: "2.0.16",
+      maximum_cli_major: 2,
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  try {
+    for (const [distribution, command] of [
+      ["openclaw-skill-bundle", "openclaw skills update itpay"],
+      ["kimi-plugin-bundle", "/plugins install https://github.com/itpay-ai/itpay-plugin-kimi-work"],
+    ] as const) {
+      await assert.rejects(
+        runCLI(["catalog", "list", "--json"], {
+          ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}`,
+          ITPAY_DISTRIBUTION: distribution,
+        }),
+        (error: unknown) => {
+          const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+            instruction: string;
+            recovery: Array<{ command: string }>;
+          };
+          assert.equal(envelope.recovery[0]?.command, command);
+          assert.match(envelope.instruction, /不要运行 npm/);
+          assert.doesNotMatch(JSON.stringify(envelope), /npm install/);
+          return true;
+        },
+      );
     }
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -2258,12 +2316,14 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
 });
 
 test("install returns one official contract for every supported Agent Type", async () => {
-  const expectedHosts: Record<string, string> = {
+  const expectedHosts: Record<string, string | null> = {
     "codex-desktop": "codex",
     "codex-cli": "terminal",
     "claude-code-desktop": "claude-code",
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
+    "kimi-code": "terminal",
+    openclaw: null,
   };
   for (const [agentType, defaultHost] of Object.entries(expectedHosts)) {
     const result = await runCLI(["install", agentType, "--json"], {
@@ -2271,7 +2331,7 @@ test("install returns one official contract for every supported Agent Type", asy
     });
     const envelope = JSON.parse(result.stdout) as {
       status: string;
-      result: { agent_type: string; default_host: string; default_api: string; install_command: string };
+      result: { agent_type: string; default_host: string | null; default_api: string; host_required?: boolean; native_hosts?: string[] };
       instruction: string;
       next: { command: string };
     };
@@ -2280,13 +2340,15 @@ test("install returns one official contract for every supported Agent Type", asy
       agent_type: agentType,
       default_host: defaultHost,
       default_api: DEFAULT_BASE_URL,
-      install_command: "npm install -g @itpay/cli",
+      ...(agentType === "openclaw" ? { host_required: true, native_hosts: ["telegram"] } : {}),
     });
-    assert.match(envelope.instruction, /始终传这个 Agent Type/);
+    assert.doesNotMatch(JSON.stringify(envelope), /npm install/);
     if (agentType === "workbuddy") {
       assert.match(envelope.instruction, /present_files/);
       assert.match(envelope.instruction, /不要检查本地二维码文件/);
     }
+    if (agentType === "kimi-code") assert.match(envelope.instruction, /标准 CLI/);
+    if (agentType === "openclaw") assert.match(envelope.instruction, /--host/);
     assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
     assert.equal(result.stderr, "");
   }
@@ -2298,11 +2360,11 @@ test("install lists supported types and rejects obsolete Host targets", async ()
   });
   const listEnvelope = JSON.parse(listed.stdout) as {
     status: string;
-    result: { agent_types: Array<{ agent_type: string; default_host: string }> };
+    result: { agent_types: Array<{ agent_type: string; default_host: string | null; host_required?: boolean; native_hosts?: string[] }> };
   };
   assert.equal(listEnvelope.status, "install_targets");
   assert.deepEqual(listEnvelope.result.agent_types.map((item) => item.agent_type), [
-    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy",
+    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "kimi-code", "openclaw",
   ]);
 
   await assert.rejects(
@@ -2323,7 +2385,7 @@ test("install lists supported types and rejects obsolete Host targets", async ()
 
 test("docs list is compact, sorted and identical across Agent Types", async () => {
   const outputs: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI(["--agent-type", agentType, "docs", "list", "--json"], {});
     outputs.push(result.stdout);
     assert.equal(result.stderr, "");
@@ -2413,7 +2475,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.15");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.16");
       return true;
     },
   );
@@ -2784,9 +2846,10 @@ test("pay creates a checkout-bound payment intent", async () => {
 
 test("pay parser is strict, compact and Host-aware across every Agent Type", async () => {
   const instructions: string[] = [];
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "pay", "--checkout", `chk_${agentType}`, "--token", `cdt_${agentType}`, "--method", "alipay", "--json",
+      ...(agentType === "openclaw" ? ["--host", "plain-chat"] : []),
     ], { HOME: mkdtempSync(join(tmpdir(), `itpay-pay-${agentType}-`)), ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     const envelope = JSON.parse(result.stdout) as {
       status: string; result: Record<string, unknown>; handoff: Record<string, string>; instruction: string; next: { command: string };
@@ -2804,7 +2867,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     }
     instructions.push(envelope.instruction);
   }
-  assert.equal(new Set(instructions).size, 3);
+  assert.equal(new Set(instructions).size, 4);
 
   const before = mock.requests.length;
   await assert.rejects(
@@ -2947,6 +3010,81 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal(presentation.result.amount, "0.50 CNY");
 });
 
+test("OpenClaw Telegram checkout returns one native message action in the standard envelope", async () => {
+  const output: string[] = [];
+  await runServicesCheckout(backend, config, "se_openclaw", "precise_report", {
+    email: "buyer@example.com",
+    host: "telegram",
+    target: "telegram:123456789",
+    agentType: "openclaw",
+    jsonOutput: true,
+    output: (line) => output.push(line),
+  });
+  const envelope = JSON.parse(output.join("")) as {
+    status: string;
+    handoff: {
+      url: string;
+      qr_image_url: string;
+      agent_action: {
+        tool: string;
+        arguments: {
+          action: string;
+          channel: string;
+          target: string;
+          media: string;
+          presentation: { blocks: Array<{ type: string; buttons?: Array<{ action: { type: string; url?: string; value?: string } }> }> };
+        };
+      };
+    };
+  };
+  assert.equal(envelope.status, "human_checkout_required");
+  assert.equal(envelope.handoff.agent_action.tool, "message");
+  assert.equal(envelope.handoff.agent_action.arguments.action, "send");
+  assert.equal(envelope.handoff.agent_action.arguments.channel, "telegram");
+  assert.equal(envelope.handoff.agent_action.arguments.target, "telegram:123456789");
+  assert.equal(envelope.handoff.agent_action.arguments.media, envelope.handoff.qr_image_url);
+  const buttons = envelope.handoff.agent_action.arguments.presentation.blocks
+    .find((block) => block.type === "buttons")?.buttons ?? [];
+  assert.equal(buttons[0]?.action.type, "url");
+  assert.equal(buttons[0]?.action.url, envelope.handoff.url);
+  assert.equal(buttons[1]?.action.type, "callback");
+  assert.match(buttons[1]?.action.value ?? "", /^itp:checkout:chk_/);
+  assert.doesNotMatch(buttons[1]?.action.value ?? "", /cdt_/);
+});
+
+test("OpenClaw non-Telegram checkout uses the standard image and link handoff", async () => {
+  const output: string[] = [];
+  await runServicesCheckout(backend, config, "se_openclaw_discord", "precise_report", {
+    email: "buyer@example.com",
+    host: "discord",
+    target: "discord:123456789",
+    agentType: "openclaw",
+    jsonOutput: true,
+    output: (line) => output.push(line),
+  });
+  const envelope = JSON.parse(output.join("")) as { handoff: Record<string, unknown> };
+  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["qr_image_url", "url"]);
+});
+
+test("service checkout validates the Telegram target before creating Checkout", async () => {
+  const before = mock.requests.length;
+  await assert.rejects(
+    runServicesCheckout(backend, config, "se_openclaw_target", "precise_report", {
+      email: "buyer@example.com",
+      host: "telegram",
+      agentType: "openclaw",
+      jsonOutput: true,
+      output: silent,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "target_required");
+      return true;
+    },
+  );
+  assert.equal(mock.requests.length, before);
+});
+
 test("services checkout resume reissues the same checkout and persists before output", async () => {
   const firstOutput: string[] = [];
   await runServicesCheckout(backend, config, "se_resume", "precise_report", {
@@ -3000,7 +3138,7 @@ test("services read-result relies on device authority instead of a checkout toke
 test("services next and read-result commands accept the documented JSON form", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-delivery-"));
   const env = { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home };
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const nextResult = await runCLI([
       "--agent-type", agentType, "services", "next", "se_granted", "--json",
     ], env);
@@ -3404,7 +3542,7 @@ test("orders JSON contract is stable for every supported Agent Type", async () =
     items: [],
     delivery_artifacts: [],
   }]);
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI(["--agent-type", agentType, "orders", "--limit", "1", "--json"], {
       ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       ITPAY_BEARER_TOKEN: "account_token",
@@ -3456,7 +3594,7 @@ test("refund list handles an empty order without inventing a refund", async () =
 });
 
 test("refund list parser accepts child options for every supported Agent Type", async () => {
-  for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+  for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "refund", "list", "--order", "ord_locked", "--json",
     ], {
@@ -3528,7 +3666,7 @@ test("refund uses signed device authority without buyer bearer and supports reco
 
 test("refund create parses child options and signs with device authority", async () => {
 	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-"));
-	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+	for (const agentType of AGENT_TYPES) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "create", "--order", "ord_42", "--reason", "buyer_requested", "--json"], {
 			HOME: home,
 			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
@@ -3567,7 +3705,7 @@ test("refund create rejects a missing order before HTTP with structured recovery
 
 test("refund get returns one compact authoritative snapshot for every Agent Type", async () => {
 	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-get-"));
-	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+	for (const agentType of AGENT_TYPES) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "get", "rr_1", "--json"], {
 			HOME: home,
 			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
@@ -3625,7 +3763,7 @@ test("refund get reports manual review from server truth", async () => {
 
 test("refund watch emits one terminal envelope for every Agent Type", async () => {
 	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-watch-"));
-	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+	for (const agentType of AGENT_TYPES) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "watch", "rr_succeeded", "--json"], {
 			HOME: home,
 			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
@@ -3667,7 +3805,7 @@ test("refund watch validates polling parameters before HTTP", async () => {
 
 test("refund cancel releases the lock and requires a new delivery authorization", async () => {
 	const home = mkdtempSync(join(tmpdir(), "itpay-cli-refund-cancel-"));
-	for (const agentType of ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy"]) {
+	for (const agentType of AGENT_TYPES) {
 		const result = await runCLI(["--agent-type", agentType, "refund", "cancel", "rr_active", "--reason", "buyer_cancelled", "--json"], {
 			HOME: home,
 			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,

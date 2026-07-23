@@ -70,4 +70,4 @@ itpay buy --cart <cart_id> --json
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 的业务字段、instruction 和 next 相同。本命令不产生二维码或 Host handoff。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 的业务字段、instruction 和 next 相同。本命令不产生二维码或 Host handoff。

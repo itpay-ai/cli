@@ -38,51 +38,31 @@ function buttonsFor(plan: RenderPlan): RenderButton[] {
   ];
 }
 
+type TelegramButton = {
+  label: string;
+  action: { type: "url"; url: string } | { type: "callback"; value: string };
+};
+
+function nativeButton(button: RenderButton): TelegramButton {
+  if (button.kind === "url") {
+    return { label: button.label, action: { type: "url", url: button.url ?? "" } };
+  }
+  const value = button.intent === "check_checkout_status"
+    ? `itp:checkout:${button.ref ?? ""}`
+    : `itp:${button.intent ?? "callback"}:${button.ref ?? ""}`;
+  return { label: button.label, action: { type: "callback", value } };
+}
+
 function format(plan: RenderPlan): "photo_text_inline_buttons" | "text_inline_buttons" {
   return plan.kind === "payment_qr" ? "photo_text_inline_buttons" : "text_inline_buttons";
 }
 
 export function renderTelegram(plan: RenderPlan, options: TelegramRenderOptions): void {
   const out = options.output ?? ((line: string) => process.stdout.write(line));
-  const buttons = buttonsFor(plan);
+  const agentAction = buildOpenClawTelegramAction(plan, options.target);
+  const presentation = agentAction.arguments.presentation;
   const media = collectTelegramMedia(plan);
-
-  const text =
-    plan.kind === "payment_qr"
-      ? `ItPay payment QR — ${plan.summary}`
-      : plan.kind === "auth_qr"
-        ? `ItPay auth required — ${plan.summary}`
-        : `ItPay checkout QR — ${plan.summary}`;
-
-  const presentation = {
-    format: format(plan),
-    media,
-    text,
-    links: plan.platform.links,
-    buttons,
-    interactions: plan.platform.interactions ?? [],
-    blocks: [
-      { type: "text", text },
-      ...(media.length > 0 ? [{ type: "image", url: media[0]!.url }] : []),
-      { type: "buttons", buttons },
-    ],
-    ...(plan.ideImageAttach
-      ? {
-          ide_image_attach: {
-            status: plan.ideImageAttach.status,
-            local_path: plan.ideImageAttach.localPath,
-            mirrors: plan.ideImageAttach.mirrors,
-            mime_type: plan.ideImageAttach.mimeType,
-            source: plan.ideImageAttach.source,
-            ...(plan.ideImageAttach.caption ? { caption: plan.ideImageAttach.caption } : {}),
-            must_render_reason: plan.ideImageAttach.mustRenderReason,
-            ...(plan.ideImageAttach.error ? { error: plan.ideImageAttach.error } : {}),
-            action: "agent_must_render_into_ide_chat",
-            instructions: ideImageAttachBlock(plan.ideImageAttach).filter((l) => l.length > 0),
-          },
-        }
-      : {}),
-  };
+  const text = agentAction.arguments.message;
 
   const openclawMessage = {
     command: [
@@ -105,7 +85,68 @@ export function renderTelegram(plan: RenderPlan, options: TelegramRenderOptions)
       "Current agent cannot run `openclaw message send`. Stop and tell the user the native Telegram inline-button tool is missing; do not downgrade to a markdown table or plain link.",
   };
 
-  out(JSON.stringify({ presentation, openclaw_message: openclawMessage }, null, 2) + "\n");
+  out(JSON.stringify({ presentation, agent_action: agentAction, openclaw_message: openclawMessage }, null, 2) + "\n");
+}
+
+export function buildOpenClawTelegramAction(plan: RenderPlan, target: string): {
+  tool: "message";
+  arguments: {
+    action: "send";
+    channel: "telegram";
+    target: string;
+    message: string;
+    media?: string;
+    presentation: Record<string, unknown> & { blocks: Array<Record<string, unknown>> };
+  };
+} {
+  const buttons = buttonsFor(plan).map(nativeButton);
+  const media = collectTelegramMedia(plan);
+  const message =
+    plan.kind === "payment_qr"
+      ? `ItPay payment QR — ${plan.summary}`
+      : plan.kind === "auth_qr"
+        ? `ItPay auth required — ${plan.summary}`
+        : `ItPay checkout QR — ${plan.summary}`;
+  const presentation = {
+    format: format(plan),
+    media,
+    text: message,
+    links: plan.platform.links,
+    buttons,
+    interactions: plan.platform.interactions ?? [],
+    blocks: [
+      { type: "text", text: message },
+      ...(media.length > 0 ? [{ type: "image", url: media[0]!.url }] : []),
+      { type: "buttons", buttons },
+    ],
+    ...(plan.ideImageAttach
+      ? {
+          ide_image_attach: {
+            status: plan.ideImageAttach.status,
+            local_path: plan.ideImageAttach.localPath,
+            mirrors: plan.ideImageAttach.mirrors,
+            mime_type: plan.ideImageAttach.mimeType,
+            source: plan.ideImageAttach.source,
+            ...(plan.ideImageAttach.caption ? { caption: plan.ideImageAttach.caption } : {}),
+            must_render_reason: plan.ideImageAttach.mustRenderReason,
+            ...(plan.ideImageAttach.error ? { error: plan.ideImageAttach.error } : {}),
+            action: "agent_must_render_into_ide_chat",
+            instructions: ideImageAttachBlock(plan.ideImageAttach).filter((line) => line.length > 0),
+          },
+        }
+      : {}),
+  };
+  return {
+    tool: "message",
+    arguments: {
+      action: "send",
+      channel: "telegram",
+      target,
+      message,
+      ...(media[0]?.url ? { media: media[0].url } : {}),
+      presentation,
+    },
+  };
 }
 
 export function renderTelegramInteraction(request: RenderInteractionRequest, options: TelegramRenderOptions): void {
@@ -116,7 +157,7 @@ export function renderTelegramInteraction(request: RenderInteractionRequest, opt
   }));
   const buttons =
     request.kind === "selector"
-      ? request.options.map((option) => selectorButton(request.id, option))
+      ? request.options.map((option) => nativeButton(selectorButton(request.id, option)))
       : [];
   const text = `${request.title} — ${request.prompt}`;
   const presentation = {

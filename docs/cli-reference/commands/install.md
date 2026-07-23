@@ -4,9 +4,9 @@
 
 ## 范围与意义
 
-读取当前 CLI 内置的 Agent Type 安装合同。它只说明 npm 安装、默认 API、默认 Host 和下一条验证命令；不修改宿主配置、不登记设备，也不调用 Backend。
+读取当前 CLI 内置的 Agent Type 运行合同。它只说明默认 API、默认 Host 和下一条验证命令；不安装 CLI、不修改宿主配置、不登记设备，也不调用 Backend。
 
-**上游：** 安装或更新 `@itpay/cli`。
+**上游：** 当前 npm CLI 或平台 bundle 已经可执行。
 
 **下游：** 使用真实 Agent Type 执行 `readyz`，随后读取完整 Skill 和 Catalog。
 
@@ -18,10 +18,10 @@ itpay install [target] [--json]
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `target` | 否 | 五种正式 Agent Type 之一；省略或传 `list` 时列出全部。Host 名称不是合法 target。 |
+| `target` | 否 | 七种正式 Agent Type 之一；省略或传 `list` 时列出全部。Host 名称不是合法 target。 |
 | `--json` | 否 | 返回标准命令 envelope；推荐 Agent 使用。 |
 
-正式 target：`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`。
+正式 target：`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw`。
 
 ## 指定 Agent Type 输出
 
@@ -31,8 +31,7 @@ itpay install [target] [--json]
   "result": {
     "agent_type": "codex-desktop",
     "default_host": "codex",
-    "default_api": "https://app.itpay.ai",
-    "install_command": "npm install -g @itpay/cli"
+    "default_api": "https://app.itpay.ai"
   },
   "instruction": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "next": {
@@ -48,11 +47,37 @@ itpay install [target] [--json]
 }
 ```
 
-`result` 是客观安装事实；`instruction` 只解释当前 Agent Type 的展示责任；`next` 只有一条可执行验证命令。
+`result` 是客观运行时事实；`instruction` 只解释当前 Agent Type 的展示责任；`next` 只有一条可执行验证命令。任何 target 都不得返回 npm 安装命令。
+
+OpenClaw 额外明确没有默认入口：
+
+```json
+{
+  "status": "instructions_ready",
+  "result": {
+    "agent_type": "openclaw",
+    "default_host": null,
+    "host_required": true,
+    "native_hosts": ["telegram"],
+    "default_api": "https://app.itpay.ai"
+  },
+  "instruction": "保持 openclaw Agent Type；每个展示命令都从当前可信会话上下文显式传 --host，IM 入口同时传 --target。Telegram 使用返回的原生 message action，其他入口展示标准二维码和付款链接。",
+  "next": {
+    "command": "itpay --agent-type openclaw readyz --json",
+    "reason": "验证当前官方 ItPay API 的可用性"
+  },
+  "recovery": [
+    {
+      "command": "itpay docs show install-and-setup",
+      "reason": "查看官方 Backend 和首次使用说明"
+    }
+  ]
+}
+```
 
 ## 列表输出
 
-省略 target 或传 `list` 时返回五组 `agent_type/default_host`，不重复每种类型的完整 instruction：
+省略 target 或传 `list` 时返回七组运行时定义，不重复每种类型的完整 instruction：
 
 ```json
 {
@@ -63,7 +88,14 @@ itpay install [target] [--json]
       { "agent_type": "codex-cli", "default_host": "terminal" },
       { "agent_type": "claude-code-desktop", "default_host": "claude-code" },
       { "agent_type": "claude-code-cli", "default_host": "terminal" },
-      { "agent_type": "workbuddy", "default_host": "plain-chat" }
+      { "agent_type": "workbuddy", "default_host": "plain-chat" },
+      { "agent_type": "kimi-code", "default_host": "terminal" },
+      {
+        "agent_type": "openclaw",
+        "default_host": null,
+        "host_required": true,
+        "native_hosts": ["telegram"]
+      }
     ]
   },
   "instruction": "选择当前真实运行环境；同一 Agent 不要临时更换 Agent Type。",
@@ -86,6 +118,8 @@ itpay install [target] [--json]
 | `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
 | `workbuddy` | `plain-chat` | 会持久化 `~/.itpay-v3` 的 Bash 调用先设 Shell 工具参数 `dangerouslyDisableSandbox=true`；拒绝权限时停止，不切换 Node、不删除 identity、不处理 lock。Checkout 返回 `qr_image_url` 时按 instruction 调用 `present_files`。 |
+| `kimi-code` | `terminal` | 使用标准 CLI 流程和终端展示，不增加 Kimi 专属命令。 |
+| `openclaw` | 无 | 必须显式提供当前入口；Telegram 使用原生 action，其他入口展示标准二维码和链接。 |
 
 显式 `--host` 可以在后续 commerce 命令覆盖默认 Host，但不会改变 Agent Type 或设备归属。
 
@@ -102,7 +136,7 @@ itpay install [target] [--json]
     "code": "unsupported_agent_type",
     "message": "unsupported install target: codex"
   },
-  "instruction": "target 只接受：codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy。",
+  "instruction": "target 只接受：codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, kimi-code, openclaw。",
   "next": null,
   "recovery": [
     {
