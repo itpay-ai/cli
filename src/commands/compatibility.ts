@@ -15,7 +15,6 @@ export async function requirePlatformCompatibility(backend: BackendClient): Prom
     maximum_cli_major: platform.maximum_cli_major,
     platform_revision: platform.platform_revision,
     api_contract_revision: platform.api_contract_revision,
-    upgrade_command: `npm install -g @itpay/cli@${platform.minimum_cli_version}`,
   }, "CLI is incompatible with the active ItPay platform release");
 }
 

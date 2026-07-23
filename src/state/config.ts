@@ -39,6 +39,14 @@ const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
 
+export type CLIDistribution = "npm" | "openclaw-skill-bundle" | "kimi-plugin-bundle";
+
+export function cliDistribution(env: NodeJS.ProcessEnv = process.env): CLIDistribution {
+  if (env.ITPAY_DISTRIBUTION === "openclaw-skill-bundle") return "openclaw-skill-bundle";
+  if (env.ITPAY_DISTRIBUTION === "kimi-plugin-bundle") return "kimi-plugin-bundle";
+  return "npm";
+}
+
 export class BackendOverrideError extends Error {
   readonly code = "backend_override_forbidden";
 

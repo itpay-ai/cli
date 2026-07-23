@@ -76,11 +76,12 @@ export function hasDedicatedRenderer(host: ClientHost): boolean {
   return HOSTS_WITH_DEDICATED_RENDERER.has(host);
 }
 
-export function defaultHostForAgentType(agentType: string | undefined): ClientHost {
+export function defaultHostForAgentType(agentType: string | undefined): ClientHost | undefined {
   const normalized = agentType?.trim().toLowerCase() ?? "";
   if (normalized === "codex-desktop") return "codex";
   if (normalized === "claude-code-desktop") return "claude-code";
   if (normalized === "workbuddy") return "plain-chat";
+  if (normalized === "openclaw") return undefined;
   return "terminal";
 }
 

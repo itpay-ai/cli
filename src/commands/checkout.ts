@@ -22,6 +22,7 @@ export interface CheckoutPresentationOptions {
   baseURL?: string;
   jsonOutput?: boolean;
   agentType?: string;
+  target?: string;
 }
 
 export async function runCheckoutPresentation(
@@ -69,7 +70,7 @@ export async function runCheckoutPresentation(
       ...(options.baseURL ? { baseURL: options.baseURL } : {}),
     });
   }
-  const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand, options.agentType);
+  const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand, options.agentType, options.target);
   const plainResult = checkoutPlainResult(envelope.result);
   if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
     plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
@@ -87,6 +88,7 @@ function pendingCheckoutEnvelope(
   plan: ReturnType<typeof buildCheckoutQRPlan>,
   nextCommand: string,
   agentType?: string,
+  target?: string,
 ): CommandEnvelope {
   const platform = platformKeyForHost(plan.host);
 	const amount = formatMoney(presentation.checkout.amount_minor, presentation.checkout.currency);
@@ -94,7 +96,9 @@ function pendingCheckoutEnvelope(
     platform,
     url: checkoutURL,
     amount,
+    plan,
     ...(agentType ? { agentType } : {}),
+    ...(target ? { target } : {}),
     ...(plan.preferredQRSources[0] ? { qrImageURL: plan.preferredQRSources[0] } : {}),
     ...(plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath
       ? { localPath: plan.ideImageAttach.localPath }

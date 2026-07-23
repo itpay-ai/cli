@@ -9,6 +9,7 @@ import type {
 } from "../client/types.js";
 import { operationID, type CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
+import { validateContext } from "../state/client_context.js";
 import type { OutputSink } from "../render/sink.js";
 import { dispatchRender, type DispatchOptions } from "../render/index.js";
 import { ensureIdeImageAttach } from "../render/ide.js";
@@ -519,6 +520,16 @@ export async function runServicesCheckout(
     }) => void;
   } = {},
 ): Promise<void> {
+  const host = options.host ?? "terminal";
+  const contextError = validateContext(host, options.target);
+  if (contextError) {
+    throw new CommandContractError(
+      contextError.code,
+      contextError.message,
+      "从当前可信会话上下文补齐 Host/target；本次未创建 Checkout。",
+      [],
+    );
+  }
   const deliveryContact = {
     ...(options.deliveryContact ?? {}),
     ...(options.email ? { email: options.email } : {}),
@@ -575,12 +586,12 @@ export async function runServicesCheckout(
   const displayToken = checkout.display_token;
   const checkoutURL = tokenizedCheckoutURL(checkout.checkout_url, displayToken, checkout.qr_payload);
   const plan = buildCheckoutQRPlan({
-    host: options.host ?? "terminal",
+    host,
     checkoutID,
     checkoutURL,
     displayToken,
     qrPayload: checkout.qr_payload,
-    ...(checkout.qr_png_url ? { qrPNGURL: checkout.qr_png_url } : {}),
+    ...(checkout.qr_png_url ? { qrPNGURL: absolutePublicURL(config.baseURL, checkout.qr_png_url) } : {}),
     nextAction: checkout.checkout.next_action,
     orderItems: response.cart.items.map((item) => ({
       title: item.title,
@@ -601,9 +612,9 @@ export async function runServicesCheckout(
   });
 
   const platform = platformKeyForHost(plan.host);
-  if (platform === "telegram" || platform === "feishu" || platform === "lark") {
+  if (!options.jsonOutput && (platform === "telegram" || platform === "feishu" || platform === "lark")) {
     await dispatchRender(plan, {
-      host: options.host ?? "terminal",
+      host,
       ...(options.target ? { target: options.target } : {}),
       ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
       ...(options.qrFilePath ? { qrFilePath: options.qrFilePath } : {}),
@@ -620,7 +631,7 @@ export async function runServicesCheckout(
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     });
   }
-  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, config.baseURL, options.agentType);
+  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, config.baseURL, options.agentType, options.target);
   const plainResult = [
     `service_execution_id: ${response.binding.service_execution_id}`,
     `checkout_id: ${checkoutID}`,
@@ -1188,6 +1199,7 @@ function buildServicesCheckoutEnvelope(
   plan: ReturnType<typeof buildCheckoutQRPlan>,
   baseURL: string,
   agentType?: string,
+  target?: string,
 ): CommandEnvelope {
   const checkout = response.checkout;
   const platform = platformKeyForHost(plan.host);
@@ -1196,7 +1208,9 @@ function buildServicesCheckoutEnvelope(
     platform,
     url: checkoutURL,
     amount,
+    plan,
     ...(agentType ? { agentType } : {}),
+    ...(target ? { target } : {}),
     ...(checkout.qr_png_url ? { qrImageURL: absolutePublicURL(baseURL, checkout.qr_png_url) } : {}),
     ...(plan.ideImageAttach?.status === "downloaded" && plan.ideImageAttach.localPath
       ? { localPath: plan.ideImageAttach.localPath }
