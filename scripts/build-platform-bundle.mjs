@@ -2,16 +2,27 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 
-const [version, outputArg, formatArg] = process.argv.slice(2);
-if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg || (formatArg && formatArg !== "--single-file")) {
-  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--single-file]");
+const [version, outputArg, ...options] = process.argv.slice(2);
+if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg) {
+  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--single-file] [--bundle-directory <relative-path>]");
 }
 
-const singleFile = formatArg === "--single-file";
+let singleFile = false;
+let bundleDirectory = "vendor/itpay-cli";
+for (let index = 0; index < options.length; index += 1) {
+  if (options[index] === "--single-file") {
+    singleFile = true;
+  } else if (options[index] === "--bundle-directory" && options[index + 1]) {
+    bundleDirectory = validateBundleDirectory(options[++index]);
+  } else {
+    throw new Error(`unknown option: ${options[index]}`);
+  }
+}
+
 const output = resolve(outputArg);
-const vendor = join(output, "vendor", "itpay-cli");
+const vendor = join(output, bundleDirectory);
 const scratch = mkdtempSync(join(tmpdir(), "itpay-platform-bundle-"));
 
 try {
@@ -72,6 +83,7 @@ try {
     sourceGitSha: metadata.gitHead,
     generatedAt: new Date().toISOString(),
     node: metadata.engines?.node ?? ">=18",
+    bundleDirectory,
     dependencyLockSha256: createHash("sha256").update(dependencyLock).digest("hex"),
   };
   mkdirSync(output, { recursive: true });
@@ -95,4 +107,12 @@ function copyLicenseFiles(source, destination) {
       cpSync(child, join(destination, entry.name));
     }
   }
+}
+
+function validateBundleDirectory(value) {
+  const normalized = value.replaceAll("\\", "/");
+  if (!normalized || isAbsolute(normalized) || win32.isAbsolute(value) || normalized.split("/").some((part) => !part || part === "." || part === "..")) {
+    throw new Error("bundle directory must be a relative path inside the Skill");
+  }
+  return normalized;
 }

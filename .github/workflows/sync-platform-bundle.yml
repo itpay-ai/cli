@@ -15,6 +15,10 @@ on:
         description: Platform Skill directory
         default: skills/itpay
         type: string
+      bundle-directory:
+        description: Bundle directory relative to the Skill
+        default: vendor/itpay-cli
+        type: string
       track-skill-diff:
         description: Draft the PR when the center Skill changed
         default: false
@@ -61,16 +65,18 @@ jobs:
         working-directory: platform
         env:
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
           SKILL_PATH: ${{ inputs.skill-path }}
         run: |
           set -euo pipefail
           VERSION=$(npm view @itpay/cli dist-tags.latest)
           CURRENT_VERSION=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").version)')
           CURRENT_FORMAT=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").format)')
+          CURRENT_BUNDLE_DIRECTORY=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").bundleDirectory || "vendor/itpay-cli")')
           CURRENT_SOURCE_GIT_SHA=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").sourceGitSha)')
-          echo "Published: $VERSION; bundled: $CURRENT_VERSION ($CURRENT_FORMAT)"
+          echo "Published: $VERSION; bundled: $CURRENT_VERSION ($CURRENT_FORMAT, $CURRENT_BUNDLE_DIRECTORY)"
           echo "CURRENT_SOURCE_GIT_SHA=$CURRENT_SOURCE_GIT_SHA" >> "$GITHUB_ENV"
-          if [[ "$VERSION" == "$CURRENT_VERSION" && "$BUNDLE_FORMAT" == "$CURRENT_FORMAT" ]]; then
+          if [[ "$VERSION" == "$CURRENT_VERSION" && "$BUNDLE_FORMAT" == "$CURRENT_FORMAT" && "$BUNDLE_DIRECTORY" == "$CURRENT_BUNDLE_DIRECTORY" ]]; then
             echo "update=false" >> "$GITHUB_OUTPUT"
           else
             echo "update=true" >> "$GITHUB_OUTPUT"
@@ -99,6 +105,7 @@ jobs:
         env:
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
           SKILL_PATH: ${{ inputs.skill-path }}
+          BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
         run: |
           set -euo pipefail
           case "$BUNDLE_FORMAT" in
@@ -106,7 +113,7 @@ jobs:
             single-file-esm) EXTRA=(--single-file) ;;
             *) echo "Unsupported bundle format: $BUNDLE_FORMAT" >&2; exit 1 ;;
           esac
-          node scripts/build-platform-bundle.mjs "$VERSION" "$GITHUB_WORKSPACE/platform/$SKILL_PATH" "${EXTRA[@]}"
+          node scripts/build-platform-bundle.mjs "$VERSION" "$GITHUB_WORKSPACE/platform/$SKILL_PATH" "${EXTRA[@]}" --bundle-directory "$BUNDLE_DIRECTORY"
 
       - name: Inspect upstream Skill changes
         if: steps.version.outputs.update == 'true'
