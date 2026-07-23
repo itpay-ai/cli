@@ -9,7 +9,6 @@
 
 import type { OutputSink } from "./sink.js";
 import type { RenderButton, RenderInteractionRequest, RenderPlan, RenderSelectorOption } from "./plan.js";
-import { ideImageAttachBlock } from "./ide.js";
 
 export interface TelegramRenderOptions {
   target: string; // chat id
@@ -31,30 +30,25 @@ function buttonsFor(plan: RenderPlan): RenderButton[] {
   }
   // checkout_qr
   return [
-    { label: "打开 ItPay 收银台", kind: "url", url: plan.url },
+    { label: "📱 手机点这儿支付", kind: "url", url: plan.url },
     ...(plan.checkoutID
-      ? [{ label: "查询 Checkout 状态", kind: "callback" as const, intent: "check_checkout_status", ref: plan.checkoutID }]
+      ? [{ label: "📋 已授权给我读", kind: "callback" as const, intent: "grant_confirmed", ref: plan.checkoutID }]
       : []),
   ];
 }
 
-type TelegramButton = {
-  label: string;
-  action: { type: "url"; url: string } | { type: "callback"; value: string };
-};
+type TelegramButton =
+  | { label: string; url: string }
+  | { label: string; value: string };
 
 function nativeButton(button: RenderButton): TelegramButton {
   if (button.kind === "url") {
-    return { label: button.label, action: { type: "url", url: button.url ?? "" } };
+    return { label: button.label, url: button.url ?? "" };
   }
   const value = button.intent === "check_checkout_status"
     ? `itp:checkout:${button.ref ?? ""}`
     : `itp:${button.intent ?? "callback"}:${button.ref ?? ""}`;
-  return { label: button.label, action: { type: "callback", value } };
-}
-
-function format(plan: RenderPlan): "photo_text_inline_buttons" | "text_inline_buttons" {
-  return plan.kind === "payment_qr" ? "photo_text_inline_buttons" : "text_inline_buttons";
+  return { label: button.label, value };
 }
 
 export function renderTelegram(plan: RenderPlan, options: TelegramRenderOptions): void {
@@ -79,10 +73,9 @@ export function renderTelegram(plan: RenderPlan, options: TelegramRenderOptions)
       "--presentation",
       JSON.stringify(presentation),
     ],
-    // Hint: agents that cannot run openclaw must stop and tell the user
-    // they lack the native Telegram buttons tool — never downgrade.
+    // Keep the same Checkout visible if native buttons are unavailable.
     if_unavailable:
-      "Current agent cannot run `openclaw message send`. Stop and tell the user the native Telegram inline-button tool is missing; do not downgrade to a markdown table or plain link.",
+      "If `openclaw message send` is unavailable, send the same QR media and Checkout URL as ordinary Telegram content, report that inline buttons are unavailable, and stop. Do not create another Checkout.",
   };
 
   out(JSON.stringify({ presentation, agent_action: agentAction, openclaw_message: openclawMessage }, null, 2) + "\n");
@@ -108,40 +101,15 @@ export function buildOpenClawTelegramAction(plan: RenderPlan, target: string): {
         ? `ItPay auth required — ${plan.summary}`
         : `ItPay checkout QR — ${plan.summary}`;
   const presentation = {
-    format: format(plan),
-    media,
-    text: message,
-    links: plan.platform.links,
-    buttons,
-    interactions: plan.platform.interactions ?? [],
-    blocks: [
-      { type: "text", text: message },
-      ...(media.length > 0 ? [{ type: "image", url: media[0]!.url }] : []),
-      { type: "buttons", buttons },
-    ],
-    ...(plan.ideImageAttach
-      ? {
-          ide_image_attach: {
-            status: plan.ideImageAttach.status,
-            local_path: plan.ideImageAttach.localPath,
-            mirrors: plan.ideImageAttach.mirrors,
-            mime_type: plan.ideImageAttach.mimeType,
-            source: plan.ideImageAttach.source,
-            ...(plan.ideImageAttach.caption ? { caption: plan.ideImageAttach.caption } : {}),
-            must_render_reason: plan.ideImageAttach.mustRenderReason,
-            ...(plan.ideImageAttach.error ? { error: plan.ideImageAttach.error } : {}),
-            action: "agent_must_render_into_ide_chat",
-            instructions: ideImageAttachBlock(plan.ideImageAttach).filter((line) => line.length > 0),
-          },
-        }
-      : {}),
+    blocks: [{ type: "buttons", buttons }],
   };
+  const nativeTarget = target.trim().replace(/^telegram:/i, "");
   return {
     tool: "message",
     arguments: {
       action: "send",
       channel: "telegram",
-      target,
+      target: nativeTarget,
       message,
       ...(media[0]?.url ? { media: media[0].url } : {}),
       presentation,

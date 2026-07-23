@@ -1571,17 +1571,19 @@ test("runBuy (telegram) emits openclaw_message + inline buttons", async () => {
   const parsed = JSON.parse(text) as {
     openclaw_message: { command: string[]; if_unavailable: string };
     presentation: {
-      format: string;
-      buttons: Array<{ kind: string; intent?: string; ref?: string; label: string }>;
+      blocks: Array<{ type: string; buttons?: Array<{ label: string; url?: string; value?: string }> }>;
     };
   };
-  assert.equal(parsed.presentation.format, "text_inline_buttons");
+  assert.deepEqual(Object.keys(parsed.presentation), ["blocks"]);
   assert.equal(parsed.openclaw_message.command[0], "openclaw");
   assert.ok(parsed.openclaw_message.command.includes("--target"));
   assert.ok(parsed.openclaw_message.command.includes("chat-42"));
-  assert.ok(parsed.openclaw_message.if_unavailable.includes("native Telegram"));
-  // ensure at least one inline button exists
-  assert.ok(parsed.presentation.buttons.length >= 1);
+  assert.ok(parsed.openclaw_message.if_unavailable.includes("inline buttons are unavailable"));
+  const buttons = parsed.presentation.blocks.find((block) => block.type === "buttons")?.buttons ?? [];
+  assert.equal(buttons[0]?.label, "📱 手机点这儿支付");
+  assert.ok(buttons[0]?.url);
+  assert.equal(buttons[1]?.label, "📋 已授权给我读");
+  assert.match(buttons[1]?.value ?? "", /^itp:grant_confirmed:chk_/);
 });
 
 test("runBuy (feishu) emits interactive card with URL + callback buttons", async () => {
@@ -1786,14 +1788,13 @@ test("dispatchInteractionRequest (telegram) emits selector buttons for chat host
     openclaw_message: { command: string[] };
     presentation: {
       format: string;
-      buttons: Array<{ label: string; action: { type: string; value?: string } }>;
+      buttons: Array<{ label: string; value?: string }>;
       selector_request: { type: string; selection_mode: string };
     };
   };
   assert.equal(parsed.presentation.format, "text_inline_buttons");
   assert.equal(parsed.presentation.selector_request.type, "itpay_selector_request");
-  assert.equal(parsed.presentation.buttons[0]!.action.type, "callback");
-  assert.equal(parsed.presentation.buttons[0]!.action.value, "itp:submit_selector_option:pick_payment_method:alipay");
+  assert.equal(parsed.presentation.buttons[0]!.value, "itp:submit_selector_option:pick_payment_method:alipay");
   assert.ok(parsed.openclaw_message.command.includes("chat-99"));
 });
 
@@ -1957,7 +1958,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.16",
+            current_cli_version: "2.0.17",
             required_cli_version: "2.0.16",
           });
           assert.equal(
@@ -2475,7 +2476,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.16");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.17");
       return true;
     },
   );
@@ -3022,6 +3023,7 @@ test("OpenClaw Telegram checkout returns one native message action in the standa
   });
   const envelope = JSON.parse(output.join("")) as {
     status: string;
+    instruction: string;
     handoff: {
       url: string;
       qr_image_url: string;
@@ -3032,7 +3034,7 @@ test("OpenClaw Telegram checkout returns one native message action in the standa
           channel: string;
           target: string;
           media: string;
-          presentation: { blocks: Array<{ type: string; buttons?: Array<{ action: { type: string; url?: string; value?: string } }> }> };
+          presentation: { blocks: Array<{ type: string; buttons?: Array<{ label: string; url?: string; value?: string }> }> };
         };
       };
     };
@@ -3041,15 +3043,17 @@ test("OpenClaw Telegram checkout returns one native message action in the standa
   assert.equal(envelope.handoff.agent_action.tool, "message");
   assert.equal(envelope.handoff.agent_action.arguments.action, "send");
   assert.equal(envelope.handoff.agent_action.arguments.channel, "telegram");
-  assert.equal(envelope.handoff.agent_action.arguments.target, "telegram:123456789");
+  assert.equal(envelope.handoff.agent_action.arguments.target, "123456789");
   assert.equal(envelope.handoff.agent_action.arguments.media, envelope.handoff.qr_image_url);
+  assert.deepEqual(Object.keys(envelope.handoff.agent_action.arguments.presentation), ["blocks"]);
   const buttons = envelope.handoff.agent_action.arguments.presentation.blocks
     .find((block) => block.type === "buttons")?.buttons ?? [];
-  assert.equal(buttons[0]?.action.type, "url");
-  assert.equal(buttons[0]?.action.url, envelope.handoff.url);
-  assert.equal(buttons[1]?.action.type, "callback");
-  assert.match(buttons[1]?.action.value ?? "", /^itp:checkout:chk_/);
-  assert.doesNotMatch(buttons[1]?.action.value ?? "", /cdt_/);
+  assert.deepEqual(buttons[0], { label: "📱 手机点这儿支付", url: envelope.handoff.url });
+  assert.equal(buttons[1]?.label, "📋 已授权给我读");
+  assert.match(buttons[1]?.value ?? "", /^itp:grant_confirmed:chk_/);
+  assert.doesNotMatch(buttons[1]?.value ?? "", /cdt_/);
+  assert.match(envelope.instruction, /严格按 handoff\.agent_action\.tool 和 handoff\.agent_action\.arguments 原样执行/);
+  assert.match(envelope.instruction, /Backend 未返回 grant_active 前不得读取或猜测结果/);
 });
 
 test("OpenClaw non-Telegram checkout uses the standard image and link handoff", async () => {

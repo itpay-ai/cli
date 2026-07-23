@@ -73,4 +73,4 @@
 
 WorkBuddy instruction 只在 `handoff.qr_image_url` 存在时要求读取其完整字符串并作为 `files` 数组唯一元素调用 `present_files`。如果该可选字段不存在，必须直接发送 `handoff.url`，明确不要调用 `present_files`。两种情况都要停止等待；不能检查本地文件、下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式，因此只有 `workbuddy + plain-chat` 使用该规则。
 
-OpenClaw Telegram 的 `handoff.agent_action` 使用原生 `message` tool，包含当前 `target`、二维码 media、付款链接和 typed Presentation actions。URL 按钮使用 `action.type=url`；只读查询按钮使用 `action.type=callback`，callback 只携带 Checkout ID，不携带 display token，也不构成付款证明。
+OpenClaw Telegram 的 `handoff.agent_action` 是可原样执行的原生 `message` tool action。`presentation` 只包含标准 `blocks.buttons`：`📱 手机点这儿支付` 使用扁平 `url`，`📋 已授权给我读` 使用扁平 `value=itp:grant_confirmed:<checkout_id>`；二维码单独使用 action 的 `media`。CLI `instruction` 必须要求 Agent 原样执行该 action，不得改写 Presentation、换用其他消息工具或声称普通文本回复等同于已发送按钮。收到授权 callback 后立即执行 `next.command` 查询同一 Checkout，再只跟随后端返回的同一 Execution grant 流程；callback 只携带 Checkout ID，不携带 display token，也不证明付款或 grant 已生效。OpenClaw `target` 使用原生 chat target（如 `5559456744` 或 `-1001234567890:topic:42`），不添加 `telegram:` 前缀。

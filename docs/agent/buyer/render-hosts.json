@@ -45,7 +45,7 @@
       "default_host": null,
       "host_required": true,
       "native_hosts": ["telegram"],
-      "responsibility": "pass the current entry explicitly; for Telegram execute handoff.agent_action with the current target, otherwise show the returned HTTPS QR image and Checkout URL"
+      "responsibility": "pass the native OpenClaw entry target explicitly; for Telegram execute handoff.agent_action unchanged, then treat itp:grant_confirmed callbacks only as permission to query the same Checkout and follow Backend grant state; otherwise show the returned HTTPS QR image and Checkout URL"
     }
   ],
   "commands": [
@@ -66,7 +66,7 @@
     "For workbuddy with plain-chat, call present_files exactly as the returned instruction says. If it fails, send only handoff.url, report that the preview did not open, and stop.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
-    "OpenClaw Telegram typed callback actions carry only the Checkout ID, never a display token, and never prove payment."
+    "OpenClaw Telegram uses flat url/value buttons for deployed-version compatibility. A grant_confirmed callback carries only the Checkout ID, never a display token, and never proves payment or an active grant."
   ],
   "forbidden": [
     "Do not expose display tokens separately from the tokenized Checkout handoff.",

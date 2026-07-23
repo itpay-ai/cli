@@ -105,7 +105,7 @@ itpay buy \
 
 `handoff` 只保留当前 Host 可以使用的字段。不得返回二维码 base64、镜像路径数组、renderer 状态或原始后端 DTO。`agent_action` 只允许出现在 `openclaw + telegram`。
 
-**Instruction：** 必须使用下方 Agent Type 表定义的展示动作；展示完成或失败后停止。只有用户明确表示已付款或要求查询时才执行 `next.command`，并以后端状态为准。
+**Instruction：** 必须使用下方 Agent Type 表定义的展示动作；展示完成或失败后停止。OpenClaw Telegram 必须原样执行 `handoff.agent_action`，不得改写 Presentation 或用普通回复冒充按钮已发送。收到 `itp:grant_confirmed:<checkout_id>` 表示用户声明已授权读取，应立即执行 `next.command` 查询同一 Checkout，再只跟随后端 grant 状态；该 callback 本身不证明付款或 grant active。
 
 ### `--pay` 已观察到付款事件
 
