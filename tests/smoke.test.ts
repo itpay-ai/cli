@@ -1957,7 +1957,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.15",
+            current_cli_version: "2.0.16",
             required_cli_version: "2.0.16",
           });
           assert.equal(
@@ -2475,7 +2475,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.15");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.16");
       return true;
     },
   );
