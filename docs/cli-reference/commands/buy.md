@@ -62,8 +62,8 @@ itpay buy \
 | `--contact-email` | 条件必填 | 普通 Cart 或兼容旧 Quote 缺少所需邮箱时使用，值必须来自用户；新版 Service Quote 会自动携带已确认邮箱。 |
 | `--contact-phone` | 条件必填 | `--require-contact` 包含 `phone` 时必填，值必须来自用户。 |
 | `--require-contact` | 否 | 只接受 `email`、`phone`；缺失时先询问用户，禁止 Agent 编造。 |
-| `--host` | 否 | 默认由 `--agent-type` 推导；只改变 handoff 展示，不改变交易事实。 |
-| `--target` | 条件必填 | 只有要求目标会话的 IM Host 才需要；当前首批五种 Agent Type 无需提供。 |
+| `--host` | 条件必填 | 通常由 `--agent-type` 推导；`openclaw` 必须显式传当前入口。只改变 handoff 展示，不改变交易事实。 |
+| `--target` | 条件必填 | 要求目标会话的 IM Host 必须提供；OpenClaw 从当前可信会话上下文传入。 |
 | `--qr-format` | 否 | 非 JSON 的终端渲染选项。 |
 | `--qr-file` | 否 | 非 JSON handoff 的明确二维码文件路径。 |
 | `--pay` | 否 | 创建 Payment Intent 的集成/运维入口；普通 Agent 流程只展示 Checkout。 |
@@ -91,7 +91,8 @@ itpay buy \
     "url": "<tokenized_checkout_url>",
     "qr_local_path": "<desktop_optional_host_ready_file>",
     "markdown": "<desktop_only_optional_markdown>",
-    "qr_image_url": "<workbuddy_only_absolute_https_png>"
+    "qr_image_url": "<chat_host_optional_absolute_https_png>",
+    "agent_action": "<openclaw_telegram_only_native_message_action>"
   },
   "instruction": "<current_host_instruction>",
   "next": {
@@ -102,7 +103,7 @@ itpay buy \
 }
 ```
 
-`handoff` 只保留当前 Host 可以使用的字段。不得返回二维码 base64、镜像路径数组、renderer 状态、原始后端 DTO 或重复的 `agent_action`。
+`handoff` 只保留当前 Host 可以使用的字段。不得返回二维码 base64、镜像路径数组、renderer 状态或原始后端 DTO。`agent_action` 只允许出现在 `openclaw + telegram`。
 
 **Instruction：** 必须使用下方 Agent Type 表定义的展示动作；展示完成或失败后停止。只有用户明确表示已付款或要求查询时才执行 `next.command`，并以后端状态为准。
 
@@ -165,5 +166,9 @@ itpay buy \
 | `claude-code-desktop` | `claude-code` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 Markdown handoff 发到当前桌面对话，不能只输出本地路径。 |
 | `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
 | `workbuddy` | `plain-chat` | `url, qr_image_url?` | 有 `qr_image_url` 时调用 `present_files`；没有时只发送金额和 `url` 且不调用工具。两者都停止，不读取本地文件。 |
+| `kimi-code` | `terminal` | `url` | 使用标准 CLI 非 JSON 终端二维码和链接。 |
+| `openclaw` | 必须显式 | Telegram 返回 `url,qr_image_url,agent_action`；其他入口返回 `url,qr_image_url` | Telegram 执行原生 `message` action；其他入口直接展示图片和链接。 |
 
 显式 `--host` 可以覆盖展示方式，但不会改变 Agent Type、设备身份、金额、权限或交易状态。
+
+OpenClaw 缺少 `--host`，或 IM Host 缺少 `--target` 时，必须在创建 Cart/Checkout 前分别返回 `host_required` 或 `target_required`。

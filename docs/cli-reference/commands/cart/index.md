@@ -29,4 +29,4 @@ itpay cart --help
 
 ## Agent Type / Host
 
-Cart 事实在 `codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 下相同；`add` 创建 client context 时记录真实 Agent Type 和 Host。
+Cart 事实在 `codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 下相同；`add` 创建 client context 时记录真实 Agent Type 和 Host。

@@ -34,6 +34,18 @@
       "agent_type": "workbuddy",
       "default_host": "plain-chat",
       "responsibility": "when handoff.qr_image_url exists, use its exact HTTPS value as the only files element in present_files; otherwise send the Checkout URL without calling present_files; show the amount and stop"
+    },
+    {
+      "agent_type": "kimi-code",
+      "default_host": "terminal",
+      "responsibility": "use the standard CLI terminal QR and Checkout URL"
+    },
+    {
+      "agent_type": "openclaw",
+      "default_host": null,
+      "host_required": true,
+      "native_hosts": ["telegram"],
+      "responsibility": "pass the current entry explicitly; for Telegram execute handoff.agent_action with the current target, otherwise show the returned HTTPS QR image and Checkout URL"
     }
   ],
   "commands": [
@@ -53,7 +65,8 @@
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
     "For workbuddy with plain-chat, call present_files exactly as the returned instruction says. If it fails, send only handoff.url, report that the preview did not open, and stop.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
-    "IM Hosts that require a target must receive --target; the initial five Agent Types currently default to desktop, terminal, or plain-chat Hosts."
+    "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
+    "OpenClaw Telegram typed callback actions carry only the Checkout ID, never a display token, and never prove payment."
   ],
   "forbidden": [
     "Do not expose display tokens separately from the tokenized Checkout handoff.",
@@ -74,6 +87,9 @@
     "markdown",
     "terminal",
     "desktop",
-    "workbuddy"
+    "workbuddy",
+    "kimi code",
+    "openclaw",
+    "telegram"
   ]
 }

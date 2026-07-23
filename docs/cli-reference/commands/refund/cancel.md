@@ -61,4 +61,4 @@ itpay refund cancel <refund_request_id> [--reason <reason>] [--json]
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 的业务字段、instruction 和 recovery 相同；该命令没有二维码或宿主渲染差异。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 的业务字段、instruction 和 recovery 相同；该命令没有二维码或宿主渲染差异。

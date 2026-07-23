@@ -15,6 +15,8 @@
 | `claude-code-desktop` | `claude-code` | 返回桌面对话可展示的 Markdown 图片和付款链接，要求先展示再等待。 |
 | `claude-code-cli` | `terminal` | 在用户可见终端输出二维码和链接，不声称已在桌面对话展示。 |
 | `workbuddy` | `plain-chat` | 只返回 HTTPS 二维码和付款链接；要求 Agent 用 `present_files` 在右侧预览打开二维码，不返回或检查本地图片路径。 |
+| `kimi-code` | `terminal` | 使用标准 CLI 引导，在用户可见终端渲染二维码和付款链接。 |
+| `openclaw` | 无；必须显式传入 | `--host telegram` 使用 OpenClaw 原生 `message` action；其他入口返回标准 HTTPS 二维码和付款链接。 |
 
 ## 通用规则
 
@@ -24,8 +26,11 @@
 - 显式 `--host` 覆盖默认 Host，但不改变已登记的 Agent Type。
 - `--target` 只路由人类展示，不是身份，也不是 capability 业务输入。
 - Host 只影响 `instruction` 和 `handoff`，不得改变金额、订单、权限、quota 或交付状态。
-- 五种 Agent Type 使用同一命令输入和 JSON 外壳；不得为单个 Agent Type 新增、删除或改名协议字段。
-- 非展示命令在五种 Agent Type 下返回相同业务结果，只允许 `instruction` 措辞不同。只有 Host 客观无法展示某种媒介时，`handoff` 才按既有可选字段做最小裁剪。
+- 七种 Agent Type 使用同一命令输入和 JSON 外壳；OpenClaw 只在 `handoff` 的既有扩展位置增加平台 action，不改变交易字段。
+- 非展示命令在七种 Agent Type 下返回相同业务结果，只允许 `instruction` 措辞不同。只有 Host 客观无法展示某种媒介时，`handoff` 才按既有可选字段做最小裁剪。
+- `openclaw` 没有默认 Host。展示命令必须显式传 `--host`；缺少时在任何 Checkout 创建或状态迁移前返回 `host_required`。
+- OpenClaw 的 IM Host 必须提供 `--target`。缺失时在任何 Checkout 创建前返回 `target_required`。
+- `kimi-code` 是 CLI 型 Agent，复用 `terminal` Host 和现有 CLI 展示，不增加 Kimi 专属交易协议。
 - session 失效时 CLI 只续期并重试原请求一次；再次失败立即返回。revoked v2 Device 不自动换身份。
 
 ## Checkout Handoff 最小合同
@@ -62,5 +67,10 @@
 | `codex-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
 | `claude-code-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
 | `workbuddy / plain-chat` | `url, qr_image_url` |
+| `kimi-code / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
+| `openclaw / telegram` | `url, qr_image_url, agent_action` |
+| `openclaw / other` | `url, qr_image_url` |
 
 WorkBuddy instruction 只在 `handoff.qr_image_url` 存在时要求读取其完整字符串并作为 `files` 数组唯一元素调用 `present_files`。如果该可选字段不存在，必须直接发送 `handoff.url`，明确不要调用 `present_files`。两种情况都要停止等待；不能检查本地文件、下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式，因此只有 `workbuddy + plain-chat` 使用该规则。
+
+OpenClaw Telegram 的 `handoff.agent_action` 使用原生 `message` tool，包含当前 `target`、二维码 media、付款链接和 typed Presentation actions。URL 按钮使用 `action.type=url`；只读查询按钮使用 `action.type=callback`，callback 只携带 Checkout ID，不携带 display token，也不构成付款证明。

@@ -67,4 +67,4 @@ itpay refund list --order <order_id> [--json]
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种 Agent Type 的业务字段、instruction 和 next 完全相同；本命令没有 Host 渲染差异。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 的业务字段、instruction 和 next 完全相同；本命令没有 Host 渲染差异。

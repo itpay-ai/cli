@@ -50,4 +50,4 @@ itpay docs show <topic> --json
 
 ## Agent Type / Host
 
-五种正式 Agent Type 返回相同结果。本命令没有 Host 渲染、设备登记或本地业务状态写入。
+七种正式 Agent Type 返回相同结果。本命令没有 Host 渲染、设备登记或本地业务状态写入。

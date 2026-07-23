@@ -25,4 +25,4 @@ itpay catalog --help
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 五种支持类型的目录事实完全相同。instruction 可按 Agent Type 调整措辞，但不得改变服务排序、价格或可用能力。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种支持类型的目录事实完全相同。instruction 可按 Agent Type 调整措辞，但不得改变服务排序、价格或可用能力。

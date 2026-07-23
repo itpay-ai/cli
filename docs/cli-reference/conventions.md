@@ -6,6 +6,12 @@
 
 CLI 输出是给 Agent 执行的协议，不是后端 DTO 的调试转储。默认输出适合人阅读；`--json` 使用同一语义的稳定机器合同。调试事实只由明确的诊断命令返回。
 
+## 命令变更交付顺序
+
+任何命令行为或 JSON 合同变更都必须先更新对应 CLI reference 和打包 Agent 文档，再从文档补测试和实现代码。最后实际执行文档中的命令，只标准化动态 ID、token、签名 URL 和时间戳，逐字段核对输出。
+
+实际输出不符合文档时先修实现。若产品合同确实要变，必须先重新修改并审查文档，不能用事后改文档掩盖实现偏差。
+
 ## 标准 JSON 外壳
 
 ```json
@@ -74,7 +80,7 @@ next: <one command>
 - `device_state_unwritable` 表示当前运行环境不能可靠持久化 `~/.itpay-v3`；保持同一 Agent Type 与 CLI/Node launcher，恢复 Host 写权限后重试原命令，不得手工造 lock、删除身份或换运行时碰运气。
 - WorkBuddy 在运行会持久化 `~/.itpay-v3` 的 ItPay Bash 命令前，必须把 Shell 工具参数 `dangerouslyDisableSandbox` 设为 `true`。若用户拒绝该权限，命令尚未执行：停止并报告，不得切换 Node、删除 identity、手工处理 lock 或换 Agent Type。
 - `provider_input_rejected` 只表示 Provider 明确声明输入无效；`provider_contract_mismatch` 表示响应无法按已发布契约解释，绝不能归咎于用户输入。两者都必须停止且没有自动 recovery。
-- `backend_contract_incompatible` 只有在 Backend 返回合法 `minimum_cli_version` 时才能提供一个精确的 `npm install -g @itpay/cli@<version>` recovery。不得使用 `latest`、解析 message 猜版本或继续任何业务命令；升级后必须先用 `itpay --version` 核对完全一致，再重新运行 `readyz`。
+- `backend_contract_incompatible` 只有在 Backend 返回合法 `minimum_cli_version` 时才能提供升级 recovery。npm 分发返回精确的 `npm install -g @itpay/cli@<version>`；平台 bundle 返回该平台的 Skill/plugin 更新动作。不得使用 `latest`、解析 message 猜版本或继续任何业务命令；升级后必须先用 `itpay --version` 核对完全一致，再重新运行 `readyz`。
 
 ## Instruction 模板
 
