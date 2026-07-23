@@ -15,6 +15,10 @@ on:
         description: Platform Skill directory
         default: skills/itpay
         type: string
+      track-skill-diff:
+        description: Draft the PR when the center Skill changed
+        default: false
+        type: boolean
 
 concurrency:
   group: sync-itpay-cli-${{ github.repository }}
@@ -40,6 +44,7 @@ jobs:
         with:
           repository: itpay-ai/cli
           ref: main
+          fetch-depth: 0
           path: cli
           persist-credentials: false
 
@@ -55,13 +60,17 @@ jobs:
         id: version
         working-directory: platform
         env:
+          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
           SKILL_PATH: ${{ inputs.skill-path }}
         run: |
           set -euo pipefail
           VERSION=$(npm view @itpay/cli dist-tags.latest)
-          CURRENT=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").version)')
-          echo "Published: $VERSION; bundled: $CURRENT"
-          if [[ "$VERSION" == "$CURRENT" ]]; then
+          CURRENT_VERSION=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").version)')
+          CURRENT_FORMAT=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").format)')
+          CURRENT_SOURCE_GIT_SHA=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").sourceGitSha)')
+          echo "Published: $VERSION; bundled: $CURRENT_VERSION ($CURRENT_FORMAT)"
+          echo "CURRENT_SOURCE_GIT_SHA=$CURRENT_SOURCE_GIT_SHA" >> "$GITHUB_ENV"
+          if [[ "$VERSION" == "$CURRENT_VERSION" && "$BUNDLE_FORMAT" == "$CURRENT_FORMAT" ]]; then
             echo "update=false" >> "$GITHUB_OUTPUT"
           else
             echo "update=true" >> "$GITHUB_OUTPUT"
@@ -98,6 +107,29 @@ jobs:
             *) echo "Unsupported bundle format: $BUNDLE_FORMAT" >&2; exit 1 ;;
           esac
           node scripts/build-platform-bundle.mjs "$VERSION" "$GITHUB_WORKSPACE/platform/$SKILL_PATH" "${EXTRA[@]}"
+
+      - name: Inspect upstream Skill changes
+        if: steps.version.outputs.update == 'true'
+        working-directory: cli
+        env:
+          SKILL_PATH: ${{ inputs.skill-path }}
+          TRACK_SKILL_DIFF: ${{ inputs.track-skill-diff }}
+        run: |
+          set -euo pipefail
+          DIFF_FILE="$RUNNER_TEMP/upstream-skill.diff"
+          : > "$DIFF_FILE"
+          echo "SKILL_REVIEW_REQUIRED=false" >> "$GITHUB_ENV"
+          if [[ "$TRACK_SKILL_DIFF" != "true" ]]; then
+            exit 0
+          fi
+          NEW_SOURCE_GIT_SHA=$(node -e 'console.log(require(process.env.GITHUB_WORKSPACE + "/platform/" + process.env.SKILL_PATH + "/bundle.lock.json").sourceGitSha)')
+          echo "NEW_SOURCE_GIT_SHA=$NEW_SOURCE_GIT_SHA" >> "$GITHUB_ENV"
+          git cat-file -e "$CURRENT_SOURCE_GIT_SHA^{commit}"
+          git cat-file -e "$NEW_SOURCE_GIT_SHA^{commit}"
+          git diff --no-ext-diff "$CURRENT_SOURCE_GIT_SHA" "$NEW_SOURCE_GIT_SHA" -- skills/itpay/SKILL.md > "$DIFF_FILE"
+          if [[ -s "$DIFF_FILE" ]]; then
+            echo "SKILL_REVIEW_REQUIRED=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Update platform versions
         if: steps.version.outputs.update == 'true'
@@ -145,9 +177,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/pr-body.md"
+          {
+            printf 'Updates the bundled CLI to `@itpay/cli@%s`.\n\n' "$VERSION"
+            printf -- '- Rebuilt from the published npm package\n- Refreshed integrity and source metadata\n- Passed the platform bundle test\n'
+            if [[ "$SKILL_REVIEW_REQUIRED" == "true" ]]; then
+              printf '\n## Center Skill review required\n\n'
+              printf 'The center `skills/itpay/SKILL.md` changed between `%s` and `%s`. This PR is intentionally a draft and does not overwrite the platform Skill.\n\n' "$CURRENT_SOURCE_GIT_SHA" "$NEW_SOURCE_GIT_SHA"
+              printf '```diff\n'
+              sed -n '1,500p' "$RUNNER_TEMP/upstream-skill.diff"
+              printf '```\n\n'
+              printf -- '- [ ] Review the center Skill diff\n- [ ] Merge applicable business rules into the platform `SKILL.md` without removing platform rules\n- [ ] Confirm platform-specific Skill checks and `npm test` pass\n- [ ] Mark this PR ready for review\n'
+            fi
+          } > "$BODY_FILE"
           PR_URL=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url')
           if [[ -z "$PR_URL" ]]; then
-            BODY=$(printf 'Updates the bundled CLI to `@itpay/cli@%s`.\n\n- Rebuilt from the published npm package\n- Refreshed integrity and source metadata\n- Passed the platform bundle test\n' "$VERSION")
-            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "chore: update bundled CLI to $VERSION" --body "$BODY")
+            DRAFT=()
+            if [[ "$SKILL_REVIEW_REQUIRED" == "true" ]]; then DRAFT=(--draft); fi
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "chore: update bundled CLI to $VERSION" --body-file "$BODY_FILE" "${DRAFT[@]}")
+          else
+            gh pr edit "$PR_URL" --body-file "$BODY_FILE"
+            if [[ "$SKILL_REVIEW_REQUIRED" == "true" ]]; then gh pr ready --undo "$PR_URL" || true; fi
           fi
           echo "$PR_URL"

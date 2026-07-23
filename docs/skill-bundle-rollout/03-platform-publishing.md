@@ -231,7 +231,7 @@ WorkBuddy 官方文档确认：
 
 ### 制作与本地上传
 
-1. 生成 `itpay-skill-workbuddy` 的自包含 Node bundle。
+1. 生成 `itpay-skill-workbuddy` 的 `single-file-esm` Node bundle；上传包不得包含 `node_modules`，也不得在运行时执行 npm。
 2. `SKILL.md` frontmatter 提供清晰名称、描述和触发条件。
 3. 声明：执行本地命令、连接 `app.itpay.ai`、写入 owner-only `~/.itpay-v3` Device 状态、显示外部 Checkout。
 4. 不申请屏幕控制、任意目录写入或与 ItPay 无关的网络权限。
@@ -239,6 +239,7 @@ WorkBuddy 官方文档确认：
 6. 在 WorkBuddy：技能 -> 添加技能 -> 上传技能，选择技能包。
 7. 检查安全扫描结果和权限提示，分别在默认权限、完全访问权限下验证；默认权限必须能够通过用户确认完成流程。
 8. 验证 macOS 和 Windows，尤其是 Node 可用性、中文用户名、路径空格、持久 HOME 和版本更新。
+9. CLI 同步 PR 若附带中心 Skill 差异，先人工合并新增业务规则并保留 WorkBuddy 权限、QR 和 sandbox 规则，通过平台测试后再把 Draft PR 标记为 ready。
 
 ### SkillHub 公共发布
 

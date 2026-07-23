@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const [version, outputArg, formatArg] = process.argv.slice(2);
 if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg || (formatArg && formatArg !== "--single-file")) {
@@ -37,8 +37,7 @@ try {
   if (installedPackage.version !== version) throw new Error(`installed ${installedPackage.version}, expected ${version}`);
 
   rmSync(vendor, { recursive: true, force: true });
-  mkdirSync(join(vendor, "package"), { recursive: true });
-  cpSync(installed, join(vendor, "package"), { recursive: true });
+  mkdirSync(vendor, { recursive: true });
   if (singleFile) {
     const { buildSync } = await import("esbuild");
     buildSync({
@@ -50,11 +49,11 @@ try {
       outfile: join(vendor, "itpay-cli.bundle.mjs"),
       banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
     });
-    const dependencyRoot = join(scratch, "node_modules");
-    cpSync(dependencyRoot, join(vendor, "licenses"), {
-      recursive: true,
-      filter: (source) => source === dependencyRoot || lstatSync(source).isDirectory() || /^licen[cs]e(?:[._-].*)?$/i.test(basename(source)),
-    });
+    cpSync(join(installed, "docs", "agent", "buyer"), join(vendor, "docs", "agent", "buyer"), { recursive: true });
+    copyLicenseFiles(join(scratch, "node_modules"), join(vendor, "licenses"));
+  } else {
+    mkdirSync(join(vendor, "package"), { recursive: true });
+    cpSync(installed, join(vendor, "package"), { recursive: true });
   }
   rmSync(installed, { recursive: true, force: true });
   const scope = dirname(installed);
@@ -84,4 +83,16 @@ try {
   process.stdout.write(`built @itpay/cli@${version} in ${output}\n`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
+}
+
+function copyLicenseFiles(source, destination) {
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const child = join(source, entry.name);
+    if (entry.isDirectory()) {
+      copyLicenseFiles(child, join(destination, entry.name));
+    } else if (/^licen[cs]e(?:[._-].*)?$/i.test(entry.name)) {
+      mkdirSync(destination, { recursive: true });
+      cpSync(child, join(destination, entry.name));
+    }
+  }
 }
