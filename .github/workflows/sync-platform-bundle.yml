@@ -19,6 +19,10 @@ on:
         description: Bundle directory relative to the Skill
         default: vendor/itpay-cli
         type: string
+      include-licenses:
+        description: Include dependency license files in single-file bundles
+        default: true
+        type: boolean
       track-skill-diff:
         description: Draft the PR when the center Skill changed
         default: false
@@ -106,6 +110,7 @@ jobs:
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
           SKILL_PATH: ${{ inputs.skill-path }}
           BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
+          INCLUDE_LICENSES: ${{ inputs.include-licenses }}
         run: |
           set -euo pipefail
           case "$BUNDLE_FORMAT" in
@@ -113,6 +118,7 @@ jobs:
             single-file-esm) EXTRA=(--single-file) ;;
             *) echo "Unsupported bundle format: $BUNDLE_FORMAT" >&2; exit 1 ;;
           esac
+          if [[ "$INCLUDE_LICENSES" != "true" ]]; then EXTRA+=(--omit-licenses); fi
           node scripts/build-platform-bundle.mjs "$VERSION" "$GITHUB_WORKSPACE/platform/$SKILL_PATH" "${EXTRA[@]}" --bundle-directory "$BUNDLE_DIRECTORY"
 
       - name: Inspect upstream Skill changes

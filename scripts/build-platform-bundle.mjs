@@ -6,14 +6,17 @@ import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 
 const [version, outputArg, ...options] = process.argv.slice(2);
 if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg) {
-  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--single-file] [--bundle-directory <relative-path>]");
+  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--single-file] [--omit-licenses] [--bundle-directory <relative-path>]");
 }
 
 let singleFile = false;
+let includeLicenses = true;
 let bundleDirectory = "vendor/itpay-cli";
 for (let index = 0; index < options.length; index += 1) {
   if (options[index] === "--single-file") {
     singleFile = true;
+  } else if (options[index] === "--omit-licenses") {
+    includeLicenses = false;
   } else if (options[index] === "--bundle-directory" && options[index + 1]) {
     bundleDirectory = validateBundleDirectory(options[++index]);
   } else {
@@ -61,7 +64,7 @@ try {
       banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
     });
     cpSync(join(installed, "docs", "agent", "buyer"), join(vendor, "docs", "agent", "buyer"), { recursive: true });
-    copyLicenseFiles(join(scratch, "node_modules"), join(vendor, "licenses"));
+    if (includeLicenses) copyLicenseFiles(join(scratch, "node_modules"), join(vendor, "licenses"));
   } else {
     mkdirSync(join(vendor, "package"), { recursive: true });
     cpSync(installed, join(vendor, "package"), { recursive: true });
