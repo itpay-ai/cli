@@ -2291,6 +2291,28 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(workbuddy.instruction, /dangerouslyDisableSandbox/);
 });
 
+test("skill show accepts a direct Skill root and the legacy parent directory", async () => {
+  const content = readFileSync(join(CLI_ROOT, "skills", "itpay", "SKILL.md"), "utf8");
+  const directRoot = mkdtempSync(join(tmpdir(), "itpay-direct-skill-root-"));
+  writeFileSync(join(directRoot, "SKILL.md"), content, "utf8");
+  const direct = JSON.parse((await runCLI(
+    ["--agent-type", "workbuddy", "skill", "show", "itpay", "--json"],
+    { ITPAY_CLI_SKILLS_DIR: directRoot },
+  )).stdout) as { status: string; result: { content: string } };
+  assert.equal(direct.status, "shown");
+  assert.equal(direct.result.content, content);
+
+  const legacyRoot = mkdtempSync(join(tmpdir(), "itpay-legacy-skills-root-"));
+  mkdirSync(join(legacyRoot, "itpay"));
+  writeFileSync(join(legacyRoot, "itpay", "SKILL.md"), content, "utf8");
+  const legacy = JSON.parse((await runCLI(
+    ["skill", "show", "itpay", "--json"],
+    { ITPAY_CLI_SKILLS_DIR: legacyRoot },
+  )).stdout) as typeof direct;
+  assert.equal(legacy.status, "shown");
+  assert.equal(legacy.result.content, content);
+});
+
 test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
   await assert.rejects(
     runCLI(["skill", "show", "missing", "--json"], {}),
