@@ -42,7 +42,7 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
+import { CLI_VERSION, DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -52,6 +52,11 @@ const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
 const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "kimi-code", "openclaw"] as const;
 const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
+
+test("CLI version matches package version", () => {
+  const packageJSON = JSON.parse(readFileSync(resolve(CLI_ROOT, "package.json"), "utf8")) as { version: string };
+  assert.equal(CLI_VERSION, packageJSON.version);
+});
 
 let mock: MockBackendHandle;
 let config: CLIConfig;
@@ -1958,7 +1963,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.17",
+            current_cli_version: "2.0.19",
             required_cli_version: "2.0.16",
           });
           assert.equal(
@@ -2498,7 +2503,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.17");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.19");
       return true;
     },
   );
