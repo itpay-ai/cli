@@ -834,12 +834,14 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
 		}
 		const succeeded = refundReadMatch[1] === "rr_succeeded";
 		const manual = refundReadMatch[1] === "rr_manual";
+		const failureClass = refundReadMatch[1]?.startsWith("rr_failed_") ? refundReadMatch[1].slice("rr_failed_".length) : undefined;
 		respond(res, 200, {
 			refund_request_id: refundReadMatch[1], order_id: "ord_42",
-			status: succeeded ? "succeeded" : manual ? "policy_review_required" : "accepted",
+			status: succeeded ? "succeeded" : failureClass ? "failed" : manual ? "policy_review_required" : "accepted",
 			amount_minor: 100, currency: "CNY",
-			decision_mode: manual ? "manual" : "automatic",
+			decision_mode: manual || failureClass ? "manual" : "automatic",
 			consumption_state: manual ? "consumed" : "unconsumed",
+			...(failureClass ? { failure_class: failureClass } : {}),
 			access_locked: true, can_cancel: !succeeded,
 			created_at: "2026-07-13T12:00:00Z",
 		});

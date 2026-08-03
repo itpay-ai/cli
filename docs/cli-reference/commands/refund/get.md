@@ -49,7 +49,12 @@ itpay refund get <refund_request_id> [--json]
 
 - `succeeded`：instruction 明确“退款已成功；交付永久关闭”，`next=null`。
 - `cancelled/rejected`：说明交付资格可恢复，但旧 grant 不复活，需要用户重新授权，`next=null`。
-- `failed`：是否继续锁定以 `access_locked` 和 `failure_class` 的服务器裁定为准，`next=null`。
+- `failed + known_no_effect`：渠道请求确认未发送；Agent 不重试，由平台管理员决定是否重新执行，`next=null`。
+- `failed + retryable`：渠道明确返回可重试失败；Agent 不重试，等待平台管理员处理，`next=null`。
+- `failed + outcome_unknown`：渠道可能已受理；交付继续锁定，必须先对账，禁止重试或重复申请，`next=null`。
+- `failed + permanent`：渠道明确拒绝；停止并联系平台支持，`next=null`。
+
+`decision_mode=manual` 只说明该退款采用人工裁定，不得覆盖上述失败终态的 instruction。CLI 永远不向 Agent 暴露 Provider 原始响应、签名、URL、支付标识或内部错误文本。
 
 CLI 不因为退款终态自行修改订单或 grant。
 

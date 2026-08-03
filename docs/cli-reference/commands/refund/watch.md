@@ -44,7 +44,7 @@ itpay refund watch <refund_request_id> [--interval <seconds>] [--timeout <second
 }
 ```
 
-其他终态使用与 `refund get` 相同的锁、恢复资格和旧 grant 规则。
+其他终态使用与 `refund get` 相同的锁、恢复资格和旧 grant 规则。特别是 `failed` 必须按 `failure_class` 区分 `known_no_effect`、`retryable`、`outcome_unknown` 和 `permanent`；任何一种都不向 Agent 返回重试命令。
 
 ## Timeout 输出
 
