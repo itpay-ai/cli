@@ -28,6 +28,13 @@ function refundStateEnvelope(refund: RefundRequest, status: string): CommandEnve
 	if (!refund.access_locked) instruction = "退款当前未锁定交付；按服务器状态处理，不要自行推断退款结果。";
 	if (refund.status === "succeeded") instruction = "退款已成功；交付永久关闭。";
 	if (refund.status === "cancelled" || refund.status === "rejected") instruction = "退款未执行，交付资格可恢复；旧 grant 不会复活，需要用户重新授权。";
+	if (refund.status === "failed") {
+		if (refund.failure_class === "known_no_effect") instruction = "退款渠道请求确认未发送；不要自行重试。请用户联系平台管理员决定是否重新执行。";
+		else if (refund.failure_class === "retryable") instruction = "退款渠道明确返回可重试失败；不要自行重试。请用户等待平台管理员处理。";
+		else if (refund.failure_class === "outcome_unknown") instruction = "退款请求结果未知，交付继续锁定；必须先由平台对账，禁止重试或重复申请。";
+		else if (refund.failure_class === "permanent") instruction = "退款渠道明确拒绝本次退款；不要重试。请用户联系平台支持。";
+		else instruction = "退款执行失败；不要重试或重复申请，请用户联系平台支持。";
+	}
 	return {
 		status,
 		result: {

@@ -1963,7 +1963,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.equal(envelope.error.code, "backend_contract_incompatible");
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
-            current_cli_version: "2.0.20",
+            current_cli_version: "2.0.21",
             required_cli_version: "2.0.16",
           });
           assert.equal(
@@ -2503,7 +2503,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.20");
+      assert.equal(failure.recovery[0]?.command, "npm install -g @itpay/cli@2.0.21");
       return true;
     },
   );
@@ -3790,6 +3790,24 @@ test("refund get reports manual review from server truth", async () => {
 		can_cancel: true,
 	});
 	assert.match(envelope.instruction, /人工审核/);
+});
+
+test("refund get reports terminal failure class instead of stale manual-review guidance", async () => {
+	const cases = [
+		["known_no_effect", /确认未发送/],
+		["retryable", /可重试失败/],
+		["outcome_unknown", /必须先由平台对账/],
+		["permanent", /明确拒绝/],
+	] as const;
+	for (const [failureClass, expected] of cases) {
+		stdoutCapture.length = 0;
+		await runGetRefund(backend, `rr_failed_${failureClass}`, { jsonOutput: true, output: stdoutSink });
+		const envelope = JSON.parse(stdoutCapture.join("")) as { result: { failure_class: string }; instruction: string; next: unknown };
+		assert.equal(envelope.result.failure_class, failureClass);
+		assert.match(envelope.instruction, expected);
+		assert.doesNotMatch(envelope.instruction, /人工审核/);
+		assert.equal(envelope.next, null);
+	}
 });
 
 test("refund watch emits one terminal envelope for every Agent Type", async () => {
