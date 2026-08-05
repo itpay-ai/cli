@@ -37,6 +37,7 @@ import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { runListOrders } from "../src/commands/orders.js";
 import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "../src/commands/refund.js";
+import { runVaultAccess, runVaultList, runVaultRead } from "../src/commands/vault.js";
 import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartAddQuoteServer, runCartNext } from "../src/commands/cart.js";
 import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
@@ -4075,4 +4076,82 @@ test("markdown renderer keeps command output bounded and delegates image attachm
   assert.equal(dataURLs.length, 0);
   assert.ok(Buffer.byteLength(text) < 12_000, `markdown handoff unexpectedly large: ${Buffer.byteLength(text)} bytes`);
   assert.match(text, /!\[ItPay 付款二维码\]\(</);
+});
+
+test("vault command envelopes match the documented safe contract", async () => {
+  await runVaultList(backend, config, { limit: 20, jsonOutput: true, output: stdoutSink });
+  const listed = JSON.parse(stdoutCapture.join(""));
+  assert.deepEqual(listed, {
+    status: "vault_listed",
+    result: {
+      items: [{
+        artifact_ref: "va_cli",
+        service_title: "企知道企业综合报告",
+        subject_label: "京东",
+        order_code: "IP-12345678",
+        access_status: "approval_required",
+        amount_minor: 200,
+        currency: "CNY",
+      }],
+      next_cursor: null,
+    },
+    instruction: "让用户选择 artifact_ref 后请求授权；不要假设第一项就是当前任务。",
+    next: { command: "itpay vault access --artifact va_cli --json", reason: "请求人类授权" },
+    recovery: [],
+  });
+
+  stdoutCapture = [];
+  await runVaultAccess(backend, config, { artifact: "va_cli", jsonOutput: true, output: stdoutSink });
+  const access = JSON.parse(stdoutCapture.join(""));
+  assert.equal(access.status, "human_authorization_required");
+  assert.deepEqual(access.result, {
+    access_request_id: "var_cli",
+    expires_at: "2026-08-05T00:15:00Z",
+    authorization: {
+      url: "https://app.itpay.ai/vault/access/var_cli?start_token=secret",
+      qr_png_url: "https://app.itpay.ai/v1/vault/access-requests/var_cli/qr.png?start_token=secret",
+      mobile_direct: true,
+    },
+    artifact_ref: "va_cli",
+  });
+  assert.equal(access.handoff.url, access.result.authorization.url);
+  assert.equal(access.instruction, "请用户在浏览器以同一 Buyer 登录并批准；批准后执行 vault read。不要记录或复制 start_token。");
+  assert.deepEqual(access.next, { command: "itpay vault read --artifact va_cli --json", reason: "批准后读取受保护结果" });
+});
+
+test("vault read reports ready, authorization, preparing, and refunded states without retrying Provider", async () => {
+  for (const [artifact, status] of [
+    ["va_cli", "result_ready"],
+    ["va_denied", "authorization_required"],
+    ["va_pending", "result_preparing"],
+    ["va_refunded", "result_unavailable"],
+  ] as const) {
+    stdoutCapture = [];
+    await runVaultRead(backend, config, { artifact, jsonOutput: true, output: stdoutSink });
+    const envelope = JSON.parse(stdoutCapture.join(""));
+    assert.equal(envelope.status, status);
+    assert.equal(envelope.result.artifact_ref, artifact);
+    assert.deepEqual(envelope.recovery, []);
+    if (status === "result_preparing") assert.match(envelope.instruction, /不要新建 Provider 调用/);
+    if (status === "result_unavailable") {
+      assert.equal(envelope.result.reason, "refunded");
+      assert.equal(envelope.next, null);
+    }
+  }
+});
+
+test("actual vault CLI commands emit the documented JSON envelopes", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-vault-cli-"));
+  const env = { HOME: home, ITPAY_IDEMPOTENCY_KEY: "vault-cli-test" };
+  const listed = JSON.parse((await runCLI(["--agent-type", "codex-cli", "vault", "list", "--json"], env)).stdout);
+  assert.equal(listed.status, "vault_listed");
+  assert.equal(listed.result.items[0].artifact_ref, "va_cli");
+
+  const access = JSON.parse((await runCLI(["--agent-type", "codex-cli", "vault", "access", "--artifact", "va_cli", "--json"], env)).stdout);
+  assert.equal(access.status, "human_authorization_required");
+  assert.equal(access.result.access_request_id, "var_cli");
+
+  const ready = JSON.parse((await runCLI(["--agent-type", "codex-cli", "vault", "read", "--artifact", "va_cli", "--json"], env)).stdout);
+  assert.equal(ready.status, "result_ready");
+  assert.deepEqual(ready.result.result, { registration: { name: "京东科技信息技术有限公司" } });
 });

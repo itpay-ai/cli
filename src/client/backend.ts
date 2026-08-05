@@ -34,6 +34,9 @@ import type {
   ServiceQuotePrepared,
   SSEEvent,
   StartServiceExecutionRequest,
+  VaultAccessRequestCreated,
+  VaultInventoryResponse,
+  GrantedArtifactResult,
 } from "./types.js";
 
 export class BackendClient {
@@ -226,6 +229,27 @@ export class BackendClient {
 
   getGrantedServiceResult(serviceExecutionID: string): Promise<GrantedServiceResult> {
     return this.http.get<GrantedServiceResult>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/granted-result`);
+  }
+
+  listVaultArtifacts(input: { limit?: number; cursor?: string; query?: string; artifact_status?: string } = {}): Promise<VaultInventoryResponse> {
+    const qs = new URLSearchParams();
+    if (input.limit !== undefined) qs.set("limit", String(input.limit));
+    if (input.cursor) qs.set("cursor", input.cursor);
+    if (input.query) qs.set("query", input.query);
+    if (input.artifact_status) qs.set("artifact_status", input.artifact_status);
+    const suffix = qs.toString();
+    return this.http.get<VaultInventoryResponse>(`/v1/me/vault-artifacts${suffix ? `?${suffix}` : ""}`);
+  }
+
+  createVaultAccessRequest(artifactRef: string, input: { fields?: string[] } = {}): Promise<VaultAccessRequestCreated> {
+    return this.http.post<VaultAccessRequestCreated>(
+      `/v1/vault/artifacts/${encodeURIComponent(artifactRef)}/access-requests`,
+      input,
+    );
+  }
+
+  readGrantedVaultArtifact(artifactRef: string): Promise<GrantedArtifactResult> {
+    return this.http.get<GrantedArtifactResult>(`/v1/vault/artifacts/${encodeURIComponent(artifactRef)}/granted-result`);
   }
 }
 

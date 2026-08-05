@@ -16,6 +16,7 @@ import { runCheckoutPresentation } from "./commands/checkout.js";
 import { runPay } from "./commands/pay.js";
 import { runOrder } from "./commands/order.js";
 import { runListOrders } from "./commands/orders.js";
+import { runVaultAccess, runVaultList, runVaultRead } from "./commands/vault.js";
 import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "./commands/refund.js";
 import {
   runCartAdd,
@@ -1089,6 +1090,86 @@ program
         code: "orders_list_failed",
         instruction: "订单历史只对 account-scoped Buyer session 开放；不要通过错误差异探测其他账号。",
         recovery: [{ command: "itpay services list --json", reason: "恢复当前 Agent 设备可见的执行" }],
+      });
+    }
+  });
+
+const vault = program
+  .command("vault")
+  .description("Buyer Vault inventory, human access request, and granted read for the local Agent");
+
+vault
+  .command("list")
+  .description("List redacted Buyer Vault inventory for the signed local Agent")
+  .option("--query <text>", "filter by order code, service title, or subject label")
+  .option("--limit <n>", "max artifacts", (value) => Number.parseInt(value, 10), 20)
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    const backend = newBackendClient(config);
+    try {
+      await runVaultList(backend, config, {
+        query: options.query,
+        limit: options.limit,
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "vault_list_failed",
+        instruction: "Vault 列表需要 Buyer 绑定的 Local Agent；不要伪造 Buyer 或 audience 参数。",
+        recovery: [{ command: "itpay vault list --json", reason: "确认 Device 已绑定后重试" }],
+      });
+    }
+  });
+
+vault
+  .command("access")
+  .description("Create a human authorization request for one Vault artifact")
+  .requiredOption("--artifact <artifact_ref>", "artifact_ref from vault list")
+  .option("--field <path>", "requested field path; repeatable", collectOption, [])
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    const backend = newBackendClient(config);
+    try {
+      await runVaultAccess(backend, config, {
+        artifact: options.artifact,
+        fields: options.field,
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "vault_access_failed",
+        instruction: "访问请求失败时不要猜测其他 artifact；先 vault list 再重试。",
+        recovery: [{ command: "itpay vault list --json", reason: "重新选择 artifact" }],
+      });
+    }
+  });
+
+vault
+  .command("read")
+  .description("Read a human-granted Vault artifact for the signed local Agent")
+  .requiredOption("--artifact <artifact_ref>", "artifact_ref from vault list")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    const backend = newBackendClient(config);
+    try {
+      await runVaultRead(backend, config, {
+        artifact: options.artifact,
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "vault_read_failed",
+        instruction: "读取失败时先确认人类授权是否完成；不要自动创建支付或退款。",
+        recovery: [
+          { command: `itpay vault access --artifact ${options.artifact} --json`, reason: "重新请求人类授权" },
+          { command: "itpay vault list --json", reason: "确认 artifact 仍可用" },
+        ],
       });
     }
   });
