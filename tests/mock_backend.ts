@@ -793,6 +793,67 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    if (method === "GET" && path === "/v1/me/vault-artifacts") {
+      respond(res, 200, {
+        status: "vault_listed",
+        items: [{
+          artifact_ref: "va_cli",
+          service_title: "企知道企业综合报告",
+          subject_label: "京东",
+          order_code: "IP-12345678",
+          amount_minor: 200,
+          currency: "CNY",
+          order_status: "delivered",
+          refund_status: null,
+          artifact_status: "sealed",
+          access_status: "approval_required",
+          available_sections: ["registration"],
+          purchased_at: "2026-08-05T00:00:00Z",
+        }],
+        next_cursor: null,
+      });
+      return;
+    }
+
+    const vaultAccessMatch = path.match(/^\/v1\/vault\/artifacts\/([^/]+)\/access-requests$/);
+    if (method === "POST" && vaultAccessMatch) {
+      respond(res, 201, {
+        status: "pending",
+        access_request_id: "var_cli",
+        expires_at: "2026-08-05T00:15:00Z",
+        authorization: {
+          url: "https://app.itpay.ai/vault/access/var_cli?start_token=secret",
+          qr_png_url: "https://app.itpay.ai/v1/vault/access-requests/var_cli/qr.png?start_token=secret",
+          mobile_direct: true,
+        },
+      });
+      return;
+    }
+
+    const vaultReadMatch = path.match(/^\/v1\/vault\/artifacts\/([^/]+)\/granted-result$/);
+    if (method === "GET" && vaultReadMatch) {
+      const artifactRef = decodeURIComponent(vaultReadMatch[1]!);
+      if (artifactRef === "va_denied") {
+        respond(res, 403, { code: "agent_access_denied", message: "human authorization required" });
+        return;
+      }
+      if (artifactRef === "va_pending") {
+        respond(res, 200, { status: "result_preparing", artifact_ref: artifactRef });
+        return;
+      }
+      if (artifactRef === "va_refunded") {
+        respond(res, 200, { status: "result_unavailable", artifact_ref: artifactRef, reason: "refunded" });
+        return;
+      }
+      respond(res, 200, {
+        status: "result_ready",
+        artifact_ref: artifactRef,
+        grant_expires_at: "2026-08-05T00:15:00Z",
+        result: { registration: { name: "京东科技信息技术有限公司" } },
+      });
+      return;
+    }
+
     const refundMatch = path.match(/^\/v1\/orders\/([^/]+)\/refunds$/);
     if (method === "GET" && refundMatch) {
       const orderID = refundMatch[1]!;

@@ -530,3 +530,44 @@ export interface SSEEvent {
   sequence: number;
   payload: Record<string, unknown>;
 }
+
+
+export interface VaultInventoryItem {
+  artifact_ref: string;
+  service_title?: string;
+  subject_label?: string;
+  order_code?: string;
+  amount_minor: number;
+  currency: string;
+  order_status: string;
+  refund_status?: string | null;
+  artifact_status: string;
+  access_status: string;
+  available_sections?: string[];
+  purchased_at: string;
+}
+
+export interface VaultInventoryResponse {
+  status: string;
+  items: VaultInventoryItem[];
+  next_cursor?: string;
+}
+
+export interface VaultAccessRequestCreated {
+  status: string;
+  access_request_id: string;
+  expires_at: string;
+  authorization: {
+    url: string;
+    qr_png_url?: string;
+    mobile_direct?: boolean;
+  };
+}
+
+export interface GrantedArtifactResult {
+  status: string;
+  artifact_ref: string;
+  grant_expires_at?: string;
+  result?: Record<string, unknown>;
+  reason?: string;
+}
