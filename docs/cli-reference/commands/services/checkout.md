@@ -14,10 +14,11 @@
 ```bash
 itpay services checkout <service_execution_id> --capability <capability_id>
   [--input <key=value> ...] [--email <delivery_email>]
-  [--host <host>] [--target <target>] [--qr-format <format>] [--qr-file <path>] [--json]
+  [--host <host>] [--target <target>] [--locale <zh-CN|en>]
+  [--qr-format <format>] [--qr-file <path>] [--json]
 
 itpay services checkout <service_execution_id> --resume
-  [--host <host>] [--target <target>] [--json]
+  [--host <host>] [--target <target>] [--locale <zh-CN|en>] [--json]
 ```
 
 创建时 `--capability` 必填。最终 locked input 必须满足 capability schema：显式输入来自 `--input`，服务端也可以按已发布 contract 从当前 Execution 的已批准 action 解析输入。解析后仍缺字段时，必须在创建 Quote、Cart 或 Checkout 前失败。只有 `delivery_email_required=true` 才要求 `--email`，并必须先向用户解释邮箱用于发送可 claim 的交付链接。`--resume` 复用同一个 Checkout 并轮换 handoff token，不再索取输入或邮箱。

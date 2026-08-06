@@ -37,6 +37,7 @@
     "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and use only the exact distribution-specific update recovery returned by the CLI; never replace its version with latest.",
     "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, kimi-code, or openclaw.",
+    "For compatibility, a global --agent-type codex declaration is normalized immediately to codex-desktop; all registration, output, and returned commands use codex-desktop. Never generate the alias, and do not use codex as an install target.",
     "One local private key is reused, while Device registrations and quota lineage remain separate for app.itpay.ai and dev.itpay.ai.",
     "Within each official Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
     "Agent Type identifies the runtime. Host controls rendering and target only identifies a presentation destination. OpenClaw requires an explicit Host and IM target; Kimi Code uses the standard terminal CLI contract.",
@@ -44,7 +45,7 @@
     "Do not change Agent Type or rotate local identity to reset quota or recover a failed command."
   ],
   "forbidden": [
-    "Do not use codex, terminal, claude-code, or plain-chat as Agent Types.",
+    "Do not use terminal, claude-code, or plain-chat as Agent Types. Do not generate codex as an Agent Type; it is accepted only as a legacy global declaration and becomes codex-desktop before any request.",
     "Do not set or suggest any Backend except the default https://app.itpay.ai or the exact test override https://dev.itpay.ai.",
     "Do not claim that install writes host configuration or registers a device; it only prints instructions.",
     "Do not create a new identity for a different window, task, chat, or process of the same Agent Type."

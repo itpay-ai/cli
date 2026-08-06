@@ -174,6 +174,7 @@ export class BackendClient {
     return this.http.post<ServiceCapabilityInvoked>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/capabilities/${encodeURIComponent(capabilityID)}/invoke`,
       input,
+      { replaySafe: Boolean(input.idempotency_key) },
     );
   }
 
@@ -194,6 +195,7 @@ export class BackendClient {
     return this.http.post<ServiceExecutionCheckoutCreated>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/checkout`,
       input,
+      { replaySafe: true },
     );
   }
 
@@ -204,6 +206,7 @@ export class BackendClient {
     return this.http.post<ServiceQuotePrepared>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/quotes`,
       input,
+      { replaySafe: true },
     );
   }
 

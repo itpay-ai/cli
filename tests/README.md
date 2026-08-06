@@ -39,6 +39,7 @@ npm run test:package
 - Production Backend pinning and test-only loopback isolation
 - Minimum source coverage: 85% statements/lines, 90% functions, 70% branches
 - Every public packaged CLI command path parses and exits successfully with `--help`
+- The packed command tree exactly matches an explicit normative document mapping; every document ships, is linked from the CLI index, and names every public long option from `--help`
 
 ## Rules
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,25 +36,60 @@ try {
     HOME: home,
   };
 
-  const commandPaths = [
-    [],
-    ["readyz"],
-    ["device"], ["device", "recover"],
-    ["skill"], ["skill", "show"],
-    ["next"],
-    ["catalog"], ["catalog", "list"],
-    ["install"],
-    ["docs"], ["docs", "list"], ["docs", "show"], ["docs", "search"],
-    ["cart"], ["cart", "add"], ["cart", "next"], ["cart", "remove"], ["cart", "show"], ["cart", "clear"],
-    ["buy"], ["checkout"], ["pay"], ["order"], ["orders"],
-    ["refund"], ["refund", "create"], ["refund", "list"], ["refund", "get"], ["refund", "watch"], ["refund", "cancel"],
-    ["services"], ["services", "start"], ["services", "invoke"], ["services", "action"], ["services", "quote"],
-    ["services", "checkout"], ["services", "list"], ["services", "get"], ["services", "next"],
-    ["services", "read-result"], ["services", "events"],
-  ];
+  const commandDocs = new Map([
+    ["", "index.md"],
+    ["readyz", "commands/readyz.md"],
+    ["device", "commands/device.md"], ["device recover", "commands/device.md"],
+    ["skill", "commands/skill.md"], ["skill show", "commands/skill.md"],
+    ["next", "commands/next.md"],
+    ["catalog", "commands/catalog/index.md"], ["catalog list", "commands/catalog/list.md"],
+    ["install", "commands/install.md"],
+    ["docs", "commands/docs/index.md"], ["docs list", "commands/docs/list.md"],
+    ["docs show", "commands/docs/show.md"], ["docs search", "commands/docs/search.md"],
+    ["cart", "commands/cart/index.md"], ["cart add", "commands/cart/add.md"],
+    ["cart next", "commands/cart/next.md"], ["cart remove", "commands/cart/remove.md"],
+    ["cart show", "commands/cart/show.md"], ["cart clear", "commands/cart/clear.md"],
+    ["buy", "commands/buy.md"], ["checkout", "commands/checkout.md"], ["pay", "commands/pay.md"],
+    ["order", "commands/order.md"], ["orders", "commands/orders.md"],
+    ["refund", "commands/refund/index.md"], ["refund create", "commands/refund/create.md"],
+    ["refund list", "commands/refund/list.md"], ["refund get", "commands/refund/get.md"],
+    ["refund watch", "commands/refund/watch.md"], ["refund cancel", "commands/refund/cancel.md"],
+    ["services", "commands/services/index.md"], ["services start", "commands/services/start.md"],
+    ["services invoke", "commands/services/invoke.md"], ["services action", "commands/services/action.md"],
+    ["services quote", "commands/services/quote.md"], ["services checkout", "commands/services/checkout.md"],
+    ["services list", "commands/services/list.md"], ["services get", "commands/services/get.md"],
+    ["services next", "commands/services/next.md"], ["services read-result", "commands/services/read-result.md"],
+    ["services events", "commands/services/events.md"],
+  ]);
+  const commandPaths = discoverCommandPaths(entry, env);
+  assert.deepEqual(
+    [...commandPaths].map((path) => path.join(" ")).sort(),
+    [...commandDocs.keys()].sort(),
+    "every public command path must have an explicit CLI document mapping",
+  );
+  const referenceRoot = join(packageRoot, "docs", "cli-reference");
+  const referenceIndex = readFileSync(join(referenceRoot, "index.md"), "utf8");
   for (const commandPath of commandPaths) {
     const commandHelp = execFileSync(process.execPath, [entry, ...commandPath, "--help"], { env, encoding: "utf8" });
     assert.match(commandHelp, /Usage: itpay/, `help failed for: itpay ${commandPath.join(" ")}`);
+    if (/\n  help \[command\]/.test(commandHelp)) {
+      const generatedHelp = execFileSync(process.execPath, [entry, ...commandPath, "help"], { env, encoding: "utf8" });
+      assert.match(generatedHelp, /Usage: itpay/, `generated help failed for: itpay ${commandPath.join(" ")} help`);
+      assert.match(referenceIndex, /itpay help \[command\]/, "generated help contract is absent from the CLI index");
+    }
+    const documentPath = commandDocs.get(commandPath.join(" "));
+    assert.ok(documentPath, `missing document mapping for: itpay ${commandPath.join(" ")}`);
+    const absoluteDocumentPath = join(referenceRoot, documentPath);
+    assert.equal(existsSync(absoluteDocumentPath), true, `missing packaged CLI document: ${documentPath}`);
+    const document = readFileSync(absoluteDocumentPath, "utf8");
+    for (const option of commandHelp.matchAll(/--([a-z][a-z0-9-]*)/g)) {
+      if (option[1] === "help") continue;
+      assert.match(document, new RegExp(`--${escapeRegExp(option[1])}(?:[^a-z0-9-]|$)`),
+        `CLI option is absent from ${documentPath}: itpay ${commandPath.join(" ")} --${option[1]}`);
+    }
+    if (documentPath !== "index.md") {
+      assert.match(referenceIndex, new RegExp(`\\(${escapeRegExp(documentPath)}\\)`), `CLI document is absent from index: ${documentPath}`);
+    }
   }
 
   const help = execFileSync(process.execPath, [entry, "services", "--help"], { env, encoding: "utf8" });
@@ -91,6 +126,16 @@ try {
   assert.match(skillHelp.result.content, /15-minute human grant/);
   assert.match(skillHelp.result.content, /Identity And Sessions/);
   assert.equal(skillHelp.next.command, "itpay --agent-type codex-cli catalog list --json");
+  assert.doesNotMatch(skillHelp.result.content, /BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY/);
+  const aliasSkillHelp = JSON.parse(execFileSync(process.execPath, [
+    entry, "--agent-type", "codex", "skill", "show", "itpay", "--json",
+  ], { env, encoding: "utf8" }));
+  assert.match(aliasSkillHelp.next.command, /^itpay --agent-type codex-desktop /);
+
+  for (const commandPath of [["buy"], ["checkout"], ["services", "checkout"]]) {
+    const cardHelp = execFileSync(process.execPath, [entry, ...commandPath, "--help"], { env, encoding: "utf8" });
+    assert.match(cardHelp, /--locale <locale>/, `Card locale is undocumented by help: itpay ${commandPath.join(" ")}`);
+  }
 
   let stderr = "";
   try {
@@ -103,4 +148,23 @@ try {
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
+}
+
+function discoverCommandPaths(entry, env) {
+  const discovered = [[]];
+  for (let index = 0; index < discovered.length; index += 1) {
+    const parent = discovered[index];
+    const help = execFileSync(process.execPath, [entry, ...parent, "--help"], { env, encoding: "utf8" });
+    const commands = help.match(/(?:^|\n)Commands:\n([\s\S]*?)(?:\n\n|$)/)?.[1] ?? "";
+    for (const line of commands.split("\n")) {
+      const name = line.match(/^  ([a-z][a-z0-9-]*)(?:\s|$)/)?.[1];
+      if (!name || name === "help" || /^\s{4,}/.test(line)) continue;
+      discovered.push([...parent, name]);
+    }
+  }
+  return discovered;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

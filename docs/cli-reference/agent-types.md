@@ -21,6 +21,7 @@
 ## 通用规则
 
 - commerce 命令必须传 `--agent-type` 或设置 `ITPAY_AGENT_TYPE`。
+- 兼容入口 `--agent-type codex` / `ITPAY_AGENT_TYPE=codex` 仅在 CLI 参数解析边界规范化为 `codex-desktop`；登记、输出和后续命令始终使用 `codex-desktop`。新文档和 Agent 不得主动生成该别名。`itpay install codex` 仍是无效 target。
 - Agent Type 必须真实且稳定；同类型窗口复用同一实例，不得临时换名。
 - `next.command` 和 `recovery.command` 必须保留当前显式 Agent Type，不读取或回退到机器上其他类型。
 - 显式 `--host` 覆盖默认 Host，但不改变已登记的 Agent Type。

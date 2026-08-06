@@ -13,12 +13,14 @@
 
 ```bash
 itpay checkout [--id <checkout_id>] [--token <display_token>]
-  [--host <host>] [--target <target>] [--json]
+  [--host <host>] [--target <target>] [--locale <zh-CN|en>] [--json]
 ```
 
 省略 `--id/--token` 时只能使用本机保存的一组完整句柄；不得把其他 Checkout 的 token 拼接使用。
 
 `--host` 默认由 `--agent-type` 决定；`openclaw` 必须显式传当前入口。IM Host 必须提供 `--target`。`--json` 输出机器可读合同，不内嵌二维码字符画或图片二进制。
+
+`--locale` 默认 `zh-CN`，可显式使用 `en`。它只改变重新渲染的 Card 文案，不改变 Checkout、付款、授权或恢复状态。
 
 ## 等待付款输出
 

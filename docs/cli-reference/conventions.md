@@ -82,6 +82,40 @@ next: <one command>
 - `provider_input_rejected` 只表示 Provider 明确声明输入无效；`provider_contract_mismatch` 表示响应无法按已发布契约解释，绝不能归咎于用户输入。两者都必须停止且没有自动 recovery。
 - `backend_contract_incompatible` 只有在 Backend 返回合法 `minimum_cli_version` 时才能提供升级 recovery。npm 分发返回精确的 `npm install -g @itpay/cli@<version>`；平台 bundle 返回该平台的 Skill/plugin 更新动作。不得使用 `latest`、解析 message 猜版本或继续任何业务命令；升级后必须先用 `itpay --version` 核对完全一致，再重新运行 `readyz`。
 
+## 网络传输失败与自动重试
+
+CLI 只把“尚未收到完整 HTTP 响应”的临时传输异常映射为稳定错误码：
+
+- `network_connection_reset`
+- `network_timeout`
+- `network_dns_temporary`
+- `network_unreachable`
+- `network_connection_refused`
+- `network_socket_error`
+- `network_transport_failed`
+
+所有命令的 JSON 错误继续使用标准错误外壳，并额外返回：
+
+```json
+{
+  "status": "error",
+  "error": { "code": "network_connection_reset", "message": "<bounded_transport_fact>" },
+  "result": { "attempts": 3, "automatic_retry_performed": true },
+  "instruction": "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。",
+  "next": null,
+  "recovery": [{ "command": "itpay <same-resource-read-command>", "reason": "读取同一资源的权威状态" }]
+}
+```
+
+重试合同必须同时满足以下边界：
+
+- `GET`、携带稳定 `Idempotency-Key` 的写请求，以及 Backend 明确保证事务性安全重放的操作，使用短递增退避，最多自动重试两次（总共三次尝试）。
+- 不具备上述合同的写请求绝不自动重放；错误中为 `attempts=1`、`automatic_retry_performed=false`，Agent 必须先查询同一资源状态。
+- 每次尝试重新生成 Device 签名；不得复用过期时间、nonce 或 Authorization header。
+- 首次 Device enrollment、Agent Instance 登记或 session challenge/verify 在生成请求签名前发生。它们的传输失败同样映射为稳定 `network_*` 错误，但这些内部 POST 没有外层业务请求的安全重放合同，因此不自动重试，并返回 `attempts=1`、`automatic_retry_performed=false`。Agent 修复网络后重跑原始命令，由 Device Authority 从已持久化状态安全恢复。
+- `AbortSignal` 主动取消、证书/TLS 信任错误、已收到的 HTTP/业务错误和 Provider 业务失败不属于该重试。
+- 稳定输出不得包含 Node/Undici cause、socket、DNS 地址、请求 header、token、签名 URL 或 Provider 原始响应。
+
 ## Instruction 模板
 
 Instruction 只回答当前最重要的一件事：
