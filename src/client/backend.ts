@@ -83,8 +83,9 @@ export class BackendClient {
     return this.http.post<CheckoutCreated>("/v1/checkouts", input, idempotencyKey ? { idempotencyKey } : undefined);
   }
 
-  getCheckoutPresentation(checkoutID: string, displayToken: string): Promise<CheckoutPresentation> {
+  getCheckoutPresentation(checkoutID: string, displayToken: string, locale?: "zh-CN" | "en"): Promise<CheckoutPresentation> {
     const qs = new URLSearchParams({ display_token: displayToken });
+    if (locale) qs.set("locale", locale);
     return this.http.get<CheckoutPresentation>(`/v1/checkouts/${encodeURIComponent(checkoutID)}/presentation?${qs}`);
   }
 

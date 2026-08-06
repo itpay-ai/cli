@@ -833,6 +833,7 @@ program
   .option("--require-contact <fields>", "comma-separated required contact fields: email,phone")
   .option("--qr-format <format>", "unicode|utf8|ansi|terminal")
   .option("--qr-file <path>", "explicit QR file path")
+  .option("--locale <locale>", "payment card language: zh-CN|en", "zh-CN")
   .option("--pay", "also create a payment intent and optionally wait for verification")
   .option("--method <alipay|wechatpay>", "payment method for --pay", "alipay")
   .option("--no-wait", "do not wait for payment verification after --pay")
@@ -917,6 +918,7 @@ program
         ...(requiredContactFields ? { requiredContactFields } : {}),
         ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
         ...(options.qrFile ? { qrFilePath: options.qrFile } : {}),
+        locale: options.locale,
         ...(options.pay ? { pay: true, payMethod: options.method, noWait: options.wait === false, payTimeoutSec: timeout } : {}),
         ...(jsonOutput ? { jsonOutput: true } : {}),
       };
@@ -943,6 +945,7 @@ program
   .option("--target <target>")
   .option("--id <checkout_id>")
   .option("--token <display_token>")
+  .option("--locale <locale>", "payment card language: zh-CN|en", "zh-CN")
   .option("--json", "output compact JSON")
   .action(async (options) => {
     const config = loadConfig();
@@ -964,6 +967,7 @@ program
         ...(options.target ? { target: options.target } : {}),
         ...(config.agentType ? { agentType: config.agentType } : {}),
         baseURL: config.baseURL,
+        locale: options.locale,
         jsonOutput: Boolean(options.json),
       });
     } catch (error) {
@@ -1360,6 +1364,7 @@ services
   .option("--target <target>", "chat id / channel id / open id for IM hosts")
   .option("--qr-format <format>", "unicode|utf8|ansi|terminal")
   .option("--qr-file <path>", "explicit QR file path")
+  .option("--locale <locale>", "payment card language: zh-CN|en", "zh-CN")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
@@ -1376,6 +1381,7 @@ services
         ...(options.target ? { target: options.target } : {}),
         ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
         ...(options.qrFile ? { qrFilePath: options.qrFile } : {}),
+        locale: options.locale,
         jsonOutput: Boolean(options.json),
         persistHandoff: (handoff) => {
           session.rememberCheckout({

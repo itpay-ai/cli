@@ -19,6 +19,7 @@ import { dispatchRender, type DispatchOptions } from "../render/index.js";
 import { platformKeyForHost, type RenderPlan } from "../render/plan.js";
 import type { OutputSink } from "../render/sink.js";
 import { ensureIdeImageAttach } from "../render/ide.js";
+import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../render/locale.js";
 import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
@@ -51,6 +52,7 @@ export interface BuyOptions {
   // --json
   jsonOutput?: boolean;
   agentType?: string;
+  locale?: CardLocale;
 }
 
 export type BuyResult = {
@@ -135,8 +137,16 @@ export async function runBuy(
 
   const checkoutID = checkout.checkout.checkout_id;
   const displayToken = checkout.display_token;
+  const locale = normalizeCardLocale(options.locale);
   const checkoutURL = tokenizedCheckoutURL(checkout.checkout_url, displayToken, checkout.qr_payload);
-  const qrPNGURL = checkout.qr_png_url ? absolutePublicURL(config.baseURL, checkout.qr_png_url) : undefined;
+  const cardURL = localizeCardURL(absolutePublicURL(
+    config.baseURL,
+    checkout.card_url ?? fallbackCardURL(config.baseURL, checkoutID, displayToken),
+  ), locale);
+  const qrPNGURL = localizeCardURL(absolutePublicURL(
+    config.baseURL,
+    checkout.card_png_url ?? checkout.qr_png_url ?? fallbackCardPNGURL(config.baseURL, checkoutID, displayToken),
+  ), locale);
 
   const orderItems = cart.items.map((item) => ({
     title: item.title,
@@ -182,12 +192,14 @@ export async function runBuy(
     host: options.host,
     checkoutID,
     checkoutURL,
+    cardURL,
     displayToken,
     qrPayload: checkout.qr_payload,
     nextAction: checkout.checkout.next_action,
     orderItems,
     orderCurrency: checkout.checkout.currency,
     ...(options.agentType ? { agentType: options.agentType } : {}),
+    locale,
   };
   if (qrPNGURL) planInput.qrPNGURL = qrPNGURL;
   if (paymentIntent) {
@@ -215,7 +227,7 @@ export async function runBuy(
       displayToken,
       plan,
       waitStatus,
-      ...(qrPNGURL ? { qrPNGURL } : {}),
+      qrPNGURL,
       ...(paymentIntent ? { paymentIntent } : {}),
       ...(options.agentType ? { agentType: options.agentType } : {}),
       ...(options.target ? { target: options.target } : {}),
@@ -288,7 +300,7 @@ function buildBuyEnvelope(input: {
   }
   const presentationHandoff = buildCheckoutHandoff({
     platform,
-    url: input.checkoutURL,
+    url: input.plan.linkOnlyURL ?? input.checkoutURL,
     amount,
     plan: input.plan,
     ...(input.agentType ? { agentType: input.agentType } : {}),
@@ -304,7 +316,7 @@ function buildBuyEnvelope(input: {
     result,
     handoff: presentationHandoff.handoff,
     instruction: presentationHandoff.instruction,
-    next: { command: `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "稍后查询同一笔 Checkout 状态" },
+    next: { command: input.plan.afterActionCommand ?? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "稍后查询同一笔 Checkout 状态" },
     recovery: [],
   };
 }
@@ -352,6 +364,7 @@ export function buildCheckoutQRPlan(input: {
   displayToken: string;
   qrPayload: string;
   qrPNGURL?: string;
+  cardURL?: string;
   nextAction: string;
   orderItems?: { title: string; quantity: number; amountMinor: number; currency: string }[];
   orderCurrency?: string;
@@ -359,11 +372,12 @@ export function buildCheckoutQRPlan(input: {
   paymentStatus?: string;
   paymentIntentID?: string;
   agentType?: string;
+  locale?: CardLocale;
 }): RenderPlan {
   const summary = `Scan the QR or open ${input.checkoutURL} to start the human checkout flow.`;
   const isPayment = input.paymentIntentID != null;
   const afterCommand = qualifyItPayCommand(
-    `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`,
+    `itpay checkout --id ${input.checkoutID} --token ${input.displayToken}${input.locale === "en" ? " --locale en" : ""} --json`,
     input.agentType,
   );
 
@@ -387,6 +401,7 @@ export function buildCheckoutQRPlan(input: {
     host: input.host,
     summary,
     url: input.qrPayload,
+    ...(input.agentType?.trim().toLowerCase() === "workbuddy" && input.cardURL ? { linkOnlyURL: input.cardURL } : {}),
     preferredQRSources: [input.qrPNGURL ?? input.qrPayload],
     checkoutID: input.checkoutID,
     platform,
@@ -399,6 +414,15 @@ export function buildCheckoutQRPlan(input: {
   if (input.paymentStatus) plan.paymentStatus = input.paymentStatus;
   if (input.paymentIntentID) plan.paymentIntentID = input.paymentIntentID;
   return plan;
+}
+
+function fallbackCardURL(baseURL: string, checkoutID: string, displayToken: string): string {
+  const root = baseURL.replace(/\/$/, "");
+  return `${root}/v1/checkouts/${encodeURIComponent(checkoutID)}/card?display_token=${encodeURIComponent(displayToken)}`;
+}
+
+function fallbackCardPNGURL(baseURL: string, checkoutID: string, displayToken: string): string {
+  return `${fallbackCardURL(baseURL, checkoutID, displayToken)}.png`.replace("/card?", "/card.png?");
 }
 
 // --- contact field interaction ---

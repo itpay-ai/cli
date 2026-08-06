@@ -78,6 +78,8 @@ export interface CheckoutCreated {
   display_token: string;
   qr_payload: string;
   qr_png_url?: string;
+  card_url?: string;
+  card_png_url?: string;
 }
 
 export interface CheckoutPresentation {
@@ -87,6 +89,8 @@ export interface CheckoutPresentation {
   buyer_session: { state: string };
   completed_order_id?: string;
   qr_png_url?: string;
+  card_url?: string;
+  card_png_url?: string;
 }
 
 export interface PaymentAction {
