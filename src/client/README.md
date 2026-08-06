@@ -7,7 +7,8 @@ Thin HTTP/JSON client for the V3 backend. One module per concern.
 ## Files
 
 - `types.ts` — V3 request/response DTOs. Keep in sync with `services/backend/internal/presenter/*.go`.
-- `http.ts` — generic `HttpClient` (fetch wrapper, JSON encode/decode, `Idempotency-Key` and `Authorization` headers, error mapping).
+- `http.ts` — generic `HttpClient` (fetch wrapper, JSON encode/decode, `Idempotency-Key` and `Authorization` headers, bounded replay policy, error mapping).
+- `transport.ts` — safe transport-error classification. One retry is limited to reads, idempotency-keyed writes, and operations whose Backend contract is explicitly transactionally replay-safe.
 - `backend.ts` — typed `BackendClient` exposing one method per route family (`readyz`, carts, checkouts, payment-intents, orders, refunds).
 
 ## Rules
