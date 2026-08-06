@@ -1,5 +1,5 @@
-// Thin HTTP client for V3 backend. Keep retry policy transport-only: one
-// bounded retry is allowed only for reads or explicitly replay-safe writes.
+// Thin HTTP client for V3 backend. Keep retry policy transport-only: bounded
+// retries are allowed only for reads or explicitly replay-safe writes.
 // HTTP/business failures remain owned by higher-level commands.
 
 import type { ErrorResponse } from "./types.js";
@@ -37,6 +37,7 @@ export interface HttpClientConfig {
 }
 
 export class HttpClient {
+  private static readonly MAX_TRANSPORT_RETRIES = 2;
   readonly baseURL: string;
   private readonly fetchImpl: typeof fetch;
   private readonly defaultHeaders: Record<string, string>;
@@ -87,9 +88,9 @@ export class HttpClient {
         if (options.signal?.aborted) throw error;
         const transportError = asTransientTransportError(error, transportRetries + 1);
         if (!transportError) throw error;
-        if (replaySafe && transportRetries === 0) {
+        if (replaySafe && transportRetries < HttpClient.MAX_TRANSPORT_RETRIES) {
           transportRetries += 1;
-          await delay(this.transportRetryDelayMs);
+          await delay(this.transportRetryDelayMs * (2 ** (transportRetries - 1)));
           continue;
         }
         throw asTransientTransportError(error, transportRetries + 1) ?? error;

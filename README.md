@@ -43,6 +43,8 @@ Normative per-command contracts: [CLI Command Reference](docs/cli-reference/inde
 | `claude-code-desktop` | `claude-code` |
 | `claude-code-cli` | `terminal` |
 | `workbuddy` | `plain-chat` |
+| `kimi-code` | `terminal` |
+| `openclaw` | 必须显式提供 |
 
 `--agent-type` identifies the stable runtime and registered Agent instance. Every returned ItPay command preserves it. Different windows or chats of the same type reuse one Agent Instance; they are not separate identities. `--host` only selects the human presentation surface, and `--target` only routes output to a Host destination. Use `itpay install <agent_type> --json` for the exact responsibility.
 
@@ -59,6 +61,7 @@ The local installation keeps one Ed25519 private key and a separate registration
 - `refund create/list/get/watch/cancel`: Refund Owner flow.
 - `services get/events`: redacted support diagnostics; normal flows should use `services next`.
 - `install`, `skill show`, `docs list/show/search`: offline packaged guidance.
+- `device recover`: operator-confirmed Backend reset recovery that preserves the local private key.
 - `pay`: operator escape hatch only; normal buyers use the ItPay Checkout page.
 
 Run `itpay <command> --help` or browse [the command index](docs/cli-reference/index.md) for parameters.

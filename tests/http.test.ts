@@ -15,7 +15,7 @@ function json(value: unknown): Response {
   });
 }
 
-test("retries a transient GET once and regenerates authorization", async () => {
+test("retries a transient GET twice and regenerates authorization for every attempt", async () => {
   let calls = 0;
   let authorizations = 0;
   const client = new HttpClient({
@@ -25,14 +25,14 @@ test("retries a transient GET once and regenerates authorization", async () => {
     fetchImpl: async (_input, init) => {
       calls += 1;
       assert.equal(new Headers(init?.headers).get("Authorization"), `proof_${calls}`);
-      if (calls === 1) throw transportFailure("ECONNRESET");
+      if (calls <= 2) throw transportFailure("ECONNRESET");
       return json({ status: "ready" });
     },
   });
 
   assert.deepEqual(await client.get("/v1/readyz"), { status: "ready" });
-  assert.equal(calls, 2);
-  assert.equal(authorizations, 2);
+  assert.equal(calls, 3);
+  assert.equal(authorizations, 3);
 });
 
 test("retries an idempotency-keyed POST once with the identical request", async () => {
@@ -124,7 +124,7 @@ test("does not replay an unsafe POST after a transport failure", async () => {
   assert.equal(calls, 1);
 });
 
-test("stops after one bounded retry and reports a stable transport classification", async () => {
+test("stops after two bounded retries and reports a stable transport classification", async () => {
   let calls = 0;
   const client = new HttpClient({
     baseURL: "https://test.itpay.ai",
@@ -138,10 +138,10 @@ test("stops after one bounded retry and reports a stable transport classificatio
   await assert.rejects(
     () => client.get("/v1/orders/ord_1"),
     (error: unknown) => error instanceof HttpTransportError &&
-      error.code === "network_connection_reset" && error.attempts === 2 &&
-      error.message.includes("after 2 attempts"),
+      error.code === "network_connection_reset" && error.attempts === 3 &&
+      error.message.includes("after 3 attempts"),
   );
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
 });
 
 test("does not retry aborts or permanent TLS certificate failures", async () => {

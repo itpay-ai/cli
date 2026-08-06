@@ -91,4 +91,4 @@ itpay services list --json
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy` 返回完全相同的订单事实、instruction 和 next。`order` 是状态读取命令，不构造二维码、Markdown handoff 或 Host renderer 数据。
+`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 返回完全相同的订单事实、instruction 和 next。`order` 是状态读取命令，不构造二维码、Markdown handoff 或 Host renderer 数据。

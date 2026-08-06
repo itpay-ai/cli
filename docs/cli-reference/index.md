@@ -14,6 +14,16 @@
 - 所有 commerce 命令必须使用真实的 `--agent-type`，不得为刷新额度伪造类型。
 - 每条命令只返回当前步骤所需事实、一条 instruction、一个首选 next；异常时最多返回两个 recovery。
 
+## 根命令
+
+```bash
+itpay [--agent-type <agent_type>] [--version] [--help]
+```
+
+不带子命令时显示帮助并退出，不访问 Backend、不读取或修改业务状态。`--version` 只输出当前 CLI 版本；`--help` 只输出命令树。全局 `--agent-type` 必须放在子命令前，并由每个返回的 ItPay `next.command` / `recovery.command` 原样保留其规范值。
+
+Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcommand]` 只显示对应帮助，语义等同于在目标命令上使用 `--help`；它们不访问 Backend、不读写本地业务状态，也没有 JSON 输出合同。
+
 ## 命令目录
 
 ### 环境与发现
@@ -24,6 +34,7 @@
   - [`itpay catalog list`](commands/catalog/list.md)
 - [`itpay install`](commands/install.md) - 查看指定 Agent 的安装说明
 - [`itpay skill show`](commands/skill.md) - 一次读取完整内置 ItPay Skill
+- [`itpay device recover`](commands/device.md) - 仅恢复运营已确认重建的 Backend registration
 - [`itpay docs`](commands/docs/index.md)
   - [`itpay docs list`](commands/docs/list.md)
   - [`itpay docs show`](commands/docs/show.md)

@@ -45,7 +45,7 @@ itpay readyz [--json]
 
 ## 异常处理
 
-连接失败时返回 `backend_unavailable`，要求等待当前官方 Backend 恢复后重试同一完整命令，不得在失败时切换环境或继续下单。
+已收到 Backend 不可用响应等非传输异常时返回 `backend_unavailable`。尚未收到完整 HTTP 响应的临时传输失败使用 conventions 中对应的稳定 `network_*` 错误码；`readyz` 是 GET，按全局安全传输合同最多自动重试两次。两类错误都要求等待当前官方 Backend 恢复后重试同一完整命令，不得在失败时切换环境或继续下单。
 
 非官方 URL 返回 `backend_override_forbidden`，且不提供自动 recovery：
 
