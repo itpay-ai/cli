@@ -100,7 +100,13 @@ CLI 只把“尚未收到完整 HTTP 响应”的临时传输异常映射为稳�
 {
   "status": "error",
   "error": { "code": "network_connection_reset", "message": "<bounded_transport_fact>" },
-  "result": { "attempts": 3, "automatic_retry_performed": true },
+  "result": {
+    "request_id": "req_<opaque_id>",
+    "attempts": 3,
+    "automatic_retry_performed": true,
+    "cause_code": "ECONNRESET",
+    "diagnostic_log": "<owner_only_local_path>"
+  },
   "instruction": "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。",
   "next": null,
   "recovery": [{ "command": "itpay <same-resource-read-command>", "reason": "读取同一资源的权威状态" }]
@@ -112,6 +118,8 @@ CLI 只把“尚未收到完整 HTTP 响应”的临时传输异常映射为稳�
 - `GET`、携带稳定 `Idempotency-Key` 的写请求，以及 Backend 明确保证事务性安全重放的操作，使用短递增退避，最多自动重试两次（总共三次尝试）。
 - 不具备上述合同的写请求绝不自动重放；错误中为 `attempts=1`、`automatic_retry_performed=false`，Agent 必须先查询同一资源状态。
 - 每次尝试重新生成 Device 签名；不得复用过期时间、nonce 或 Authorization header。
+- 一次逻辑请求的所有尝试复用同一不透明 `X-ItPay-Request-ID`，并用 `X-ItPay-Request-Attempt` 标记尝试序号。Backend 只记录 method、无 query 的 path、状态、耗时、响应字节、request ID 和 attempt；不得记录 token、签名、Authorization、body 或完整 URL。
+- CLI 将“重试后恢复”和“最终失败”追加到 owner-only 的有界本地诊断日志。记录只包含时间、request ID、method、origin、无 query 的 path、attempt、稳定 `network_*`/cause code、elapsed 和 outcome；不包含 query、header、body、响应或用户输入。JSON 最终错误返回同一个 `request_id` 和诊断文件路径，便于事故后核对“源站有记录/无记录”。
 - 首次 Device enrollment、Agent Instance 登记或 session challenge/verify 在生成请求签名前发生。它们的传输失败同样映射为稳定 `network_*` 错误，但这些内部 POST 没有外层业务请求的安全重放合同，因此不自动重试，并返回 `attempts=1`、`automatic_retry_performed=false`。Agent 修复网络后重跑原始命令，由 Device Authority 从已持久化状态安全恢复。
 - `AbortSignal` 主动取消、证书/TLS 信任错误、已收到的 HTTP/业务错误和 Provider 业务失败不属于该重试。
 - 稳定输出不得包含 Node/Undici cause、socket、DNS 地址、请求 header、token、签名 URL 或 Provider 原始响应。

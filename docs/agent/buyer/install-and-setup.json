@@ -4,7 +4,7 @@
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
-  "purpose": "Load the complete ItPay Skill and select one stable Agent Type without confusing distribution, identity, Backend, Host, target, or chat window.",
+  "purpose": "Load only the focused onboarding needed for the current step and select one stable Agent Type without confusing distribution, identity, Backend, Host, target, or chat window.",
   "when_to_use": [
     "The CLI is being installed or upgraded.",
     "The agent needs to confirm its stable runtime identity and default output Host."
@@ -13,12 +13,12 @@
     {
       "intent": "verify the API and enter packaged onboarding",
       "command": "itpay readyz --json",
-      "success_signal": "status is ready and next points to skill show itpay"
+      "success_signal": "status is ready and next points to docs show quickstart"
     },
     {
-      "intent": "read the complete packaged operating contract",
-      "command": "itpay skill show itpay --json",
-      "success_signal": "status is shown, result.content contains the complete Skill, and next selects Agent Type or Catalog"
+      "intent": "read the focused packaged quickstart",
+      "command": "itpay docs show quickstart --json",
+      "success_signal": "status is shown, result.content contains only the quickstart topic, and next selects Agent Type or Catalog"
     },
     {
       "intent": "list supported Agent Types",

@@ -65,10 +65,10 @@
 |---|---|
 | `codex-desktop / codex` | `url, qr_local_path, markdown` |
 | `claude-code-desktop / claude-code` | `url, qr_local_path, markdown` |
-| `codex-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
-| `claude-code-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
+| `codex-cli / terminal` | `url, present_command`；JSON Agent 立即执行只读 `present_command` 一次，非 JSON 输出直接渲染终端二维码 |
+| `claude-code-cli / terminal` | `url, present_command`；JSON Agent 立即执行只读 `present_command`，非 JSON 输出直接渲染终端二维码 |
 | `workbuddy / plain-chat` | `url`（完整渲染的 HTML Card Link） |
-| `kimi-code / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
+| `kimi-code / terminal` | `url, present_command`；JSON Agent 立即执行只读 `present_command` 一次，非 JSON 输出直接渲染终端二维码 |
 | `openclaw / telegram` | `url, qr_image_url, agent_action` |
 | `openclaw / other` | `url, qr_image_url` |
 

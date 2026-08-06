@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { BackendClient } from "../src/client/backend.js";
 import { HttpClient } from "../src/client/http.js";
@@ -18,13 +20,20 @@ function json(value: unknown): Response {
 test("retries a transient GET twice and regenerates authorization for every attempt", async () => {
   let calls = 0;
   let authorizations = 0;
+  const requestIDs: string[] = [];
+  const attempts: string[] = [];
+  const diagnostics: string[] = [];
   const client = new HttpClient({
     baseURL: "https://test.itpay.ai",
     transportRetryDelayMs: 0,
     requestAuthorizer: async () => ({ Authorization: `proof_${++authorizations}` }),
+    transportObserver: (event) => diagnostics.push(`${event.outcome}:${event.path}:${event.attempt}`),
     fetchImpl: async (_input, init) => {
       calls += 1;
-      assert.equal(new Headers(init?.headers).get("Authorization"), `proof_${calls}`);
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("Authorization"), `proof_${calls}`);
+      requestIDs.push(headers.get("X-ItPay-Request-ID") ?? "");
+      attempts.push(headers.get("X-ItPay-Request-Attempt") ?? "");
       if (calls <= 2) throw transportFailure("ECONNRESET");
       return json({ status: "ready" });
     },
@@ -33,6 +42,34 @@ test("retries a transient GET twice and regenerates authorization for every atte
   assert.deepEqual(await client.get("/v1/readyz"), { status: "ready" });
   assert.equal(calls, 3);
   assert.equal(authorizations, 3);
+  assert.equal(new Set(requestIDs).size, 1);
+  assert.match(requestIDs[0] ?? "", /^req_[a-f0-9]{32}$/);
+  assert.deepEqual(attempts, ["1", "2", "3"]);
+  assert.deepEqual(diagnostics, ["retrying:/v1/readyz:1", "retrying:/v1/readyz:2", "recovered:/v1/readyz:3"]);
+});
+
+test("service start is replayed only when it carries its stable idempotency key", async () => {
+  for (const idempotencyKey of ["op_start_1", undefined]) {
+    let calls = 0;
+    const backend = new BackendClient(new HttpClient({
+      baseURL: "https://test.itpay.ai",
+      transportRetryDelayMs: 0,
+      fetchImpl: async (_input, init) => {
+        calls += 1;
+        assert.equal(new Headers(init?.headers).get("Idempotency-Key"), idempotencyKey ?? null);
+        if (calls === 1) throw transportFailure("ECONNRESET");
+        return json({ execution: { service_execution_id: "se_1" } });
+      },
+    }));
+    const start = () => backend.startServiceExecution({ service_id: "svc_1" }, idempotencyKey);
+    if (idempotencyKey) {
+      assert.equal((await start()).execution.service_execution_id, "se_1");
+      assert.equal(calls, 2);
+    } else {
+      await assert.rejects(start, (error: unknown) => error instanceof HttpTransportError && error.attempts === 1);
+      assert.equal(calls, 1);
+    }
+  }
 });
 
 test("retries an idempotency-keyed POST once with the identical request", async () => {
@@ -186,4 +223,44 @@ test("does not retry aborts or permanent TLS certificate failures", async () => 
     await assert.rejects(() => client.get("/v1/readyz"), (error: unknown) => error === failure);
     assert.equal(calls, 1);
   }
+});
+
+test("real socket response loss replays one idempotent service start without duplicate execution", async (t) => {
+  let requests = 0;
+  let creations = 0;
+  const requestIDs: string[] = [];
+  const attempts: string[] = [];
+  const executions = new Map<string, string>();
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    request.on("end", () => {
+      requests += 1;
+      const key = String(request.headers["idempotency-key"] ?? "");
+      requestIDs.push(String(request.headers["x-itpay-request-id"] ?? ""));
+      attempts.push(String(request.headers["x-itpay-request-attempt"] ?? ""));
+      if (!executions.has(key)) {
+        executions.set(key, "se_socket_once");
+        creations += 1;
+      }
+      if (requests === 1) {
+        request.socket.destroy();
+        return;
+      }
+      response.writeHead(201, { "content-type": "application/json" });
+      response.end(JSON.stringify({ execution: { service_execution_id: executions.get(key) } }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const baseURL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const backend = new BackendClient(new HttpClient({ baseURL, transportRetryDelayMs: 0 }));
+
+  const result = await backend.startServiceExecution({ service_id: "svc_socket" }, "op_socket_once");
+  assert.equal(result.execution.service_execution_id, "se_socket_once");
+  assert.equal(requests, 2);
+  assert.equal(creations, 1);
+  assert.equal(new Set(requestIDs).size, 1);
+  assert.match(requestIDs[0] ?? "", /^req_[a-f0-9]{32}$/);
+  assert.deepEqual(attempts, ["1", "2"]);
 });

@@ -214,8 +214,11 @@ function reportCLIError(
         },
       } : transportError ? {
         result: {
+          request_id: transportError.requestID,
           attempts: transportError.attempts,
           automatic_retry_performed: transportError.attempts > 1,
+          ...(transportError.causeCode ? { cause_code: transportError.causeCode } : {}),
+          ...(transportError.diagnosticLog ? { diagnostic_log: transportError.diagnosticLog } : {}),
         },
       } : error instanceof HttpError && error.payload?.service_execution_id ? {
         result: {
@@ -985,6 +988,10 @@ program
         baseURL: config.baseURL,
         locale: options.locale,
         jsonOutput: Boolean(options.json),
+        ...(config.transportDiagnostics ? {
+          transportObserver: config.transportDiagnostics.observe,
+          transportDiagnosticLog: config.transportDiagnostics.path,
+        } : {}),
       });
     } catch (error) {
       const canResumeSavedService = Boolean(
@@ -1245,7 +1252,7 @@ services
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesStart(backend, serviceID, {
+      await runServicesStart(backend, config, serviceID, {
         host: withHost(options.host, config.agentType, options.target),
         ...(options.target ? { target: options.target } : {}),
         jsonOutput: Boolean(options.json),
@@ -1255,10 +1262,15 @@ services
         jsonOutput: Boolean(options.json),
         code: "service_start_failed",
         instruction: "只使用已发布 Catalog 返回的 service_id；设备身份问题应由 CLI 自动恢复。",
-        recovery: [
-          { command: "itpay catalog list", reason: "重新取得有效 service_id" },
-          { command: "itpay readyz", reason: "确认 Backend 可用" },
-        ],
+        recovery: error instanceof HttpTransportError
+          ? [
+              { command: "itpay services list --json", reason: "查询当前设备是否已创建同一 Service Execution" },
+              { command: "itpay next --json", reason: "从当前权威句柄继续，避免创建替代 Execution" },
+            ]
+          : [
+              { command: "itpay catalog list", reason: "重新取得有效 service_id" },
+              { command: "itpay readyz", reason: "确认 Backend 可用" },
+            ],
       });
     }
   });

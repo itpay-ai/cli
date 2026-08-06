@@ -9,6 +9,7 @@ import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
 import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../render/locale.js";
 import type { OutputSink } from "../render/sink.js";
+import type { TransportObserver } from "../client/transport.js";
 import type { ClientHost } from "../state/client_context.js";
 import { DEFAULT_BASE_URL } from "../state/config.js";
 import { buildCheckoutQRPlan } from "./buy.js";
@@ -25,6 +26,8 @@ export interface CheckoutPresentationOptions {
   agentType?: string;
   target?: string;
   locale?: CardLocale;
+  transportObserver?: TransportObserver;
+  transportDiagnosticLog?: string;
 }
 
 export async function runCheckoutPresentation(
@@ -81,9 +84,19 @@ export async function runCheckoutPresentation(
   if (shouldPrepareLocalCheckoutImage(platform)) {
     await ensureIdeImageAttach(plan, {
       ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+      ...(options.transportObserver ? { transportObserver: options.transportObserver } : {}),
+      ...(options.transportDiagnosticLog ? { transportDiagnosticLog: options.transportDiagnosticLog } : {}),
     });
   }
-  const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand, options.agentType, options.target);
+  const envelope = pendingCheckoutEnvelope(
+    presentation,
+    checkoutURL,
+    plan,
+    nextCommand,
+    Boolean(options.jsonOutput),
+    options.agentType,
+    options.target,
+  );
   const plainResult = checkoutPlainResult(envelope.result);
   if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
     plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
@@ -100,6 +113,7 @@ function pendingCheckoutEnvelope(
   checkoutURL: string,
   plan: ReturnType<typeof buildCheckoutQRPlan>,
   nextCommand: string,
+  jsonOutput: boolean,
   agentType?: string,
   target?: string,
 ): CommandEnvelope {
@@ -109,6 +123,7 @@ function pendingCheckoutEnvelope(
     platform,
     url: plan.linkOnlyURL ?? checkoutURL,
     amount,
+    ...(platform === "terminal" && jsonOutput ? { presentCommand: withoutJSON(nextCommand) } : {}),
     plan,
     ...(agentType ? { agentType } : {}),
     ...(target ? { target } : {}),
@@ -130,6 +145,10 @@ function pendingCheckoutEnvelope(
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
     recovery: [],
   };
+}
+
+function withoutJSON(command: string): string {
+  return command.replace(/\s+--json$/, "");
 }
 
 function terminalCheckoutEnvelope(presentation: CheckoutPresentation): CommandEnvelope {

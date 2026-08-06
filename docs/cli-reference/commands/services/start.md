@@ -18,6 +18,8 @@ itpay --agent-type <agent_type> services start <service_id>
 
 `service_id` 必须来自 Catalog。`--target` 只用于需要稳定消息目标的 Host，例如 chat/channel/open ID；它不是搜索词或其他业务输入。Buyer、Device 和 Agent instance 均来自签名 Agent session，不接受请求参数覆盖。
 
+CLI 为一次 Start 意图生成并持久化稳定 `Idempotency-Key`。Backend 在同一认证主体范围内事务性绑定 key、规范请求和唯一 Execution：相同 key/相同请求返回原 Execution，相同 key/不同请求返回 `idempotency_conflict`。只有收到完整成功响应后 CLI 才完成本地 operation；响应中断时自动重试仍使用同一个 key，不得创建第二个 Execution。
+
 本命令不接收 capability 业务输入。它返回 `required_input` 和一条 `services invoke`（或其他当前合法动作）命令；把真实值填入那条命令的重复 `--input key=value`。例如企业关键词是 `--input keyword=美团`，不是 `--target 美团`。
 
 ## 标准输出
@@ -45,6 +47,8 @@ itpay --agent-type <agent_type> services start <service_id>
 ```
 
 Start API 只提供免费额度上限，不提供当前剩余额度，因此本命令不得虚构 `remaining`。不得输出全部 capability DTO、contract version、graph ID、buyer/device ID 或重复 guidance。若服务不存在，recovery 为 `catalog list`。设备 session 由 CLI 自动登记或刷新；401 `agent_device_session_required` 仅续期并重试一次，仍失败时返回错误，不循环。
+
+临时传输失败遵守全局最多三次尝试合同。最终失败返回稳定 `network_*`、`request_id`、`attempts`、安全 cause code 和诊断日志路径；Agent 随后只读取 `services list`/`next` 的权威状态，不得换 key 或直接创建替代 Execution。
 
 ## Agent Type / Host
 

@@ -9,10 +9,10 @@ The official V3 CLI and the single ItPay entry point for Agent-driven commerce.
 ```bash
 npm install -g @itpay/cli
 itpay readyz --json
-itpay skill show itpay --json
+itpay docs show quickstart --json
 itpay install --json
 itpay --agent-type codex-desktop readyz --json
-# follow next.command: typed skill show, then catalog list
+# follow next.command: focused quickstart, then catalog list
 ```
 
 The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit tests may set `ITPAY_BACKEND_URL=https://dev.itpay.ai`; every other Backend URL is rejected before network or local state access.

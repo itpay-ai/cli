@@ -157,8 +157,17 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
 }
 
 function qualifyEnvelope<T extends CommandEnvelope | CommandErrorEnvelope>(value: T, agentType: string | undefined): T {
+  const handoff = "handoff" in value && value.handoff
+    ? {
+        ...value.handoff,
+        ...(typeof value.handoff.present_command === "string" ? {
+          present_command: qualifyBackendCommand(qualifyItPayCommand(value.handoff.present_command, agentType)),
+        } : {}),
+      }
+    : undefined;
   return {
     ...value,
+    ...(handoff ? { handoff } : {}),
     next: value.next ? { ...value.next, command: qualifyBackendCommand(qualifyItPayCommand(value.next.command, agentType)) } : null,
     recovery: value.recovery.map((action) => ({
       ...action,

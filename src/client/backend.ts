@@ -162,8 +162,12 @@ export class BackendClient {
 
   // --- Service Execution ---
 
-  startServiceExecution(input: StartServiceExecutionRequest): Promise<ServiceExecutionStarted> {
-    return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input);
+  startServiceExecution(input: StartServiceExecutionRequest, idempotencyKey?: string): Promise<ServiceExecutionStarted> {
+    return this.http.post<ServiceExecutionStarted>(
+      "/v1/service-executions",
+      input,
+      idempotencyKey ? { idempotencyKey } : {},
+    );
   }
 
   invokeServiceCapability(

@@ -20,9 +20,9 @@ export async function runReadyz(backend: BackendClient, options: RunOptions = {}
     status: response.status,
     result: { backend: "available", backend_url: backendURL, environment, ...(options.agentType ? { agent_type: options.agentType } : {}) },
     instruction: environment === "development"
-      ? "ItPay dev 可用；后续必须执行返回的完整命令，并继续使用同一个 dev Backend。先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。"
-      : "ItPay 可用；先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。sell 将来也使用同一入口，但当前尚未实现。",
-    next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
+      ? "ItPay dev 可用；后续必须执行返回的完整命令并保持同一个 dev Backend。只读取当前需要的 Buyer quickstart。"
+      : "ItPay 可用；只读取当前需要的 Buyer quickstart，再按服务端返回的单一步骤继续。",
+    next: { command: "itpay docs show quickstart --json", reason: "渐进加载当前起步规则" },
     recovery: [],
   }, options);
 }

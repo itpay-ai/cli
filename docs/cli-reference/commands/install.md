@@ -8,7 +8,7 @@
 
 **上游：** 当前 npm CLI 或平台 bundle 已经可执行。
 
-**下游：** 使用真实 Agent Type 执行 `readyz`，随后读取完整 Skill 和 Catalog。
+**下游：** 使用真实 Agent Type 执行 `readyz`，随后按 `next.command` 读取聚焦 quickstart，再进入 Catalog。
 
 ## 语法与参数
 

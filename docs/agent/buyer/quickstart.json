@@ -24,12 +24,12 @@
     {
       "intent": "verify the selected official Backend availability",
       "command": "itpay --agent-type <agent_type> readyz --json",
-      "success_signal": "status is ready and next points to the complete packaged ItPay Skill"
+      "success_signal": "status is ready and next points to the focused quickstart topic"
     },
     {
-      "intent": "load the complete operating contract",
-      "command": "itpay --agent-type <agent_type> skill show itpay --json",
-      "success_signal": "status is shown and next points to catalog list with the same Agent Type"
+      "intent": "load only the current operating topic",
+      "command": "itpay --agent-type <agent_type> docs show quickstart --json",
+      "success_signal": "status is shown; use its shortest catalog command without loading unrelated topics"
     },
     {
       "intent": "discover published services",

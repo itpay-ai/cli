@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { OutputSink } from "../render/sink.js";
 import { resolveOutput } from "../render/sink.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
+import { declaredAgentType } from "../state/agent_type.js";
 
 const commandDir = dirname(fileURLToPath(import.meta.url));
 
@@ -52,11 +53,16 @@ export function runDocsShow(topic: string, options: DocsOptions = {}): void {
     );
   }
 
+  const agentType = declaredAgentType();
   const envelope = {
     status: "shown",
     result: { topic: doc.topic, content: doc },
-    instruction: "只执行文档中与当前服务端状态匹配的步骤；服务端返回的当前 next 优先。",
-    next: null,
+    instruction: "只使用当前 topic；执行最多一个 next.command，不要加载无关 topic。服务端返回的当前 next 优先。",
+    next: doc.topic === "quickstart"
+      ? agentType
+        ? { command: "itpay catalog list --json", reason: "开始发现当前发布服务" }
+        : { command: "itpay install --json", reason: "先选择真实且稳定的 Agent Type" }
+      : null,
     recovery: [],
   };
   if (options.jsonOutput) {

@@ -7,7 +7,7 @@
 检查当前官方 Backend 是否可用。默认使用生产环境 `https://app.itpay.ai`；仅测试时可通过 `ITPAY_BACKEND_URL=https://dev.itpay.ai` 选择官方开发环境。它只调用 `/v1/readyz` 做 liveness 诊断，不执行平台兼容性 gate、不登记设备、不创建业务资源；需要服务端合同的命令仍会在各自入口严格检查 compatibility。
 
 **上游：** CLI 安装；Backend 只能是官方 `https://app.itpay.ai` 或 `https://dev.itpay.ai`，其他 override 在网络或本地状态写入前被拒绝。
-**下游：** 完整 `itpay` Skill，随后选择 Agent Type 或进入当前已支持的 Buyer Catalog。
+**下游：** 渐进读取 `quickstart` topic，随后选择 Agent Type 或进入当前已支持的 Buyer Catalog。完整 Skill 只在安装/onboarding 或身份安全规则恢复时显式读取。
 
 ## 语法与参数
 
@@ -25,8 +25,8 @@ itpay readyz [--json]
 {
   "status": "ready",
   "result": { "backend": "available", "backend_url": "https://app.itpay.ai", "environment": "production" },
-  "instruction": "ItPay 可用；先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。sell 将来也使用同一入口，但当前尚未实现。",
-  "next": { "command": "itpay skill show itpay --json", "reason": "加载完整操作与安全规则" },
+  "instruction": "ItPay 可用；只读取当前需要的 Buyer quickstart，再按服务端返回的单一步骤继续。",
+  "next": { "command": "itpay docs show quickstart --json", "reason": "渐进加载当前起步规则" },
   "recovery": []
 }
 ```
@@ -37,8 +37,8 @@ itpay readyz [--json]
 {
   "status": "ready",
   "result": { "backend": "available", "backend_url": "https://dev.itpay.ai", "environment": "development" },
-  "instruction": "ItPay dev 可用；后续必须执行返回的完整命令，并继续使用同一个 dev Backend。先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。",
-  "next": { "command": "ITPAY_BACKEND_URL=https://dev.itpay.ai itpay skill show itpay --json", "reason": "加载完整操作与安全规则" },
+  "instruction": "ItPay dev 可用；后续必须执行返回的完整命令并保持同一个 dev Backend。只读取当前需要的 Buyer quickstart。",
+  "next": { "command": "ITPAY_BACKEND_URL=https://dev.itpay.ai itpay docs show quickstart --json", "reason": "渐进加载当前起步规则" },
   "recovery": []
 }
 ```
@@ -114,4 +114,4 @@ Kimi bundle 使用其 plugin 更新入口，不返回 npm 命令。只允许使�
 
 ## Agent Type / Host
 
-本命令不渲染 Host 内容。若已声明 Agent Type，`result.agent_type` 会确认该类型，且返回的 Skill 命令保留同一 `--agent-type`；未声明时 Skill 会先引导 `install`。
+本命令不渲染 Host 内容。若已声明 Agent Type，`result.agent_type` 会确认该类型，且返回的 docs 命令保留同一 `--agent-type`；未声明时 quickstart 会引导选择真实 Agent Type。

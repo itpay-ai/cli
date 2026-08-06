@@ -35,7 +35,7 @@ itpay services checkout <service_execution_id> --resume
     "locked_input": { "<required_key>": "<value>" },
     "amount": "<amount> <currency>"
   },
-  "handoff": { "url": "<checkout_url>", "qr_local_path": "<desktop_optional_path>", "qr_image_url": "<chat_optional_absolute_https_png>", "markdown": "<desktop_optional_markdown>", "agent_action": "<openclaw_telegram_optional_native_message_action>" },
+  "handoff": { "url": "<checkout_url>", "qr_local_path": "<desktop_optional_path>", "qr_image_url": "<chat_optional_absolute_https_png>", "markdown": "<desktop_optional_markdown>", "present_command": "<terminal_optional_non_json_checkout_command>", "agent_action": "<openclaw_telegram_optional_native_message_action>" },
   "instruction": "<exact_agent_type_instruction>",
   "next": { "command": "itpay checkout --id <checkout_id> --token <display_token> --json", "reason": "仅在用户完成付款操作或要求查询后，读取同一 Checkout 的权威状态" },
   "recovery": []
@@ -44,7 +44,7 @@ itpay services checkout <service_execution_id> --resume
 
 `capability_id` 是 service contract 中 Agent 可调用的逻辑 ID，不是 `scc_...` 数据库记录 ID。`locked_input` 是后端按 capability policy 最终解析并校验后的输入，不由 CLI 根据服务名称推断。
 
-普通文本输出保持同一事实顺序。桌面 Host 输出可直接转发的 `handoff.markdown`；终端 Host 额外渲染一个可扫码终端二维码；`--json` 不内嵌终端二维码或图片二进制。
+普通文本输出保持同一事实顺序。桌面 Host 输出可直接转发的 `handoff.markdown`；终端普通文本直接渲染可扫码二维码，并且不再返回 `present_command`，避免展示循环。终端 `--json` 不内嵌字符画或图片二进制，而是返回唯一的 `handoff.present_command`：Agent 必须立即执行该无 `--json`、只读同一 Checkout 的命令一次来展示二维码、金额和链接，然后停止；`next.command` 仍只用于用户付款后查询状态。
 
 不得返回 quote lock、单独 token、重复 next actions、镜像路径数组或渲染器内部原因。缺输入、缺必填邮箱、phase 不允许时不得创建任何付款资源。恢复时 token 失效应重发同一 Checkout handoff，不创建第二个 Checkout。
 
@@ -79,11 +79,11 @@ itpay services checkout <service_execution_id> --resume
 | Agent Type | Instruction |
 |---|---|
 | `codex-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
-| `codex-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
+| `codex-cli` | `handoff={url,present_command}`；JSON 调用者立即执行 `present_command`，普通文本模式在用户可见终端渲染二维码。 |
 | `claude-code-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
-| `claude-code-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
+| `claude-code-cli` | `handoff={url,present_command}`；JSON 调用者立即执行 `present_command`，确保二维码真实出现在用户可见 Terminal。 |
 | `workbuddy` | `handoff={url}`；`url` 是完整渲染的 HTML Card Link。直接发送/打开并停止，不得调用 `present_files`、检查或生成本地文件。 |
-| `kimi-code` | `handoff={url}`；复用标准 CLI 终端展示。 |
+| `kimi-code` | `handoff={url,present_command}`；复用标准 CLI 终端展示。 |
 | `openclaw` | 必须显式传 Host；Telegram 还必须传 OpenClaw 原生 Target，并返回必须原样执行的 `message` action；其他入口返回标准 `url,qr_image_url`。 |
 
 WorkBuddy 的准确 instruction 语义必须完整包含：
