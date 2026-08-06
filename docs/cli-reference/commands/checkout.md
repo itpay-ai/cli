@@ -28,7 +28,7 @@ itpay checkout [--id <checkout_id>] [--token <display_token>]
 {
   "status": "human_checkout_required",
   "result": { "checkout_id": "<checkout_id>", "payment": "pending", "amount": "<amount> <currency>" },
-  "handoff": { "url": "<checkout_url>", "qr_local_path": "<desktop_optional_path>", "qr_image_url": "<chat_optional_absolute_https_png>", "markdown": "<desktop_optional_markdown>", "agent_action": "<openclaw_telegram_optional_native_message_action>" },
+  "handoff": { "url": "<checkout_url>", "qr_local_path": "<desktop_optional_path>", "qr_image_url": "<chat_optional_absolute_https_png>", "markdown": "<desktop_optional_markdown>", "present_command": "<terminal_optional_same_checkout_command_without_json>", "agent_action": "<openclaw_telegram_optional_native_message_action>" },
   "instruction": "<exact_agent_type_instruction>",
   "next": { "command": "itpay checkout --id <checkout_id> --token <display_token> --json", "reason": "稍后只查询同一 Checkout" },
   "recovery": []
@@ -70,11 +70,11 @@ token 缺失或不匹配时使用本机句柄恢复。只有请求的 Checkout �
 | Agent Type | Handoff |
 |---|---|
 | `codex-desktop` | `url, qr_local_path, markdown`；原样发送 Markdown。 |
-| `codex-cli` | `url`；普通文本模式渲染终端二维码。 |
+| `codex-cli` | JSON 返回 `url,present_command`，调用者立即执行只读命令一次；普通文本直接渲染终端二维码且不再返回 `present_command`，防止展示循环。 |
 | `claude-code-desktop` | `url, qr_local_path, markdown`；原样发送 Markdown。 |
-| `claude-code-cli` | `url`；普通文本模式渲染终端二维码。 |
+| `claude-code-cli` | JSON 返回 `url,present_command`，调用者立即执行只读命令一次；普通文本直接渲染且不再返回该命令，不得循环或只在对话中描述二维码。 |
 | `workbuddy` | 只返回 `url`；它是完整渲染的 HTML Card Link。直接打开，不调用 `present_files`，不生成本地文件。 |
-| `kimi-code` | `url`；普通文本模式渲染标准终端二维码。 |
+| `kimi-code` | JSON 返回 `url,present_command`；普通文本渲染标准终端二维码且不再返回该命令。 |
 | `openclaw` | Telegram 为 `url,qr_image_url,agent_action`；instruction 强制原样执行 action。`📋 已授权给我读` callback 触发同一 Checkout 查询，再由 Backend 决定是否进入 grant 读取；其他显式 Host 为 `url,qr_image_url`。 |
 
 完成、退款或失效状态下所有 Agent Type 都只返回同一状态和下一步，不渲染二维码。OpenClaw 的 `--target` 必须使用原生 chat target 并传入展示层，不能添加 `telegram:` 前缀或被 CLI 参数解析后丢弃。

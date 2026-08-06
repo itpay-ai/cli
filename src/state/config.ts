@@ -12,6 +12,7 @@ import { BackendClient } from "../client/backend.js";
 import { declaredAgentType } from "./agent_type.js";
 import { DeviceAuthority } from "./device_authority.js";
 import { OperationJournal } from "./operation_journal.js";
+import { TransportDiagnostics } from "./transport_diagnostics.js";
 
 export interface CLIConfig {
   baseURL: string;
@@ -21,6 +22,7 @@ export interface CLIConfig {
   checkoutCurrency: string;
   idempotencyKey: string;
   operationJournal?: OperationJournal;
+  transportDiagnostics?: TransportDiagnostics;
   // IDE image attach contract — defaults to true. Disabled with
   // ITPAY_IDE_IMAGE_ATTACH=0 when the runner has a read-only filesystem
   // or strict scratch-dir policy. When disabled every render path still
@@ -33,11 +35,12 @@ export interface CLIConfig {
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
-export const CLI_VERSION = "2.0.25";
-export const API_CONTRACT_REVISION = "sha256:d4e94049c01b38bc77dce76bf4e49e8243adfc588541e33af6477cd5722a5bc4";
+export const CLI_VERSION = "2.0.26";
+export const API_CONTRACT_REVISION = "sha256:67f43b1b61e98209393f9c867bb84917337d2a968629d3884efe2f4faebf91fe";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
+const TRANSPORT_DIAGNOSTICS_FILENAME = "transport-incidents.jsonl";
 
 export type CLIDistribution = "npm" | "openclaw-skill-bundle" | "kimi-plugin-bundle";
 
@@ -97,6 +100,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const idempotencyKey = env.ITPAY_IDEMPOTENCY_KEY || `cli_${shortRandom()}`;
   const ideImageAttach = env.ITPAY_IDE_IMAGE_ATTACH !== "0";
   const ideImageDirOverride = env.ITPAY_IDE_IMAGE_DIR_OVERRIDE;
+  const transportDiagnostics = new TransportDiagnostics(resolve(
+    stateDir(env),
+    stateFilename(TRANSPORT_DIAGNOSTICS_FILENAME, baseURL),
+  ));
   return {
     baseURL,
     environment: baseURL === DEV_BASE_URL ? "development" : "production",
@@ -104,6 +111,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
     checkoutCurrency,
     idempotencyKey,
     ...(!env.ITPAY_IDEMPOTENCY_KEY ? { operationJournal: new OperationJournal(resolve(stateDir(env), stateFilename(OPERATION_JOURNAL_FILENAME, baseURL))) } : {}),
+    transportDiagnostics,
     ideImageAttach,
     ...(ideImageDirOverride ? { ideImageDirOverride } : {}),
     ...(bearerToken ? { bearerToken } : {}),
@@ -113,6 +121,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
 export function operationID(config: CLIConfig, operationKey: string): Promise<string> {
   if (config.operationJournal) return config.operationJournal.getOrCreate(operationKey);
   return Promise.resolve(config.idempotencyKey);
+}
+
+export function completeOperation(config: CLIConfig, operationKey: string, id: string): Promise<void> {
+  if (config.operationJournal) return config.operationJournal.complete(operationKey, id);
+  return Promise.resolve();
 }
 
 export function newBackendClient(config: CLIConfig): BackendClient {
@@ -132,6 +145,10 @@ export function newBackendClient(config: CLIConfig): BackendClient {
     },
     requestAuthorizer: (input) => authority.authorizationHeaders(input),
     recoverAuthorization: () => authority.recoverAuthorization(),
+    ...(config.transportDiagnostics ? {
+      transportObserver: config.transportDiagnostics.observe,
+      transportDiagnosticLog: config.transportDiagnostics.path,
+    } : {}),
   });
   return new BackendClient(http);
 }

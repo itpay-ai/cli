@@ -31,6 +31,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import type { IdeImageAttach, RenderPlan } from "./plan.js";
+import { fetchImage, type ImageFetchOptions } from "./image_fetch.js";
+import { HttpTransportError } from "../client/transport.js";
 
 export type IdeImageStatus = "downloaded" | "failed" | "disabled" | "fallback";
 
@@ -48,14 +50,12 @@ export interface DownloadQRResult {
   reason?: string;
 }
 
-export interface DownloadQROptions {
-  fetchImpl?: typeof fetch;
+export interface DownloadQROptions extends ImageFetchOptions {
   baseURL?: string;
   caption?: string;
 }
 
-export interface AttachOptions {
-  fetchImpl?: typeof fetch;
+export interface AttachOptions extends ImageFetchOptions {
   baseURL?: string;
   // when false, skip the download and stamp plan with status=disabled
   enabled?: boolean;
@@ -107,11 +107,9 @@ interface DetectedImage {
   body: Buffer;
 }
 
-async function detectImageFormat(url: string, fetchFn: typeof fetch): Promise<DetectedImage> {
-  const r = await fetchFn(url);
-  if (!r.ok) throw new Error(`http=${r.status}`);
-  const ab = await r.arrayBuffer();
-  const buf = Buffer.from(ab);
+async function detectImageFormat(url: string, options: ImageFetchOptions): Promise<DetectedImage> {
+  const fetched = await fetchImage(url, options);
+  const buf = fetched.body;
   if (buf.length >= 2 && buf[0] === 0x89 && buf[1] === 0x50) {
     return { ext: ".png", body: buf };
   }
@@ -127,7 +125,7 @@ async function detectImageFormat(url: string, fetchFn: typeof fetch): Promise<De
   if (buf.length >= 5 && buf.toString("ascii", 0, 5) === "<?xml") {
     return { ext: ".svg", body: buf };
   }
-  const ct = (r.headers.get("content-type") ?? "").toLowerCase();
+  const ct = fetched.contentType;
   if (ct.includes("svg+xml") || ct.includes("svg")) return { ext: ".svg", body: buf };
   if (ct.includes("webp")) return { ext: ".webp", body: buf };
   if (ct.includes("jpeg") || ct.includes("jpg")) return { ext: ".jpg", body: buf };
@@ -216,8 +214,7 @@ export async function downloadBrandQRToTmp(
   }
   const fetchURL = resolveFetchURL(url, options.baseURL);
   try {
-    const fetchFn = options.fetchImpl ?? globalThis.fetch;
-    const detected = await detectImageFormat(fetchURL, fetchFn);
+    const detected = await detectImageFormat(fetchURL, options);
     const fileName = `${stem}${detected.ext}`;
     const filePath = join(canonical, fileName);
     atomicWrite(filePath, detected.body);
@@ -235,6 +232,12 @@ export async function downloadBrandQRToTmp(
       },
     };
   } catch (error) {
+    if (error instanceof HttpTransportError) {
+      return {
+        ok: false,
+        reason: `brand image fetch failed: ${error.code} request_id=${error.requestID} attempts=${error.attempts}${error.diagnosticLog ? ` diagnostic_log=${error.diagnosticLog}` : ""}`,
+      };
+    }
     return { ok: false, reason: `brand image fetch failed: ${(error as Error).message}` };
   }
 }

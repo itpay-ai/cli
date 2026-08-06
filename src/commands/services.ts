@@ -7,7 +7,7 @@ import type {
   ServiceExecutionReadModel,
   ServiceExecutionAllowedAction,
 } from "../client/types.js";
-import { operationID, type CLIConfig } from "../state/config.js";
+import { completeOperation, operationID, type CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
 import { validateContext } from "../state/client_context.js";
 import type { OutputSink } from "../render/sink.js";
@@ -35,18 +35,23 @@ const serviceActionStatuses = new Set(["pending", "approved", "rejected", "expir
 
 export async function runServicesStart(
   backend: BackendClient,
+  config: CLIConfig,
   serviceID: string,
   options: ServicesCommandOptions & { host?: string; target?: string; clientContext?: Record<string, unknown>; jsonOutput?: boolean } = {},
 ): Promise<void> {
   const host = options.host ?? "terminal";
+  const clientContext = {
+    host,
+    ...(options.target ? { target: options.target } : {}),
+    ...(options.clientContext ?? {}),
+  };
+  const operationKey = `service.start:${serviceID}:${stableInput(clientContext)}`;
+  const idempotencyKey = await operationID(config, operationKey);
   const response = await backend.startServiceExecution({
     service_id: serviceID,
-    client_context: {
-      host,
-      ...(options.target ? { target: options.target } : {}),
-      ...(options.clientContext ?? {}),
-    },
-  });
+    client_context: clientContext,
+  }, idempotencyKey);
+  await completeOperation(config, operationKey, idempotencyKey);
   const capability = response.capabilities.find((item) =>
     item.phase === response.execution.phase && !item.requires_payment,
   );
@@ -633,6 +638,10 @@ export async function runServicesCheckout(
       ...(options.qrFilePath ? { qrFilePath: options.qrFilePath } : {}),
       ...(options.output ? { output: options.output } : {}),
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(config.transportDiagnostics ? {
+        transportObserver: config.transportDiagnostics.observe,
+        transportDiagnosticLog: config.transportDiagnostics.path,
+      } : {}),
       baseURL: config.baseURL,
     });
     return;
@@ -642,9 +651,20 @@ export async function runServicesCheckout(
       enabled: config.ideImageAttach,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(config.transportDiagnostics ? {
+        transportObserver: config.transportDiagnostics.observe,
+        transportDiagnosticLog: config.transportDiagnostics.path,
+      } : {}),
     });
   }
-  const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, options.agentType, options.target);
+  const envelope = buildServicesCheckoutEnvelope(
+    response,
+    checkoutURL,
+    plan,
+    Boolean(options.jsonOutput),
+    options.agentType,
+    options.target,
+  );
   const plainResult = [
     `service_execution_id: ${response.binding.service_execution_id}`,
     `checkout_id: ${checkoutID}`,
@@ -1210,16 +1230,19 @@ function buildServicesCheckoutEnvelope(
   response: Awaited<ReturnType<BackendClient["createServiceExecutionCheckout"]>>,
   checkoutURL: string,
   plan: ReturnType<typeof buildCheckoutQRPlan>,
+  jsonOutput: boolean,
   agentType?: string,
   target?: string,
 ): CommandEnvelope {
   const checkout = response.checkout;
   const platform = platformKeyForHost(plan.host);
 	const amount = formatMoney(checkout.checkout.amount_minor, checkout.checkout.currency);
+  const statusCommand = plan.afterActionCommand ?? `itpay checkout --id ${checkout.checkout.checkout_id} --token ${checkout.display_token} --json`;
   const presentationHandoff = buildCheckoutHandoff({
     platform,
     url: plan.linkOnlyURL ?? checkoutURL,
     amount,
+    ...(platform === "terminal" && jsonOutput ? { presentCommand: statusCommand.replace(/\s+--json$/, "") } : {}),
     plan,
     ...(agentType ? { agentType } : {}),
     ...(target ? { target } : {}),
@@ -1241,7 +1264,7 @@ function buildServicesCheckoutEnvelope(
     handoff: presentationHandoff.handoff,
     instruction: presentationHandoff.instruction,
     next: {
-      command: plan.afterActionCommand ?? `itpay checkout --id ${checkout.checkout.checkout_id} --token ${checkout.display_token} --json`,
+      command: statusCommand,
       reason: "仅在用户完成付款操作或要求查询后，读取同一 Checkout 的权威状态",
     },
     recovery: [],

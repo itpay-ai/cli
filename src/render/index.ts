@@ -13,6 +13,7 @@ import type { OutputSink } from "./sink.js";
 import type { RenderPlan } from "./plan.js";
 import { platformKeyForHost } from "./plan.js";
 import { ensureIdeImageAttach } from "./ide.js";
+import type { TransportObserver } from "../client/transport.js";
 
 export interface DispatchOptions {
   target?: string;
@@ -24,6 +25,8 @@ export interface DispatchOptions {
   fetchImpl?: typeof fetch;
   output?: OutputSink;
   baseURL?: string;
+  transportObserver?: TransportObserver;
+  transportDiagnosticLog?: string;
 }
 
 export async function dispatchRender(plan: RenderPlan, options: DispatchOptions): Promise<void> {

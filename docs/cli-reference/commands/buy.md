@@ -164,11 +164,11 @@ itpay buy \
 | Agent Type | 默认 Host | JSON handoff | Instruction |
 |---|---|---|---|
 | `codex-desktop` | `codex` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 `handoff.markdown` 原样发到当前 Codex 对话，确认二维码和链接可见后等待。 |
-| `codex-cli` | `terminal` | `url` | 非 JSON 模式在用户可见终端渲染二维码；始终保留付款链接。 |
+| `codex-cli` | `terminal` | `url,present_command` | JSON Agent 立即执行只读 `present_command` 一次；非 JSON 模式在用户可见终端渲染二维码。 |
 | `claude-code-desktop` | `claude-code` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 Markdown handoff 发到当前桌面对话，不能只输出本地路径。 |
-| `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
+| `claude-code-cli` | `terminal` | JSON 为 `url,present_command`；普通文本为已渲染的二维码和 `url` | JSON Agent 立即执行只读 `present_command` 一次；执行后的普通文本不再返回该命令，不能循环或声称桌面对话已收到图片。 |
 | `workbuddy` | `plain-chat` | `url` | `url` 是完整渲染的 HTML Card Link；直接发送/打开，不调用 `present_files`，然后停止。 |
-| `kimi-code` | `terminal` | `url` | 使用标准 CLI 非 JSON 终端二维码和链接。 |
+| `kimi-code` | `terminal` | `url,present_command` | JSON Agent 立即执行只读 `present_command` 一次；普通文本使用标准 CLI 终端二维码和链接。 |
 | `openclaw` | 必须显式 | Telegram 返回 `url,qr_image_url,agent_action`；其他入口返回 `url,qr_image_url` | Telegram 执行原生 `message` action；其他入口直接展示图片和链接。 |
 
 显式 `--host` 可以覆盖展示方式，但不会改变 Agent Type、设备身份、金额、权限或交易状态。

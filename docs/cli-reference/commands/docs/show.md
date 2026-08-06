@@ -35,13 +35,13 @@ itpay docs show <topic> [--json]
       "purpose": "<purpose>"
     }
   },
-  "instruction": "只执行文档中与当前服务端状态匹配的步骤；服务端返回的当前 next 优先。",
-  "next": null,
+  "instruction": "只使用当前 topic；执行最多一个 next.command，不要加载无关 topic。服务端返回的当前 next 优先。",
+  "next": "<quickstart_only_catalog_or_install_action_otherwise_null>",
   "recovery": []
 }
 ```
 
-`content` 示例仅显示必备头部；实际返回该 topic 的完整结构。非 JSON 模式打印 `shown`、完整 topic JSON 和同一条 instruction，不附加其他 topic。
+`content` 示例仅显示必备头部；实际返回该 topic 的完整结构。`quickstart` 是唯一附带当前起步动作的 topic：已声明 Agent Type 时只返回 `catalog list --json`，否则只返回 `install --json`；其他 topic 的 `next` 为 `null`。非 JSON 模式打印 `shown`、完整 topic JSON 和同一条 instruction，不附加其他 topic。
 
 ## 异常处理
 

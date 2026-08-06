@@ -3,7 +3,7 @@
 // HTTP/business failures remain owned by higher-level commands.
 
 import type { ErrorResponse } from "./types.js";
-import { asTransientTransportError, HttpTransportError } from "./transport.js";
+import { asTransientTransportError, HttpTransportError, runWithTransportRetry, type TransportObserver } from "./transport.js";
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -34,6 +34,8 @@ export interface HttpClientConfig {
   requestAuthorizer?: (input: { method: string; path: string; body: string }) => Promise<Record<string, string>>;
   recoverAuthorization?: () => Promise<void>;
   transportRetryDelayMs?: number;
+  transportObserver?: TransportObserver;
+  transportDiagnosticLog?: string;
 }
 
 export class HttpClient {
@@ -44,6 +46,8 @@ export class HttpClient {
   private readonly requestAuthorizer?: HttpClientConfig["requestAuthorizer"];
   private readonly recoverAuthorization?: HttpClientConfig["recoverAuthorization"];
   private readonly transportRetryDelayMs: number;
+  private readonly transportObserver: TransportObserver | undefined;
+  private readonly transportDiagnosticLog: string | undefined;
 
   constructor(config: HttpClientConfig) {
     this.baseURL = config.baseURL.replace(/\/$/, "");
@@ -56,6 +60,8 @@ export class HttpClient {
     this.requestAuthorizer = config.requestAuthorizer;
     this.recoverAuthorization = config.recoverAuthorization;
     this.transportRetryDelayMs = Math.max(0, config.transportRetryDelayMs ?? 200);
+    this.transportObserver = config.transportObserver;
+    this.transportDiagnosticLog = config.transportDiagnosticLog;
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -65,44 +71,38 @@ export class HttpClient {
     const requestPath = new URL(url).pathname + new URL(url).search;
     const replaySafe = method === "GET" || Boolean(options.idempotencyKey) || options.replaySafe === true;
     let authorizationRecovered = false;
-    let transportRetries = 0;
     for (;;) {
-      const headers: Record<string, string> = { ...this.defaultHeaders };
-      try {
-        if (this.requestAuthorizer) {
-          Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body }));
+      const transport = await runWithTransportRetry<{ response: Response; text: string }>({
+        method, url, replaySafe,
+        ...(options.signal ? { signal: options.signal } : {}),
+        maxRetries: HttpClient.MAX_TRANSPORT_RETRIES,
+        retryDelayMs: this.transportRetryDelayMs,
+        ...(this.transportDiagnosticLog ? { diagnosticLog: this.transportDiagnosticLog } : {}),
+        ...(this.transportObserver ? { observer: this.transportObserver } : {}),
+      }, async (attempt, requestID) => {
+        const headers: Record<string, string> = {
+          ...this.defaultHeaders,
+          "X-ItPay-Request-ID": requestID,
+          "X-ItPay-Request-Attempt": String(attempt),
+        };
+        try {
+          if (this.requestAuthorizer) {
+            Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body }));
+          }
+        } catch (error) {
+          if (error instanceof HttpTransportError) throw error;
+          throw asTransientTransportError(error, 1, requestID, this.transportDiagnosticLog) ?? error;
         }
-      } catch (error) {
-        // Authorization can perform enrollment or session POSTs before the
-        // protected request exists. Classify their transport failure, but do
-        // not inherit the outer request's replay policy for those writes.
-        if (error instanceof HttpTransportError) throw error;
-        throw asTransientTransportError(error, 1) ?? error;
-      }
-      if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`;
-      if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
-
-      let response: Response;
-      let text: string;
-      try {
-        response = await this.fetchImpl(url, {
-          method,
-          headers,
+        if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`;
+        if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+        const response = await this.fetchImpl(url, {
+          method, headers,
           ...(options.body !== undefined ? { body } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
         });
-        text = await response.text();
-      } catch (error) {
-        if (options.signal?.aborted) throw error;
-        const transportError = asTransientTransportError(error, transportRetries + 1);
-        if (!transportError) throw error;
-        if (replaySafe && transportRetries < HttpClient.MAX_TRANSPORT_RETRIES) {
-          transportRetries += 1;
-          await delay(this.transportRetryDelayMs * (2 ** (transportRetries - 1)));
-          continue;
-        }
-        throw asTransientTransportError(error, transportRetries + 1) ?? error;
-      }
+        return { response, text: await response.text() };
+      });
+      const { response, text } = transport.value;
       const parsed = text.length > 0 ? safeParseJson(text) : undefined;
       if (response.ok) return parsed as T;
 
@@ -127,10 +127,6 @@ export class HttpClient {
   delete<T>(path: string, options: Omit<RequestOptions, "method" | "body"> = {}): Promise<T> {
     return this.request<T>(path, { ...options, method: "DELETE" });
   }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return milliseconds === 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function safeParseJson(text: string): unknown {

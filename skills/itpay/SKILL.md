@@ -32,13 +32,13 @@ Use the CLI as the only ItPay control surface. Never recreate API calls or hardc
 ```bash
 npm install -g @itpay/cli
 itpay readyz --json
-itpay skill show itpay --json
+itpay docs show quickstart --json
 itpay install --json
 itpay install <agent_type> --json
 itpay --agent-type <agent_type> readyz --json
 ```
 
-Follow the returned `next.command`. After typed `readyz`, read this complete Skill again, then continue to Catalog.
+Follow the returned `next.command`. After typed `readyz`, load only the returned focused docs topic; read this complete Skill again only for initial onboarding or identity/security recovery.
 
 If `backend_contract_incompatible` returns `result.required_cli_version`, stop every ItPay business command. Run only its exact `npm install -g @itpay/cli@<version>` recovery; never substitute `latest`. Confirm `itpay --version` exactly matches the required version, then restart with typed `readyz`. Never change Agent Type or Device identity to bypass compatibility.
 
@@ -84,7 +84,7 @@ Then follow each returned `next.command` on the same Service Execution.
 When `status` is `human_checkout_required`, make the amount, ItPay Checkout QR, and `handoff.url` visible on the current human surface, then stop.
 
 - Desktop Agents: send `handoff.markdown` unchanged; confirm QR, amount, and link are visible, then stop.
-- CLI Agents: show the terminal QR, amount, and link in the watched terminal, then stop; never claim a desktop image was shown.
+- CLI Agents: JSON handoff returns one read-only `handoff.present_command`; execute it once immediately so the watched terminal actually shows the QR, amount, and link, then stop. Never claim a desktop image was shown.
 - WorkBuddy with `plain-chat`: `handoff.url` is the fully rendered ItPay Card Link. Show the amount, send/open that link, then stop. Never call `present_files`, inspect files, download or rebuild a QR, call `pay`, or create another Checkout.
 - Desktop image hosts receive the PNG rendered from that same Card HTML. `--locale` defaults to `zh-CN`; use `--locale en` only when the human needs English.
 - An explicit `--host` overrides presentation only. It never changes Agent identity or payment state.

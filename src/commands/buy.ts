@@ -215,6 +215,10 @@ export async function runBuy(
       enabled: config.ideImageAttach,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(config.transportDiagnostics ? {
+        transportObserver: config.transportDiagnostics.observe,
+        transportDiagnosticLog: config.transportDiagnostics.path,
+      } : {}),
     });
   }
 
@@ -251,6 +255,10 @@ export async function runBuy(
     ...(options.qrFilePath ? { qrFilePath: options.qrFilePath } : {}),
     ...(options.output ? { output: options.output } : {}),
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(config.transportDiagnostics ? {
+      transportObserver: config.transportDiagnostics.observe,
+      transportDiagnosticLog: config.transportDiagnostics.path,
+    } : {}),
     baseURL: config.baseURL,
   };
   await dispatchRender(plan, renderOptions);
@@ -302,6 +310,9 @@ function buildBuyEnvelope(input: {
     platform,
     url: input.plan.linkOnlyURL ?? input.checkoutURL,
     amount,
+    ...(platform === "terminal" ? {
+      presentCommand: (input.plan.afterActionCommand ?? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`).replace(/\s+--json$/, ""),
+    } : {}),
     plan: input.plan,
     ...(input.agentType ? { agentType: input.agentType } : {}),
     ...(input.target ? { target: input.target } : {}),

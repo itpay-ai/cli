@@ -28,7 +28,7 @@
     {
       "agent_type": "claude-code-cli",
       "default_host": "terminal",
-      "responsibility": "render only in a terminal the human is actually watching and show the Checkout URL"
+      "responsibility": "execute the returned read-only handoff.present_command once so the watched terminal actually renders the QR, amount and Checkout URL"
     },
     {
       "agent_type": "workbuddy",
@@ -63,6 +63,7 @@
   "agent_rules": [
     "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
+    "Terminal JSON output is not presentation by itself. Execute handoff.present_command exactly once, then stop until the human acts.",
     "For workbuddy with plain-chat, send or open only the rendered handoff.url and never call present_files, inspect files, or rebuild a QR.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",

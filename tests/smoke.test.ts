@@ -1883,8 +1883,8 @@ test("readyz probes /v1/readyz", async () => {
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
     status: "ready",
     result: { backend: "available", backend_url: "https://app.itpay.ai", environment: "production" },
-    instruction: "ItPay 可用；先完整读取内置 ItPay Skill，再进入当前已支持的 buy 流程。sell 将来也使用同一入口，但当前尚未实现。",
-    next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
+    instruction: "ItPay 可用；只读取当前需要的 Buyer quickstart，再按服务端返回的单一步骤继续。",
+    next: { command: "itpay docs show quickstart --json", reason: "渐进加载当前起步规则" },
     recovery: [],
   });
 });
@@ -2200,7 +2200,7 @@ test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   });
   const envelope = JSON.parse(result.stdout) as { result: { agent_type: string }; next: { command: string } };
   assert.equal(envelope.result.agent_type, "claude-code-cli");
-  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay --json");
+  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli docs show quickstart --json");
 });
 
 test("dev Backend is explicit and preserved in every next command", async () => {
@@ -2220,7 +2220,7 @@ test("dev Backend is explicit and preserved in every next command", async () => 
     agent_type: "workbuddy",
   });
   assert.match(envelope.instruction, /dev Backend/);
-  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${DEV_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
+  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${DEV_BASE_URL} itpay --agent-type workbuddy docs show quickstart --json`);
 });
 
 test("forbidden Backend override fails before any request", async () => {
@@ -2437,14 +2437,14 @@ test("docs show returns only one complete topic with structured recovery", async
   const envelope = JSON.parse(shown.stdout) as {
     status: string;
     result: { topic: string; content: { topic: string; title: string; product_scope: string } };
-    next: null;
+    next: { command: string; reason: string };
   };
   assert.equal(envelope.status, "shown");
   assert.equal(envelope.result.topic, "quickstart");
   assert.equal(envelope.result.content.topic, "quickstart");
   assert.match(envelope.result.content.product_scope, /two top-level commerce actions are buy and sell/);
   assert.match(envelope.result.content.product_scope, /Seller workflows.*not implemented/);
-  assert.equal(envelope.next, null);
+  assert.equal(envelope.next.command, "itpay install --json");
 
   await assert.rejects(
     runCLI(["docs", "show", "missing-topic", "--json"], {}),
@@ -2624,9 +2624,39 @@ test("explicit terminal Host overrides WorkBuddy presentation without changing A
     instruction: string;
     next: { command: string };
   };
-  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
+  assert.deepEqual(Object.keys(envelope.handoff), ["url", "present_command"]);
+  assert.equal(envelope.handoff.present_command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending");
+  assert.match(envelope.instruction, /立即执行只读的 handoff\.present_command 一次/);
   assert.doesNotMatch(envelope.instruction, /present_files/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
+});
+
+test("Claude Code CLI JSON handoff executes unchanged and renders the same Checkout in Terminal", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-claude-terminal-"));
+  const jsonResult = await runCLI([
+    "--agent-type", "claude-code-cli", "checkout",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home });
+  const envelope = JSON.parse(jsonResult.stdout) as {
+    handoff: { present_command: string; url: string };
+  };
+  assert.equal(
+    envelope.handoff.present_command,
+    "itpay --agent-type claude-code-cli checkout --id chk_pending --token cdt_pending",
+  );
+
+  const terminalResult = await runCLI([
+    "--agent-type", "claude-code-cli", "checkout",
+    "--id", "chk_pending", "--token", "cdt_pending",
+  ], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home });
+  assert.match(terminalResult.stdout, /human_checkout_required/);
+  assert.match(terminalResult.stdout, /\nqr:\n/);
+  assert.match(terminalResult.stdout, /amount: 1\.00 CNY/);
+  assert.match(terminalResult.stdout, /display_token=cdt_pending/);
+  assert.doesNotMatch(terminalResult.stdout, /handoff\.present_command/);
+  assert.match(terminalResult.stdout, /当前用户可见终端已经展示/);
+  assert.match(terminalResult.stdout, /不要再次执行展示命令/);
+  assert.equal(terminalResult.stderr, "");
 });
 
 test("checkout completed never prepares or recommends another payment handoff", async () => {
@@ -2757,7 +2787,9 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
       ? ["markdown", "qr_local_path", "url"]
       : expectedHost === "plain-chat" && agentType !== "workbuddy"
         ? ["qr_image_url", "url"]
-        : ["url"];
+        : expectedHost === "terminal"
+          ? ["present_command", "url"]
+          : ["url"];
     assert.deepEqual(Object.keys(envelope.handoff).sort(), expectedHandoffKeys);
     assert.equal(Boolean(envelope.handoff.markdown), desktop);
     assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat" && agentType !== "workbuddy");
@@ -2772,6 +2804,12 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     }
     if (desktop) {
       assert.match(envelope.handoff.markdown ?? "", new RegExp(`itpay --agent-type ${agentType} checkout --id`));
+    }
+    if (expectedHost === "terminal") {
+      const presentCommand = (envelope.handoff as { present_command?: string }).present_command ?? "";
+      assert.match(presentCommand, new RegExp(`itpay --agent-type ${agentType} checkout --id`));
+      assert.doesNotMatch(presentCommand, /--json/);
+      assert.match(envelope.instruction, /handoff\.present_command/);
     }
     const cartRequest = mock.requests.slice(before).find((request) => request.method === "POST" && request.path === "/v1/carts");
     assert.equal((cartRequest?.body as { client_context?: { host?: string } })?.client_context?.host, expectedHost);
@@ -3367,7 +3405,7 @@ test("catalog empty response does not invent a service id", async () => {
 
 test("services start returns only the documented capability entrypoint", async () => {
   const output: string[] = [];
-  await runServicesStart(backend, "svc_qizhidao_company_lookup", {
+  await runServicesStart(backend, config, "svc_qizhidao_company_lookup", {
     host: "terminal",
     jsonOutput: true,
     output: (line) => output.push(line),
@@ -3382,6 +3420,7 @@ test("services start returns only the documented capability entrypoint", async (
   assert.equal("capabilities" in parsed, false);
   assert.equal("agent_guidance" in parsed, false);
   const request = [...mock.requests].reverse().find((item) => item.method === "POST" && item.path === "/v1/service-executions");
+  assert.match(request?.headers["idempotency-key"] ?? "", /^(?:op_[a-f0-9]{32}|cli_smoke_key)$/);
   assert.equal("buyer_id" in (request?.body ?? {}), false);
   assert.equal("agent_device_id" in (request?.body ?? {}), false);
   assert.equal("agent_device_id" in ((request?.body?.client_context as Record<string, unknown> | undefined) ?? {}), false);
@@ -3412,6 +3451,21 @@ test("services checkout renders the branded checkout QR by default", async () =>
   assert.match(text, /打开 ItPay 付款页面/);
   assert.match(text, /display_token=/);
   assert.ok(mock.requests.some((req) => req.path.includes("/card.png?display_token=")));
+});
+
+test("services checkout terminal presentation stops after rendering and does not return a present loop", async () => {
+  const output: string[] = [];
+  await runServicesCheckout(backend, config, "se_terminal_render", "precise_report", {
+    email: "buyer@example.com",
+    host: "terminal",
+    agentType: "claude-code-cli",
+    output: (line) => output.push(line),
+  });
+  const text = output.join("");
+  assert.match(text, /\nqr:\n/);
+  assert.match(text, /当前用户可见终端已经展示/);
+  assert.doesNotMatch(text, /handoff\.present_command/);
+  assert.match(text, /不要再次执行展示命令/);
 });
 
 test("services checkout requires delivery email before QR handoff", async () => {
@@ -4016,7 +4070,7 @@ test("runBuy surfaces desktop attach failure when the brand QR HTTP fails", asyn
   const attach = result.plan.ideImageAttach;
   assert.ok(attach);
   assert.equal(attach!.status, "failed");
-  assert.match(attach!.error ?? "", /http=503/);
+  assert.match(attach!.error ?? "", /HTTP 503/);
 });
 
 test("runBuy JSON output exposes only the current Host handoff", async () => {
