@@ -124,6 +124,31 @@ test("does not replay an unsafe POST after a transport failure", async () => {
   assert.equal(calls, 1);
 });
 
+test("classifies an authorizer transport failure without replaying its internal writes", async () => {
+  let authorizations = 0;
+  let protectedCalls = 0;
+  const client = new HttpClient({
+    baseURL: "https://test.itpay.ai",
+    transportRetryDelayMs: 0,
+    requestAuthorizer: async () => {
+      authorizations += 1;
+      throw transportFailure("ECONNRESET");
+    },
+    fetchImpl: async () => {
+      protectedCalls += 1;
+      return json({ executions: [] });
+    },
+  });
+
+  await assert.rejects(
+    () => client.get("/v1/service-executions"),
+    (error: unknown) => error instanceof HttpTransportError &&
+      error.code === "network_connection_reset" && error.attempts === 1,
+  );
+  assert.equal(authorizations, 1, "the outer GET replay policy must not replay enrollment/session POSTs");
+  assert.equal(protectedCalls, 0, "the protected request must not run without authorization");
+});
+
 test("stops after two bounded retries and reports a stable transport classification", async () => {
   let calls = 0;
   const client = new HttpClient({

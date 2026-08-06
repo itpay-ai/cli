@@ -112,6 +112,7 @@ CLI 只把“尚未收到完整 HTTP 响应”的临时传输异常映射为稳�
 - `GET`、携带稳定 `Idempotency-Key` 的写请求，以及 Backend 明确保证事务性安全重放的操作，使用短递增退避，最多自动重试两次（总共三次尝试）。
 - 不具备上述合同的写请求绝不自动重放；错误中为 `attempts=1`、`automatic_retry_performed=false`，Agent 必须先查询同一资源状态。
 - 每次尝试重新生成 Device 签名；不得复用过期时间、nonce 或 Authorization header。
+- 首次 Device enrollment、Agent Instance 登记或 session challenge/verify 在生成请求签名前发生。它们的传输失败同样映射为稳定 `network_*` 错误，但这些内部 POST 没有外层业务请求的安全重放合同，因此不自动重试，并返回 `attempts=1`、`automatic_retry_performed=false`。Agent 修复网络后重跑原始命令，由 Device Authority 从已持久化状态安全恢复。
 - `AbortSignal` 主动取消、证书/TLS 信任错误、已收到的 HTTP/业务错误和 Provider 业务失败不属于该重试。
 - 稳定输出不得包含 Node/Undici cause、socket、DNS 地址、请求 header、token、签名 URL 或 Provider 原始响应。
 

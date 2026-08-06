@@ -3,7 +3,7 @@
 // HTTP/business failures remain owned by higher-level commands.
 
 import type { ErrorResponse } from "./types.js";
-import { asTransientTransportError } from "./transport.js";
+import { asTransientTransportError, HttpTransportError } from "./transport.js";
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -68,8 +68,16 @@ export class HttpClient {
     let transportRetries = 0;
     for (;;) {
       const headers: Record<string, string> = { ...this.defaultHeaders };
-      if (this.requestAuthorizer) {
-        Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body }));
+      try {
+        if (this.requestAuthorizer) {
+          Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body }));
+        }
+      } catch (error) {
+        // Authorization can perform enrollment or session POSTs before the
+        // protected request exists. Classify their transport failure, but do
+        // not inherit the outer request's replay policy for those writes.
+        if (error instanceof HttpTransportError) throw error;
+        throw asTransientTransportError(error, 1) ?? error;
       }
       if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`;
       if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
