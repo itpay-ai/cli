@@ -41,8 +41,14 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
   const terminal = ["failed", "expired", "refunded"].includes(intent.status);
   const verified = intent.status === "verified" || intent.status === "partially_refunded";
   const handoff: Record<string, unknown> = {};
-  if (!terminal && !verified && intent.action?.qr_image_url) handoff.qr_image_url = intent.action.qr_image_url;
-  if (!terminal && !verified && intent.action?.mobile_wallet_url) handoff.mobile_wallet_url = intent.action.mobile_wallet_url;
+  const workBuddyLinkOnly = isWorkBuddyPlainChat(options.agentType, platformKeyForHost(options.host));
+  if (!terminal && !verified && workBuddyLinkOnly) {
+    const url = intent.action?.mobile_wallet_url ?? intent.action?.qr_image_url;
+    if (url) handoff.url = url;
+  } else {
+    if (!terminal && !verified && intent.action?.qr_image_url) handoff.qr_image_url = intent.action.qr_image_url;
+    if (!terminal && !verified && intent.action?.mobile_wallet_url) handoff.mobile_wallet_url = intent.action.mobile_wallet_url;
+  }
   const hasAction = Object.keys(handoff).length > 0;
   const amount = formatMoney(intent.amount_minor, intent.currency);
   return {
@@ -59,8 +65,6 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
       verified,
       terminal,
       hasAction,
-      Boolean(handoff.qr_image_url),
-      Boolean(handoff.mobile_wallet_url),
       amount,
     ),
     next: {
@@ -76,8 +80,6 @@ function payInstruction(
   verified: boolean,
   terminal: boolean,
   hasAction: boolean,
-  hasQR: boolean,
-  hasWallet: boolean,
   amount: string,
 ): string {
   if (verified) return "付款已确认；不要再次展示付款动作，继续读取同一 Checkout。";
@@ -85,9 +87,7 @@ function payInstruction(
   if (!hasAction) return "Payment Intent 尚未返回可展示动作；不要猜测渠道链接，回到同一 Checkout 查询。";
   const platform = platformKeyForHost(options.host);
   if (isWorkBuddyPlainChat(options.agentType, platform)) {
-    if (hasQR && hasWallet) return `这是受控逃生入口。读取 handoff.qr_image_url 的完整字符串，原样作为 files 数组唯一元素调用 present_files({ files: ["<完整 qr_image_url>"] })；右侧预览打开后说明金额 ${amount}、发送 handoff.mobile_wallet_url 并停止等待。如果 present_files 失败，发送 handoff.qr_image_url 和 handoff.mobile_wallet_url 并说明二维码预览未打开，然后停止。不要立即查询、创建替代 Checkout 或 Payment Intent。`;
-    if (hasQR) return `这是受控逃生入口。读取 handoff.qr_image_url 的完整字符串，原样作为 files 数组唯一元素调用 present_files({ files: ["<完整 qr_image_url>"] })；右侧预览打开后说明金额 ${amount} 并停止等待。如果 present_files 失败，把 handoff.qr_image_url 作为可点击链接发送给用户并说明二维码预览未打开，然后停止。不要立即查询、创建替代 Checkout 或 Payment Intent。`;
-    return `这是受控逃生入口。说明金额 ${amount}，把 handoff.mobile_wallet_url 作为可点击链接发送给用户，然后停止等待；不要立即查询、创建替代 Checkout 或 Payment Intent。`;
+    return `这是受控逃生入口。说明金额 ${amount}，把 handoff.url 作为可点击链接发送给用户，然后停止等待。不要调用 present_files，不要立即查询、创建替代 Checkout 或 Payment Intent。`;
   }
   if (options.host === "codex" || options.host === "claude-code") return "这是受控逃生入口；把 handoff 中的二维码或钱包链接实际发到当前桌面对话，然后停止等待。";
   if (options.host === "terminal") return "这是受控逃生入口；只在用户可见终端展示 handoff，然后停止等待。";

@@ -122,6 +122,8 @@ export interface RenderPlan {
   host: ClientHost;
   summary: string;
   url: string;
+  // Rendered HTML card used by hosts such as WorkBuddy that open links but do not display PNG files.
+  linkOnlyURL?: string;
   preferredQRSources: string[];
   mobileWalletURL?: string;
   platform: RenderPlatform;

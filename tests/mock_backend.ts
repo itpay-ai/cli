@@ -564,6 +564,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         display_token: displayToken,
         qr_payload: `${checkoutURL}?display_token=${displayToken}`,
         qr_png_url: `/v1/checkouts/${checkoutID}/qr.png?display_token=${displayToken}`,
+        card_url: `/v1/checkouts/${checkoutID}/card?display_token=${displayToken}`,
+        card_png_url: `/v1/checkouts/${checkoutID}/card.png?display_token=${displayToken}`,
       });
       void payload;
       return;
@@ -616,6 +618,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           display_token: displayToken,
           qr_payload: `${checkoutURL}?display_token=${displayToken}`,
           qr_png_url: `/v1/checkouts/${checkoutID}/qr.png?display_token=${displayToken}`,
+          card_url: `/v1/checkouts/${checkoutID}/card?display_token=${displayToken}`,
+          card_png_url: `/v1/checkouts/${checkoutID}/card.png?display_token=${displayToken}`,
         },
         binding: {
           service_checkout_binding_id: `scb_${checkoutID}`,
@@ -646,7 +650,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
-    const qrPNGMatch = path.match(/^\/v1\/checkouts\/([^/]+)\/qr\.png$/);
+    const qrPNGMatch = path.match(/^\/v1\/checkouts\/([^/]+)\/(?:qr|card)\.png$/);
     if (method === "GET" && qrPNGMatch) {
       // 16x16 transparent PNG so the IDE image viewer has something to
       // render. Bigger images would force smoke fixtures to allocate
@@ -719,6 +723,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         }],
         payment_intents: [],
         buyer_session: { state: "anonymous" },
+        card_url: `/v1/checkouts/${checkoutID}/card?display_token=${url.searchParams.get("display_token") ?? ""}`,
+        card_png_url: `/v1/checkouts/${checkoutID}/card.png?display_token=${url.searchParams.get("display_token") ?? ""}`,
       });
       return;
     }

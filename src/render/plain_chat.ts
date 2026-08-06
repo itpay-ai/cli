@@ -14,6 +14,10 @@ export interface PlainChatRenderOptions {
 
 export function renderPlainChat(plan: RenderPlan, options: PlainChatRenderOptions = {}): void {
   const out = options.output ?? ((line: string) => process.stdout.write(line));
+  if (plan.linkOnlyURL) {
+    out(`${plan.summary}\nopen: ${plan.linkOnlyURL}\n`);
+    return;
+  }
   const brand = plan.preferredQRSources.find((src) => src.length > 0);
   const lines: string[] = [];
   lines.push(plan.summary);
