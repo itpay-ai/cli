@@ -213,7 +213,9 @@ bundle 不包含凭据、.env、~/.itpay-v3 或 npm token
 
 ### Step 4：CLI 发布后创建同步 PR
 
-CLI 主仓库在 `main` 提供 reusable workflow。各平台仓库每小时错峰运行 caller workflow，并可手动触发；npm `dist-tags.latest` 或请求的 bundle format 与当前 `bundle.lock.json` 不同时更新。平台仓库自身的 `GITHUB_TOKEN` 写入本仓库，因此不需要跨仓 PAT，也不会在 CLI 发布失败时提前同步未发布版本。
+CLI 主仓库在 `main` 提供 reusable workflow。各平台仓库每小时错峰运行 caller workflow，并可手动触发；npm `dist-tags.latest` 或请求的 bundle format 与当前 `bundle.lock.json` 不同时更新。同步优先使用只安装到分发仓库、只拥有 Contents/Pull requests 写权限的 `itpay-bundle-sync` GitHub App 短期 token；未配置 App 时回落到平台仓库自己的 `GITHUB_TOKEN`，但该模式创建的 PR checks 需要仓库写权限用户批准。禁止使用个人 PAT。
+
+同步决策同时读取 main 和当前版本的 open automation PR。目标版本、format 和 bundle directory 已存在于 open PR 时必须返回 `pr-current`，不得每小时重建、提交或 force-push 同一产物。
 
 检测到新版本后：
 
@@ -221,8 +223,9 @@ CLI 主仓库在 `main` 提供 reusable workflow。各平台仓库每小时错�
 - 更新 manifest 版本、lock、changelog；
 - 跑全套测试；
 - 对启用 Skill 差异跟踪的平台，比较旧、新 `sourceGitSha` 的中心 `skills/itpay/SKILL.md`；有差异时创建 Draft PR、附 diff 和人工合并清单，但不覆盖平台 Skill；
-- 创建或刷新 `automation/itpay-cli-X.Y.Z` 分支和同步 PR；
-- PR 描述列出 CLI commit、integrity、平台测试和是否需要商店重新审核。
+- 创建或刷新 `automation/itpay-cli-X.Y.Z` 分支和同步 PR；同版本的后续计划任务必须为 no-op；
+- PR 描述列出 CLI commit、integrity、dependency lock、同步 run、平台测试和是否需要商店重新审核；
+- 新版本 PR 验证成功后，只关闭没有人工提交的旧机器人同步 PR；保留远程分支用于审计和恢复。
 
 同步 workflow 只开 PR，不合并、不打 tag、不发布平台商店版本。
 

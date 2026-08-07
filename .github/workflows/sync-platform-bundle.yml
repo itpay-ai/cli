@@ -27,6 +27,13 @@ on:
         description: Draft the PR when the center Skill changed
         default: false
         type: boolean
+    secrets:
+      ITPAY_BUNDLE_APP_ID:
+        description: Optional least-privilege GitHub App id for automatic PR checks
+        required: false
+      ITPAY_BUNDLE_APP_PRIVATE_KEY:
+        description: Optional GitHub App private key paired with ITPAY_BUNDLE_APP_ID
+        required: false
 
 concurrency:
   group: sync-itpay-cli-${{ github.repository }}
@@ -41,11 +48,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Select repository write credential
+        id: repository-auth
+        env:
+          BUNDLE_APP_ID: ${{ secrets.ITPAY_BUNDLE_APP_ID }}
+          BUNDLE_APP_PRIVATE_KEY: ${{ secrets.ITPAY_BUNDLE_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$BUNDLE_APP_ID" && -n "$BUNDLE_APP_PRIVATE_KEY" ]]; then
+            echo "app_configured=true" >> "$GITHUB_OUTPUT"
+            echo "mode=github-app" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$BUNDLE_APP_ID" || -n "$BUNDLE_APP_PRIVATE_KEY" ]]; then
+            echo "GitHub App id and private key must be configured together" >&2
+            exit 1
+          else
+            echo "app_configured=false" >> "$GITHUB_OUTPUT"
+            echo "mode=github-token-approval-required" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mint repository-scoped GitHub App token
+        id: bundle-app-token
+        if: steps.repository-auth.outputs.app_configured == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.ITPAY_BUNDLE_APP_ID }}
+          private-key: ${{ secrets.ITPAY_BUNDLE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Checkout platform repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           path: platform
+          token: ${{ steps.bundle-app-token.outputs.token || github.token }}
 
       - name: Checkout bundle tooling
         uses: actions/checkout@v7
@@ -65,7 +101,7 @@ jobs:
           cache-dependency-path: cli/package-lock.json
 
       - name: Resolve published version
-        id: version
+        id: target
         working-directory: platform
         env:
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
@@ -79,22 +115,49 @@ jobs:
           CURRENT_BUNDLE_DIRECTORY=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").bundleDirectory || "vendor/itpay-cli")')
           CURRENT_SOURCE_GIT_SHA=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").sourceGitSha)')
           echo "Published: $VERSION; bundled: $CURRENT_VERSION ($CURRENT_FORMAT, $CURRENT_BUNDLE_DIRECTORY)"
-          echo "CURRENT_SOURCE_GIT_SHA=$CURRENT_SOURCE_GIT_SHA" >> "$GITHUB_ENV"
-          if [[ "$VERSION" == "$CURRENT_VERSION" && "$BUNDLE_FORMAT" == "$CURRENT_FORMAT" && "$BUNDLE_DIRECTORY" == "$CURRENT_BUNDLE_DIRECTORY" ]]; then
-            echo "update=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "VERSION=$VERSION"
+            echo "BRANCH=automation/itpay-cli-$VERSION"
+            echo "CURRENT_SOURCE_GIT_SHA=$CURRENT_SOURCE_GIT_SHA"
+          } >> "$GITHUB_ENV"
+
+      - name: Inspect current-version update PR
+        id: candidate
+        working-directory: platform
+        env:
+          GH_TOKEN: ${{ steps.bundle-app-token.outputs.token || github.token }}
+          SKILL_PATH: ${{ inputs.skill-path }}
+        run: |
+          set -euo pipefail
+          CANDIDATE_LOCK_PATH="$RUNNER_TEMP/candidate-bundle.lock.json"
+          if git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" && git show "origin/$BRANCH:$SKILL_PATH/bundle.lock.json" > "$CANDIDATE_LOCK_PATH"; then
+            echo "candidate_lock_path=$CANDIDATE_LOCK_PATH" >> "$GITHUB_OUTPUT"
           else
-            echo "update=true" >> "$GITHUB_OUTPUT"
-            echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-            echo "BRANCH=automation/itpay-cli-$VERSION" >> "$GITHUB_ENV"
+            rm -f "$CANDIDATE_LOCK_PATH"
+            echo "candidate_lock_path=$CANDIDATE_LOCK_PATH" >> "$GITHUB_OUTPUT"
           fi
+          PR_URL=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url')
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether an update is required
+        id: decision
+        working-directory: cli
+        env:
+          BASE_LOCK_PATH: ${{ github.workspace }}/platform/${{ inputs.skill-path }}/bundle.lock.json
+          CANDIDATE_LOCK_PATH: ${{ steps.candidate.outputs.candidate_lock_path }}
+          OPEN_PULL_REQUEST_URL: ${{ steps.candidate.outputs.pr_url }}
+          PUBLISHED_VERSION: ${{ env.VERSION }}
+          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
+        run: node scripts/platform-sync-decision.mjs
 
       - name: Install bundle tooling
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: cli
         run: npm ci --ignore-scripts
 
       - name: Prepare update branch
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: platform
         run: |
           set -euo pipefail
@@ -104,7 +167,7 @@ jobs:
           git switch -C "$BRANCH" "$GITHUB_SHA"
 
       - name: Rebuild bundle
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: cli
         env:
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
@@ -122,7 +185,7 @@ jobs:
           node scripts/build-platform-bundle.mjs "$VERSION" "$GITHUB_WORKSPACE/platform/$SKILL_PATH" "${EXTRA[@]}" --bundle-directory "$BUNDLE_DIRECTORY"
 
       - name: Inspect upstream Skill changes
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: cli
         env:
           SKILL_PATH: ${{ inputs.skill-path }}
@@ -145,7 +208,7 @@ jobs:
           fi
 
       - name: Update platform versions
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: platform
         env:
           VERSION_FILES: ${{ inputs.version-files }}
@@ -161,7 +224,7 @@ jobs:
           ' "$VERSION" "$VERSION_FILES"
 
       - name: Verify platform bundle
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: platform
         env:
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
@@ -175,7 +238,7 @@ jobs:
           git diff --check
 
       - name: Push update branch
-        if: steps.version.outputs.update == 'true'
+        if: steps.decision.outputs.update == 'true'
         working-directory: platform
         run: |
           set -euo pipefail
@@ -184,16 +247,44 @@ jobs:
           git push --force-with-lease --set-upstream origin "$BRANCH"
 
       - name: Open update pull request
-        if: steps.version.outputs.update == 'true'
+        id: pull-request
+        if: steps.decision.outputs.update == 'true'
         working-directory: platform
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bundle-app-token.outputs.token || github.token }}
+          SKILL_PATH: ${{ inputs.skill-path }}
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/pr-body.md"
+          LOCK_METADATA=$(node -e '
+            const lock = require("./" + process.env.SKILL_PATH + "/bundle.lock.json");
+            console.log(JSON.stringify({
+              sourceGitSha: lock.sourceGitSha,
+              npmIntegrity: lock.npmIntegrity,
+              format: lock.format,
+              bundleDirectory: lock.bundleDirectory || "vendor/itpay-cli",
+              dependencyLockSha256: lock.dependencyLockSha256,
+            }));
+          ')
+          SOURCE_GIT_SHA=$(node -e 'console.log(JSON.parse(process.argv[1]).sourceGitSha)' "$LOCK_METADATA")
+          NPM_INTEGRITY=$(node -e 'console.log(JSON.parse(process.argv[1]).npmIntegrity)' "$LOCK_METADATA")
+          RESOLVED_FORMAT=$(node -e 'console.log(JSON.parse(process.argv[1]).format)' "$LOCK_METADATA")
+          RESOLVED_DIRECTORY=$(node -e 'console.log(JSON.parse(process.argv[1]).bundleDirectory)' "$LOCK_METADATA")
+          DEPENDENCY_LOCK=$(node -e 'console.log(JSON.parse(process.argv[1]).dependencyLockSha256)' "$LOCK_METADATA")
+          # Markdown backticks and dollar signs are intentionally literal in this block.
+          # shellcheck disable=SC2016
           {
+            printf '<!-- itpay-cli-sync -->\n'
             printf 'Updates the bundled CLI to `@itpay/cli@%s`.\n\n' "$VERSION"
             printf -- '- Rebuilt from the published npm package\n- Refreshed integrity and source metadata\n- Passed the platform bundle test\n'
+            printf '\n## Verified bundle evidence\n\n'
+            printf '| Field | Value |\n| --- | --- |\n'
+            printf '| CLI source | `%s` |\n' "$SOURCE_GIT_SHA"
+            printf '| npm integrity | `%s` |\n' "$NPM_INTEGRITY"
+            printf '| format | `%s` |\n' "$RESOLVED_FORMAT"
+            printf '| directory | `%s` |\n' "$RESOLVED_DIRECTORY"
+            printf '| dependency lock | `%s` |\n' "$DEPENDENCY_LOCK"
+            printf '| sync run | `%s` |\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             if [[ "$SKILL_REVIEW_REQUIRED" == "true" ]]; then
               printf '\n## Center Skill review required\n\n'
               printf 'The center `skills/itpay/SKILL.md` changed between `%s` and `%s`. This PR is intentionally a draft and does not overwrite the platform Skill.\n\n' "$CURRENT_SOURCE_GIT_SHA" "$NEW_SOURCE_GIT_SHA"
@@ -212,4 +303,45 @@ jobs:
             gh pr edit "$PR_URL" --body-file "$BODY_FILE"
             if [[ "$SKILL_REVIEW_REQUIRED" == "true" ]]; then gh pr ready --undo "$PR_URL" || true; fi
           fi
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "$PR_URL"
+
+      - name: Close superseded bot-only sync pull requests
+        if: steps.decision.outputs.update == 'true'
+        working-directory: platform
+        env:
+          GH_TOKEN: ${{ steps.bundle-app-token.outputs.token || github.token }}
+          CURRENT_PR_URL: ${{ steps.pull-request.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          CLOSED=0
+          while IFS= read -r PR_URL; do
+            [[ -z "$PR_URL" || "$PR_URL" == "$CURRENT_PR_URL" ]] && continue
+            ALL_BOT_COMMITS=$(gh pr view "$PR_URL" --json commits --jq '[.commits[].authors[]?] | length > 0 and all(.[]; .name == "itpay-bundle-bot" and .email == "itpay-bundle-bot@users.noreply.github.com")')
+            if [[ "$ALL_BOT_COMMITS" != "true" ]]; then
+              echo "Preserving $PR_URL because it contains a linked human-authored commit" >&2
+              continue
+            fi
+            gh pr close "$PR_URL" --comment "Superseded by $CURRENT_PR_URL after the newer bundle passed platform tests. The branch is retained for audit and recovery."
+            CLOSED=$((CLOSED + 1))
+          done < <(gh pr list --state open --limit 100 --json url,headRefName,body --jq '.[] | select(.headRefName | test("^automation/itpay-cli-[0-9]+\\.[0-9]+\\.[0-9]+")) | select(.body | contains("<!-- itpay-cli-sync -->")) | .url')
+          echo "CLOSED_SUPERSEDED=$CLOSED" >> "$GITHUB_ENV"
+
+      - name: Write sync summary
+        if: always()
+        env:
+          AUTH_MODE: ${{ steps.repository-auth.outputs.mode }}
+          DECISION: ${{ steps.decision.outputs.reason }}
+          EXISTING_PR_URL: ${{ steps.candidate.outputs.pr_url }}
+          CREATED_PR_URL: ${{ steps.pull-request.outputs.pr_url }}
+        run: |
+          {
+            echo "## ItPay CLI bundle sync"
+            echo
+            echo "- Published version: \`${VERSION:-unresolved}\`"
+            echo "- Branch: \`${BRANCH:-unresolved}\`"
+            echo "- Decision: \`${DECISION:-not-reached}\`"
+            echo "- Repository credential: \`${AUTH_MODE:-not-reached}\`"
+            echo "- Pull request: \`${CREATED_PR_URL:-${EXISTING_PR_URL:-none}}\`"
+            echo "- Superseded bot PRs closed: \`${CLOSED_SUPERSEDED:-0}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
