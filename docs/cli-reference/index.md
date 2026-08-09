@@ -63,6 +63,13 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
   - [`itpay refund watch`](commands/refund/watch.md)
   - [`itpay refund cancel`](commands/refund/cancel.md)
 
+### 跨平台 Vault
+
+- [`itpay vault`](commands/vault/index.md)
+  - [`itpay vault list`](commands/vault/list.md)
+  - [`itpay vault access`](commands/vault/access.md)
+  - [`itpay vault read`](commands/vault/read.md)
+
 ### 通用服务执行
 
 - [`itpay services`](commands/services/index.md)
