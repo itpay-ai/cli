@@ -1,32 +1,65 @@
-# 首批平台执行状态（2026-07-22）
+# 当前平台仓库与发布状态注册表
 
-首批按真实发布面拆成四个可落地仓库；豆包单独列为阻塞，不创建占位仓库。
+状态：current operational registry。
+最后核对：2026-08-10。
 
-| 产品面 | 仓库 | 形态 | 当前可做 | 外部阻塞 |
+本文件是 CLI 文档中平台集合、仓库名称和实际发布状态的唯一权威来源。
+不要在 README、bundle 合同或发布手册中维护另一份不同名单。
+
+## 当前注册表
+
+| 产品面 | 仓库 | 默认线路 | 当前形态 | 仍需持续验证 |
 | --- | --- | --- | --- | --- |
-| ChatGPT + Codex | `itpay-plugin-chatgpt` | OpenAI app-plus-skills plugin | `.codex-plugin/plugin.json`、Skill、离线 CLI、审核测试 | production MCP OAuth、域名 challenge、发布身份、legal/support URLs |
-| WorkBuddy | `itpay-skill-workbuddy` | SkillHub Skill 包 | `SKILL.md`、离线 CLI、权限/数据披露、ZIP | SkillHub 账号内上传由仓库管理员完成 |
-| OpenClaw / ClawHub | `itpay-skill-openclaw` | `@itpay/itpay@2.0.17` ClawHub Skill | 已发布单文件 CLI bundle | 首次安全审核与公开目录收录 |
-| Kimi Work / Kimi Code | `itpay-plugin-kimi-work` | `kimi.plugin.json` plugin + Skill | GitHub/Release 安装包、离线 CLI | Kimi Featured/第三方市场提交通道未公开；需桌面版实测 |
-| Hermes Agent / Skills Hub | `itpay-skill-hermes` | GitHub Skill tap | Hermes 专属 Skill、单文件 CLI bundle、自动更新 | Skills Hub 全局默认索引与 trusted 等级需上游收录 |
-| 豆包 | 暂不建仓 | 无可验证的 Skill bundle 发布面 | 保留调研记录 | 公开报道指向 2026-07-15 下线；需确认是否改为扣子、火山方舟 MCP 市场或 TRAE |
+| ChatGPT + Codex | `itpay-plugin-chatgpt` | ChatGPT MCP；本地 Codex CLI | OpenAI app-plus-skills plugin、MCP config、Skill、离线 CLI | 当前 MCP 合同、OAuth refresh/revoke、OpenAI 审核；本地 CLI bundle pin |
+| WorkBuddy | `itpay-skill-workbuddy` | 本地 CLI；显式 MCP | SkillHub/local Skill 包、单文件 CLI、MCP OAuth | 权限模式、窄浏览器、OAuth 回跳/refresh、SkillHub 状态 |
+| OpenClaw / ClawHub | `itpay-skill-openclaw` | host-dependent CLI | ClawHub Skill、单文件 CLI | 公开目录/审核状态、host renderer、更新/回滚 |
+| Kimi Work / Kimi Code | `itpay-plugin-kimi-work` | Work MCP；Code host-dependent CLI | Kimi plugin + Skill、离线 CLI | 两个 surface 真机、MCP Token persistence、市场状态 |
+| Hermes Agent / Skills Hub | `itpay-skill-hermes` | host-dependent CLI | GitHub Skill tap、单文件 CLI | Skills Hub/trusted 状态、更新/回滚、可选 MCP 真机 |
+
+CLI bundle 的实际版本、integrity 和 source SHA 只以各仓库
+`bundle.lock.json` 为准，不在本文复制易过期版本号。
+
+## 后续目标，不是当前仓库
+
+| 平台 | 当前状态 | 加入注册表的条件 |
+| --- | --- | --- |
+| Claude / Claude Code | planned | 确认分发面和仓库，完成 manifest、CLI/MCP 路由、OAuth/Device 真机验收。 |
+| Gemini CLI | planned | 确认当前 Extension 规则，完成仓库、manifest、bundle 和真机验收。 |
+| 豆包/扣子/火山/其他 | unconfirmed | 明确具体产品面和官方第三方发布入口，不能相互代替。 |
+
+不要创建空仓库占位，也不要根据旧建议名单宣称支持。
 
 ## 统一合同
 
-- CLI 唯一真源是 npm `@itpay/cli` 的精确版本。
-- 平台仓库只存 manifest、平台 Skill、离线 vendor、`bundle.lock.json`、测试和提交材料。
-- bundle 生成器记录 npm integrity、npm `gitHead`、Node 要求和 production dependency lock hash。
-- 本地 Agent 使用 Device Authority；ChatGPT 云端使用远程 MCP OAuth，两者不共享凭据。
-- 不在运行时安装 `latest`，不回退到全局 CLI，不复制 CLI 源码继续分叉开发。
+- CLI 唯一真源是精确 npm `@itpay/cli`；
+- 平台仓库只保存 manifest、Skill、generated bundle、lock、测试和发布材料；
+- 本地使用 Device Authority，远程使用 MCP OAuth Connection；
+- 平台原生 MCP client 保管 Token；
+- 一个任务只走一条线路，不静默 fallback；
+- 不运行时下载 `latest`，不调用全局 CLI，不 patch generated bundle；
+- 同步只创建 PR，不自动发布；
+- Backend compatibility、CLI npm、平台 bundle 和 MCP contract 分别记录；
+- 跨平台 Buyer Vault 功能上线后，公共 MCP 只注册批准的五个工具。
 
-## CLI 更新机制
+## 每次发布如何更新
 
 五个平台仓库每小时错峰检查 npm `@itpay/cli` 的正式版。发现版本高于各自 `bundle.lock.json` 后，调用 CLI `main` 上的统一 reusable workflow，重建对应格式的 bundle并运行仓库测试。更新 PR 优先由最小权限 `itpay-bundle-sync` GitHub App 创建；仓库未配置 App 时回落到 `GITHUB_TOKEN` 并明确要求人工批准 PR checks。该流程禁止个人 PAT，不会自动合并或发布商店版本，同一个 CLI 版本已有有效 open PR 时不会重复 force-push。
 
-## 已发现的现有资产
+平台 owner 在真实验收后更新对应行或附加 release record，至少记录：
 
-`itpay-ai/skill` 是旧的多平台通用仓库，固定 CLI 2.0.11，并对 bundle 做过平台 Agent Type patch。首批独立仓库只复用其已验证的 wrapper/test 思路，不再手工 patch CLI。旧仓库在迁移完成前保留，之后再决定归档或改为索引仓库。
+```text
+tested_at
+platform package/tag
+CLI version + npm integrity (local lane)
+MCP/Backend revision (remote lane)
+positive/negative test result
+store/review status
+rollback artifact
+```
 
-## 豆包判断
+“CLI 已发布”或“Backend 已部署”不能推断平台已更新。
 
-截至 2026-07-22，没有找到豆包官方的 `SKILL.md + 可执行 bundle` 上传或商店提交流程。公开报道显示豆包智能体功能已于 2026-07-15 下线。扣子、火山方舟 MCP 市场和 TRAE 是不同产品面，不能未经确认就用它们代替“豆包上架”。
+## 历史通用仓库
+
+旧 `itpay-ai/skill` 不再作为 CLI 或平台业务真源。独立仓库迁移完成后，
+它只能归档或作为不含 bundle/业务分叉的索引仓库；不能继续手工 patch CLI。
