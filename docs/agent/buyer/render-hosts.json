@@ -33,7 +33,7 @@
     {
       "agent_type": "workbuddy",
       "default_host": "plain-chat",
-      "responsibility": "show the amount and send or open handoff.url, which is the fully rendered HTML Card Link; never call present_files; then stop"
+      "responsibility": "execute handoff.agent_action exactly once to open the fully rendered handoff.url with present_files; show the amount and stop"
     },
     {
       "agent_type": "kimi-code",
@@ -63,7 +63,8 @@
   "agent_rules": [
     "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
-    "For workbuddy with plain-chat, send or open only the rendered handoff.url and never call present_files, inspect files, or rebuild a QR.",
+    "For workbuddy with plain-chat, execute handoff.agent_action exactly once; it calls present_files with handoff.url as the only files element and opens the rendered Card Link in the right-side browser.",
+    "If the WorkBuddy action fails, send the original handoff.url, report that it did not auto-open, and stop without creating another payment resource.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
     "OpenClaw Telegram uses flat url/value buttons for deployed-version compatibility. A grant_confirmed callback carries only the Checkout ID, never a display token, and never proves payment or an active grant."
@@ -72,7 +73,7 @@
     "Do not expose display tokens separately from the tokenized Checkout handoff.",
     "Do not print base64 images, mirror lists, renderer debug state, or provider QR URLs.",
     "Do not claim a desktop attachment exists when only a filesystem path was printed.",
-    "Do not call present_files or inspect, download, or regenerate a local QR file for WorkBuddy."
+    "Do not use present_files for a local file, QR PNG, downloaded copy, or rebuilt URL in WorkBuddy."
   ],
   "next_docs": [
     {

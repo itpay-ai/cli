@@ -82,14 +82,14 @@ itpay services checkout <service_execution_id> --resume
 | `codex-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
 | `claude-code-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
 | `claude-code-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
-| `workbuddy` | `handoff={url}`；`url` 是完整渲染的 HTML Card Link。直接发送/打开并停止，不得调用 `present_files`、检查或生成本地文件。 |
+| `workbuddy` | `handoff={url,agent_action}`；原样执行一次 `present_files(files=[url])` 打开完整渲染的 HTML Card Link，然后停止；不得检查或生成本地文件。 |
 | `kimi-code` | `handoff={url}`；复用标准 CLI 终端展示。 |
 | `openclaw` | 必须显式传 Host；Telegram 还必须传 OpenClaw 原生 Target，并返回必须原样执行的 `message` action；其他入口返回标准 `url,qr_image_url`。 |
 
 WorkBuddy 的准确 instruction 语义必须完整包含：
 
 ```text
-Backend 尚未确认付款。向用户说明金额，直接发送并打开 handoff.url，然后停止等待。不要调用 present_files，不要检查本地文件，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
+Backend 尚未确认付款。立即严格按 handoff.agent_action.tool 和 handoff.agent_action.arguments 原样执行一次，在右侧打开 handoff.url；确认工具调用成功后说明金额，然后停止等待。若工具失败，只发送原始 handoff.url，报告未自动打开并停止。不要用 present_files 打开本地文件或二维码 PNG，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
 ```
 
 `--locale` 默认 `zh-CN`，可显式使用 `--locale en`。语言只影响 Card 渲染，不改变 Checkout、付款或恢复状态。

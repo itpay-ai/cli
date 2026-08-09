@@ -117,7 +117,7 @@ OpenClaw 额外明确没有默认入口：
 | `codex-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
 | `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
-| `workbuddy` | `plain-chat` | 会持久化 `~/.itpay-v3` 的 Bash 调用先设 Shell 工具参数 `dangerouslyDisableSandbox=true`；拒绝权限时停止。Checkout 只发送/打开渲染后的 Card Link，不调用 `present_files`。 |
+| `workbuddy` | `plain-chat` | 会持久化 `~/.itpay-v3` 的 Bash 调用先设 Shell 工具参数 `dangerouslyDisableSandbox=true`；拒绝权限时停止。Checkout 原样执行返回的 `present_files` action，打开渲染后的 Card Link。 |
 | `kimi-code` | `terminal` | 使用标准 CLI 流程和终端展示，不增加 Kimi 专属命令。 |
 | `openclaw` | 无 | 必须显式提供当前入口；Telegram 使用原生 action，其他入口展示标准二维码和链接。 |
 

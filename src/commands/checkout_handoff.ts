@@ -24,16 +24,26 @@ export function isWorkBuddyPlainChat(agentType: string | undefined, platform: Ch
   return agentType?.trim().toLowerCase() === "workbuddy" && platform === "plain_chat";
 }
 
+export function buildWorkBuddyPresentFilesAction(url: string): Record<string, unknown> {
+  return {
+    tool: "present_files",
+    arguments: { files: [url] },
+  };
+}
+
 export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
   handoff: Record<string, unknown>;
   instruction: string;
 } {
   const handoff: Record<string, unknown> = { url: input.url };
-  const workBuddyLinkOnly = isWorkBuddyPlainChat(input.agentType, input.platform);
+  const workBuddyAction = isWorkBuddyPlainChat(input.agentType, input.platform);
+  if (workBuddyAction) {
+    handoff.agent_action = buildWorkBuddyPresentFilesAction(input.url);
+  }
   if (input.platform === "markdown") {
     if (input.localPath) handoff.qr_local_path = input.localPath;
     if (input.markdown) handoff.markdown = input.markdown;
-  } else if (input.platform === "plain_chat" && input.qrImageURL && !workBuddyLinkOnly) {
+  } else if (input.platform === "plain_chat" && input.qrImageURL && !workBuddyAction) {
     handoff.qr_image_url = input.qrImageURL;
   } else if (input.platform === "telegram" && input.qrImageURL) {
     handoff.qr_image_url = input.qrImageURL;
@@ -54,7 +64,7 @@ function checkoutHandoffInstruction(
   amount: string,
 ): string {
   if (isWorkBuddyPlainChat(agentType, platform)) {
-    return `Backend 尚未确认付款。向用户说明金额 ${amount}，直接发送并打开 handoff.url，然后停止等待。不要调用 present_files，不要检查本地文件，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+    return `Backend 尚未确认付款。立即严格按 handoff.agent_action.tool 和 handoff.agent_action.arguments 原样执行一次，在右侧打开 handoff.url；确认工具调用成功后说明金额 ${amount}，然后停止等待。若工具失败，只发送原始 handoff.url，报告未自动打开并停止。不要用 present_files 打开本地文件或二维码 PNG，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
   }
   if (platform === "markdown") {
     return `Backend 尚未确认付款。把 handoff.markdown 原样发送到当前桌面对话，确认二维码、付款链接和金额 ${amount} 均已实际对用户可见，然后停止等待。不要创建新 Checkout、Payment Intent 或 Execution；只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;

@@ -73,7 +73,7 @@ token 缺失或不匹配时使用本机句柄恢复。只有请求的 Checkout �
 | `codex-cli` | `url`；普通文本模式渲染终端二维码。 |
 | `claude-code-desktop` | `url, qr_local_path, markdown`；原样发送 Markdown。 |
 | `claude-code-cli` | `url`；普通文本模式渲染终端二维码。 |
-| `workbuddy` | 只返回 `url`；它是完整渲染的 HTML Card Link。直接打开，不调用 `present_files`，不生成本地文件。 |
+| `workbuddy` | 返回 `url,agent_action`；原样执行一次 `present_files(files=[url])` 打开完整渲染的 HTML Card Link，不生成本地文件。 |
 | `kimi-code` | `url`；普通文本模式渲染标准终端二维码。 |
 | `openclaw` | Telegram 为 `url,qr_image_url,agent_action`；instruction 强制原样执行 action。`📋 已授权给我读` callback 触发同一 Checkout 查询，再由 Backend 决定是否进入 grant 读取；其他显式 Host 为 `url,qr_image_url`。 |
 
