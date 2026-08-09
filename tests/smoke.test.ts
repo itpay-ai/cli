@@ -2372,7 +2372,7 @@ test("install returns one official contract for every supported Agent Type", asy
     });
     assert.doesNotMatch(JSON.stringify(envelope), /npm install/);
     if (agentType === "workbuddy") {
-      assert.match(envelope.instruction, /不要调用 present_files/);
+      assert.match(envelope.instruction, /present_files action/);
       assert.match(envelope.instruction, /Card Link/);
       assert.match(envelope.instruction, /不要检查本地二维码文件/);
     }
@@ -2546,7 +2546,7 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   assert.equal("brand_qr_mirrors" in parsed, false);
 });
 
-test("workbuddy checkout JSON returns only the rendered Card Link", async () => {
+test("workbuddy checkout JSON returns one executable action for the rendered Card Link", async () => {
   const before = mock.requests.length;
   const result = await runCLI([
     "--agent-type", "workbuddy", "checkout",
@@ -2558,17 +2558,22 @@ test("workbuddy checkout JSON returns only the rendered Card Link", async () => 
   const envelope = JSON.parse(result.stdout) as {
     status: string;
     result: Record<string, unknown>;
-    handoff: Record<string, string>;
+    handoff: Record<string, unknown>;
     instruction: string;
     next: { command: string };
     recovery: unknown[];
   };
   assert.equal(result.stderr, "");
   assert.equal(envelope.status, "human_checkout_required");
-  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
+  assert.deepEqual(Object.keys(envelope.handoff), ["url", "agent_action"]);
   assert.equal(envelope.handoff.url, "https://app.itpay.ai/v1/checkouts/chk_pending/card?display_token=cdt_pending&locale=zh-CN");
-  assert.match(envelope.instruction, /直接发送并打开 handoff\.url/);
-  assert.match(envelope.instruction, /不要调用 present_files/);
+  assert.deepEqual(envelope.handoff.agent_action, {
+    tool: "present_files",
+    arguments: { files: [envelope.handoff.url] },
+  });
+  assert.match(envelope.instruction, /严格按 handoff\.agent_action\.tool 和 handoff\.agent_action\.arguments 原样执行一次/);
+  assert.match(envelope.instruction, /若工具失败，只发送原始 handoff\.url/);
+  assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.match(envelope.instruction, /不要调用 pay/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
   assert.deepEqual(envelope.recovery, []);
@@ -2597,17 +2602,22 @@ test("checkout prepares the English card only when the model selects en", async 
   );
 });
 
-test("workbuddy checkout falls back to the Checkout URL when no QR URL exists", () => {
+test("workbuddy checkout action always opens the rendered Checkout URL", () => {
   const result = buildCheckoutHandoff({
     agentType: "workbuddy",
     platform: "plain_chat",
     url: "https://example.test/checkout/chk_no_qr",
     amount: "1.00 CNY",
   });
-  assert.deepEqual(result.handoff, { url: "https://example.test/checkout/chk_no_qr" });
-  assert.match(result.instruction, /直接发送并打开 handoff\.url/);
-  assert.match(result.instruction, /发送并打开 handoff\.url/);
-  assert.match(result.instruction, /不要调用 present_files/);
+  assert.deepEqual(result.handoff, {
+    url: "https://example.test/checkout/chk_no_qr",
+    agent_action: {
+      tool: "present_files",
+      arguments: { files: ["https://example.test/checkout/chk_no_qr"] },
+    },
+  });
+  assert.match(result.instruction, /原样执行一次/);
+  assert.match(result.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.doesNotMatch(result.instruction, /读取 handoff\.qr_image_url/);
 });
 
@@ -2747,7 +2757,7 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     });
     const envelope = JSON.parse(result.stdout) as {
       status: string;
-      handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string };
+      handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
       instruction: string;
     };
     assert.equal(envelope.status, "human_checkout_required");
@@ -2755,6 +2765,8 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     const desktop = expectedHost === "codex" || expectedHost === "claude-code";
     const expectedHandoffKeys = desktop
       ? ["markdown", "qr_local_path", "url"]
+      : agentType === "workbuddy"
+        ? ["agent_action", "url"]
       : expectedHost === "plain-chat" && agentType !== "workbuddy"
         ? ["qr_image_url", "url"]
         : ["url"];
@@ -2764,9 +2776,13 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/card.png?display_token=")), desktop);
     if (agentType === "workbuddy") {
       assert.match(envelope.handoff.url, /\/card\?/);
-      assert.match(envelope.instruction, /不要调用 present_files/);
+      assert.deepEqual(envelope.handoff.agent_action, {
+        tool: "present_files",
+        arguments: { files: [envelope.handoff.url] },
+      });
+      assert.match(envelope.instruction, /原样执行一次/);
       assert.match(envelope.instruction, /然后停止等待/);
-      assert.match(envelope.instruction, /不要检查本地文件/);
+      assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
     } else {
       assert.doesNotMatch(envelope.instruction, /present_files/);
     }
@@ -2904,15 +2920,19 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
       ...(agentType === "openclaw" ? ["--host", "plain-chat"] : []),
     ], { HOME: mkdtempSync(join(tmpdir(), `itpay-pay-${agentType}-`)), ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
     const envelope = JSON.parse(result.stdout) as {
-      status: string; result: Record<string, unknown>; handoff: Record<string, string>; instruction: string; next: { command: string };
+      status: string; result: Record<string, unknown>; handoff: Record<string, unknown>; instruction: string; next: { command: string };
     };
     assert.equal(envelope.status, "payment_action_ready");
     assert.equal(Object.keys(envelope.result).length, 4);
-    assert.deepEqual(Object.keys(envelope.handoff).sort(), agentType === "workbuddy" ? ["url"] : ["mobile_wallet_url", "qr_image_url"]);
+    assert.deepEqual(Object.keys(envelope.handoff).sort(), agentType === "workbuddy" ? ["agent_action", "url"] : ["mobile_wallet_url", "qr_image_url"]);
     assert.match(envelope.next.command, /checkout --id .* --token .* --json/);
     if (agentType === "workbuddy") {
       assert.match(envelope.instruction, /handoff\.url/);
-      assert.match(envelope.instruction, /不要调用 present_files/);
+      assert.deepEqual(envelope.handoff.agent_action, {
+        tool: "present_files",
+        arguments: { files: [envelope.handoff.url] },
+      });
+      assert.match(envelope.instruction, /原样执行一次/);
       assert.match(envelope.instruction, /金额 1\.00 CNY/);
       assert.match(envelope.instruction, /停止等待/);
     } else {
@@ -2938,8 +2958,8 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
 
 test("workbuddy pay instructions reference only provider actions that exist", async () => {
   for (const [checkoutID, expectedKeys] of [
-    ["chk_pay_qr_only", ["url"]],
-    ["chk_pay_wallet_only", ["url"]],
+    ["chk_pay_qr_only", ["url", "agent_action"]],
+    ["chk_pay_wallet_only", ["url", "agent_action"]],
   ] as const) {
     const output: string[] = [];
     await runPay(backend, {
@@ -2952,13 +2972,17 @@ test("workbuddy pay instructions reference only provider actions that exist", as
       output: (line) => output.push(line),
     });
     const envelope = JSON.parse(output.join("")) as {
-      handoff: Record<string, string>;
+      handoff: Record<string, unknown>;
       instruction: string;
     };
     assert.deepEqual(Object.keys(envelope.handoff), expectedKeys);
+    assert.deepEqual(envelope.handoff.agent_action, {
+      tool: "present_files",
+      arguments: { files: [envelope.handoff.url] },
+    });
     assert.doesNotMatch(envelope.instruction, /读取 handoff\.qr_image_url|handoff\.mobile_wallet_url/);
     assert.match(envelope.instruction, /handoff\.url/);
-    assert.match(envelope.instruction, /不要调用 present_files/);
+    assert.match(envelope.instruction, /原样执行一次/);
   }
 });
 
@@ -3014,7 +3038,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
     status: string;
     result: { checkout_id: string; capability_id: string; locked_input: Record<string, unknown>; amount: string };
-    handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string };
+    handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
     instruction: string;
     next: { command: string };
     recovery: unknown[];
@@ -3023,13 +3047,17 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.match(json.handoff.url, /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_\d+\/card\?/);
   assert.match(json.handoff.url, /display_token=/);
   assert.equal(json.handoff.qr_image_url, undefined);
-  assert.deepEqual(Object.keys(json.handoff), ["url"]);
+  assert.deepEqual(Object.keys(json.handoff), ["url", "agent_action"]);
   assert.equal(json.result.capability_id, "precise_report");
   assert.deepEqual(json.result.locked_input, {});
   assert.equal(json.result.amount, "0.50 CNY");
-  assert.match(json.instruction, /不要调用 present_files/);
+  assert.deepEqual(json.handoff.agent_action, {
+    tool: "present_files",
+    arguments: { files: [json.handoff.url] },
+  });
+  assert.match(json.instruction, /原样执行一次/);
   assert.match(json.instruction, /然后停止等待/);
-  assert.match(json.instruction, /不要检查本地文件/);
+  assert.match(json.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.match(json.instruction, /不要调用 pay/);
   assert.match(json.next.command, /itpay (?:--agent-type workbuddy )?checkout --id .* --json$/);
   assert.deepEqual(json.recovery, []);
@@ -4040,14 +4068,18 @@ test("runBuy JSON output exposes only the current Host handoff", async () => {
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
     status: string;
     result: { checkout_id: string; payment: string; amount: string; item_count: number };
-    handoff: { url: string; qr_local_path?: string; qr_image_url?: string };
+    handoff: { url: string; qr_local_path?: string; qr_image_url?: string; agent_action?: unknown };
     next: { command: string };
   };
   assert.equal(json.status, "human_checkout_required");
   assert.deepEqual(json.result, { checkout_id: json.result.checkout_id, payment: "pending", amount: "1.00 CNY", item_count: 1 });
   assert.match(json.handoff.url, /display_token=/);
-  assert.deepEqual(Object.keys(json.handoff), ["url"]);
+  assert.deepEqual(Object.keys(json.handoff), ["url", "agent_action"]);
   assert.equal(json.handoff.qr_image_url, undefined);
+  assert.deepEqual(json.handoff.agent_action, {
+    tool: "present_files",
+    arguments: { files: [json.handoff.url] },
+  });
   assert.match(json.handoff.url, /\/card\?display_token=/);
   assert.match(json.next.command, /checkout --id .* --token .* --json/);
   assert.equal("brand_qr_mirrors" in json, false);

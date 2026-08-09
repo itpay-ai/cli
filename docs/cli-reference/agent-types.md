@@ -14,7 +14,7 @@
 | `codex-cli` | `terminal` | 在用户可见终端渲染二维码并输出付款链接；若用户不看该终端，要求改用正确 Host。 |
 | `claude-code-desktop` | `claude-code` | 返回桌面对话可展示的 Markdown 图片和付款链接，要求先展示再等待。 |
 | `claude-code-cli` | `terminal` | 在用户可见终端输出二维码和链接，不声称已在桌面对话展示。 |
-| `workbuddy` | `plain-chat` | 只返回完整渲染的 HTML Card Link；直接打开链接，不调用 `present_files`，不返回或检查本地图片路径。 |
+| `workbuddy` | `plain-chat` | 返回完整渲染的 HTML Card Link 和可原样执行的 `present_files` action；立即打开 Card Link，不返回或检查本地图片路径。 |
 | `kimi-code` | `terminal` | 使用标准 CLI 引导，在用户可见终端渲染二维码和付款链接。 |
 | `openclaw` | 无；必须显式传入 | `--host telegram` 使用 OpenClaw 原生 `message` action；其他入口返回标准 HTTPS 二维码和付款链接。 |
 
@@ -47,7 +47,8 @@
     "url": "<checkout_or_rendered_card_url>",
     "qr_local_path": "<desktop_optional_local_path>",
     "qr_image_url": "<non_workbuddy_optional_absolute_https_png>",
-    "markdown": "<desktop_optional_host_ready_markdown>"
+    "markdown": "<desktop_optional_host_ready_markdown>",
+    "agent_action": "<host_optional_native_action>"
   },
   "instruction": "<agent-type-specific instruction>",
   "next": {
@@ -67,11 +68,11 @@
 | `claude-code-desktop / claude-code` | `url, qr_local_path, markdown` |
 | `codex-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
 | `claude-code-cli / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
-| `workbuddy / plain-chat` | `url`（完整渲染的 HTML Card Link） |
+| `workbuddy / plain-chat` | `url, agent_action`（`present_files(files=[url])`，打开完整渲染的 HTML Card Link） |
 | `kimi-code / terminal` | `url`；非 JSON 输出另外渲染终端二维码 |
 | `openclaw / telegram` | `url, qr_image_url, agent_action` |
 | `openclaw / other` | `url, qr_image_url` |
 
-WorkBuddy instruction 必须直接发送并打开 `handoff.url`，明确禁止 `present_files`。这个 URL 指向 Backend 已渲染的 HTML Card；不能检查本地文件、下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式。
+WorkBuddy instruction 必须要求 Agent 原样执行一次 `handoff.agent_action`，即调用 `present_files(files=[handoff.url])` 在右侧打开 Backend 已渲染的 HTML Card。调用成功后说明金额并停止；调用失败时只发送原始 `handoff.url` 并如实报告未自动打开。禁止把 `present_files` 用于本地文件或二维码 PNG，也不能下载或重建二维码、调用 `pay` 或创建替代付款资源。显式 `--host` 仍覆盖默认展示方式。
 
 OpenClaw Telegram 的 `handoff.agent_action` 是可原样执行的原生 `message` tool action。`presentation` 只包含标准 `blocks.buttons`：`📱 手机点这儿支付` 使用扁平 `url`，`📋 已授权给我读` 使用扁平 `value=itp:grant_confirmed:<checkout_id>`；二维码单独使用 action 的 `media`。CLI `instruction` 必须要求 Agent 原样执行该 action，不得改写 Presentation、换用其他消息工具或声称普通文本回复等同于已发送按钮。收到授权 callback 后立即执行 `next.command` 查询同一 Checkout，再只跟随后端返回的同一 Execution grant 流程；callback 只携带 Checkout ID，不携带 display token，也不证明付款或 grant 已生效。OpenClaw `target` 使用原生 chat target（如 `5559456744` 或 `-1001234567890:topic:42`），不添加 `telegram:` 前缀。

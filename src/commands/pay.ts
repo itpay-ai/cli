@@ -7,7 +7,7 @@ import { formatMoney } from "../render/output.js";
 import type { OutputSink } from "../render/sink.js";
 import type { ClientHost } from "../state/client_context.js";
 import { type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
-import { isWorkBuddyPlainChat } from "./checkout_handoff.js";
+import { buildWorkBuddyPresentFilesAction, isWorkBuddyPlainChat } from "./checkout_handoff.js";
 import { platformKeyForHost } from "../render/plan.js";
 
 export interface PayOptions {
@@ -41,10 +41,13 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
   const terminal = ["failed", "expired", "refunded"].includes(intent.status);
   const verified = intent.status === "verified" || intent.status === "partially_refunded";
   const handoff: Record<string, unknown> = {};
-  const workBuddyLinkOnly = isWorkBuddyPlainChat(options.agentType, platformKeyForHost(options.host));
-  if (!terminal && !verified && workBuddyLinkOnly) {
+  const workBuddyAction = isWorkBuddyPlainChat(options.agentType, platformKeyForHost(options.host));
+  if (!terminal && !verified && workBuddyAction) {
     const url = intent.action?.mobile_wallet_url ?? intent.action?.qr_image_url;
-    if (url) handoff.url = url;
+    if (url) {
+      handoff.url = url;
+      handoff.agent_action = buildWorkBuddyPresentFilesAction(url);
+    }
   } else {
     if (!terminal && !verified && intent.action?.qr_image_url) handoff.qr_image_url = intent.action.qr_image_url;
     if (!terminal && !verified && intent.action?.mobile_wallet_url) handoff.mobile_wallet_url = intent.action.mobile_wallet_url;
@@ -87,7 +90,7 @@ function payInstruction(
   if (!hasAction) return "Payment Intent 尚未返回可展示动作；不要猜测渠道链接，回到同一 Checkout 查询。";
   const platform = platformKeyForHost(options.host);
   if (isWorkBuddyPlainChat(options.agentType, platform)) {
-    return `这是受控逃生入口。说明金额 ${amount}，把 handoff.url 作为可点击链接发送给用户，然后停止等待。不要调用 present_files，不要立即查询、创建替代 Checkout 或 Payment Intent。`;
+    return `这是受控逃生入口。立即严格按 handoff.agent_action 原样执行一次，在右侧打开 handoff.url；确认工具调用成功后说明金额 ${amount} 并停止等待。若工具失败，只发送原始 handoff.url，报告未自动打开并停止。不要用 present_files 打开本地文件或二维码 PNG，不要立即查询、创建替代 Checkout 或 Payment Intent。`;
   }
   if (options.host === "codex" || options.host === "claude-code") return "这是受控逃生入口；把 handoff 中的二维码或钱包链接实际发到当前桌面对话，然后停止等待。";
   if (options.host === "terminal") return "这是受控逃生入口；只在用户可见终端展示 handoff，然后停止等待。";

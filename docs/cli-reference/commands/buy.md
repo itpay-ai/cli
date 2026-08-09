@@ -167,7 +167,7 @@ itpay buy \
 | `codex-cli` | `terminal` | `url` | 非 JSON 模式在用户可见终端渲染二维码；始终保留付款链接。 |
 | `claude-code-desktop` | `claude-code` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 Markdown handoff 发到当前桌面对话，不能只输出本地路径。 |
 | `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
-| `workbuddy` | `plain-chat` | `url` | `url` 是完整渲染的 HTML Card Link；直接发送/打开，不调用 `present_files`，然后停止。 |
+| `workbuddy` | `plain-chat` | `url,agent_action` | 原样执行一次 `present_files(files=[url])`，在右侧打开完整渲染的 HTML Card Link，然后停止。 |
 | `kimi-code` | `terminal` | `url` | 使用标准 CLI 非 JSON 终端二维码和链接。 |
 | `openclaw` | 必须显式 | Telegram 返回 `url,qr_image_url,agent_action`；其他入口返回 `url,qr_image_url` | Telegram 执行原生 `message` action；其他入口直接展示图片和链接。 |
 
