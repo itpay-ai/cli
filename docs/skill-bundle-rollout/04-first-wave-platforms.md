@@ -21,7 +21,7 @@
 
 ## CLI 更新机制
 
-四个平台仓库每小时错峰检查 npm `@itpay/cli` 的正式版。发现版本高于各自 `bundle.lock.json` 后，调用 CLI `main` 上的统一 reusable workflow，重建对应格式的 bundle、运行仓库测试，并以平台仓库自己的 `GITHUB_TOKEN` 创建更新 PR。该流程不需要 PAT，也不会自动合并或发布商店版本。
+五个平台仓库每小时错峰检查 npm `@itpay/cli` 的正式版。发现版本高于各自 `bundle.lock.json` 后，调用 CLI `main` 上的统一 reusable workflow，重建对应格式的 bundle并运行仓库测试。更新 PR 优先由最小权限 `itpay-bundle-sync` GitHub App 创建；仓库未配置 App 时回落到 `GITHUB_TOKEN` 并明确要求人工批准 PR checks。该流程禁止个人 PAT，不会自动合并或发布商店版本，同一个 CLI 版本已有有效 open PR 时不会重复 force-push。
 
 ## 已发现的现有资产
 
