@@ -35,6 +35,7 @@ import { runDocsList, runDocsShow, runDocsSearch } from "./commands/docs.js";
 import { runInstall } from "./commands/install.js";
 import { runSkillShow } from "./commands/skill.js";
 import { runNext } from "./commands/next.js";
+import { runVaultAccess, runVaultList, runVaultRead } from "./commands/vault.js";
 import {
   collectOption,
   parseKeyValueList,
@@ -1229,6 +1230,79 @@ async function executeRefundCreate(orderID: string, reason: string | undefined, 
 		});
 	}
 }
+
+// --- Buyer Vault ---------------------------------------------------------
+
+const vault = program.command("vault").description("Discover and read Buyer Vault content with human authorization");
+
+vault
+  .command("list")
+  .description("List Buyer Vault content visible during the current account authorization window")
+  .option("--query <text>")
+  .option("--limit <n>", "maximum artifacts (1-50)", "20")
+  .option("--cursor <cursor>")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    try {
+      await runVaultList(newBackendClient(config), {
+        ...(options.query ? { query: options.query } : {}),
+        limit: Number(options.limit),
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "vault_list_failed",
+        instruction: "只读取当前身份在有效账号授权窗口内可见的 Vault 摘要；不要猜测 artifact_ref 或 Buyer 身份。",
+        recovery: [],
+      });
+    }
+  });
+
+vault
+  .command("access")
+  .description("Create an account-window or artifact-read authorization request")
+  .option("--artifact <artifact_ref>")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    try {
+      await runVaultAccess(newBackendClient(config), options.artifact?.trim() || undefined, {
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "vault_access_failed",
+        instruction: "授权请求未创建；不要传入 Buyer、时长、回调或 start token，也不要重复创建请求。",
+        recovery: [],
+      });
+    }
+  });
+
+vault
+  .command("read")
+  .description("Read one human-authorized Buyer Vault artifact")
+  .requiredOption("--artifact <artifact_ref>")
+  .option("--section <name>", "authorized section to return; repeatable", collectOption, [])
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    try {
+      await runVaultRead(newBackendClient(config), options.artifact, options.section, {
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "vault_read_failed",
+        instruction: "只读取 vault list 返回且经用户授权的 artifact_ref；不要绕过账号窗口、内容授权或退款锁。",
+        recovery: [],
+      });
+    }
+  });
 
 // --- service execution ----------------------------------------------------
 

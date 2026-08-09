@@ -19,6 +19,10 @@ import type {
   ListServiceExecutionsResponse,
   Order,
   OrderDeliveryAccess,
+  BuyerVaultArtifactList,
+  BuyerVaultRead,
+  VaultAccessRequest,
+  VaultAccountStatus,
   PaymentIntent,
   PlatformCompatibility,
   RecordServiceExecutionActionRequest,
@@ -130,6 +134,25 @@ export class BackendClient {
       qs.set("status", status);
     }
     return this.http.get<ListOrdersResponse>(`/v1/me/orders?${qs}`, bearer ? { bearer } : {});
+  }
+
+  getVaultAccountStatus(): Promise<VaultAccountStatus> {
+    return this.http.get<VaultAccountStatus>("/v1/me/account-status");
+  }
+
+  listBuyerVaultArtifacts(input: { query?: string; limit: number; cursor?: string }): Promise<BuyerVaultArtifactList> {
+    const qs = new URLSearchParams({ limit: String(input.limit) });
+    if (input.query) qs.set("query", input.query);
+    if (input.cursor) qs.set("cursor", input.cursor);
+    return this.http.get<BuyerVaultArtifactList>(`/v1/me/vault-artifacts?${qs}`);
+  }
+
+  createVaultAccessRequest(input: { purpose: "account_window" | "artifact_reveal"; artifact_ref?: string }): Promise<VaultAccessRequest> {
+    return this.http.post<VaultAccessRequest>("/v1/vault/access-requests", input);
+  }
+
+  readBuyerVaultArtifact(artifactRef: string, sections: string[]): Promise<BuyerVaultRead> {
+    return this.http.post<BuyerVaultRead>(`/v1/vault/artifacts/${encodeURIComponent(artifactRef)}/reads`, sections.length ? { sections } : {});
   }
 
   // --- Refund ---
