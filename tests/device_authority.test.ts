@@ -57,6 +57,51 @@ test("device authority enrolls once, survives concurrent processes, and register
   });
 });
 
+test("device authority skips a revoked instance when registering a new agent type", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-revoked-instance-"));
+  const server = new DeviceServer();
+  const options = {
+    baseURL: "https://test.itpay.ai", compatibilityHeaders: {},
+    statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
+  };
+
+  await new DeviceAuthority({ ...options, requestedAgentType: "codex-cli" })
+    .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  await new DeviceAuthority({ ...options, requestedAgentType: "claude-code-cli" })
+    .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  server.revokedAgentTypes.add("codex-cli");
+
+  const headers = await new DeviceAuthority({ ...options, requestedAgentType: "workbuddy" })
+    .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+
+  assert.equal(headers["X-ItPay-Agent-Instance-ID"], "ain_workbuddy");
+  assert.deepEqual(server.registrationAuthorizers.slice(-2), ["codex-cli", "claude-code-cli"]);
+  assert.equal(server.enrollmentCount, 1, "a revoked instance must not create a replacement device");
+});
+
+test("device authority stops when every existing instance is revoked", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-all-instances-revoked-"));
+  const server = new DeviceServer();
+  const options = {
+    baseURL: "https://test.itpay.ai", compatibilityHeaders: {},
+    statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
+  };
+
+  await new DeviceAuthority({ ...options, requestedAgentType: "codex-cli" })
+    .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  await new DeviceAuthority({ ...options, requestedAgentType: "claude-code-cli" })
+    .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  server.revokedAgentTypes.add("codex-cli");
+  server.revokedAgentTypes.add("claude-code-cli");
+
+  await assert.rejects(
+    () => new DeviceAuthority({ ...options, requestedAgentType: "workbuddy" })
+      .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" }),
+    (error: unknown) => error instanceof DeviceAuthorizationError && error.code === "agent_device_revoked",
+  );
+  assert.equal(server.enrollmentCount, 1, "revoked instances must not create a replacement device");
+});
+
 test("device authority replaces a stale legacy file lock with the directory lock", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-legacy-lock-"));
   const statePath = join(root, "identity.json");
@@ -257,6 +302,8 @@ class DeviceServer {
   enrollmentCount = 0;
   requestCount = 0;
   revoked = false;
+  readonly revokedAgentTypes = new Set<string>();
+  readonly registrationAuthorizers: string[] = [];
   private publicKey: ReturnType<typeof createPublicKey> | undefined;
   private readonly instances = new Map<string, string>();
 
@@ -276,7 +323,13 @@ class DeviceServer {
       return json({ agent_device_id: "adev_1", agent_device_key_id: "akey_1", quota_lineage_id: "qln_1", agent_instance_id: "ain_codex_cli", agent_type: "codex-cli" });
     }
     if (path === "/v1/agent-instances") {
-      assert.match(String(new Headers(init?.headers).get("Authorization")), /^ItPayDevice /);
+      const authorization = String(new Headers(init?.headers).get("Authorization"));
+      assert.match(authorization, /^ItPayDevice token_/);
+      const authorizer = authorization.slice("ItPayDevice token_".length);
+      this.registrationAuthorizers.push(authorizer);
+      if (this.revoked || this.revokedAgentTypes.has(authorizer)) {
+        return json({ code: "agent_device_revoked", message: "agent device or instance is revoked" }, 403);
+      }
       const id = `ain_${body.agent_type!.replaceAll("-", "_")}`;
       this.instances.set(body.agent_type!, id);
       return json({ agent_instance_id: id });
@@ -285,6 +338,7 @@ class DeviceServer {
       if (this.revoked) return json({ code: "agent_device_revoked", message: "agent device is revoked" }, 403);
       const agentType = [...this.instances].find(([, id]) => id === body.agent_instance_id)?.[0];
       if (!agentType) return json({ code: "agent_device_revoked", message: "agent device is not registered here" }, 403);
+      if (this.revokedAgentTypes.has(agentType)) return json({ code: "agent_device_revoked", message: "agent instance is revoked" }, 403);
       return json({ agent_device_session_challenge_id: `ses_${agentType}`, challenge: `nonce_${agentType}` });
     }
     if (path.startsWith("/v1/agent-device-session-challenges/") && path.endsWith("/verify")) {

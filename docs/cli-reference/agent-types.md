@@ -33,6 +33,7 @@
 - OpenClaw 的 IM Host 必须提供 `--target`。缺失时在任何 Checkout 创建前返回 `target_required`。
 - `kimi-code` 是 CLI 型 Agent，复用 `terminal` Host 和现有 CLI 展示，不增加 Kimi 专属交易协议。
 - session 失效时 CLI 只续期并重试原请求一次；再次失败立即返回。revoked v2 Device 不自动换身份。
+- 同一 Device 首次登记新的 Agent Type 时，CLI 只使用本地已登记且 Backend 仍接受的既有 Agent Instance 完成签名登记；被撤销的 Instance 会被跳过且不会恢复。若没有任何既有 Instance 可用，CLI 必须停止，不得重新登记 Device、旋转私钥或借用其他 Backend。
 
 ## Checkout Handoff 最小合同
 
