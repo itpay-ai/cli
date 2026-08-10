@@ -815,7 +815,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           created_at: "2026-08-10T12:00:00Z",
           available_sections: ["registration", "branches"],
         }],
-        next_cursor: null,
+        next_cursor: "",
       });
       return;
     }
