@@ -37,7 +37,7 @@ test("device authority enrolls once, survives concurrent processes, and register
   await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
   assert.equal(server.requestCount, requestCount, "valid persisted session should not contact enrollment server");
 
-  for (const path of ["/v1/orders/ord_1/refunds", "/v1/refunds/rr_1/cancel"]) {
+  for (const path of ["/v1/orders/ord_1/refunds", "/v1/refunds/rr_1/cancel", "/v1/me/vault-artifacts", "/v1/vault/access-requests"]) {
     const headers = await new DeviceAuthority(options).authorizationHeaders({ method: "POST", path, body: "{}" });
     assert.match(headers.Authorization ?? "", /^ItPayDevice /);
   }
