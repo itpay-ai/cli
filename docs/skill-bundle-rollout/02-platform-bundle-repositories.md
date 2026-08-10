@@ -85,13 +85,21 @@ executable 工作；不提前维护多架构二进制。
   "schemaVersion": 1,
   "package": "@itpay/cli",
   "version": "X.Y.Z",
+  "format": "single-file-esm",
   "npmIntegrity": "sha512-...",
   "sourceGitSha": "...",
-  "productionDependencyLockHash": "sha256:...",
   "generatedAt": "<RFC3339>",
-  "node": ">=18"
+  "node": ">=18",
+  "bundleDirectory": "vendor/itpay-cli",
+  "dependencyLockSha256": "<64 lowercase hex characters>"
 }
 ```
+
+`format` is `single-file-esm` or `npm-tree`. `bundleDirectory` is the
+repository-relative Skill bundle directory, and `dependencyLockSha256` is the
+raw lowercase SHA-256 hex digest emitted by `build-platform-bundle.mjs` (without
+a `sha256:` prefix). The reusable synchronization workflow consumes these exact
+field names.
 
 不得包含 Token、registry credential、本机路径或 Device 状态。
 

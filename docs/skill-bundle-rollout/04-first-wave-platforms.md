@@ -8,16 +8,20 @@
 
 ## 当前注册表
 
-| 产品面 | 仓库 | 默认线路 | 当前形态 | 仍需持续验证 |
-| --- | --- | --- | --- | --- |
-| ChatGPT + Codex | `itpay-plugin-chatgpt` | ChatGPT MCP；本地 Codex CLI | OpenAI app-plus-skills plugin、MCP config、Skill、离线 CLI | 当前 MCP 合同、OAuth refresh/revoke、OpenAI 审核；本地 CLI bundle pin |
-| WorkBuddy | `itpay-skill-workbuddy` | 本地 CLI；显式 MCP | SkillHub/local Skill 包、单文件 CLI、MCP OAuth | 权限模式、窄浏览器、OAuth 回跳/refresh、SkillHub 状态 |
-| OpenClaw / ClawHub | `itpay-skill-openclaw` | host-dependent CLI | ClawHub Skill、单文件 CLI | 公开目录/审核状态、host renderer、更新/回滚 |
-| Kimi Work / Kimi Code | `itpay-plugin-kimi-work` | Work MCP；Code host-dependent CLI | Kimi plugin + Skill、离线 CLI | 两个 surface 真机、MCP Token persistence、市场状态 |
-| Hermes Agent / Skills Hub | `itpay-skill-hermes` | host-dependent CLI | GitHub Skill tap、单文件 CLI | Skills Hub/trusted 状态、更新/回滚、可选 MCP 真机 |
+| 产品面 | 仓库 | 默认线路 | 当前形态 | 本轮发布状态 | 最近验收 | 回滚锚点 | 仍需持续验证 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ChatGPT + Codex | `itpay-plugin-chatgpt` | ChatGPT MCP；本地 Codex CLI | OpenAI app-plus-skills plugin、MCP config、Skill、离线 CLI | blocked：Buyer Vault 候选尚未完成外部发布 | 2026-08-10 automated CI；ChatGPT/Codex 真机待验收 | pre-Vault `2b1e8a9c8030` | 当前 MCP 合同、OAuth refresh/revoke、OpenAI 审核；本地 CLI bundle pin |
+| WorkBuddy | `itpay-skill-workbuddy` | 本地 CLI；显式 MCP | SkillHub/local Skill 包、单文件 CLI、MCP OAuth | blocked：Buyer Vault 候选尚未同步 SkillHub | 2026-08-10 automated CI；WorkBuddy 真机待验收 | pre-Vault `584ebf3f8c46` | 权限模式、窄浏览器、OAuth 回跳/refresh、SkillHub 状态 |
+| OpenClaw / ClawHub | `itpay-skill-openclaw` | host-dependent CLI | ClawHub Skill、单文件 CLI | blocked：Buyer Vault 候选尚未同步 ClawHub | 2026-08-10 automated CI；OpenClaw 真机待验收 | pre-Vault `af2aa79d85c8` | 公开目录/审核状态、host renderer、更新/回滚 |
+| Kimi Work / Kimi Code | `itpay-plugin-kimi-work` | Work MCP；Code host-dependent CLI | Kimi plugin + Skill、离线 CLI | blocked：Buyer Vault 候选尚未发布；公开 release 仍为 `v2.0.17` | 2026-08-10 automated CI；两个 surface 真机待验收 | `v2.0.17` / `b8d40fe9cffd` | 两个 surface 真机、MCP Token persistence、市场状态 |
+| Hermes Agent / Skills Hub | `itpay-skill-hermes` | host-dependent CLI | GitHub Skill tap、单文件 CLI | blocked：Buyer Vault 候选尚未同步 Skills Hub | 2026-08-10 automated CI；Hermes 真机待验收 | pre-Vault `1189f25103fd` | Skills Hub/trusted 状态、更新/回滚、可选 MCP 真机 |
 
 CLI bundle 的实际版本、integrity 和 source SHA 只以各仓库
 `bundle.lock.json` 为准，不在本文复制易过期版本号。
+
+`blocked` means the repository candidate must not be presented as externally
+published. Update the status, acceptance date, and rollback anchor only after
+the named platform has real acceptance and its distribution surface is updated.
 
 ## 后续目标，不是当前仓库
 
