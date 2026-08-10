@@ -21,7 +21,7 @@ export async function runVaultList(backend: BackendClient, input: { query?: stri
     const value = await backend.listBuyerVaultArtifacts(input);
     writeCommandEnvelope({
       status: value.items.length ? "vault_listed" : "no_vault_artifacts",
-      result: { items: value.items, next_cursor: value.next_cursor ?? null },
+      result: { items: value.items, next_cursor: value.next_cursor || null },
       instruction: value.items.length
         ? "让用户选择一个 artifact_ref；需要首次读取授权时运行 itpay vault access --artifact <artifact_ref> --json。"
         : "当前账号没有匹配的 Vault 内容；不要猜测 artifact_ref。",
