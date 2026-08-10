@@ -1,147 +1,82 @@
-# 核心任务二：多平台 Bundle Skill 仓库与自动同步
+# 多平台仓库与 CLI Bundle 合同
 
-状态：首批平台已实施
+状态：current。
+最后核对：2026-08-10。
 
-## 1. Current State
+## 1. 原则
 
-当前 CLI 主仓库：
-
-- npm 包名为 `@itpay/cli`，当前版本由 `package.json` 管理。
-- `npm run check` 执行类型检查、测试覆盖率和打包 smoke test。
-- main 分支 CD 在验证后发布精确 npm 版本。
-- npm 包已经包含 `bin/`、`dist/src/`、`docs/`、`skills/`、README 和 LICENSE。
-- CLI 运行依赖 Node.js 18+，并依赖 `commander`、`qrcode`。
-- `skills/itpay/SKILL.md` 是当前通用 Skill 合同，但没有四个平台各自的 manifest、目录结构和商店发布材料。
-
-只复制 npm 包 tarball 并不等于自包含 bundle，因为 npm tarball 不包含生产 `node_modules`。真正的 bundle 必须在发布时装入精确生产依赖，或者未来另行构建单文件/原生可执行文件。
-
-## 2. Target Behavior
-
-建立四个独立平台仓库。每个仓库只维护：
+每个真实发布面可以有独立仓库，但所有仓库消费同一 MCP 和同一
+`@itpay/cli`。独立仓库解决 manifest、安装、提示、审核和发布节奏差异，
+不制造平台业务 fork。
 
 ```text
-平台 manifest 和适配说明
-平台专用 SKILL.md
-由自动化生成的 vendor/itpay-cli bundle
+itpay-ai/compose
+  Backend / OAuth / MCP / Web / Buyer / Vault
+
+itpay-ai/cli
+  @itpay/cli source / command docs / bundle generator
+
+platform repository
+  manifest / platform Skill / exact CLI bundle / tests / submission
+```
+
+## 2. 当前仓库注册表
+
+具体发布状态只在
+[04-first-wave-platforms.md](./04-first-wave-platforms.md) 维护。
+
+| 产品面 | 仓库 | 本地 CLI | 远程 MCP |
+| --- | --- | --- | --- |
+| ChatGPT + Codex | `itpay-plugin-chatgpt` | local Codex | ChatGPT/cloud |
+| WorkBuddy | `itpay-skill-workbuddy` | default when shell is available | explicit connection |
+| OpenClaw | `itpay-skill-openclaw` | supported host-dependent | only after real client acceptance |
+| Kimi Work / Kimi Code | `itpay-plugin-kimi-work` | Kimi Code host-dependent | Kimi Work/remote host-dependent |
+| Hermes Agent | `itpay-skill-hermes` | supported host-dependent | only after real client acceptance |
+
+Claude 和 Gemini 属于待开始支持目标；没有真实仓库、manifest 和验收前不放入
+当前注册表。
+
+## 3. 平台仓库最小内容
+
+```text
+platform manifest / connector config
+platform-specific SKILL.md
+bin or scripts launcher                     # only for local-capable hosts
+vendor/itpay-cli/                           # generated, not edited
 bundle.lock.json
-平台测试与发布材料
+tests/
+README / submission / release notes
 ```
 
-CLI 发布后：
+平台仓库不得包含：
+
+- CLI 源码副本或手工 Agent Type patch；
+- Backend/MCP/Vault 状态机；
+- OAuth client secret、Access/Refresh Token；
+- `.env`、用户 HOME、Device 私钥/session；
+- 运行时 `npm install` 或 `latest`；
+- 全局 CLI fallback。
+
+## 4. Bundle 格式
+
+优先复用现有已验证格式：
 
 ```text
-@itpay/cli@X.Y.Z 发布成功
-  -> 各平台仓库定时读取 npm dist-tags.latest
-  -> 下载精确 X.Y.Z 和 npm integrity
-  -> 安装精确 production dependencies
-  -> 生成 bundle 和 lock
-  -> 运行无全局 CLI smoke test
-  -> 创建同步 PR
-  -> 人工审查平台差异
-  -> 合并、打 tag、按平台上传/发布
-```
+npm-tree
+  vendor/itpay-cli/package/
+  vendor/itpay-cli/node_modules/       production only
 
-## 3. Scope
-
-### In scope
-
-- 四个独立仓库和平台 manifest。
-- 通用 CLI bundle 生成脚本。
-- npm 版本、integrity、源 commit 的锁定记录。
-- CLI 发布后的跨仓同步 PR。
-- 无全局 CLI、无运行时 npm 下载的测试。
-- macOS、Linux、Windows 平台适配验证。
-- 平台审核包、release notes 和回滚规则。
-
-### Out of scope
-
-- 把 CLI 源码复制到四个仓库继续开发。
-- 每个平台 fork 一套业务逻辑。
-- 运行时自动执行 `npm install -g @itpay/cli@latest`。
-- 在 CLI 发布时绕过平台审核自动公开商店版本。
-- 第一阶段引入新的单文件打包器或原生二进制工具链。
-
-## 4. 仓库布局
-
-### OpenAI
-
-```text
-itpay-skill-openai/
-  plugin metadata / submission assets
-  skills/itpay/SKILL.md
-  skills/itpay/scripts/itpay
-  skills/itpay/vendor/itpay-cli/
-  bundle.lock.json
-  tests/
-  submission/
-```
-
-ChatGPT 云端工作流优先调用远程 MCP；本地 Codex 在平台允许 shell 且 bundle 可执行时才能使用 bundled CLI。Skill 必须明确这个选择，不能在 ChatGPT 沙箱里把 `~/.itpay-v3` 当长期用户认证。
-
-### Claude Code
-
-```text
-itpay-skill-claude-code/
-  .claude-plugin/marketplace.json
-  plugins/itpay/
-    .claude-plugin/plugin.json
-    skills/itpay/SKILL.md
-    bin/itpay
-    vendor/itpay-cli/
-    .mcp.json               # 远程 MCP 上线时加入
-  bundle.lock.json
-  README.md
-```
-
-一个 Claude 平台仓库同时承载 marketplace catalog 和 ItPay plugin，不另建第五个仓库。Claude Code 会把 plugin root 的 `bin/` 加入 Bash PATH。`bin/itpay` 只负责定位本仓库内 vendor 入口，不搜索或调用全局 `itpay`。
-
-### Gemini CLI
-
-```text
-itpay-skill-gemini-cli/
-  gemini-extension.json
-  skills/itpay/SKILL.md
-  bin/itpay
-  vendor/itpay-cli/
-  bundle.lock.json
-  README.md
-```
-
-manifest 位于绝对根目录。Skill 命令使用 `${extensionPath}` 定位 bundle，不依赖安装目录名称。
-
-### WorkBuddy
-
-```text
-itpay-skill-workbuddy/
-  SKILL.md
-  scripts/itpay
-  vendor/itpay-cli/
-  bundle.lock.json
-  README.md
-```
-
-最终压缩结构以 WorkBuddy 实际上传校验结果为准。当前官方文档确认可以上传本地技能包，但未公开社区 SkillHub 提交 schema，因此不要预先创造私有 manifest。
-
-## 5. Bundle 合同
-
-### 第一阶段产物
-
-平台按审核环境选择现有的两种构建格式：
-
-```text
-npm-tree:
-  vendor/itpay-cli/package/       npm 包内容
-  vendor/itpay-cli/node_modules/  仅 production dependencies
-
-single-file-esm:
+single-file-esm
   vendor/itpay-cli/itpay-cli.bundle.mjs
-  vendor/itpay-cli/docs/agent/buyer/
+  vendor/itpay-cli/docs/
   vendor/itpay-cli/licenses/
 ```
 
-WorkBuddy 和 OpenClaw 使用 `single-file-esm`，上传包不得包含任何 `node_modules`。npm 依赖只允许出现在 CI 临时构建目录；运行时不得联网安装。宿主必须已有 Node.js 18+。如果某平台审核环境没有 Node，再单独启动“standalone executable”任务；不要在还没有失败证据时提前维护多架构二进制。
+WorkBuddy/OpenClaw/Hermes 等上传型 Skill 优先使用 `single-file-esm`，不包含
+`node_modules`。只有真实平台证明 Node runtime 不可用时，才启动 standalone
+executable 工作；不提前维护多架构二进制。
 
-### `bundle.lock.json`
+## 5. `bundle.lock.json`
 
 至少包含：
 
@@ -149,75 +84,98 @@ WorkBuddy 和 OpenClaw 使用 `single-file-esm`，上传包不得包含任何 `n
 {
   "schemaVersion": 1,
   "package": "@itpay/cli",
-  "version": "2.0.14",
+  "version": "X.Y.Z",
+  "format": "single-file-esm",
   "npmIntegrity": "sha512-...",
   "sourceGitSha": "...",
-  "generatedAt": "2026-07-21T00:00:00Z",
-  "node": ">=18"
+  "generatedAt": "<RFC3339>",
+  "node": ">=18",
+  "bundleDirectory": "vendor/itpay-cli",
+  "dependencyLockSha256": "<64 lowercase hex characters>"
 }
 ```
 
-不要把 token、registry credential、构建机路径或本地身份写入 lock。
+`format` is `single-file-esm` or `npm-tree`. `bundleDirectory` is the
+repository-relative Skill bundle directory, and `dependencyLockSha256` is the
+raw lowercase SHA-256 hex digest emitted by `build-platform-bundle.mjs` (without
+a `sha256:` prefix). The reusable synchronization workflow consumes these exact
+field names.
 
-### 启动器规则
+不得包含 Token、registry credential、本机路径或 Device 状态。
 
-- 只调用 bundle 内的 CLI 入口。
-- 正确转发全部参数、stdout、stderr 和 exit code。
-- 不修改 `HOME`，使本地平台继续复用真实 `~/.itpay-v3`。
-- 不回退到 PATH 中的另一个 `itpay`，避免同机双版本不确定性。
-- `itpay --version` 必须等于 `bundle.lock.json.version`。
+## 6. 启动器规则
 
-用户全局安装的 CLI 可以同时存在：终端里执行全局 `itpay` 使用全局版本；Skill 内必须调用平台 bundle 的绝对路径或 plugin PATH 中的启动器。两者共享同一 `~/.itpay-v3` Device schema，因此共享本地 Device 身份，但代码版本由调用路径明确决定。
+- 只调用 bundle 内入口；
+- 转发全部参数、stdout、stderr、signal 和 exit code；
+- 不修改 `HOME`；
+- 不搜索 PATH 中其他 `itpay`；
+- `itpay --version` 必须等于 lock version；
+- 临时测试使用临时 HOME，不能触碰开发者真实 Device；
+- 路径含空格和中文用户名仍可运行。
 
-## 6. Implementation Steps
+## 7. 平台 Skill 允许差异
 
-### Step 1：建立 bundle 生成器
+允许：
 
-位置：优先放在 CLI 主仓库 `scripts/`，四个仓库调用同一已发布脚本或复制极小且固定的生成逻辑。
+- manifest 和安装路径；
+- MCP 配置语法；
+- Agent Type / host 选择；
+- 平台工具名和浏览器/文件展示方式；
+- 权限说明和审核材料；
+- CLI/MCP 路由提示；
+- 平台特有的安全限制。
 
-- 输入必须是精确 semver，拒绝 `latest`、范围和未发布版本。
-- 从 npm registry 读取版本、dist.integrity 和 gitHead。
-- 下载 tarball并验证 integrity。
-- 安装 `--omit=dev --ignore-scripts` 的精确生产依赖。
-- 删除 npm cache、测试临时文件和不需要的元数据。
-- 生成 `bundle.lock.json`。
+不允许：
 
-依赖：现有 npm 发布成功。
+- 改变 CLI 命令参数和 JSON 合同；
+- 改变 MCP 工具 Schema；
+- 改变 Buyer/Vault/支付/退款规则；
+- 保存 OAuth Token；
+- 自动猜测并切换线路；
+- 修改生成的 CLI bundle 业务代码。
 
-### Step 2：建立四个平台仓库
+## 8. Bundle 生成
 
-- 每个仓库只保留一个平台的 manifest、Skill、bundle、测试和发布说明。
-- 平台专用 Skill 从当前 `skills/itpay/SKILL.md` 派生，但认证、路径和工具选择规则允许平台差异。
-- 通用业务规则不得四处手工修改；同步器每次更新时生成或校验通用段落。
-- 支付相关公共 Skill 默认只引导外部 Checkout；operator escape hatch 不作为推荐工作流。
-
-依赖：Step 1。
-
-### Step 3：加入仓库内验证
-
-每个平台至少验证：
+生成器只接受精确 semver：
 
 ```text
-没有全局 itpay 命令
-不允许测试过程访问 npm registry
-bundle itpay --version == lock.version
-bundle itpay skill show itpay --json 成功
-平台 manifest 可被官方 validator/CLI 读取
-启动器路径含空格时仍可运行
-bundle 不包含凭据、.env、~/.itpay-v3 或 npm token
+resolve exact npm version
+-> fetch tarball metadata
+-> verify npm integrity
+-> install exact production dependencies with scripts disabled
+-> remove cache/test/temp files
+-> create requested bundle format
+-> generate lock
+-> secret/dangerous-file scan
+-> offline smoke
 ```
 
-本地身份与网络业务测试使用临时 HOME；不得触碰开发者真实 `~/.itpay-v3`。
+拒绝 `latest`、范围、未发布版本和 integrity 不匹配。
 
-依赖：Step 2。
+## 9. CLI 发布后的同步
 
-### Step 4：CLI 发布后创建同步 PR
+```text
+@itpay/cli X.Y.Z published
+-> platform repo detects version drift
+-> invoke reusable bundle workflow
+-> rebuild and verify
+-> update lock/manifest/release notes
+-> create or refresh sync PR
+-> platform owner reviews tests and Skill differences
+-> merge/tag/publish separately
+```
 
 CLI 主仓库在 `main` 提供 reusable workflow。各平台仓库每小时错峰运行 caller workflow，并可手动触发；npm `dist-tags.latest` 或请求的 bundle format 与当前 `bundle.lock.json` 不同时更新。同步优先使用只安装到分发仓库、只拥有 Contents/Pull requests 写权限的 `itpay-bundle-sync` GitHub App 短期 token；未配置 App 时回落到平台仓库自己的 `GITHUB_TOKEN`，但该模式创建的 PR checks 需要仓库写权限用户批准。禁止使用个人 PAT。
 
 同步决策同时读取 main 和当前版本的 open automation PR。目标版本、format 和 bundle directory 已存在于 open PR 时必须返回 `pr-current`，不得每小时重建、提交或 force-push 同一产物。
 
-检测到新版本后：
+- 优先使用最小权限 GitHub App 短期 token；
+- fallback 只使用平台仓库自己的 `GITHUB_TOKEN`；
+- 禁止个人 PAT；
+- 不自动合并；
+- 不自动打 tag；
+- 不自动提交商店；
+- CLI 发布失败时不生成平台发布。
 
 - 重新生成 bundle；
 - 更新 manifest 版本、lock、changelog；
@@ -227,56 +185,26 @@ CLI 主仓库在 `main` 提供 reusable workflow。各平台仓库每小时错�
 - PR 描述列出 CLI commit、integrity、dependency lock、同步 run、平台测试和是否需要商店重新审核；
 - 新版本 PR 验证成功后，只关闭没有人工提交的旧机器人同步 PR；保留远程分支用于审计和恢复。
 
-同步 workflow 只开 PR，不合并、不打 tag、不发布平台商店版本。
+## 10. Repository tests
 
-依赖：Step 3。
+每个平台必须证明：
 
-### Step 5：平台发布和回滚
+- 无全局 CLI；
+- 测试期间禁止 npm 网络下载；
+- bundle version/integrity/source SHA 正确；
+- manifest 能被平台 validator 读取；
+- platform Skill 只选择一个 CLI/MCP lane；
+- MCP Token 不进入配置、prompt、tool 或 bundle；
+- Device 文件不被打包或打印；
+- 同机旧全局 CLI 不影响 bundled CLI；
+- 升级/回滚不删除 `~/.itpay-v3`；
+- 平台声称支持 MCP 时完成真实连接、刷新、重连和撤销测试。
 
-- 合并同步 PR 后为平台仓库打与 manifest 一致的 tag。
-- OpenAI、Claude 官方市场和 WorkBuddy 按各自审核流程上传；Gemini GitHub Release 可由 tag 自动生成。
-- 保存每个平台已发布 CLI 版本矩阵。
-- 回滚通过重新发布上一个已验证 bundle 对应的平台版本，不修改或删除用户 Device 身份。
+## 11. 版本与回滚
 
-依赖：Step 4。
+第一阶段平台包版本跟随 CLI 版本，避免双版本映射。只有平台仅修改 manifest/
+说明且真实需要独立发布节奏时，才增加 `pluginVersion`，同时保留
+`cliVersion`。
 
-## 7. API / Data / Type Changes
-
-CLI 业务 API：无。
-
-新增发布合同：
-
-- `bundle.lock.json` schema。
-- CLI reusable workflow 与各平台 caller workflow。
-- 每个平台 manifest 和平台版本。
-
-CLI 版本和平台包版本第一阶段保持相同，减少映射成本。若以后平台仅修改说明而 CLI 未变，再引入独立的 `pluginVersion`，同时保留 `cliVersion`；现在不提前增加双版本系统。
-
-## 8. Tests / Verification
-
-### 自动化
-
-- bundle integrity、精确版本和依赖完整性。
-- 无全局 CLI、离线 smoke、路径含空格、Windows 启动。
-- Skill frontmatter/manifest 校验。
-- secret scan 和危险文件清单。
-- 发布矩阵与 npm 当前版本漂移检测。
-
-### 手动
-
-- 四个平台全新安装。
-- 同机存在全局旧版 CLI 时，Skill 仍调用 bundle 版本。
-- Skill 更新后 bundle 版本更新，但 `~/.itpay-v3/device` 未变化。
-- 平台卸载 Skill 后不删除用户已有 CLI Device 身份；是否保留平台专用缓存按平台规则处理。
-
-## 9. Risks / Uncertainties
-
-- OpenAI Skill 沙箱是否提供满足要求的 Node 运行时不能作为稳定合同；ChatGPT 路径应以远程 MCP 为主。
-- `single-file-esm` 仍依赖宿主 Node.js 18+；未来引入原生 Node addon 时需要重新验证 bundling。
-- 四个仓库意味着四套审核节奏，但不意味着四套 CLI 业务实现。
-- WorkBuddy 公共 SkillHub 提交通道未公开，自动化只能先生成可上传包。
-- 平台安全扫描可能拒绝支付或可执行 bundle；拒绝原因应反馈到相应平台仓库，不改变其他平台已通过版本。
-
-## 10. Checkpoint
-
-首批仓库、生成器和无跨仓凭据的同步 workflow 已完成。剩余 checkpoint 是各平台审核与人工发布；这些步骤不由同步 workflow 自动执行。
+回滚发布上一个通过验证的 bundle/manifest，不修改 Buyer、MCP Connection 或
+Device 状态。

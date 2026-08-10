@@ -54,6 +54,8 @@ try {
     ["refund", "commands/refund/index.md"], ["refund create", "commands/refund/create.md"],
     ["refund list", "commands/refund/list.md"], ["refund get", "commands/refund/get.md"],
     ["refund watch", "commands/refund/watch.md"], ["refund cancel", "commands/refund/cancel.md"],
+    ["vault", "commands/vault/index.md"], ["vault list", "commands/vault/list.md"],
+    ["vault access", "commands/vault/access.md"], ["vault read", "commands/vault/read.md"],
     ["services", "commands/services/index.md"], ["services start", "commands/services/start.md"],
     ["services invoke", "commands/services/invoke.md"], ["services action", "commands/services/action.md"],
     ["services quote", "commands/services/quote.md"], ["services checkout", "commands/services/checkout.md"],

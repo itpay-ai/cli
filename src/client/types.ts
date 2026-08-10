@@ -157,6 +157,50 @@ export interface OrderDeliveryAccess {
   delivery_url?: string;
 }
 
+export interface VaultAccountStatus {
+  caller_authenticated: boolean;
+  buyer_bound: boolean;
+  window_active: boolean;
+  window_request_id?: string;
+  window_expires_at?: string;
+  next_action: "connect_and_authorize" | "authorize_account_window" | "list_vault";
+}
+
+export interface BuyerVaultArtifactSummary {
+  artifact_ref: string;
+  service_title: string;
+  subject_label?: string;
+  order_code: string;
+  artifact_status: string;
+  access_status: string;
+  created_at: string;
+  available_sections?: string[];
+}
+
+export interface BuyerVaultArtifactList {
+  items: BuyerVaultArtifactSummary[];
+  next_cursor?: string;
+}
+
+export interface VaultAccessRequest {
+  request_id: string;
+  purpose: "account_window" | "artifact_reveal";
+  artifact_ref?: string;
+  requester_label: string;
+  status: string;
+  request_expires_at: string;
+  access_expires_at?: string;
+  authorization_url?: string;
+  qr_png_url?: string;
+}
+
+export interface BuyerVaultRead {
+  status: "result_ready" | "result_preparing" | "result_unavailable";
+  artifact_ref: string;
+  grant_expires_at?: string;
+  result?: Record<string, unknown>;
+}
+
 export interface RefundRequest {
   refund_request_id: string;
   order_id: string;

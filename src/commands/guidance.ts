@@ -29,6 +29,10 @@ export interface CommandEnvelope {
   recovery: CommandAction[];
 }
 
+interface CommandNullResultEnvelope extends Omit<CommandEnvelope, "result"> {
+  result: null;
+}
+
 export interface CommandErrorEnvelope {
   status: "error";
   error: { code: string; message: string };
@@ -55,7 +59,7 @@ export class CommandContractError extends Error {
 }
 
 export function writeCommandEnvelope(
-  value: CommandEnvelope | CommandErrorEnvelope,
+  value: CommandEnvelope | CommandNullResultEnvelope | CommandErrorEnvelope,
   options: { jsonOutput?: boolean; output?: OutputSink; plainResult?: string[]; agentType?: string } = {},
 ): void {
   const out = resolveOutput(options.output);
@@ -66,7 +70,7 @@ export function writeCommandEnvelope(
     return;
   }
   out(`${qualified.status}\n`);
-  const facts = "error" in qualified ? qualified.error : qualified.result;
+  const facts = "error" in qualified ? qualified.error : qualified.result ?? {};
   if (options.plainResult) {
     for (const line of options.plainResult) out(`${line}\n`);
   } else {
@@ -156,7 +160,7 @@ export function printAgentGuidance(guidance: AgentGuidance, output?: OutputSink)
   }
 }
 
-function qualifyEnvelope<T extends CommandEnvelope | CommandErrorEnvelope>(value: T, agentType: string | undefined): T {
+function qualifyEnvelope<T extends CommandEnvelope | CommandNullResultEnvelope | CommandErrorEnvelope>(value: T, agentType: string | undefined): T {
   return {
     ...value,
     next: value.next ? { ...value.next, command: qualifyBackendCommand(qualifyItPayCommand(value.next.command, agentType)) } : null,
