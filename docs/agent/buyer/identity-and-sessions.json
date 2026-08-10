@@ -20,6 +20,7 @@
     "The CLI reuses a valid cached device session.",
     "On one HTTP 401 with code agent_device_session_required, it invalidates only the current Backend and Agent Type session, renews it, and retries the exact request once.",
     "A second failure is returned to the Agent. The CLI does not loop, switch Agent Type, rotate the key, or create a replacement v2 device.",
+    "When a previously unseen Agent Type is registered under an existing Device, the CLI skips locally known Agent Instances that the Backend reports as revoked and uses the first remaining valid Instance. It never reactivates a revoked Instance or replaces the Device; if none is valid, registration stops.",
     "A revoked v2 registration requires explicit operator recovery; it is never silently replaced."
   ],
   "local_state_recovery": [
