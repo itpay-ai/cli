@@ -54,7 +54,7 @@ import {
 const program = new Command();
 program
   .name("itpay")
-  .description("V3 ItPay CLI — one entry point for buy workflows and future sell workflows")
+  .description("V3 ItPay CLI — buy services, review orders, and read human-authorized purchased content")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
   .version(CLI_VERSION);
 
@@ -1091,7 +1091,7 @@ program
 
 program
   .command("orders")
-  .description("List V3 orders for the account-scoped bearer session")
+  .description("List safe order summaries for the current authorized account")
   .option("--limit <n>", "max orders", (value) => Number.parseInt(value, 10), 20)
   .option("--status <status>")
   .option("--json", "output JSON instead of terminal text")
@@ -1108,8 +1108,8 @@ program
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "orders_list_failed",
-        instruction: "订单历史只对 account-scoped Buyer session 开放；不要通过错误差异探测其他账号。",
-        recovery: [{ command: "itpay services list --json", reason: "恢复当前 Agent 设备可见的执行" }],
+        instruction: "无法读取当前账号的订单摘要。不要构造 Buyer token、切换身份或通过错误差异探测其他账号。",
+        recovery: [],
       });
     }
   });
@@ -1233,7 +1233,7 @@ async function executeRefundCreate(orderID: string, reason: string | undefined, 
 
 // --- Buyer Vault ---------------------------------------------------------
 
-const vault = program.command("vault").description("Discover and read Buyer Vault content with human authorization");
+const vault = program.command("vault").description("Find and read previously purchased content with human authorization");
 
 vault
   .command("list")
@@ -1249,13 +1249,14 @@ vault
         ...(options.query ? { query: options.query } : {}),
         limit: Number(options.limit),
         ...(options.cursor ? { cursor: options.cursor } : {}),
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         jsonOutput: Boolean(options.json),
       });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "vault_list_failed",
-        instruction: "只读取当前身份在有效账号授权窗口内可见的 Vault 摘要；不要猜测 artifact_ref 或 Buyer 身份。",
+        instruction: "只读取当前身份在有效授权内可见的已购内容摘要；不要猜测内容标识或账号身份。",
         recovery: [],
       });
     }
@@ -1265,18 +1266,25 @@ vault
   .command("access")
   .description("Create an account-window or artifact-read authorization request")
   .option("--artifact <artifact_ref>")
+  .option("--host <host>", "client host")
+  .option("--target <target>")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const config = loadConfig();
     try {
       await runVaultAccess(newBackendClient(config), options.artifact?.trim() || undefined, {
+        host: withHost(options.host, config.agentType, options.target),
+        ...(options.target ? { target: options.target } : {}),
+        ...(config.agentType ? { agentType: config.agentType } : {}),
+        baseURL: config.baseURL,
+        imageAttachEnabled: config.ideImageAttach,
         jsonOutput: Boolean(options.json),
       });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "vault_access_failed",
-        instruction: "授权请求未创建；不要传入 Buyer、时长、回调或 start token，也不要重复创建请求。",
+        instruction: "授权入口未创建；不要传入账号、时长、回调或 start token，也不要重复创建请求。",
         recovery: [],
       });
     }
@@ -1292,13 +1300,14 @@ vault
     const config = loadConfig();
     try {
       await runVaultRead(newBackendClient(config), options.artifact, options.section, {
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         jsonOutput: Boolean(options.json),
       });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "vault_read_failed",
-        instruction: "只读取 vault list 返回且经用户授权的 artifact_ref；不要绕过账号窗口、内容授权或退款锁。",
+        instruction: "只读取列表返回且经用户授权的内容；不要猜测内部标识，或绕过账号授权、内容授权和退款锁。",
         recovery: [],
       });
     }

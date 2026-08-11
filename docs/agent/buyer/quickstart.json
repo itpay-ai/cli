@@ -29,7 +29,7 @@
     {
       "intent": "load the complete operating contract",
       "command": "itpay --agent-type <agent_type> skill show itpay --json",
-      "success_signal": "status is shown and next points to catalog list with the same Agent Type"
+      "success_signal": "status is shown, next is null, and the Agent chooses Catalog only because this quickstart is for a new service request"
     },
     {
       "intent": "discover published services",

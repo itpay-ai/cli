@@ -121,18 +121,17 @@ try {
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
   assert.equal(skillHelp.result.skill, "itpay");
-  assert.match(skillHelp.result.content, /One Entry Point, Two Action Domains/);
-  assert.match(skillHelp.result.content, /Seller workflows.*not implemented/);
-  assert.match(skillHelp.result.content, /Envelope Rule/);
+  assert.match(skillHelp.result.content, /Understand The Human/);
+  assert.match(skillHelp.result.content, /Previously Purchased Content/);
+  assert.match(skillHelp.result.content, /Choose One Access Lane/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
-  assert.match(skillHelp.result.content, /15-minute human grant/);
-  assert.match(skillHelp.result.content, /Identity And Sessions/);
-  assert.equal(skillHelp.next.command, "itpay --agent-type codex-cli catalog list --json");
+  assert.match(skillHelp.result.content, /When authorization is required/);
+  assert.equal(skillHelp.next, null);
   assert.doesNotMatch(skillHelp.result.content, /BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY/);
   const aliasSkillHelp = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
-  assert.match(aliasSkillHelp.next.command, /^itpay --agent-type codex-desktop /);
+  assert.equal(aliasSkillHelp.next, null);
 
   for (const commandPath of [["buy"], ["checkout"], ["services", "checkout"]]) {
     const cardHelp = execFileSync(process.execPath, [entry, ...commandPath, "--help"], { env, encoding: "utf8" });

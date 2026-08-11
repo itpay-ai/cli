@@ -786,6 +786,22 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     }
 
     if (method === "GET" && path === "/v1/me/orders") {
+      if (bearer.startsWith("ItPayDevice ")) {
+        respond(res, 200, {
+          items: accountOrders.map((order) => ({
+            order_code: String(order.order_code ?? "IP-ORDER"),
+            service_title: "企业综合报告",
+            subject_label: "北京赢在未来科技有限公司",
+            amount_minor: Number(order.amount_minor ?? 0),
+            currency: String(order.currency ?? "CNY"),
+            paid_at: String(order.paid_at ?? order.created_at ?? "2026-07-13T12:00:00Z"),
+            order_status: String(order.status ?? "delivered"),
+            vault_artifact_count: Array.isArray(order.delivery_artifacts) ? order.delivery_artifacts.length : 0,
+          })),
+          next_cursor: "",
+        });
+        return;
+      }
       if (!bearer.startsWith("Bearer ")) {
         respond(res, 401, { code: "session_required", message: "missing bearer" });
         return;
@@ -810,6 +826,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           service_title: "企业综合报告",
           subject_label: "北京赢在未来科技有限公司",
           order_code: "IP-VAULT",
+          amount_minor: 200,
+          currency: "CNY",
+          order_status: "delivered",
+          purchased_at: "2026-08-10T11:55:00Z",
           artifact_status: "sealed",
           access_status: "authorization_required",
           created_at: "2026-08-10T12:00:00Z",
@@ -833,6 +853,13 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         authorization_url: `https://app.itpay.ai/vault/access/${artifactRef ? "var_artifact" : "var_account"}?start_token=secret`,
         qr_png_url: `https://app.itpay.ai/v1/vault/access-requests/${artifactRef ? "var_artifact" : "var_account"}/qr.png?start_token=secret`,
       });
+      return;
+    }
+
+    if (method === "GET" && /^\/v1\/vault\/access-requests\/[^/]+\/qr\.png$/.test(path)) {
+      const png = Buffer.from(BRAND_PNG_BASE64, "base64");
+      res.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length });
+      res.end(png);
       return;
     }
 

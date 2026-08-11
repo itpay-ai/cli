@@ -3,11 +3,11 @@
   "role": "buyer",
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "render-hosts",
-  "title": "Agent Type And Checkout Handoff Rendering",
-  "purpose": "Use only the handoff fields returned for the current Agent Type and make the human Checkout visible on that surface.",
+  "title": "Agent Type And Human Handoff Rendering",
+  "purpose": "Use only the handoff fields returned for the current Agent Type and make Checkout or read authorization genuinely visible on that surface.",
   "when_to_use": [
-    "buy, services checkout, checkout, or pay returned a human handoff.",
-    "The human cannot see the QR image or Checkout link."
+    "buy, services checkout, checkout, pay, or vault access returned a human handoff.",
+    "The human cannot see a Checkout or authorization QR image or link."
   ],
   "host_contracts": [
     {
@@ -85,6 +85,9 @@
     "host",
     "agent type",
     "QR",
+    "authorization",
+    "handoff",
+    "授权",
     "markdown",
     "terminal",
     "desktop",

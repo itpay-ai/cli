@@ -18,7 +18,7 @@
     {
       "intent": "read the complete packaged operating contract",
       "command": "itpay skill show itpay --json",
-      "success_signal": "status is shown, result.content contains the complete Skill, and next selects Agent Type or Catalog"
+      "success_signal": "status is shown, result.content contains the complete Skill, and a declared Agent Type returns next=null so the Agent can route the human's intent"
     },
     {
       "intent": "list supported Agent Types",
