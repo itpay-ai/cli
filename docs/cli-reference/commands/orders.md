@@ -7,13 +7,16 @@
 payload、Checkout、支付凭证或内部 Buyer ID。
 
 ```bash
-itpay orders [--limit <n>] [--status <status>] [--json]
+itpay orders [--limit <n>] [--status <status>] [--cursor <cursor>] [--host <host>] [--target <target>] [--json]
 ```
 
 | 参数 | 默认 | 说明 |
 | --- | ---: | --- |
 | `--limit` | `20` | 最大订单数，必须是 `1..100`。 |
 | `--status` | 全部 | 可选订单状态过滤。 |
+| `--cursor` | 无 | Backend 返回的下一页游标；不得自行构造。 |
+| `--host` | Agent Type 默认值 | 授权缺失时保留当前展示 Host；OpenClaw 必须显式提供。 |
+| `--target` | 无 | OpenClaw 消息 Host 的可信会话目标。 |
 | `--json` | 否 | 输出标准 envelope。 |
 
 ## Agent/网页登录通用成功输出
@@ -60,6 +63,11 @@ itpay orders [--limit <n>] [--status <status>] [--json]
 
 用户完成后重新执行原始 `orders` 命令。CLI 不要求 Agent构造或粘贴 Buyer
 token，也不改用 Service Execution 猜测账号历史。
+
+当 `next_cursor` 非空时，`next.command` 使用同一 limit/status 和 Backend 返回的
+cursor 读取下一页。Agent 只在用户需要查看更多订单时执行，不能修改或猜测
+cursor。OpenClaw 的授权下一步必须保留原命令的 `--host` 和所需 `--target`；
+若原命令未提供，CLI 会用明确占位符要求 Agent 从当前可信会话补齐。
 
 无匹配订单使用 `status=no_orders`、`orders=[]` 和 `next=null`。无效 limit
 和 status 必须在 HTTP 前返回稳定合同错误。

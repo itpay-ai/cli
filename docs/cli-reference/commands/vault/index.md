@@ -5,9 +5,9 @@
 `artifact_ref`、Device 和 grant 只属于内部命令合同。
 
 ```bash
-itpay vault list [--query <text>]
+itpay vault list [--query <text>] [--host <host>] [--target <target>]
 itpay vault access [--artifact <artifact_ref>] [--host <host>] [--target <target>]
-itpay vault read --artifact <artifact_ref> [--section <name>...]
+itpay vault read --artifact <artifact_ref> [--section <name>...] [--host <host>] [--target <target>]
 ```
 
 第一次使用或授权过期时，读取命令返回唯一的 `vault access` 下一步。用户在

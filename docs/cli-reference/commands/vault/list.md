@@ -3,11 +3,13 @@
 ## 语法
 
 ```bash
-itpay vault list [--query <text>] [--limit <1..50>] [--cursor <cursor>] [--json]
+itpay vault list [--query <text>] [--limit <1..50>] [--cursor <cursor>] [--host <host>] [--target <target>] [--json]
 ```
 
 在当前 Agent 的有效账号读取授权内，列出以前购买并保存的内容。`--query`
 匹配服务名称、内容主体和订单号。CLI 不发送 Buyer ID，也不解密内容 payload。
+文本输出的每一项包含服务、内容主体、购买时间、金额、订单号和订单状态，便于
+区分同一服务的多次购买；内部 `artifact_ref` 只保留在 JSON 结果中。
 
 ## 成功 JSON
 
@@ -60,4 +62,5 @@ itpay vault list [--query <text>] [--limit <1..50>] [--cursor <cursor>] [--json]
 
 授权完成后只重新运行原始 `vault list` 命令，保留 query、limit 和 cursor。
 无效 limit/cursor 在 HTTP 前返回稳定错误。授权过期不自动重试、不创建新
-Device。
+Device。OpenClaw 的授权下一步保留原命令的 `--host` 和所需 `--target`；若原
+命令没有提供，CLI 使用明确占位符要求 Agent 从当前可信会话补齐。

@@ -1094,6 +1094,9 @@ program
   .description("List safe order summaries for the current authorized account")
   .option("--limit <n>", "max orders", (value) => Number.parseInt(value, 10), 20)
   .option("--status <status>")
+  .option("--cursor <cursor>")
+  .option("--host <host>", "client host used if authorization is required")
+  .option("--target <target>")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const config = loadConfig();
@@ -1102,6 +1105,10 @@ program
       await runListOrders(backend, config, {
         limit: options.limit,
         status: options.status,
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+        ...(options.host ? { host: withHost(options.host) } : {}),
+        ...(options.target ? { target: options.target } : {}),
+        ...(config.agentType ? { agentType: config.agentType } : {}),
         jsonOutput: Boolean(options.json),
       });
     } catch (error) {
@@ -1241,6 +1248,8 @@ vault
   .option("--query <text>")
   .option("--limit <n>", "maximum artifacts (1-50)", "20")
   .option("--cursor <cursor>")
+  .option("--host <host>", "client host used if authorization is required")
+  .option("--target <target>")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const config = loadConfig();
@@ -1249,6 +1258,8 @@ vault
         ...(options.query ? { query: options.query } : {}),
         limit: Number(options.limit),
         ...(options.cursor ? { cursor: options.cursor } : {}),
+        ...(options.host ? { host: withHost(options.host) } : {}),
+        ...(options.target ? { target: options.target } : {}),
         ...(config.agentType ? { agentType: config.agentType } : {}),
         jsonOutput: Boolean(options.json),
       });
@@ -1295,12 +1306,16 @@ vault
   .description("Read one human-authorized Buyer Vault artifact")
   .requiredOption("--artifact <artifact_ref>")
   .option("--section <name>", "authorized section to return; repeatable", collectOption, [])
+  .option("--host <host>", "client host used if authorization is required")
+  .option("--target <target>")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const config = loadConfig();
     try {
       await runVaultRead(newBackendClient(config), options.artifact, options.section, {
         ...(config.agentType ? { agentType: config.agentType } : {}),
+        ...(options.host ? { host: withHost(options.host) } : {}),
+        ...(options.target ? { target: options.target } : {}),
         jsonOutput: Boolean(options.json),
       });
     } catch (error) {

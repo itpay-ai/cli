@@ -34,6 +34,7 @@
   },
   "authorization_flow": [
     "Run the original list, orders, or read command.",
+    "OpenClaw must pass its current trusted host and required target on the original command so the authorization continuation preserves the real presentation destination.",
     "If it returns human_authorization_required, run only its next.command once.",
     "Make the returned handoff genuinely visible and stop.",
     "After the human says authorization is complete, rerun the original read command unchanged.",

@@ -2,7 +2,9 @@ import type { BackendClient } from "../client/backend.js";
 import { HttpError } from "../client/http.js";
 import type { OutputSink } from "../render/sink.js";
 import type { ClientHost } from "../state/client_context.js";
+import { requiresTarget } from "../state/client_context.js";
 import type { QRFormat } from "../render/qr.js";
+import { formatMoney } from "../render/output.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 import { buildVaultHandoff } from "./vault_handoff.js";
 
@@ -10,6 +12,8 @@ interface CommonOptions {
   output?: OutputSink;
   jsonOutput?: boolean;
   agentType?: string;
+  host?: ClientHost;
+  target?: string;
 }
 
 interface AccessOptions extends CommonOptions {
@@ -44,14 +48,14 @@ export async function runVaultList(backend: BackendClient, input: { query?: stri
         : "当前账号没有匹配的已购内容。向用户说明没有找到，不要猜测内容标识、自动购买或发起新的服务查询。",
       next: null,
       recovery: [],
-    }, outputOptions(input, value.items.map((item, index) => `${index + 1}. ${item.service_title}${item.subject_label ? ` · ${item.subject_label}` : ""}`)));
+    }, outputOptions(input, value.items.map((item, index) => `${index + 1}. ${item.service_title}${item.subject_label ? ` · ${item.subject_label}` : ""} · ${formatMoney(item.amount_minor, item.currency)} · ${item.purchased_at} · ${item.order_code} · ${item.order_status}`)));
   } catch (error) {
     if (error instanceof HttpError && error.code === "vault_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required",
         result: { intent: "list_purchased_content", query: input.query ?? "" },
-        instruction: "需要用户确认一次身份和只读权限。执行 next.command 生成官方入口，不要声称链接已经创建；用户完成后重新运行原始 vault list 命令。",
-        next: { command: "itpay vault access --json", reason: "创建一次账号读取授权" }, recovery: [],
+        instruction: `需要用户确认一次身份和只读权限。执行 next.command 生成官方入口，不要声称链接已经创建；用户完成后重新运行原始 vault list 命令。${accessContextInstruction(input)}`,
+        next: { command: vaultAccessCommand(undefined, input), reason: "创建一次账号读取授权" }, recovery: [],
       }, outputOptions(input));
       return;
     }
@@ -113,19 +117,43 @@ export async function runVaultRead(backend: BackendClient, artifactRef: string, 
     if (error instanceof HttpError && error.code === "artifact_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required", result: { artifact_ref: artifactRef },
-        instruction: "这份内容需要用户单独确认读取权限。执行 next.command 生成一次官方入口；用户完成后重新运行原始 read，不要重复创建授权请求。",
-        next: { command: `itpay vault access --artifact ${artifactRef} --json`, reason: "创建一次内容读取授权" }, recovery: [],
+        instruction: `这份内容需要用户单独确认读取权限。执行 next.command 生成一次官方入口；用户完成后重新运行原始 read，不要重复创建授权请求。${accessContextInstruction(options)}`,
+        next: { command: vaultAccessCommand(artifactRef, options), reason: "创建一次内容读取授权" }, recovery: [],
       }, outputOptions(options));
       return;
     }
     if (error instanceof HttpError && error.code === "vault_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required", result: { artifact_ref: artifactRef },
-        instruction: "账号读取授权已缺失或过期。执行 next.command 生成一次官方入口；用户完成后重新运行原始 read。",
-        next: { command: "itpay vault access --json", reason: "创建一次账号读取授权" }, recovery: [],
+        instruction: `账号读取授权已缺失或过期。执行 next.command 生成一次官方入口；用户完成后重新运行原始 read。${accessContextInstruction(options)}`,
+        next: { command: vaultAccessCommand(undefined, options), reason: "创建一次账号读取授权" }, recovery: [],
       }, outputOptions(options));
       return;
     }
     throw error;
   }
+}
+
+export function vaultAccessCommand(artifactRef: string | undefined, options: Pick<CommonOptions, "agentType" | "host" | "target">): string {
+  const parts = ["itpay", "vault", "access"];
+  if (artifactRef) parts.push("--artifact", shellArgument(artifactRef));
+  const openClaw = options.agentType?.trim().toLowerCase() === "openclaw";
+  const host = options.host ?? (openClaw ? "<host>" : undefined);
+  if (host) parts.push("--host", host);
+  const target = options.target ?? (openClaw && (!options.host || requiresTarget(options.host)) ? "<target>" : undefined);
+  if (target) parts.push("--target", shellArgument(target));
+  parts.push("--json");
+  return parts.join(" ");
+}
+
+export function accessContextInstruction(options: Pick<CommonOptions, "agentType" | "host" | "target">): string {
+  return options.agentType?.trim().toLowerCase() === "openclaw" && !options.host
+    ? " 将 <host> 和 <target> 替换为当前可信 OpenClaw 会话的真实值，不要照抄占位符或猜测目标。"
+    : "";
+}
+
+function shellArgument(value: string): string {
+  if (value.startsWith("<") && value.endsWith(">")) return value;
+  if (/^[\p{L}\p{N}._:=/-]+$/u.test(value)) return value;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

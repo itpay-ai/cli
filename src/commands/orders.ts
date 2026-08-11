@@ -1,9 +1,11 @@
 import type { BackendClient } from "../client/backend.js";
 import { HttpError } from "../client/http.js";
 import type { CLIConfig } from "../state/config.js";
+import type { ClientHost } from "../state/client_context.js";
 import { formatMoney } from "../render/output.js";
 import { resolveOutput, type OutputSink } from "../render/sink.js";
 import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
+import { accessContextInstruction, vaultAccessCommand } from "./vault.js";
 
 const ORDER_STATUSES = new Set([
   "pending_payment",
@@ -19,6 +21,10 @@ const ORDER_STATUSES = new Set([
 export interface ListOrdersOptions {
   limit: number;
   status?: string;
+  cursor?: string;
+  agentType?: string;
+  host?: ClientHost;
+  target?: string;
   output?: OutputSink;
   jsonOutput?: boolean;
 }
@@ -47,18 +53,19 @@ export async function runListOrders(
   }
   let response;
   try {
-    response = await backend.listAccountOrders(options.limit, options.status, config.bearerToken);
+    response = await backend.listAccountOrders(options.limit, options.status, config.bearerToken, options.cursor);
   } catch (error) {
     if (error instanceof HttpError && error.code === "vault_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required",
         result: { intent: "list_purchase_history" },
-        instruction: "需要用户确认一次身份和只读权限。执行 next.command 生成官方入口；用户完成后重新运行原始 orders 命令。",
-        next: { command: "itpay vault access --json", reason: "创建一次账号读取授权" },
+        instruction: `需要用户确认一次身份和只读权限。执行 next.command 生成官方入口；用户完成后重新运行原始 orders 命令。${accessContextInstruction(options)}`,
+        next: { command: vaultAccessCommand(undefined, options), reason: "创建一次账号读取授权" },
         recovery: [],
       }, {
         ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
         output: out,
+        ...(options.agentType ? { agentType: options.agentType } : {}),
       });
       return;
     }
@@ -89,16 +96,34 @@ export async function runListOrders(
     instruction: latest
       ? "用编号、服务、购买对象、金额、时间、订单号和状态说明结果；不要假设第一笔就是用户要找的订单。"
       : "当前账号没有符合条件的订单；不要猜测订单或自动开始购买。",
-    next: latest && accountSession && "order_id" in latest
-      ? { command: `itpay order ${latest.order_id} --json`, reason: "读取网页登录账号的最新订单" }
-      : null,
+    next: "items" in response && response.next_cursor
+      ? { command: ordersPageCommand(response.next_cursor, options), reason: "读取下一页订单摘要" }
+      : latest && accountSession && "order_id" in latest
+        ? { command: `itpay order ${latest.order_id} --json`, reason: "读取网页登录账号的最新订单" }
+        : null,
     recovery: [],
   };
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
     output: out,
+    ...(options.agentType ? { agentType: options.agentType } : {}),
     plainResult: orders.map((summary) => {
       return `${String(summary.order_code ?? summary.order_id)}: ${String(summary.service_title ?? "订单")} · ${String(summary.status)} · ${String(summary.amount)} · ${String(summary.paid_at ?? summary.created_at ?? "")}`;
     }),
   });
+}
+
+function ordersPageCommand(cursor: string, options: ListOrdersOptions): string {
+  const parts = ["itpay", "orders", "--limit", String(options.limit)];
+  if (options.status) parts.push("--status", options.status);
+  parts.push("--cursor", shellArgument(cursor));
+  if (options.host) parts.push("--host", options.host);
+  if (options.target) parts.push("--target", shellArgument(options.target));
+  parts.push("--json");
+  return parts.join(" ");
+}
+
+function shellArgument(value: string): string {
+  if (/^[\p{L}\p{N}._:=/-]+$/u.test(value)) return value;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

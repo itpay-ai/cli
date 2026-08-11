@@ -129,11 +129,12 @@ export class BackendClient {
     return this.http.get<OrderDeliveryAccess>(`/v1/orders/${encodeURIComponent(orderID)}/delivery-access`);
   }
 
-  listAccountOrders(limit: number, status?: string, bearer?: string): Promise<ListOrdersResponse | BuyerOrderSummaryList> {
+  listAccountOrders(limit: number, status?: string, bearer?: string, cursor?: string): Promise<ListOrdersResponse | BuyerOrderSummaryList> {
     const qs = new URLSearchParams({ limit: String(limit) });
     if (status) {
       qs.set("status", status);
     }
+    if (cursor) qs.set("cursor", cursor);
     return this.http.get<ListOrdersResponse | BuyerOrderSummaryList>(`/v1/me/orders?${qs}`, bearer ? { bearer } : {});
   }
 

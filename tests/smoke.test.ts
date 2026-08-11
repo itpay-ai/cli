@@ -3640,6 +3640,42 @@ test("orders returns one authorization step when the Local Device window is miss
   assert.equal(envelope.next.command, "itpay vault access --json");
 });
 
+test("orders preserves OpenClaw delivery context in the authorization step", async () => {
+  const unauthorized = {
+    listAccountOrders: async () => {
+      throw new HttpError(403, { code: "vault_authorization_required", message: "authorization required" }, "HTTP 403");
+    },
+  } as unknown as BackendClient;
+  await runListOrders(unauthorized, config, {
+    limit: 10, agentType: "openclaw", host: "telegram", target: "telegram:42", jsonOutput: true, output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { next: { command: string } };
+  assert.equal(envelope.next.command, "itpay --agent-type openclaw vault access --host telegram --target telegram:42 --json");
+});
+
+test("orders forwards the opaque cursor and returns a usable next-page command", async () => {
+  let receivedCursor = "";
+  const paged = {
+    listAccountOrders: async (_limit: number, _status?: string, _bearer?: string, cursor?: string) => {
+      receivedCursor = cursor ?? "";
+      return {
+        items: [{
+          order_code: "IP-PAGE", service_title: "企业综合报告", amount_minor: 200, currency: "CNY",
+          order_status: "delivered", vault_artifact_count: 1,
+        }],
+        next_cursor: "next page/cursor",
+      };
+    },
+  } as unknown as BackendClient;
+  await runListOrders(paged, config, {
+    limit: 5, status: "delivered", cursor: "current-cursor", jsonOutput: true, output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { result: { next_cursor: string }; next: { command: string } };
+  assert.equal(receivedCursor, "current-cursor");
+  assert.equal(envelope.result.next_cursor, "next page/cursor");
+  assert.equal(envelope.next.command, "itpay orders --limit 5 --status delivered --cursor 'next page/cursor' --json");
+});
+
 test("orders lists account orders with a valid bearer", async () => {
   mock.setAccountOrders([{
     order_id: "ord_latest",
@@ -3761,7 +3797,7 @@ test("vault commands match the documented authorization and read contracts", asy
   assert.equal(listEnvelope.result.next_cursor, null);
 
   const plainListed = await runCLI(["--agent-type", "codex-cli", "vault", "list", "--limit", "1"], env);
-  assert.match(plainListed.stdout, /企业综合报告/);
+  assert.match(plainListed.stdout, /企业综合报告.*北京赢在未来科技有限公司.*2\.00 CNY.*2026-08-10T11:55:00Z.*IP-VAULT.*delivered/);
   assert.doesNotMatch(plainListed.stdout, /var_company_report|artifact_ref/);
 
   const access = await runCLI(["--agent-type", "codex-cli", "vault", "access", "--artifact", "var_company_report", "--json"], env);
@@ -3844,6 +3880,12 @@ test("vault commands stop on missing authorization and invalid limits without gu
   assert.equal(windowEnvelope.status, "human_authorization_required");
   assert.deepEqual(windowEnvelope.result, { intent: "list_purchased_content", query: "needs-auth" });
   assert.equal(windowEnvelope.next.command, "itpay --agent-type workbuddy vault access --json");
+
+  const openClawWindow = await runCLI([
+    "--agent-type", "openclaw", "vault", "list", "--query", "needs-auth", "--host", "telegram", "--target", "telegram:42", "--json",
+  ], env);
+  const openClawEnvelope = JSON.parse(openClawWindow.stdout) as { next: { command: string } };
+  assert.equal(openClawEnvelope.next.command, "itpay --agent-type openclaw vault access --host telegram --target telegram:42 --json");
 
   const missingArtifact = await runCLI(["--agent-type", "workbuddy", "vault", "read", "--artifact", "var_needs_auth", "--json"], env);
   const artifactEnvelope = JSON.parse(missingArtifact.stdout) as { status: string; next: { command: string } };

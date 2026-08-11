@@ -128,6 +128,9 @@ itpay --agent-type <agent_type> vault read --artifact <artifact_ref> --json
   present its official handoff, and stop. After the human says they completed
   it, rerun the original list, orders, or read command unchanged. Never create
   a second request as a status check.
+- OpenClaw must pass the current trusted `--host` and required `--target` on
+  the original list, orders, or read command so the returned authorization
+  command preserves the real presentation destination.
 - The complete official `handoff.url` is intended for the current human. Never
   extract, separately print, log, or reconstruct the credential inside it.
 - Show matches as a numbered, human-readable list. Never expose or guess an
