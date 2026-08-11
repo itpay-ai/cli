@@ -3395,7 +3395,7 @@ test("catalog empty response does not invent a service id", async () => {
 
 test("services start returns only the documented capability entrypoint", async () => {
   const output: string[] = [];
-  await runServicesStart(backend, "svc_qizhidao_company_lookup", {
+  await runServicesStart(backend, config, "svc_qizhidao_company_lookup", {
     host: "terminal",
     jsonOutput: true,
     output: (line) => output.push(line),
@@ -3410,6 +3410,7 @@ test("services start returns only the documented capability entrypoint", async (
   assert.equal("capabilities" in parsed, false);
   assert.equal("agent_guidance" in parsed, false);
   const request = [...mock.requests].reverse().find((item) => item.method === "POST" && item.path === "/v1/service-executions");
+	assert.equal(request?.headers["idempotency-key"], "cli_smoke_key");
   assert.equal("buyer_id" in (request?.body ?? {}), false);
   assert.equal("agent_device_id" in (request?.body ?? {}), false);
   assert.equal("agent_device_id" in ((request?.body?.client_context as Record<string, unknown> | undefined) ?? {}), false);
@@ -3417,14 +3418,25 @@ test("services start returns only the documented capability entrypoint", async (
 
 test("services start command accepts --json after the subcommand", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-service-start-"));
-  const result = await runCLI([
+  const first = await runCLI([
     "--agent-type", "codex-cli", "services", "start", "svc_qizhidao_company_lookup", "--json",
   ], {
     ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: home,
   });
-  assert.equal(JSON.parse(result.stdout).status, "ready");
-  assert.equal(result.stderr, "");
+  const firstKey = mock.requests.find((item) => item.method === "POST" && item.path === "/v1/service-executions")?.headers["idempotency-key"];
+  const second = await runCLI([
+    "--agent-type", "codex-cli", "services", "start", "svc_qizhidao_company_lookup", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  });
+  const startRequests = mock.requests.filter((item) => item.method === "POST" && item.path === "/v1/service-executions");
+  assert.equal(JSON.parse(first.stdout).status, "ready");
+  assert.equal(JSON.parse(second.stdout).status, "ready");
+  assert.equal(first.stderr + second.stderr, "");
+  assert.ok(firstKey);
+  assert.notEqual(startRequests.at(-1)?.headers["idempotency-key"], firstKey);
 });
 
 test("services checkout renders the branded checkout QR by default", async () => {

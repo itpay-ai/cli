@@ -33,8 +33,8 @@ export interface CLIConfig {
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
-export const CLI_VERSION = "2.0.30";
-export const API_CONTRACT_REVISION = "sha256:9e46ee5a429994b3a9b86c94f210995053f78b3971621dbc2629c1a57107b070";
+export const CLI_VERSION = "2.0.31";
+export const API_CONTRACT_REVISION = "sha256:2f5257dfb179d4d7933e25814ef6187a33d7be9156b555551acbca41e972a456";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -113,6 +113,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
 export function operationID(config: CLIConfig, operationKey: string): Promise<string> {
   if (config.operationJournal) return config.operationJournal.getOrCreate(operationKey);
   return Promise.resolve(config.idempotencyKey);
+}
+
+export function completeOperation(config: CLIConfig, operationKey: string, id: string): Promise<void> {
+  if (config.operationJournal) return config.operationJournal.complete(operationKey, id);
+  return Promise.resolve();
 }
 
 export function newBackendClient(config: CLIConfig): BackendClient {

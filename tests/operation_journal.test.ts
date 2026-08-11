@@ -14,3 +14,13 @@ test("operation journal persists one id across concurrent instances and restart"
   assert.notEqual(await new OperationJournal(path).getOrCreate("service.invoke:se_2:cap_1:{}"), values[0]);
   assert.equal(statSync(path).mode & 0o777, 0o600);
 });
+
+test("operation journal completes only the matching in-flight operation", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "itpay-operation-journal-")), "operations.json");
+  const journal = new OperationJournal(path);
+  const first = await journal.getOrCreate("service.start:svc_1");
+  await journal.complete("service.start:svc_1", "different_id");
+  assert.equal(await journal.getOrCreate("service.start:svc_1"), first);
+  await journal.complete("service.start:svc_1", first);
+  assert.notEqual(await journal.getOrCreate("service.start:svc_1"), first);
+});
