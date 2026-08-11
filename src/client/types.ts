@@ -147,6 +147,22 @@ export interface ListOrdersResponse {
   orders: Order[];
 }
 
+export interface BuyerOrderSummary {
+  order_code: string;
+  service_title: string;
+  subject_label?: string;
+  amount_minor: number;
+  currency: string;
+  paid_at?: string;
+  order_status: string;
+  vault_artifact_count: number;
+}
+
+export interface BuyerOrderSummaryList {
+  items: BuyerOrderSummary[];
+  next_cursor?: string;
+}
+
 export interface OrderDeliveryAccess {
   order_id: string;
   service_execution_id?: string;
@@ -171,6 +187,10 @@ export interface BuyerVaultArtifactSummary {
   service_title: string;
   subject_label?: string;
   order_code: string;
+  amount_minor: number;
+  currency: string;
+  order_status: string;
+  purchased_at: string;
   artifact_status: string;
   access_status: string;
   created_at: string;

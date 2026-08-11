@@ -36,7 +36,7 @@ CLI 使用 Agent Device Authority。设备完成首次付款绑定后，已登�
     "access_locked": false,
     "service_execution_id": "<service_execution_id>"
   },
-  "instruction": "根据 delivery_mode 使用对应读取入口；不要从订单摘要猜测受保护内容。",
+  "instruction": "先告诉用户订单已经找到并说明当前交付状态；再根据 delivery_mode 使用对应读取入口。不要从订单摘要猜测受保护内容。",
   "next": {
     "command": "itpay services next <service_execution_id> --json",
     "reason": "读取交付状态"
@@ -68,7 +68,7 @@ CLI 使用 Agent Device Authority。设备完成首次付款绑定后，已登�
       "status": "accepted"
     }
   },
-  "instruction": "退款访问锁已生效；不要 reveal、创建 grant 或读取交付结果。",
+  "instruction": "先告诉用户退款处理中，原交付已按政策冻结；再读取同一退款的权威状态。不要 reveal、创建 grant、读取交付结果或重复申请退款。",
   "next": {
     "command": "itpay refund get <refund_request_id> --json",
     "reason": "读取退款的服务器状态"

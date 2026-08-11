@@ -52,6 +52,7 @@ export interface DownloadQROptions {
   fetchImpl?: typeof fetch;
   baseURL?: string;
   caption?: string;
+  mustRenderReason?: string;
 }
 
 export interface AttachOptions {
@@ -96,7 +97,7 @@ export function resolveIdeImageDirs(env: NodeJS.ProcessEnv = process.env): strin
 // on the same path. The short hash suffix disambiguates IDs that
 // happen to share a checkout prefix (e.g. checkout + payment-intent
 // for the same id).
-function stableNameFor(kind: "checkout" | "payment", id: string): string {
+function stableNameFor(kind: "auth" | "checkout" | "payment", id: string): string {
   const safeID = id.replace(/[^a-zA-Z0-9_-]/g, "_") || randomUUID();
   const hash = createHash("sha1").update(`${kind}:${id}`).digest("hex").slice(0, 6);
   return `itpay-v3-${kind}-${safeID}-${hash}`;
@@ -196,7 +197,7 @@ function resolveFetchURL(url: string, baseURL: string | undefined): string {
 
 export async function downloadBrandQRToTmp(
   url: string,
-  kind: "checkout" | "payment",
+  kind: "auth" | "checkout" | "payment",
   id: string | undefined,
   options: DownloadQROptions = {},
 ): Promise<DownloadQRResult> {
@@ -231,7 +232,7 @@ export async function downloadBrandQRToTmp(
         source: url,
         status: "downloaded",
         ...(options.caption ? { caption: options.caption } : {}),
-        mustRenderReason: IDE_ATTACH_REASON,
+        mustRenderReason: options.mustRenderReason ?? IDE_ATTACH_REASON,
       },
     };
   } catch (error) {

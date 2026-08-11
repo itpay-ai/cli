@@ -23,17 +23,18 @@ export async function runRefund(backend: BackendClient, config: CLIConfig, optio
 
 function refundStateEnvelope(refund: RefundRequest, status: string): CommandEnvelope {
 	const terminal = ["succeeded", "failed", "cancelled", "rejected"].includes(refund.status);
-	let instruction = "退款处理中，交付已冻结；不要 reveal、授权或读取结果。";
-	if (refund.decision_mode === "manual") instruction = "退款已进入人工审核，交付保持冻结；等待服务器决定。";
-	if (!refund.access_locked) instruction = "退款当前未锁定交付；按服务器状态处理，不要自行推断退款结果。";
-	if (refund.status === "succeeded") instruction = "退款已成功；交付永久关闭。";
-	if (refund.status === "cancelled" || refund.status === "rejected") instruction = "退款未执行，交付资格可恢复；旧 grant 不会复活，需要用户重新授权。";
+	let instruction = refund.decision_mode === "manual"
+		? "先告诉用户退款已进入人工审核，原交付保持冻结；人工审核不等于拒绝，等待服务器决定，不要重复申请或承诺结果。"
+		: "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不要重复申请、reveal、授权或读取结果。";
+	if (!refund.access_locked) instruction = "先告诉用户退款当前没有锁定交付；按服务器事实解释当前状态，不要自行推断退款结果、到账时间或交付资格。";
+	if (refund.status === "succeeded") instruction = "先告诉用户退款已由 ItPay 确认成功，原交付永久关闭；不需要继续跟踪或重复申请。";
+	if (refund.status === "cancelled" || refund.status === "rejected") instruction = "先告诉用户退款没有执行，交付资格可以恢复；旧读取授权不会复活，需要用户重新授权。不要把取消或拒绝说成退款成功。";
 	if (refund.status === "failed") {
-		if (refund.failure_class === "known_no_effect") instruction = "退款渠道请求确认未发送；不要自行重试。请用户联系平台管理员决定是否重新执行。";
-		else if (refund.failure_class === "retryable") instruction = "退款渠道明确返回可重试失败；不要自行重试。请用户等待平台管理员处理。";
-		else if (refund.failure_class === "outcome_unknown") instruction = "退款请求结果未知，交付继续锁定；必须先由平台对账，禁止重试或重复申请。";
-		else if (refund.failure_class === "permanent") instruction = "退款渠道明确拒绝本次退款；不要重试。请用户联系平台支持。";
-		else instruction = "退款执行失败；不要重试或重复申请，请用户联系平台支持。";
+		if (refund.failure_class === "known_no_effect") instruction = "先告诉用户本次退款请求确认未发送，不能说退款已成功；Agent 不自行重试，请用户等待平台管理员决定是否重新执行。";
+		else if (refund.failure_class === "retryable") instruction = "先告诉用户渠道明确返回可重试失败，但 Agent 不会自行重试或重复申请；请用户等待平台管理员处理。";
+		else if (refund.failure_class === "outcome_unknown") instruction = "先告诉用户退款渠道结果未知，原交付继续锁定且必须先由平台对账；禁止重试、重复申请或承诺退款结果。";
+		else if (refund.failure_class === "permanent") instruction = "先告诉用户渠道明确拒绝本次退款，当前不能承诺退款成功；不要重试，请用户联系平台支持。";
+		else instruction = "先告诉用户退款没有正常完成，当前不能承诺退款成功；不要重试或重复申请，请用户联系平台支持。";
 	}
 	return {
 		status,
@@ -137,7 +138,7 @@ export async function runWatchRefund(backend: BackendClient, refundID: string, o
 			access_locked: refund.access_locked,
 			can_cancel: refund.can_cancel,
 		},
-		instruction: "退款仍在处理，稍后继续跟踪同一退款；不要重复申请。",
+		instruction: "先告诉用户退款仍在处理，Timeout 只表示本次等待结束，并不表示退款失败；稍后继续跟踪同一退款，不要重复申请或承诺结果。",
 		next: { command: `itpay refund watch ${refund.refund_request_id} --json`, reason: "恢复轮询" },
 		recovery: [],
 	}, options);

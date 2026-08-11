@@ -856,6 +856,7 @@ export async function runServicesReadResult(
 
 function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope {
   const execution = model.execution;
+  const currentDelivery = model.current_delivery ?? model.delivery_bindings.at(-1);
   const lockedRefund = model.refunds.find((refund) => refund.access_locked);
   if (lockedRefund) {
     const terminal = lockedRefund.status === "succeeded";
@@ -870,8 +871,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         },
       },
       instruction: terminal
-        ? "退款已成功，交付永久关闭；不要 reveal、创建 grant 或读取结果。"
-        : "退款处理中，交付已冻结；不要 reveal、创建 grant 或读取结果。",
+        ? "先告诉用户退款已由 ItPay 确认成功，原交付永久关闭；不要 reveal、创建 grant、读取结果或继续跟踪。"
+        : "先告诉用户退款仍在处理，原交付已按政策冻结；然后读取同一退款的权威状态，不要 reveal、创建 grant、读取结果或重复申请。",
       next: terminal ? null : {
         command: `itpay refund get ${lockedRefund.refund_request_id} --json`,
         reason: "读取退款权威状态",
@@ -880,25 +881,40 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     };
   }
 	if (isTerminalServiceExecutionStatus(execution.status)) {
+    const paid = model.checkout_bindings.some((binding) => binding.status === "payment_verified") || Boolean(currentDelivery?.order_id);
+    const paidFailure = execution.status === "failed" && paid;
     return {
       status: execution.status,
       result: {
         service_execution_id: execution.service_execution_id,
         service_id: execution.service_id,
         phase: execution.phase,
+        ...(currentDelivery?.order_id ? { order_id: currentDelivery.order_id } : {}),
       },
       instruction: execution.status === "refunded"
-        ? "该服务执行已退款并永久结束；不要重放 capability 或创建 Checkout。"
-        : "该服务执行已结束；不要重放 capability 或创建 Checkout。",
+        ? "先告诉用户这笔服务已经退款并永久结束；不要重放 capability、创建 Checkout 或尝试读取旧交付。"
+        : paidFailure
+          ? "先告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。应从同一订单检查退款状态；不要重放 capability、创建 Checkout/Execution 或再次调用 Provider，也不要把技术故障归咎于用户。"
+          : "先告诉用户本次服务已经结束且没有可继续的交付；不要重放 capability 或创建 Checkout。",
       next: null,
-      recovery: [{
-        command: `itpay services events ${execution.service_execution_id} --json`,
-        reason: "仅在需要诊断终止原因时读取事件",
-      }],
+      recovery: [
+        ...(paidFailure
+          ? [{
+              command: currentDelivery?.order_id
+                ? `itpay order ${currentDelivery.order_id} --json`
+                : "itpay orders --json",
+              reason: "恢复同一笔已付款订单及其退款状态",
+            }]
+          : []),
+        {
+          command: `itpay services events ${execution.service_execution_id} --json`,
+          reason: "仅在需要诊断终止原因时读取事件",
+        },
+      ],
 		};
 	}
 	const currentItems = model.current_result_items ?? [];
-	const delivery = model.current_delivery ?? model.delivery_bindings.at(-1);
+	const delivery = currentDelivery;
 	const deliveryMode = serviceDeliveryMode(model);
 	const candidateSelection = model.allowed_actions?.find((action) => action.type === "select_candidate");
 	if (candidateSelection && currentItems.length > 0) {
@@ -969,10 +985,10 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         ...(grantActive && delivery?.grant_expires_at ? { grant_expires_at: delivery.grant_expires_at } : {}),
       },
       instruction: grantActive
-        ? "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。"
+        ? "先告诉用户付费内容已经准备好且当前读取授权有效；立即读取并只解释授权字段，遵守范围与到期时间。"
         : grantPending
-          ? "用户已经完成授权，服务端正在按已发布执行图准备交付内容。不要再次付款、再次授权、新建 Execution 或调用 read-result；只执行 next.command 查询同一 Execution。"
-          : "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
+          ? "先告诉用户：授权已经完成，付费结果仍在同一订单下准备，不需要再次付款或授权。然后只执行 next.command 查询同一 Execution；不要新建 Execution、Checkout、Provider 请求或调用 read-result。"
+          : "先告诉用户付费内容已经归入当前订单，但需要本人确认一次读取授权；请用户在订单页面授权，未授权前不要读取或猜测内容。",
       next: grantPending ? {
         command: `itpay services next ${execution.service_execution_id} --json`,
         reason: "等待同一 Execution 的交付准备完成",
@@ -1024,7 +1040,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 		instruction: preferred?.type === "resume_checkout"
 			? "当前 Execution 已经有一笔 Checkout。不要创建新的 Quote、Cart、Checkout 或 Execution。现在只执行 next.command，恢复并展示同一 Checkout 的付款入口。"
 			: preferred?.type === "wait"
-				? "付款已确认，Provider 正在处理当前 Execution。不要新建 Execution、Checkout 或再次付款；稍后只执行 next.command 查询同一 Execution。"
+				? "先告诉用户付款和订单已经确认，结果正在同一 Execution 中处理，不需要再次付款；如果最终无法正常交付，应从原订单检查退款路径。稍后只执行 next.command 查询同一 Execution，不要新建 Execution、Checkout 或再次调用 Provider，也不要承诺退款结果。"
 				: preferred?.requires_human
 			? "当前下一步需要用户明确选择；先展示必要信息并等待确认。"
 			: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" : "当前没有后续动作。",

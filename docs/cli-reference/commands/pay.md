@@ -73,6 +73,8 @@ API 安全合同要求后端验证 display token 是该 Checkout 当前有效的
 - `failed`、`expired`、`refunded` 返回 `payment_unavailable`，不创建替代 Checkout。
 - 两者都只引导 `checkout --id ... --token ... --json` 读取服务端事实。
 
+`payment_verified` 的 instruction 必须先让 Agent 告诉用户付款已经确认、订单已记录且不需要再次付款；交付异常应恢复原订单并按 Refund Owner 的消费事实处理，不承诺自动、无条件或即时退款。Payment Intent 终态不是交付或退款终态，CLI 不据此替用户判断权益。
+
 ## 重试与刷新
 
 - 数据库以 `(checkout_id, payment_method_type)` 作为 Payment Intent 业务唯一键。

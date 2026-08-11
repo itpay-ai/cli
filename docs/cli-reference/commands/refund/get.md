@@ -34,7 +34,7 @@ itpay refund get <refund_request_id> [--json]
     "access_locked": true,
     "can_cancel": true
   },
-  "instruction": "退款处理中，交付已冻结；不要 reveal、授权或读取结果。",
+  "instruction": "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不要重复申请、reveal、授权或读取结果。",
   "next": {
     "command": "itpay refund watch <refund_id> --json",
     "reason": "跟踪同一退款"
@@ -47,12 +47,12 @@ itpay refund get <refund_request_id> [--json]
 
 ## 终态
 
-- `succeeded`：instruction 明确“退款已成功；交付永久关闭”，`next=null`。
-- `cancelled/rejected`：说明交付资格可恢复，但旧 grant 不复活，需要用户重新授权，`next=null`。
-- `failed + known_no_effect`：渠道请求确认未发送；Agent 不重试，由平台管理员决定是否重新执行，`next=null`。
-- `failed + retryable`：渠道明确返回可重试失败；Agent 不重试，等待平台管理员处理，`next=null`。
-- `failed + outcome_unknown`：渠道可能已受理；交付继续锁定，必须先对账，禁止重试或重复申请，`next=null`。
-- `failed + permanent`：渠道明确拒绝；停止并联系平台支持，`next=null`。
+- `succeeded`：先告诉用户退款已由 ItPay 确认成功，交付永久关闭，`next=null`。
+- `cancelled/rejected`：说明退款没有执行，交付资格可恢复，但旧 grant 不复活，需要用户重新授权，`next=null`。
+- `failed + known_no_effect`：说明退款请求确认未发送；Agent 不重试，由平台管理员决定是否重新执行，`next=null`。
+- `failed + retryable`：说明渠道明确返回可重试失败但 Agent 不会自行重试；等待平台管理员处理，`next=null`。
+- `failed + outcome_unknown`：说明渠道结果未知、交付继续锁定且必须先对账；禁止重试或重复申请，`next=null`。
+- `failed + permanent`：说明渠道明确拒绝本次退款；停止并联系平台支持，`next=null`。
 
 `decision_mode=manual` 只说明该退款采用人工裁定，不得覆盖上述失败终态的 instruction。CLI 永远不向 Agent 暴露 Provider 原始响应、签名、URL、支付标识或内部错误文本。
 

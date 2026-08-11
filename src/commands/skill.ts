@@ -38,11 +38,11 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
     result: { skill: ITPAY_SKILL, content },
     instruction: agentType
       ? agentType === "workbuddy"
-        ? "完整读取并遵守 Skill；保持 workbuddy 和同一 Node/CLI launcher。运行会持久化 ~/.itpay-v3 的 ItPay Bash 命令前，把 Shell 工具参数 dangerouslyDisableSandbox 设为 true；用户拒绝权限时停止，不要切换 Node、删除 identity 或处理 lock。"
-        : `完整读取并遵守 Skill；当前 Agent Type 是 ${agentType}，后续命令保持不变。`
+        ? "完整读取并遵守 Skill；把自己视为服务用户的代理，先理解用户要购买新服务、查看已购内容、查询订单还是处理退款，并先解释用户权益，再选择对应的第一条命令。保持 workbuddy 和同一 Node/CLI launcher。运行会持久化 ~/.itpay-v3 的 ItPay Bash 命令前，把 Shell 工具参数 dangerouslyDisableSandbox 设为 true；用户拒绝权限时停止，不要切换 Node、删除 identity 或处理 lock。"
+        : `完整读取并遵守 Skill；把自己视为服务用户的代理，先理解用户意图和解释用户权益，再选择购买、已购内容、订单或退款对应的第一条命令。当前 Agent Type 是 ${agentType}，后续命令保持不变。`
       : "完整读取并遵守 Skill；先如实选择当前运行环境对应的 Agent Type。",
     next: agentType
-      ? { command: "itpay catalog list --json", reason: "按 Skill 开始发现服务" }
+      ? null
       : { command: "itpay install --json", reason: "选择真实且稳定的 Agent Type" },
     recovery: [],
   };

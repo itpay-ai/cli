@@ -1,85 +1,73 @@
 # `itpay orders`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
-
 ## 范围与意义
 
-列出当前 account-scoped Buyer session 可见的订单摘要，用于恢复订单，不返回交付 payload。
-
-**上游：** Buyer 登录并取得 account-scoped session。
-**下游：** `order <id>`。
-
-## 语法与参数
+列出当前 ItPay 账号的安全订单摘要。网页登录 Buyer Session，或具有有效
+账号读取授权的 Local Device / MCP Connection 都可以使用。它不返回交付
+payload、Checkout、支付凭证或内部 Buyer ID。
 
 ```bash
-itpay orders [--limit <n>] [--status <status>] [--json]
+itpay orders [--limit <n>] [--status <status>] [--cursor <cursor>] [--host <host>] [--target <target>] [--json]
 ```
 
 | 参数 | 默认 | 说明 |
-|---|---:|---|
-| `--limit` | `20` | 最大订单数。 |
-| `--status` | 全部 | 可选：`pending_payment`、`paid`、`delivery_pending`、`delivered`、`failed`、`partially_refunded`、`refunded`、`cancelled`。 |
-| `--json` | 否 | 标准 JSON。 |
+| --- | ---: | --- |
+| `--limit` | `20` | 最大订单数，必须是 `1..100`。 |
+| `--status` | 全部 | 可选订单状态过滤。 |
+| `--cursor` | 无 | Backend 返回的下一页游标；不得自行构造。 |
+| `--host` | Agent Type 默认值 | 授权缺失时保留当前展示 Host；OpenClaw 必须显式提供。 |
+| `--target` | 无 | OpenClaw 消息 Host 的可信会话目标。 |
+| `--json` | 否 | 输出标准 envelope。 |
 
-`--limit` 必须是 `1..100` 的整数。命令固定使用最新优先排序，不暴露修改排序的参数。
-
-## 标准输出
+## Agent/网页登录通用成功输出
 
 ```json
 {
   "status": "listed",
   "result": {
-    "orders": [
-      {
-        "order_id": "<id>",
-        "order_code": "<IP-code>",
-        "status": "<status>",
-        "amount": "<amount> <currency>",
-        "created_at": "<RFC3339>"
-      }
-    ]
+    "orders": [{
+      "order_code": "<IP-code>",
+      "service_title": "<title>",
+      "subject_label": "<subject>",
+      "amount": "2.00 CNY",
+      "paid_at": "<RFC3339>",
+      "status": "delivered",
+      "vault_artifact_count": 1
+    }],
+    "next_cursor": null
   },
-  "instruction": "选择目标订单后读取详情；不要假设列表第一笔就是当前任务。",
-  "next": { "command": "itpay order <order_id> --json", "reason": "读取所选订单" },
+  "instruction": "用编号、服务、购买对象、金额、时间、订单号和状态说明结果；不要假设第一笔就是用户要找的订单。",
+  "next": null,
   "recovery": []
 }
 ```
 
-订单列表不得包含 `checkout_id`、订单 items、交付 artifact、Vault ID 或交付 payload。无匹配订单时返回：
+网页登录路径可保留内部 `order_id` 以支持既有 `order <id>` 读取；Agent
+安全摘要路径只返回 Backend 已批准的 BuyerOrderSummary 字段。CLI 不把两种
+响应错误拼成同一种 DTO。
+
+## Agent 授权缺失
 
 ```json
 {
-  "status": "no_orders",
-  "result": { "orders": [] },
-  "instruction": "当前账号没有符合条件的订单；不要猜测订单 ID。",
-  "next": null,
-  "recovery": [
-    { "command": "itpay services list --json", "reason": "恢复当前 Agent 设备可见的执行" }
-  ]
-}
-```
-
-## 异常处理
-
-结果按最新到最旧排列。缺少 Buyer session 时返回：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "session_required",
-    "message": "account-scoped Buyer session is required"
+  "status": "human_authorization_required",
+  "result": { "intent": "list_purchase_history" },
+  "instruction": "需要用户确认一次身份和只读权限；执行 next.command 生成入口。",
+  "next": {
+    "command": "itpay vault access --json",
+    "reason": "创建一次账号读取授权"
   },
-  "instruction": "订单历史只对网页登录账号开放；不要伪造 Buyer token。Agent 可改为恢复当前设备绑定的 Service Execution。",
-  "next": null,
-  "recovery": [
-    { "command": "itpay services list --json", "reason": "恢复当前 Agent 设备可见的执行" }
-  ]
+  "recovery": []
 }
 ```
 
-无效 `--limit` 和 `--status` 必须在发起 HTTP 请求前返回 `limit_invalid` 或 `order_status_invalid`。Order-scoped session 返回服务端的 `account_scope_required`；CLI 不降级鉴权，也不要求 Agent 手工构造 Buyer token。
+用户完成后重新执行原始 `orders` 命令。CLI 不要求 Agent构造或粘贴 Buyer
+token，也不改用 Service Execution 猜测账号历史。
 
-## Agent Type / Host
+当 `next_cursor` 非空时，`next.command` 使用同一 limit/status 和 Backend 返回的
+cursor 读取下一页。Agent 只在用户需要查看更多订单时执行，不能修改或猜测
+cursor。OpenClaw 的授权下一步必须保留原命令的 `--host` 和所需 `--target`；
+若原命令未提供，CLI 会用明确占位符要求 Agent 从当前可信会话补齐。
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 行为相同；只允许展示格式差异。
+无匹配订单使用 `status=no_orders`、`orders=[]` 和 `next=null`。无效 limit
+和 status 必须在 HTTP 前返回稳定合同错误。

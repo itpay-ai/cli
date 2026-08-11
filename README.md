@@ -1,10 +1,10 @@
 # ItPay CLI
 
-The official V3 CLI and the single ItPay entry point for Agent-driven commerce.
+The official V3 CLI and the single ItPay entry point for services, purchases, account history, and human-authorized content reads.
 
-## One Entry Point, Two Actions
+## One Entry Point, Several Human Intents
 
-`itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now, while Seller workflows will use the same entry point and are not implemented yet. Do not create separate Buyer or Seller product entry points.
+`itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. The Agent first distinguishes a new service request, previously purchased content, order history, or a refund. Seller workflows will use the same entry point later and are not implemented yet.
 
 ```bash
 npm install -g @itpay/cli
@@ -12,7 +12,7 @@ itpay readyz --json
 itpay skill show itpay --json
 itpay install --json
 itpay --agent-type codex-desktop readyz --json
-# follow next.command: typed skill show, then catalog list
+# read the typed Skill, understand the human's intent, then choose the first command
 ```
 
 The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit tests may set `ITPAY_BACKEND_URL=https://dev.itpay.ai`; every other Backend URL is rejected before network or local state access.
@@ -58,6 +58,7 @@ The local installation keeps one Ed25519 private key and a separate registration
 - `checkout`: authoritative payment and fulfillment recovery.
 - `services read-result`: read one human-granted protected result.
 - `order`, `orders`: exact order and account order views.
+- `vault list/access/read`: find and read previously purchased content after time-limited human authorization.
 - `refund create/list/get/watch/cancel`: Refund Owner flow.
 - `services get/events`: redacted support diagnostics; normal flows should use `services next`.
 - `install`, `skill show`, `docs list/show/search`: offline packaged guidance.
@@ -84,12 +85,12 @@ The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-sco
 
 - `ITPAY_AGENT_TYPE`: stable alternative to global `--agent-type`.
 - `ITPAY_BACKEND_URL`: optional test override; only the exact official URL `https://dev.itpay.ai` is accepted. Unset it for production.
-- `ITPAY_BEARER_TOKEN`: account-scoped Buyer session for account-only commands such as `orders`.
+- `ITPAY_BEARER_TOKEN`: optional account-scoped browser session for legacy account reads. Local Agents normally use signed Device Authority plus the time-limited human authorization returned by `vault access`.
 - `ITPAY_CART_SESSION_PATH`: local recovery-state path override.
 - `ITPAY_CURRENCY`: ordinary Cart currency, default `CNY`.
 - `ITPAY_IDEMPOTENCY_KEY`: explicit operation key for deterministic testing; normal use persists operation IDs automatically.
-- `ITPAY_IDE_IMAGE_ATTACH=0`: disable local Checkout image download when the runtime filesystem is read-only.
-- `ITPAY_IDE_IMAGE_DIR_OVERRIDE`: override the local Checkout image directory.
+- `ITPAY_IDE_IMAGE_ATTACH=0`: disable local Checkout and authorization image download when the runtime filesystem is read-only.
+- `ITPAY_IDE_IMAGE_DIR_OVERRIDE`: override the local handoff image directory.
 
 Provider credentials, Buyer identity, payment provider choice, amount, refund policy, quota, grant scope, and delivery access are never client-owned environment settings.
 

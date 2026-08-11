@@ -3,11 +3,12 @@
   "role": "buyer",
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "orders-refunds",
-  "title": "Order, Delivery And Refund Recovery",
-  "purpose": "Read owned orders and manage refunds through signed Agent authority without guessing payment or refund state.",
+  "title": "Order, Delivery, Customer Care And Refund Recovery",
+  "purpose": "Explain paid-order and delivery problems to the human, then read or manage the same owned Order without guessing payment, consumption, or refund state.",
   "when_to_use": [
     "An order or Service Execution was interrupted after payment.",
-    "The buyer asks to request, track, or cancel a refund."
+    "The buyer asks to request, track, or cancel a refund.",
+    "The human says money was charged but no result arrived, delivery failed, or asks what the refund policy means."
   ],
   "commands": [
     {
@@ -37,16 +38,31 @@
     }
   ],
   "agent_rules": [
+    "Act as the human's ItPay service representative: explain payment, delivery, access, and refund facts in plain language before giving the next action.",
+    "After verified payment, say the Order is recorded and the human must not pay again. Recover that same Order or Service Execution if delivery is delayed or fails.",
     "The Backend derives payment, amount, currency, Buyer and refund policy from the owned order.",
+    "Unconsumed delivery normally follows the automatic policy; consumed delivery normally requires manual review. These are policy routes, not promises of a successful or instant refund.",
     "A refund request freezes all delivery paths and revokes existing grants immediately.",
     "Cancellation or rejection restores eligibility but never reactivates an old grant.",
     "Use get or watch after interruption; do not infer success from elapsed time.",
-    "Account-wide orders requires an account-scoped Buyer bearer; exact order and refund routes support the bound signed Agent where documented."
+    "Buyer-bound Local Devices use signed Device Authority. Remote MCP uses its exact OAuth Connection and remains read-only. Never switch lanes to recover an error.",
+    "A read-only MCP Agent may explain policy and order facts, but must direct refund actions to the ItPay Dashboard or a full Local CLI Agent."
   ],
+  "human_explanations": {
+    "payment_verified": "Payment is confirmed and the Order is recorded. Do not ask the human to pay again; continue the same delivery.",
+    "delivery_preparing": "The paid result is still preparing. Keep the same Order and wait; do not create another purchase, authorization, or Provider request.",
+    "paid_delivery_failed": "The payment remains recorded but this service did not complete normally. Inspect the same Order and its refund state before proposing any new purchase.",
+    "refund_automatic": "The request is on the automatic policy path because the delivery is reported unconsumed; only the final server status proves success.",
+    "refund_manual": "The request requires human review, commonly because delivery was consumed. Manual review is not a rejection.",
+    "refund_unknown": "The payment channel outcome is unknown. Delivery stays locked while ItPay reconciles; never submit or replay another refund.",
+    "refund_succeeded": "ItPay confirms the refund succeeded and delivery is permanently closed."
+  },
   "forbidden": [
     "Do not fabricate Buyer sessions, Device IDs or payment references.",
     "Do not read delivery while refund access_locked is true.",
-    "Do not claim a refund succeeded before the Refund Owner says succeeded."
+    "Do not claim a refund succeeded before the Refund Owner says succeeded.",
+    "Do not promise an unconditional refund, instant arrival, or a channel result that ItPay has not confirmed.",
+    "Do not blame the human for a Provider, delivery, platform, or payment-channel failure."
   ],
   "next_docs": [
     {
@@ -60,6 +76,17 @@
     "cancel",
     "watch",
     "delivery lock",
-    "grant"
+    "grant",
+    "退款",
+    "退款政策",
+    "退款失败",
+    "退款多久到账",
+    "为什么不能退款",
+    "钱扣了",
+    "钱扣了没结果",
+    "付了钱没东西",
+    "交付失败",
+    "没有收到结果",
+    "能不能退"
   ]
 }
