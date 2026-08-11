@@ -41,13 +41,15 @@ itpay checkout [--id <checkout_id>] [--token <display_token>]
 {
   "status": "completed",
   "result": { "checkout_id": "<checkout_id>", "payment": "verified", "order_id": "<optional_order_id>", "service_execution_id": "<optional_id>" },
-  "instruction": "Backend 已确认这笔付款。不要再次展示付款入口，不要调用 pay，不要创建新 Checkout 或 Execution。现在只执行 next.command，读取同一 Execution 的履约结果。",
+  "instruction": "先告诉用户：付款已经确认，订单已经记录，不需要再次付款；结果会在同一订单下继续准备，如果最终无法正常交付，可以从原订单申请退款，处理方式由内容是否已使用决定。然后只执行 next.command 读取同一 Execution；不要再次展示付款入口、调用 pay 或创建新 Checkout/Execution，也不要承诺退款结果。",
   "next": { "command": "itpay services next <service_execution_id> --json", "reason": "读取同一笔已付款 Service Execution" },
   "recovery": []
 }
 ```
 
 已完成状态不得请求 QR PNG、生成二维码、输出附件指令或建议 `pay`。如果 Checkout 包含一个 Service Execution，下一步读取该 execution；通用订单则读取 `order_id`。`refunded`、`failed`、`expired` 同样不生成 handoff，只返回服务端终态和可用恢复方向。
+
+退款说明是用户保障，不是退款承诺。退款资格、自动/人工路径和最终结果仍由原订单的 Refund Owner 根据支付与消费事实决定。
 
 ## 异常处理
 

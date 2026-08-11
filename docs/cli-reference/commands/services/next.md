@@ -118,7 +118,7 @@ itpay services next <service_execution_id> [--json]
       "failed_nodes": 0
     }
   },
-  "instruction": "用户已经完成授权，服务端正在按已发布执行图准备交付内容。不要再次付款、再次授权、新建 Execution 或调用 read-result；只执行 next.command 查询同一 Execution。",
+  "instruction": "先告诉用户：授权已经完成，付费结果仍在同一订单下准备，不需要再次付款或授权。然后只执行 next.command 查询同一 Execution；不要新建 Execution、Checkout、Provider 请求或调用 read-result。",
   "next": {
     "command": "itpay services next <id> --json",
     "reason": "等待同一 Execution 的交付准备完成"
@@ -126,6 +126,8 @@ itpay services next <service_execution_id> [--json]
   "recovery": []
 }
 ```
+
+付款确认后仍处于 `wait`/Provider running 时，instruction 必须说明订单和付款已保留、用户不需要再次付款；若 Execution 最终失败，Agent 应恢复同一订单及退款状态，不能自动创建新购买或承诺退款。终态 `failed` 只允许说明本次服务没有正常完成，并读取现有事件用于诊断；不得把技术错误直接归咎于用户。
 
 有效 grant 存在时：
 

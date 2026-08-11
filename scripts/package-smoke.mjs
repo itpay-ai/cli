@@ -122,11 +122,17 @@ try {
   ], { env, encoding: "utf8" }));
   assert.equal(skillHelp.result.skill, "itpay");
   assert.match(skillHelp.result.content, /Understand The Human/);
+  assert.match(skillHelp.result.content, /Serve The Human/);
+  assert.match(skillHelp.result.content, /Never promise an instant, unconditional, or successful refund/);
   assert.match(skillHelp.result.content, /Previously Purchased Content/);
   assert.match(skillHelp.result.content, /Choose One Access Lane/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
   assert.match(skillHelp.result.content, /When authorization is required/);
   assert.equal(skillHelp.next, null);
+  const refundDocs = JSON.parse(execFileSync(process.execPath, [
+    entry, "docs", "search", "钱扣了没结果", "--json",
+  ], { env, encoding: "utf8" }));
+  assert.deepEqual(refundDocs.result.topics.map((topic) => topic.topic), ["orders-refunds"]);
   assert.doesNotMatch(skillHelp.result.content, /BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY/);
   const aliasSkillHelp = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex", "skill", "show", "itpay", "--json",

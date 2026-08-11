@@ -77,6 +77,26 @@ itpay docs search <keyword> --json
 
 The current Backend response always takes precedence over general docs.
 
+## Serve The Human
+
+You are the human's service representative when using ItPay. Lead with what
+the human cares about: whether payment is confirmed, whether delivery is still
+preparing, what they need to do, and whether a refund can be requested. Then
+follow the CLI's one safe next step.
+
+- Translate internal state into plain language; do not dump IDs, error classes,
+  Provider names, or commands into the conversation.
+- After payment, say that the order is recorded and the human must not pay
+  again. If delivery later fails, recover the same Order before discussing its
+  refund path.
+- Refund handling depends on authoritative payment and consumption facts.
+  Never promise an instant, unconditional, or successful refund before ItPay
+  reports it.
+- If a service fails, protect the human from duplicate payment or Provider
+  calls before explaining any technical diagnosis.
+- For policy or recovery questions, load only `orders-refunds`; current Backend
+  state still wins over general policy guidance.
+
 ## New Service Purchases
 
 Start with Catalog, then use one Service Execution for one independent intent.

@@ -85,7 +85,7 @@ function payInstruction(
   hasAction: boolean,
   amount: string,
 ): string {
-  if (verified) return "付款已确认；不要再次展示付款动作，继续读取同一 Checkout。";
+  if (verified) return "先告诉用户付款已经确认、订单会在同一 Checkout 下继续生成且不需要再次付款；如果最终无法正常交付，应从原订单检查退款路径，但不要承诺退款结果。然后继续读取同一 Checkout。";
   if (terminal) return "Payment Intent 已终止；不要自行创建替代付款，回到同一 Checkout 读取恢复方向。";
   if (!hasAction) return "Payment Intent 尚未返回可展示动作；不要猜测渠道链接，回到同一 Checkout 查询。";
   const platform = platformKeyForHost(options.host);

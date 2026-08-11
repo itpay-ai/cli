@@ -85,6 +85,12 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         sensitive_content_redacted: true,
       }],
     },
+    ord_failed: {
+      order_id: "ord_failed", order_code: "IP-FAILED", checkout_id: "chk_failed", status: "failed",
+      amount_minor: 20, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ title: "Failed delivery", quantity: 1, amount_minor: 20, currency: "CNY" }],
+      delivery_artifacts: [],
+    },
   };
 
   const server = http.createServer((req, res) => {

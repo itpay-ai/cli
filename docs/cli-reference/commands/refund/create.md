@@ -39,7 +39,7 @@ CLI 使用 Device Authority 或已有 Buyer bearer，并用订单+原因生成�
     "access_locked": true,
     "can_cancel": true
   },
-  "instruction": "退款处理中，交付已冻结；不要 reveal、授权或读取结果。",
+  "instruction": "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不要重复申请、reveal、授权或读取结果。",
   "next": {
     "command": "itpay refund watch <refund_id> --json",
     "reason": "跟踪同一退款"
@@ -48,7 +48,7 @@ CLI 使用 Device Authority 或已有 Buyer bearer，并用订单+原因生成�
 }
 ```
 
-`decision_mode` 的服务器枚举为 `automatic|manual`。已消费交付通常返回 `manual` / `policy_review_required`；instruction 明确等待人工审核。`status` 表示提交动作已完成，`result.refund_status` 才是退款状态机当前状态。
+`decision_mode` 的服务器枚举为 `automatic|manual`。未消费交付通常进入 `automatic`；已消费交付通常返回 `manual` / `policy_review_required`。两者只是政策路线：Agent 不得承诺自动路径一定成功、人工审核一定拒绝或具体到账时间。`status` 表示提交动作已完成，`result.refund_status` 才是退款状态机当前状态。
 
 若服务器返回退款终态，`next` 为 `null`。文本输出依次显示 result 字段、instruction 和一个 next，不输出支付或 Provider 内部数据。
 

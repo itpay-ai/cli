@@ -38,7 +38,7 @@ itpay refund watch <refund_request_id> [--interval <seconds>] [--timeout <second
     "access_locked": true,
     "can_cancel": false
   },
-  "instruction": "退款已成功；交付永久关闭。",
+  "instruction": "先告诉用户退款已由 ItPay 确认成功，原交付永久关闭；不需要继续跟踪或重复申请。",
   "next": null,
   "recovery": []
 }
@@ -59,7 +59,7 @@ Timeout 只表示本次 CLI 等待结束，不表示退款失败：
     "access_locked": true,
     "can_cancel": true
   },
-  "instruction": "退款仍在处理，稍后继续跟踪同一退款；不要重复申请。",
+  "instruction": "先告诉用户退款仍在处理，Timeout 只表示本次等待结束，并不表示退款失败；稍后继续跟踪同一退款，不要重复申请或承诺结果。",
   "next": {
     "command": "itpay refund watch <refund_id> --json",
     "reason": "恢复轮询"

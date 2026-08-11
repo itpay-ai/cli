@@ -712,11 +712,36 @@ test("services next makes pending grant a strict result-preparing wait state", a
     result: { preparation: { total_nodes: number; completed_nodes: number } };
   };
   assert.equal(envelope.status, "result_preparing");
-  assert.match(envelope.instruction, /不要再次付款、再次授权、新建 Execution 或调用 read-result/);
+  assert.match(envelope.instruction, /付费结果仍在同一订单下准备/);
+  assert.match(envelope.instruction, /不需要再次付款或授权/);
+  assert.match(envelope.instruction, /不要新建 Execution、Checkout、Provider 请求或调用 read-result/);
   assert.equal(envelope.next.command, "itpay services next se_vault_none --json");
   assert.deepEqual(envelope.result.preparation, {
     status: "running", total_nodes: 4, completed_nodes: 2, succeeded_nodes: 2, failed_nodes: 0,
   });
+});
+
+test("paid terminal failure recovers the original order without another paid call", async () => {
+  const model = await backend.getServiceExecution("se_granted");
+  model.execution.status = "failed";
+  model.execution.phase = "failed";
+  const failedBackend = { getServiceExecution: async () => model } as unknown as BackendClient;
+
+  await runServicesNext(failedBackend, "se_granted", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { order_id: string };
+    instruction: string;
+    next: unknown;
+    recovery: Array<{ command: string }>;
+  };
+  assert.equal(envelope.status, "failed");
+  assert.equal(envelope.result.order_id, "ord_vault");
+  assert.equal(envelope.next, null);
+  assert.equal(envelope.recovery[0]?.command, "itpay order ord_vault --json");
+  assert.match(envelope.instruction, /不需要再次付款或重新下单/);
+  assert.match(envelope.instruction, /不要.*再次调用 Provider/);
+  assert.doesNotMatch(JSON.stringify(envelope.recovery), /checkout|services invoke|services start/);
 });
 
 test("services next uses the current Vault delivery after an older agent-visible delivery", async () => {
@@ -1153,7 +1178,7 @@ test("terminal service executions never recommend replaying a capability", async
   await runServicesGet(terminalBackend, "se_cancelled", { jsonOutput: true, output: stdoutSink });
   const shown = JSON.parse(stdoutCapture.join("")) as { next: unknown; instruction: string };
   assert.equal(shown.next, null);
-  assert.match(shown.instruction, /已结束/);
+  assert.match(shown.instruction, /已经结束/);
 });
 
 test("service guidance opens existing checkout after checkout is pending", () => {
@@ -2277,6 +2302,9 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.equal(untyped.status, "shown");
   assert.equal(untyped.result.skill, "itpay");
   assert.match(untyped.result.content, /## Understand The Human/);
+  assert.match(untyped.result.content, /## Serve The Human/);
+  assert.match(untyped.result.content, /service representative/);
+  assert.match(untyped.result.content, /Never promise an instant, unconditional, or successful refund/);
   assert.match(untyped.result.content, /Seller workflows.*not yet available/);
   assert.match(untyped.result.content, /## Choose One Access Lane/);
   assert.equal(untyped.next.command, "itpay install --json");
@@ -2293,6 +2321,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next, null);
   assert.match(workbuddy.instruction, /同一 Node\/CLI launcher/);
+  assert.match(workbuddy.instruction, /服务用户的代理/);
   assert.match(workbuddy.instruction, /dangerouslyDisableSandbox/);
 });
 
@@ -2505,6 +2534,19 @@ test("docs search routes ordinary purchased-content language to one focused topi
   }
 });
 
+test("docs search routes payment and refund concerns to customer-care guidance", async () => {
+  for (const query of ["退款", "钱扣了没结果", "交付失败", "付了钱没东西"]) {
+    const envelope = JSON.parse((await runCLI(["docs", "search", query, "--json"], {})).stdout) as {
+      status: string;
+      result: { topics: Array<{ topic: string }> };
+      next: { command: string };
+    };
+    assert.equal(envelope.status, "matched");
+    assert.deepEqual(envelope.result.topics.map((topic) => topic.topic), ["orders-refunds"]);
+    assert.equal(envelope.next.command, "itpay docs show orders-refunds --json");
+  }
+});
+
 test("docs reports a damaged packaged document without exposing its path", async () => {
   const docsDir = mkdtempSync(join(tmpdir(), "itpay-docs-invalid-"));
   writeFileSync(join(docsDir, "broken.json"), "{not-json", "utf8");
@@ -2668,6 +2710,9 @@ test("checkout completed never prepares or recommends another payment handoff", 
   assert.equal(parsed.result.payment, "verified");
   assert.equal(parsed.result.service_execution_id, "se_completed");
   assert.equal(parsed.next.command, "itpay services next se_completed --json");
+  assert.match(parsed.instruction, /付款已经确认，订单已经记录，不需要再次付款/);
+  assert.match(parsed.instruction, /原订单申请退款/);
+  assert.match(parsed.instruction, /不要承诺退款结果/);
   assert.equal("handoff" in parsed, false);
   assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png")), false);
 });
@@ -3031,10 +3076,15 @@ test("pay never returns a payment handoff for verified or refunded intents", asy
       checkoutID: checkoutID!, displayToken: "cdt_terminal", method: "alipay", host: "terminal", jsonOutput: true,
       output: (line) => output.push(line),
     });
-    const envelope = JSON.parse(output.join("")) as { status: string; handoff?: unknown; next: { command: string } };
+    const envelope = JSON.parse(output.join("")) as { status: string; handoff?: unknown; instruction: string; next: { command: string } };
     assert.equal(envelope.status, wantStatus);
     assert.equal(envelope.handoff, undefined);
     assert.match(envelope.next.command, /checkout --id .* --token cdt_terminal --json/);
+    if (checkoutID === "chk_pay_verified") {
+      assert.match(envelope.instruction, /不需要再次付款/);
+      assert.match(envelope.instruction, /原订单检查退款路径/);
+      assert.match(envelope.instruction, /不要承诺退款结果/);
+    }
   }
 });
 
@@ -3521,6 +3571,19 @@ test("order reports a refund access lock instead of delivery guidance", async ()
   assert.equal(envelope.next.command, "itpay refund get rr_locked --json");
 });
 
+test("failed paid order checks its refund state without creating a replacement", async () => {
+  await runOrder(backend, "ord_failed", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    instruction: string;
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "failed");
+  assert.equal(envelope.next.command, "itpay refund list --order ord_failed --json");
+  assert.match(envelope.instruction, /不需要重复付款或重新下单/);
+  assert.doesNotMatch(envelope.next.command, /checkout|services start|services invoke/);
+});
+
 test("order keeps business output identical across all supported Agent Types", async () => {
   const outputs: string[] = [];
   for (const host of ["codex", "terminal", "claude-code", "terminal", "plain-chat"]) {
@@ -3870,6 +3933,7 @@ test("refund issues a refund request with Idempotency-Key", async () => {
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
     result: { refund_status: string; decision_mode: string; access_locked: boolean; can_cancel: boolean };
+    instruction: string;
     next: { command: string };
   };
   assert.equal(envelope.status, "requested");
@@ -3877,6 +3941,8 @@ test("refund issues a refund request with Idempotency-Key", async () => {
   assert.equal(envelope.result.decision_mode, "automatic");
   assert.equal(envelope.result.access_locked, true);
   assert.equal(envelope.result.can_cancel, true);
+  assert.match(envelope.instruction, /只有最终 succeeded 才能确认退款成功/);
+  assert.doesNotMatch(envelope.instruction, /一定退款|无条件退款|立即到账/);
   assert.match(envelope.next.command, /^itpay refund watch rr_/);
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "POST");
@@ -3944,11 +4010,13 @@ test("refund get returns one compact authoritative snapshot for every Agent Type
 			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
 		});
 		const envelope = JSON.parse(result.stdout) as {
-			status: string; result: { refund_status: string; access_locked: boolean }; next: { command: string };
+			status: string; result: { refund_status: string; access_locked: boolean }; instruction: string; next: { command: string };
 		};
 		assert.equal(envelope.status, "shown");
 		assert.equal(envelope.result.refund_status, "accepted");
 		assert.equal(envelope.result.access_locked, true);
+		assert.match(envelope.instruction, /退款申请已经记录/);
+		assert.doesNotMatch(envelope.instruction, /一定退款|无条件退款|立即到账/);
 		assert.equal(envelope.next.command, `itpay --agent-type ${agentType} refund watch rr_1 --json`);
 		assert.equal(result.stderr, "");
 	}
@@ -4008,6 +4076,7 @@ test("refund get reports terminal failure class instead of stale manual-review g
 		assert.equal(envelope.result.failure_class, failureClass);
 		assert.match(envelope.instruction, expected);
 		assert.doesNotMatch(envelope.instruction, /人工审核/);
+		assert.doesNotMatch(envelope.instruction, /一定退款|无条件退款|立即到账/);
 		assert.equal(envelope.next, null);
 	}
 });
@@ -4020,11 +4089,13 @@ test("refund watch emits one terminal envelope for every Agent Type", async () =
 			ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
 		});
 		const envelope = JSON.parse(result.stdout) as {
-			status: string; result: { refund_status: string; access_locked: boolean }; next: unknown;
+			status: string; result: { refund_status: string; access_locked: boolean }; instruction: string; next: unknown;
 		};
 		assert.equal(envelope.status, "watch_complete");
 		assert.equal(envelope.result.refund_status, "succeeded");
 		assert.equal(envelope.result.access_locked, true);
+		assert.match(envelope.instruction, /ItPay 确认成功/);
+		assert.doesNotMatch(envelope.instruction, /一定退款|无条件退款|立即到账/);
 		assert.equal(envelope.next, null);
 		assert.equal(result.stderr, "");
 	}
