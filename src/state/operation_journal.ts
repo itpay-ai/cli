@@ -22,6 +22,15 @@ export class OperationJournal {
     });
   }
 
+  async complete(operationKey: string, operationID: string): Promise<void> {
+    await withFileLock(`${this.path}.lock`, async () => {
+      const state = this.read();
+      if (state.operations[operationKey]?.id !== operationID) return;
+      delete state.operations[operationKey];
+      atomicOwnerOnlyWrite(this.path, JSON.stringify(state, null, 2));
+    });
+  }
+
   private read(): OperationJournalState {
     if (existsSync(this.path)) {
       try {

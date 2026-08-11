@@ -1319,7 +1319,7 @@ services
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesStart(backend, serviceID, {
+      await runServicesStart(backend, config, serviceID, {
         host: withHost(options.host, config.agentType, options.target),
         ...(options.target ? { target: options.target } : {}),
         jsonOutput: Boolean(options.json),

@@ -7,7 +7,7 @@ import type {
   ServiceExecutionReadModel,
   ServiceExecutionAllowedAction,
 } from "../client/types.js";
-import { operationID, type CLIConfig } from "../state/config.js";
+import { completeOperation, operationID, type CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
 import { validateContext } from "../state/client_context.js";
 import type { OutputSink } from "../render/sink.js";
@@ -35,18 +35,23 @@ const serviceActionStatuses = new Set(["pending", "approved", "rejected", "expir
 
 export async function runServicesStart(
   backend: BackendClient,
+  config: CLIConfig,
   serviceID: string,
   options: ServicesCommandOptions & { host?: string; target?: string; clientContext?: Record<string, unknown>; jsonOutput?: boolean } = {},
 ): Promise<void> {
   const host = options.host ?? "terminal";
+  const clientContext = {
+    host,
+    ...(options.target ? { target: options.target } : {}),
+    ...(options.clientContext ?? {}),
+  };
+  const operationKey = `service.start:${config.agentType ?? "unknown"}:${serviceID}:${stableInput(clientContext)}`;
+  const idempotencyKey = await operationID(config, operationKey);
   const response = await backend.startServiceExecution({
     service_id: serviceID,
-    client_context: {
-      host,
-      ...(options.target ? { target: options.target } : {}),
-      ...(options.clientContext ?? {}),
-    },
-  });
+    client_context: clientContext,
+  }, idempotencyKey);
+  await completeOperation(config, operationKey, idempotencyKey);
   const capability = response.capabilities.find((item) =>
     item.phase === response.execution.phase && !item.requires_payment,
   );
