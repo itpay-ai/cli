@@ -824,12 +824,16 @@ export async function runServicesList(
   const envelope: CommandEnvelope = {
     status: latest ? "listed" : "no_executions",
     result: { executions },
-    instruction: latest
-      ? "用服务和状态说明这些可恢复记录；只有一条明确匹配用户目标时才继续，多个结果必须让用户选择。"
+    instruction: executions.length === 1
+      ? "只有一条可恢复记录；继续读取同一笔服务。"
+      : latest
+      ? "用服务和状态说明这些可恢复记录；多个结果必须让用户选择。"
       : "当前设备没有可恢复的 Service Execution；先读取已发布目录，不要猜测 ID。",
-    next: latest
-      ? null
-      : { command: "itpay catalog list --json", reason: "选择已发布服务" },
+    next: executions.length === 1
+      ? { command: `itpay services next ${latest!.service_execution_id} --json`, reason: "继续唯一可恢复的服务" }
+      : latest
+        ? null
+        : { command: "itpay catalog list --json", reason: "选择已发布服务" },
     recovery: [],
   };
   writeCommandEnvelope(envelope, {

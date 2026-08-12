@@ -959,19 +959,31 @@ test("services invoke returns only safe result items and one next action", async
 });
 
 test("services list recovers executions without a local cart handle", async () => {
-  await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
-  await runServicesList(backend, { jsonOutput: true, output: stdoutSink });
-  assert.equal(mock.requests.at(-1)?.path, "/v1/service-executions?limit=10");
+  let requestedLimit = 0;
+  const singletonBackend = {
+    listServiceExecutions: async (limit: number) => {
+      requestedLimit = limit;
+      return { executions: [{ execution: {
+        service_execution_id: "se_recovery",
+        service_id: "svc_qizhidao_company_lookup",
+        status: "active",
+        phase: "pre_purchase",
+        updated_at: "2026-08-12T00:00:00Z",
+      } }] };
+    },
+  } as unknown as BackendClient;
+  await runServicesList(singletonBackend, { jsonOutput: true, output: stdoutSink });
+  assert.equal(requestedLimit, 10);
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
     result: { executions: Array<Record<string, unknown>> };
-    next: null;
+    next: { command: string };
   };
   assert.equal(envelope.status, "listed");
   const firstID = String(envelope.result.executions[0]?.service_execution_id);
-  assert.match(firstID, /^se_/);
-  assert.equal(envelope.next, null);
-  assert.match(stdoutCapture.join(""), /多个结果必须让用户选择/);
+  assert.equal(firstID, "se_recovery");
+  assert.equal(envelope.next.command, `itpay services next ${firstID} --json`);
+  assert.match(stdoutCapture.join(""), /只有一条可恢复记录/);
   assert.deepEqual(Object.keys(envelope.result.executions[0] ?? {}), [
     "service_execution_id", "service_id", "status", "phase", "updated_at",
   ]);
@@ -1005,8 +1017,10 @@ test("services list is compact, fact-stable, and preserves every Agent Type", as
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
-  assert.equal(JSON.parse(outputs[0]!).status, "listed");
-  assert.equal(JSON.parse(outputs[0]!).next, null);
+  const envelope = JSON.parse(outputs[0]!);
+  assert.equal(envelope.status, "listed");
+  assert.equal(envelope.next, null);
+  assert.match(envelope.instruction, /多个结果必须让用户选择/);
 });
 
 test("services get returns a bounded public timeline", async () => {

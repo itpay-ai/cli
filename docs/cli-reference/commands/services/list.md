@@ -32,13 +32,13 @@ itpay services list [--limit <number>] [--json]
       { "service_execution_id": "<id>", "service_id": "<service_id>", "status": "<status>", "phase": "<phase>", "updated_at": "<time>" }
     ]
   },
-  "instruction": "用服务和状态说明这些可恢复记录；只有一条明确匹配用户目标时才继续，多个结果必须让用户选择。",
-  "next": null,
+  "instruction": "只有一条可恢复记录；继续读取同一笔服务。",
+  "next": { "command": "itpay services next <id> --json", "reason": "继续唯一可恢复的服务" },
   "recovery": []
 }
 ```
 
-不得为每条 execution 附加完整 guidance、capabilities、result items、events、candidate hash、client context 或内部 binding。列表不能把“最新”当成“用户想要”；Agent 只在用户目标能唯一匹配一条记录时运行对应 `services next`，否则先用普通语言让用户选择。
+不得为每条 execution 附加完整 guidance、capabilities、result items、events、candidate hash、client context 或内部 binding。恰好一条记录时 CLI 返回对应的 `services next`；多条记录时 `next=null`，列表不能把“最新”当成“用户想要”，Agent 必须先用普通语言让用户选择。
 
 无结果时返回 `no_executions`、空数组和 `itpay catalog list --json`。
 
