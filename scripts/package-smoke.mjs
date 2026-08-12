@@ -84,7 +84,7 @@ try {
     const absoluteDocumentPath = join(referenceRoot, documentPath);
     assert.equal(existsSync(absoluteDocumentPath), true, `missing packaged CLI document: ${documentPath}`);
     const document = readFileSync(absoluteDocumentPath, "utf8");
-    for (const option of commandHelp.matchAll(/--([a-z][a-z0-9-]*)/g)) {
+    for (const option of commandHelp.matchAll(/^\s+(?:-\S+,\s+)?--([a-z][a-z0-9-]*)/gm)) {
       if (option[1] === "help") continue;
       assert.match(document, new RegExp(`--${escapeRegExp(option[1])}(?:[^a-z0-9-]|$)`),
         `CLI option is absent from ${documentPath}: itpay ${commandPath.join(" ")} --${option[1]}`);

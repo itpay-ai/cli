@@ -68,7 +68,7 @@ CLI 使用 Agent Device Authority。设备完成首次付款绑定后，已登�
       "status": "accepted"
     }
   },
-  "instruction": "先告诉用户退款处理中，原交付已按政策冻结；再读取同一退款的权威状态。不要 reveal、创建 grant、读取交付结果或重复申请退款。",
+  "instruction": "告诉用户退款处理中，原交付已按政策冻结。然后读取同一退款的权威状态；Agent 不读取交付、不创建授权或重复申请退款。",
   "next": {
     "command": "itpay refund get <refund_request_id> --json",
     "reason": "读取退款的服务器状态"

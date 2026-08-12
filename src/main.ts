@@ -56,7 +56,22 @@ program
   .name("itpay")
   .description("V3 ItPay CLI — buy services, review orders, and read human-authorized purchased content")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
-  .version(CLI_VERSION);
+  .version(CLI_VERSION)
+  .addHelpText("after", `
+Agent quick start:
+  1. Run: itpay install --json
+  2. Select the real Agent Type and execute each returned next.command unchanged.
+  3. Read the packaged Skill, then route the human's natural-language intent.
+
+Common human intents:
+  New service or query       catalog list
+  Previously purchased item vault list
+  Purchase history           orders
+  Delivery or refund problem resume the known Order or Refund
+
+The Agent runs commands. Ask the human only to choose, authorize, pay, provide
+required contact details, or confirm a refund. Never expose commands or internal IDs.
+`);
 
 function withHost(value: string | undefined, agentType?: string, target?: string): ClientHost {
   if (!value && agentType?.trim().toLowerCase() === "openclaw") {
@@ -233,21 +248,21 @@ function reportCLIError(
       instruction: incompatible
 		? requiredCLIVersion
       ? distributionUpgradeInstruction()
-      : "立即向用户报告 error.message 并结束本次任务。Backend 未提供可验证的兼容 CLI 版本；不要运行其他 ItPay 或 npm 命令，不要猜测版本、切换 Agent Type 或删除 Device 身份。"
+      : "告诉用户 ItPay 当前版本信息无法验证，因此本次服务不能安全继续。停止所有 ItPay 和 npm 操作；不要转述技术错误、猜版本、切换 Agent Type 或删除 Device 身份。"
 		: backendInternal
-			? "Backend 内部故障；立即停止并向用户报告。不要重试、检查或删除 Device 身份、创建替代 Execution、切换 Backend，或尝试 quote、checkout、cart、buy、pay 等付费路径。"
+			? "告诉用户 ItPay 当前暂时无法完成这项服务并停止。不要转述内部错误、重试、修改身份、创建替代服务或进入任何付费路径。"
 		: providerConnectionUnavailable
-			? "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。"
+			? "告诉用户本次查询没有发送到数据来源，免费额度已保留，然后停止。不要转述技术错误、自动重试或进入付费路径；只有服务恢复且用户明确要求重新查询后才能开始新的查询。"
 		: providerTemporary
-			? "上游服务暂时不可用；向用户逐字报告 error.message 和 result.quota 并停止，不要自动重试、不要创建新 Execution。只有用户之后明确提出新请求，才可重新开始。"
+			? "告诉用户数据服务暂时不可用，并按 result.quota 说明额度是否保留，然后停止。不要转述技术错误、自动重试或创建新查询；只有用户之后明确提出新请求才可重新开始。"
 		: providerInputRejected
-			? `Provider 明确拒绝了该输入：${error instanceof Error ? error.message : String(error)}。请向用户报告 error.message 和 result.quota 并停止。不要自行修改输入、不要重试、不要创建新 Execution；只有用户明确提供新输入后才能重新查询。`
+			? "告诉用户数据来源明确表示当前输入无效，并按 result.quota 说明额度状态，然后停止。不要转述内部错误、自行修改输入、重试或创建新查询；只有用户明确提供新输入后才能重新查询。"
 		: providerContractMismatch
-			? "Provider 响应与已发布契约不一致。这不是用户输入问题。立即停止，不要修改输入、不要重试、不要创建新 Execution，也不要进入付费路径；向用户报告平台故障和 result.quota。"
+			? "告诉用户平台暂时无法正确解释数据来源的响应，这不是用户输入问题，并按 result.quota 说明额度状态。立即停止，不要修改输入、重试、创建新查询或进入付费路径。"
 		: providerRejected
-			? "Provider 拒绝了本次请求，但未声明这是输入错误；向用户逐字报告 error.message 和 result.quota 并停止。不要修改输入、不要重试、不要创建新 Execution。"
+			? "告诉用户数据来源没有接受本次请求，但没有说明是输入错误，并按 result.quota 说明额度状态，然后停止。不要转述内部错误、修改输入、重试或创建新查询。"
 		: capabilityInputInvalid
-			? "输入未通过本地校验，上游尚未被调用且用户额度未变化。向用户逐字报告 error.message 并停止，不要原样重试或运行其他恢复命令。用户提供修正后的输入后，继续使用当前未结束的 Execution。"
+			? "告诉用户当前输入不完整或格式不正确；数据来源尚未调用，额度没有变化。不要转述技术错误或原样重试；用户提供修正信息后继续同一次服务。"
 		: transportError
           ? transportError.attempts > 1
             ? "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。"

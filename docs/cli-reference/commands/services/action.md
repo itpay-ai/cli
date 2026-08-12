@@ -35,7 +35,7 @@ itpay services action <service_execution_id> --action <action_type>
       "delivery_email_required": true
     }
   },
-  "instruction": "候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明已选择的候选、后续价格和邮箱用途，然后询问是否购买并停止。用户明确同意并提供邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。",
+  "instruction": "已选择 <title>。后续服务尚未购买。只向用户说明继续购买的价格和邮箱用途，请确认是否购买并提供邮箱，然后停止。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建新的服务或付款页面。",
   "next": { "command": "itpay services checkout <id> --capability <capability_id> --email <email> --json", "reason": "仅在用户明确同意价格并提供真实邮箱后执行" },
   "recovery": [{ "command": "itpay services next <id> --json", "reason": "重新读取服务端允许的动作" }]
 }

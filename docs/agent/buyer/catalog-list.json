@@ -4,33 +4,36 @@
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "catalog-list",
   "title": "Browse ItPay V3 Service Catalog",
-  "purpose": "Teach the agent how to browse and display available catalog services to the buyer.",
+  "purpose": "Explain available services, outcomes, conditions, and prices in human language without exposing catalog identifiers.",
   "when_to_use": [
     "The buyer wants to see available services before purchasing.",
-    "The agent needs to know valid item / variant / offer IDs for cart or buy commands.",
     "The buyer asks 'what can I buy?' or 'show me services'."
   ],
   "commands": [
     {
       "intent": "list all published services",
-      "command": "itpay catalog list",
-      "success_signal": "Catalog version, item count, and item details with variants and prices are printed."
+      "command": "itpay catalog list --json",
+      "success_signal": "Published service titles, outcomes, auxiliary steps, and prices are returned."
     }
   ],
   "output_interpretation": {
-    "item_format": "Each item includes product description, a structured service_flow, valid IDs, and purchasable offers.",
+    "item_format": "Explain the title, what the human receives, any auxiliary discovery step, and the published price.",
     "service_flow": "Explain discovery as an auxiliary identity-confirmation step, including free quota and paid continuation. Present primary_service as the actual paid outcome. Read all values from the manifest.",
-    "variant_selection": "To buy, the buyer needs catalog_item_id, catalog_variant_id, and offer_id from the output.",
+    "variant_selection": "Internal IDs are for the Agent's next command only and are never shown or requested from the human.",
     "price_note": "amount_minor is in minor units (e.g., 10000 = 100.00 CNY). The CLI formats prices as XX.YY currency automatically."
   },
   "agent_rules": [
-    "Use `itpay catalog list` before suggesting purchase options.",
+    "Use catalog list only when the human asks for a new service, not when they want an earlier purchase.",
     "Read the variant IDs and prices from the output; do not invent them.",
     "Explain the customer journey from service_flow instead of presenting every variant as an unrelated service.",
     "State free quota, paid continuation price, email requirement, and claim purpose exactly as published; do not exaggerate or omit conditions.",
-    "If the buyer wants to search by keyword, filter the catalog output client-side (no backend search yet).",
+    "Ask the human to choose only when multiple services could satisfy the goal; never make them choose an internal variant or offer ID.",
     "After services start, submit service keywords only through the returned capability command's --input key=value options; --target is never a search keyword."
   ],
+  "human_language": {
+    "prefer": ["服务", "查询", "报告", "免费次数", "价格", "你会得到什么"],
+    "avoid": ["service_id", "variant_id", "offer_id", "capability", "manifest"]
+  },
   "next_docs": [
     {
       "condition": "Buyer selected a service and wants to purchase",

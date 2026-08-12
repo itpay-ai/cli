@@ -132,6 +132,33 @@ Instruction 只回答当前最重要的一件事：
 
 不得使用空洞 instruction，例如“继续下一步”“按需处理”“查看详情”。
 
+## Agent 内部语言与用户语言
+
+`result` 和错误字段可以保留 Agent 执行所需的技术事实；Agent 对用户的说明必须
+改成服务语言。不得把命令、内部 ID 或以下内部名词直接当作用户解释：
+
+| Agent 内部事实 | 对用户表达 |
+| --- | --- |
+| Vault / artifact | 已购内容、报告或实际服务名称 |
+| grant | 临时只读授权 |
+| Service Execution | 这次查询或这笔服务 |
+| Checkout | 付款页面 |
+| Provider | 数据来源；非必要时不提 |
+| capability | 当前服务步骤 |
+| safe_payload | 查询结果 |
+| Buyer | 用户的 ItPay 账号 |
+| error code / failure class | 错误对付款、交付或下一步的实际影响 |
+
+关键 instruction 使用同一顺序：
+
+```text
+先说明用户关心的事实；再告诉 Agent 当前唯一动作；最后禁止本步骤最危险的误操作。
+```
+
+技术错误保留在 `error` 供 Agent 判断，但 instruction 不得要求 Agent 向用户逐字
+转述 `error.message`。用户只负责选择、授权、付款、提供必要联系方式或确认退款；
+命令执行、状态恢复和技术诊断始终由 Agent 完成。
+
 ## 通用性边界
 
 - CLI 不识别企知道、企业查询、某个 capability 名称或某个字段名。

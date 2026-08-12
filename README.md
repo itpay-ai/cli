@@ -8,12 +8,22 @@ The official V3 CLI and the single ItPay entry point for services, purchases, ac
 
 ```bash
 npm install -g @itpay/cli
-itpay readyz --json
-itpay skill show itpay --json
 itpay install --json
 itpay --agent-type codex-desktop readyz --json
-# read the typed Skill, understand the human's intent, then choose the first command
+# execute the returned next.command until the typed Skill is loaded
 ```
+
+Official Agent install prompt（可直接复制给 Agent）：
+
+> 安装或更新官方 `@itpay/cli`。从 `itpay install --json` 开始，选择你真实
+> 所在的平台，完整执行 iTPay 返回的每个 `next.command` 并读取内置 Skill。
+> 初始化后，根据我的自然语言需求自行使用 iTPay，不要让我运行命令，也不要向
+> 我讲解命令、内部 ID 或技术步骤。只有需要我选择、授权、付款、提供联系方式
+> 或确认退款时，才用通俗语言询问我；展示官方操作入口后停止等待。不要猜命令、
+> 切换身份或环境、绕过授权或重复创建资源。准备完成后只回复“iTPay 已就绪”。
+
+Use a separate test prompt to set the exact official Dev Backend. Never put a
+Dev override in the public install prompt.
 
 The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit tests may set `ITPAY_BACKEND_URL=https://dev.itpay.ai`; every other Backend URL is rejected before network or local state access.
 

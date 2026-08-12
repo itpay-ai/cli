@@ -34,12 +34,12 @@ function orderEnvelope(
   let instruction = "订单状态已读取；当前没有可用交付入口。";
   let next: CommandAction | null = null;
   if (lockedRefund) {
-    instruction = "先告诉用户退款处理中，原交付已按政策冻结；再读取同一退款的权威状态。不要 reveal、创建 grant、读取交付结果或重复申请退款。";
+    instruction = "告诉用户退款处理中，原交付已按政策冻结。然后读取同一退款的权威状态；Agent 不读取交付、不创建授权或重复申请退款。";
     if (!refundTerminal) {
       next = { command: `itpay refund get ${lockedRefund.refund_request_id} --json`, reason: "读取退款的服务器状态" };
     }
   } else if (delivery?.service_execution_id) {
-    instruction = "先告诉用户订单已经找到并说明当前交付状态；再根据 delivery_mode 使用对应读取入口，不要从订单摘要猜测受保护内容。";
+    instruction = "告诉用户订单已经找到并说明当前交付状态。然后使用返回的读取入口；Agent 不向用户提及 delivery_mode，也不从订单摘要猜测受保护内容。";
     next = { command: `itpay services next ${delivery.service_execution_id} --json`, reason: "读取交付状态" };
   } else if (order.status === "failed") {
     instruction = "先告诉用户这笔订单没有正常交付，不需要重复付款或重新下单；先检查原订单是否已有退款，再由用户决定是否申请。";

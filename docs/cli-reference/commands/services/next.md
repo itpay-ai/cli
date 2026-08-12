@@ -39,7 +39,7 @@ itpay services next <service_execution_id> [--json]
       { "rank": 1, "title": "<title>", "safe_payload": { "<public_field>": "<value>" } }
     ]
   },
-  "instruction": "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
+  "instruction": "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
     "reason": "仅在用户明确选择后锁定来源候选"
@@ -67,7 +67,7 @@ itpay services next <service_execution_id> [--json]
       }
     ]
   },
-  "instruction": "付费 Agent-visible 搜索已完成。现在把 items 中的编号、title 和 safe_payload 展示给用户，然后停止。本结果是 agent-visible，不要调用 read-result。若用户的目标只是候选搜索，任务已经完成；只有用户之后明确选择某个候选并要求继续时，才执行 next.command。不要自动购买后续报告。",
+  "instruction": "付费搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload 或自动购买后续报告。",
   "next": {
     "command": "itpay services action <id> --action select_candidate --actor-type human --status approved --candidate <rank> --json",
     "reason": "仅在用户明确选择候选并要求继续时执行"
@@ -76,7 +76,7 @@ itpay services next <service_execution_id> [--json]
 }
 ```
 
-只有 Graph 允许继续选择时才返回上述 `next`。若结果本身就是最终交付，则 instruction 为“只使用 safe_payload，不调用 read-result”，且 `next: null`。文本输出依次显示 `status`、Execution、`delivery_mode`、候选及 instruction，不暴露 Result Item ID、Invocation ID 或 Hash。
+只有 Graph 允许继续选择时才返回上述 `next`。若结果本身就是最终交付，instruction 要求用普通语言解释可公开字段并停止，且 `next: null`。文本输出可以保留 Agent 执行所需的 Execution 与 `delivery_mode`，但 Agent 不向用户暴露这些内部词、Result Item ID、Invocation ID 或 Hash。
 
 ## Vault 交付
 
@@ -118,7 +118,7 @@ itpay services next <service_execution_id> [--json]
       "failed_nodes": 0
     }
   },
-  "instruction": "先告诉用户：授权已经完成，付费结果仍在同一订单下准备，不需要再次付款或授权。然后只执行 next.command 查询同一 Execution；不要新建 Execution、Checkout、Provider 请求或调用 read-result。",
+  "instruction": "告诉用户：授权已经完成，付费结果仍在同一订单下准备，不需要再次付款或授权。然后只执行 next.command 查询同一笔服务；Agent 不创建新服务、付款页面或数据请求，也不提前读取。",
   "next": {
     "command": "itpay services next <id> --json",
     "reason": "等待同一 Execution 的交付准备完成"
@@ -186,7 +186,7 @@ itpay services next <service_execution_id> [--json]
       "status": "<refund_status>"
     }
   },
-  "instruction": "退款处理中，交付已冻结；不要 reveal、创建 grant 或读取结果。",
+  "instruction": "告诉用户退款仍在处理，原交付已按政策冻结。然后读取同一退款的权威状态；Agent 不读取交付、不创建授权或重复申请。",
   "next": {
     "command": "itpay refund get <refund_id> --json",
     "reason": "读取退款权威状态"
