@@ -29,7 +29,7 @@ itpay services invoke <service_execution_id> --capability <capability_id>
     "items": [{ "rank": 1, "title": "<title>", "safe_payload": {} }],
     "quota": { "remaining": 2, "limit": 3 }
   },
-  "instruction": "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
+  "instruction": "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。",
   "next": { "command": "itpay services action <id> --action <action_type> --actor-type human --status approved --candidate <rank> --json", "reason": "记录用户选择" },
   "recovery": []
 }
@@ -75,7 +75,7 @@ Provider 已收到请求但没有匹配项时，该 invocation 成功完成、�
       "delivery_email_required": false
     }
   },
-  "instruction": "免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：‘继续当前请求需要支付 0.10 CNY，是否购买？’然后停止并等待用户明确回复。用户明确同意前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。",
+  "instruction": "免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：‘继续当前请求需要支付 0.10 CNY，是否购买？’然后停止等待。用户明确同意前，Agent 不执行 next.command，也不创建或尝试其他购买路径。",
   "next": {
     "command": "itpay services checkout <id> --capability <paid_capability_id> --input <key=value> --json",
     "reason": "仅在用户明确同意支付 0.10 CNY 后执行；否则停止"
@@ -102,7 +102,7 @@ Provider 已收到请求但没有匹配项时，该 invocation 成功完成、�
     "provider_called": false,
     "quota": { "remaining": 3, "limit": 3 }
   },
-  "instruction": "Provider 请求未发出，预留免费额度已释放；当前 Execution 已失败。立即向用户报告 error.message 并停止，不要自动重试、不要继续同一 Execution，也不要进入任何付费路径。只有运营确认连接恢复且用户明确要求重新查询后，才启动新的 Service Execution。",
+  "instruction": "告诉用户本次查询没有发送到数据来源，免费额度已保留，然后停止。不要转述技术错误、自动重试或进入付费路径；只有服务恢复且用户明确要求重新查询后才能开始新的查询。",
   "next": null,
   "recovery": []
 }
@@ -125,7 +125,7 @@ Provider 已收到请求时，Backend 返回同一 Execution 的权威调用和�
     "provider_called": true,
     "quota": { "remaining": 0, "limit": 3 }
   },
-  "instruction": "Provider 明确拒绝了该输入：输入的名称不合法。请向用户报告 error.message 和 result.quota 并停止。不要自行修改输入、不要重试、不要创建新 Execution；只有用户明确提供新输入后才能重新查询。",
+  "instruction": "告诉用户数据来源明确表示当前输入无效，并按 result.quota 说明额度状态，然后停止。不要转述内部错误、自行修改输入、重试或创建新查询；只有用户明确提供新输入后才能重新查询。",
   "next": null,
   "recovery": []
 }
@@ -142,7 +142,7 @@ Provider 已收到请求时，Backend 返回同一 Execution 的权威调用和�
     "provider_called": true,
     "quota": { "remaining": 0, "limit": 3 }
   },
-  "instruction": "Provider 响应与已发布契约不一致。这不是用户输入问题。立即停止，不要修改输入、不要重试、不要创建新 Execution，也不要进入付费路径；向用户报告平台故障和 result.quota。",
+  "instruction": "告诉用户平台暂时无法正确解释数据来源的响应，这不是用户输入问题，并按 result.quota 说明额度状态。立即停止，不要修改输入、重试、创建新查询或进入付费路径。",
   "next": null,
   "recovery": []
 }

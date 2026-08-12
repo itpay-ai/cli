@@ -172,7 +172,7 @@ function invokedEnvelope(
   };
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
-		? "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。"
+		? "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。"
     : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
   let next: CommandAction | null = null;
 
@@ -287,13 +287,13 @@ function purchaseConfirmationInstruction(
 	const emailPurpose = deliveryEmailPurposeText(deliveryEmailPurpose);
 	if (context === "quota_exhausted") {
 		return deliveryEmailRequired
-			? `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：继续当前请求需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止并等待。用户明确同意并提供真实邮箱前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`
-			: `免费额度已用完，本次没有调用 Provider，也尚未创建 Quote 或 Checkout。现在只向用户说明：“继续当前请求需要支付 ${price}，是否购买？”然后停止并等待用户明确回复。用户明确同意前，不要执行 next.command，不要新建 Execution，不要尝试其他 capability、quote、cart、buy、checkout 或 pay 命令。`;
+			? `免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：继续当前请求需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止等待。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建或尝试其他购买路径。`
+			: `免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：“继续当前请求需要支付 ${price}，是否购买？”然后停止等待。用户明确同意前，Agent 不执行 next.command，也不创建或尝试其他购买路径。`;
 	}
 	const selected = candidateTitle ? `已选择 ${candidateTitle}。` : "当前候选已经确认。";
 	return deliveryEmailRequired
-		? `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：继续购买后续服务需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，不要执行 next.command，不要创建新 Execution 或 Checkout。`
-		: `${selected}候选已绑定到当前 Execution，但尚未购买后续服务。现在只向用户说明：“继续购买后续服务需要支付 ${price}，是否购买？”然后停止。用户明确同意前，不要执行 next.command，不要创建新 Execution 或 Checkout。`;
+		? `${selected}后续服务尚未购买。只向用户说明：继续购买需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建新的服务或付款页面。`
+		: `${selected}后续服务尚未购买。只向用户说明：“继续购买后续服务需要支付 ${price}，是否购买？”然后停止。用户明确同意前，Agent 不执行 next.command，也不创建新的服务或付款页面。`;
 }
 
 function deliveryEmailPurposeText(purpose?: ServiceCapability["delivery_email_purpose"]): string {
@@ -824,12 +824,16 @@ export async function runServicesList(
   const envelope: CommandEnvelope = {
     status: latest ? "listed" : "no_executions",
     result: { executions },
-    instruction: latest
-      ? "结果按最新到最旧排列，默认只列最近 10 条；找不到目标时再扩大 limit。"
+    instruction: executions.length === 1
+      ? "只有一条可恢复记录；继续读取同一笔服务。"
+      : latest
+      ? "用服务和状态说明这些可恢复记录；多个结果必须让用户选择。"
       : "当前设备没有可恢复的 Service Execution；先读取已发布目录，不要猜测 ID。",
-    next: latest
-      ? { command: `itpay services next ${latest.service_execution_id} --json`, reason: "默认恢复最新执行" }
-      : { command: "itpay catalog list --json", reason: "选择已发布服务" },
+    next: executions.length === 1
+      ? { command: `itpay services next ${latest!.service_execution_id} --json`, reason: "继续唯一可恢复的服务" }
+      : latest
+        ? null
+        : { command: "itpay catalog list --json", reason: "选择已发布服务" },
     recovery: [],
   };
   writeCommandEnvelope(envelope, {
@@ -871,8 +875,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         },
       },
       instruction: terminal
-        ? "先告诉用户退款已由 ItPay 确认成功，原交付永久关闭；不要 reveal、创建 grant、读取结果或继续跟踪。"
-        : "先告诉用户退款仍在处理，原交付已按政策冻结；然后读取同一退款的权威状态，不要 reveal、创建 grant、读取结果或重复申请。",
+        ? "告诉用户退款已由 ItPay 确认成功，原交付永久关闭。Agent 停止读取和跟踪，不再创建授权。"
+        : "告诉用户退款仍在处理，原交付已按政策冻结。然后读取同一退款的权威状态；Agent 不读取交付、不创建授权或重复申请。",
       next: terminal ? null : {
         command: `itpay refund get ${lockedRefund.refund_request_id} --json`,
         reason: "读取退款权威状态",
@@ -892,10 +896,10 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         ...(currentDelivery?.order_id ? { order_id: currentDelivery.order_id } : {}),
       },
       instruction: execution.status === "refunded"
-        ? "先告诉用户这笔服务已经退款并永久结束；不要重放 capability、创建 Checkout 或尝试读取旧交付。"
+        ? "告诉用户这笔服务已经退款并永久结束。Agent 不重放服务步骤、不创建付款页面或尝试读取旧交付。"
         : paidFailure
-          ? "先告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。应从同一订单检查退款状态；不要重放 capability、创建 Checkout/Execution 或再次调用 Provider，也不要把技术故障归咎于用户。"
-          : "先告诉用户本次服务已经结束且没有可继续的交付；不要重放 capability 或创建 Checkout。",
+          ? "告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。然后从同一订单检查退款状态；Agent 不重放服务步骤、创建付款页面或再次调用数据来源，也不把技术故障归咎于用户。"
+          : "告诉用户本次服务已经结束且没有可继续的交付。Agent 不重放服务步骤或创建付款页面。",
       next: null,
       recovery: [
         ...(paidFailure
@@ -934,8 +938,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				})),
 			},
 			instruction: paidCapability
-				? "付费 Agent-visible 搜索已完成。现在把 items 中的编号、title 和 safe_payload 展示给用户，然后停止；不要调用 read-result。若用户目标只是候选搜索，任务已经完成。只有用户之后明确选择某个候选并要求继续时，才执行 next.command；不要自动购买后续报告。"
-				: "向用户展示编号和 safe_payload；若候选列表已满足用户目标，在此停止。仅在用户明确选择并希望继续时，才在当前 Execution 提交对应 rank。",
+				? "付费搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload 或自动购买后续报告。"
+				: "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时才提交对应编号；不要提及 safe_payload、Execution 或内部 ID。",
 			next: {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
 				reason: paidCapability ? "仅在用户明确选择候选并要求继续时执行" : "仅在用户明确选择后锁定来源候选",
@@ -960,9 +964,9 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 			},
 			instruction: items.length > 0
 				? selection
-					? "Agent-visible 搜索已完成。向用户展示 items 中的编号、title 和 safe_payload，然后停止；不要调用 read-result。只有用户明确选择候选并要求继续时，才执行 next.command。"
-					: "这是当前 Graph 步骤对应的交付；结果已可供 Agent 使用，只使用 safe_payload。"
-				: "Agent-visible 交付已完成但有 0 个结果。向用户展示空结果并停止；不要调用 read-result、重放当前 Execution、修改输入或创建新 Execution。",
+					? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
+					: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Graph、safe_payload 或内部 ID。"
+				: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。",
 			next: selection ? {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
 				reason: "仅在用户明确选择后锁定来源候选",
@@ -987,7 +991,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       instruction: grantActive
         ? "先告诉用户付费内容已经准备好且当前读取授权有效；立即读取并只解释授权字段，遵守范围与到期时间。"
         : grantPending
-          ? "先告诉用户：授权已经完成，付费结果仍在同一订单下准备，不需要再次付款或授权。然后只执行 next.command 查询同一 Execution；不要新建 Execution、Checkout、Provider 请求或调用 read-result。"
+          ? "告诉用户：授权已经完成，付费结果仍在同一订单下准备，不需要再次付款或授权。然后只执行 next.command 查询同一笔服务；Agent 不创建新服务、付款页面或数据请求，也不提前读取。"
           : "先告诉用户付费内容已经归入当前订单，但需要本人确认一次读取授权；请用户在订单页面授权，未授权前不要读取或猜测内容。",
       next: grantPending ? {
         command: `itpay services next ${execution.service_execution_id} --json`,
@@ -1038,9 +1042,9 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 			})),
 		},
 		instruction: preferred?.type === "resume_checkout"
-			? "当前 Execution 已经有一笔 Checkout。不要创建新的 Quote、Cart、Checkout 或 Execution。现在只执行 next.command，恢复并展示同一 Checkout 的付款入口。"
+			? "这笔服务已经有付款页面。只执行 next.command 恢复并展示同一个入口；Agent 不创建新的报价、购物车、付款页面或服务。"
 			: preferred?.type === "wait"
-				? "先告诉用户付款和订单已经确认，结果正在同一 Execution 中处理，不需要再次付款；如果最终无法正常交付，应从原订单检查退款路径。稍后只执行 next.command 查询同一 Execution，不要新建 Execution、Checkout 或再次调用 Provider，也不要承诺退款结果。"
+				? "告诉用户付款和订单已经确认，结果仍在同一笔服务中处理，不需要再次付款；如果最终无法交付，将从原订单检查退款路径。稍后只执行 next.command；Agent 不创建新服务、付款页面或数据请求，也不承诺退款结果。"
 				: preferred?.requires_human
 			? "当前下一步需要用户明确选择；先展示必要信息并等待确认。"
 			: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" : "当前没有后续动作。",

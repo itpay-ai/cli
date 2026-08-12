@@ -84,7 +84,7 @@ try {
     const absoluteDocumentPath = join(referenceRoot, documentPath);
     assert.equal(existsSync(absoluteDocumentPath), true, `missing packaged CLI document: ${documentPath}`);
     const document = readFileSync(absoluteDocumentPath, "utf8");
-    for (const option of commandHelp.matchAll(/--([a-z][a-z0-9-]*)/g)) {
+    for (const option of commandHelp.matchAll(/^\s+(?:-\S+,\s+)?--([a-z][a-z0-9-]*)/gm)) {
       if (option[1] === "help") continue;
       assert.match(document, new RegExp(`--${escapeRegExp(option[1])}(?:[^a-z0-9-]|$)`),
         `CLI option is absent from ${documentPath}: itpay ${commandPath.join(" ")} --${option[1]}`);
@@ -121,13 +121,13 @@ try {
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
   assert.equal(skillHelp.result.skill, "itpay");
-  assert.match(skillHelp.result.content, /Understand The Human/);
+  assert.match(skillHelp.result.content, /Route The Human's Intent/);
   assert.match(skillHelp.result.content, /Serve The Human/);
-  assert.match(skillHelp.result.content, /Never promise an instant, unconditional, or successful refund/);
-  assert.match(skillHelp.result.content, /Previously Purchased Content/);
-  assert.match(skillHelp.result.content, /Choose One Access Lane/);
+  assert.match(skillHelp.result.content, /Explain refund eligibility as a policy route, not a promise/);
+  assert.match(skillHelp.result.content, /View previously purchased content/);
+  assert.match(skillHelp.result.content, /Keep the same Agent Type, official Backend, access lane/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
-  assert.match(skillHelp.result.content, /When authorization is required/);
+  assert.match(skillHelp.result.content, /Present one official authorization handoff/);
   assert.equal(skillHelp.next, null);
   const refundDocs = JSON.parse(execFileSync(process.execPath, [
     entry, "docs", "search", "钱扣了没结果", "--json",

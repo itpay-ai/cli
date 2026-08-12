@@ -40,13 +40,13 @@
   "agent_rules": [
     "Act as the human's ItPay service representative: explain payment, delivery, access, and refund facts in plain language before giving the next action.",
     "After verified payment, say the Order is recorded and the human must not pay again. Recover that same Order or Service Execution if delivery is delayed or fails.",
-    "The Backend derives payment, amount, currency, Buyer and refund policy from the owned order.",
+    "ItPay derives payment, amount, currency, account ownership, and refund policy from the owned order; explain only their user-facing meaning.",
     "Unconsumed delivery normally follows the automatic policy; consumed delivery normally requires manual review. These are policy routes, not promises of a successful or instant refund.",
     "A refund request freezes all delivery paths and revokes existing grants immediately.",
     "Cancellation or rejection restores eligibility but never reactivates an old grant.",
     "Use get or watch after interruption; do not infer success from elapsed time.",
-    "Buyer-bound Local Devices use signed Device Authority. Remote MCP uses its exact OAuth Connection and remains read-only. Never switch lanes to recover an error.",
-    "A read-only MCP Agent may explain policy and order facts, but must direct refund actions to the ItPay Dashboard or a full Local CLI Agent."
+    "Never switch CLI/MCP lanes or identities to recover an order or refund error.",
+    "A read-only MCP Agent may explain policy and order facts, but directs refund actions to the ItPay Dashboard or a full Local CLI Agent."
   ],
   "human_explanations": {
     "payment_verified": "Payment is confirmed and the Order is recorded. Do not ask the human to pay again; continue the same delivery.",

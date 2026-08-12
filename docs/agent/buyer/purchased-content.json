@@ -44,6 +44,11 @@
     "prefer": ["previously purchased content", "past report", "purchase history", "已购内容", "以前购买的报告", "购买记录"],
     "avoid": ["Vault", "artifact", "Device", "Buyer", "grant", "start token"]
   },
+  "partial_results": {
+    "available": "Explain the returned section normally.",
+    "empty": "Say the data source returned no records for this section; do not claim the real-world fact does not exist.",
+    "failed": "Say this section could not be retrieved; never present it as an empty result or trigger a new purchase or query."
+  },
   "safety": [
     "A complete official handoff URL is meant for the current human; never extract or separately output its embedded credential.",
     "Do not expose artifact_ref to the human or ask them to provide one.",

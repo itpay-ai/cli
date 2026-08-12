@@ -4,22 +4,12 @@
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
-  "purpose": "Load the complete ItPay Skill and select one stable Agent Type without confusing distribution, identity, Backend, Host, target, or chat window.",
+  "purpose": "Select the real Agent Type, verify one official Backend, and load the packaged Skill through one linear setup path.",
   "when_to_use": [
     "The CLI is being installed or upgraded.",
     "The agent needs to confirm its stable runtime identity and default output Host."
   ],
   "commands": [
-    {
-      "intent": "verify the API and enter packaged onboarding",
-      "command": "itpay readyz --json",
-      "success_signal": "status is ready and next points to skill show itpay"
-    },
-    {
-      "intent": "read the complete packaged operating contract",
-      "command": "itpay skill show itpay --json",
-      "success_signal": "status is shown, result.content contains the complete Skill, and a declared Agent Type returns next=null so the Agent can route the human's intent"
-    },
     {
       "intent": "list supported Agent Types",
       "command": "itpay install --json",
@@ -29,10 +19,22 @@
       "intent": "read setup for the real runtime",
       "command": "itpay install <agent_type> --json",
       "success_signal": "status is instructions_ready and next is a readyz command using that exact Agent Type"
+    },
+    {
+      "intent": "verify the selected official Backend",
+      "command": "<execute the exact next.command returned by install>",
+      "success_signal": "status is ready and next points to the packaged Skill with the same Agent Type and Backend"
+    },
+    {
+      "intent": "load the complete packaged operating contract",
+      "command": "<execute the exact next.command returned by readyz>",
+      "success_signal": "status is shown and next is null so the Agent can route the human's natural-language intent"
     }
   ],
   "agent_rules": [
-    "Use the CLI distribution already provided by the current npm package, Skill, or plugin; install only through that distribution's own instructions.",
+    "Start with install, identify the current real runtime from result.agent_types, run itpay install <agent_type> --json yourself, and then execute each returned next.command unchanged until the Skill is loaded.",
+    "After setup, tell the human only that ItPay is ready; never ask them to run setup commands or explain technical setup steps.",
+    "Use the CLI distribution already provided by the current npm package, Skill, or plugin; update only through that distribution's own instructions.",
     "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL https://dev.itpay.ai; no other Backend is allowed.",
     "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and use only the exact distribution-specific update recovery returned by the CLI; never replace its version with latest.",
     "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
@@ -40,7 +42,7 @@
     "For compatibility, a global --agent-type codex declaration is normalized immediately to codex-desktop; all registration, output, and returned commands use codex-desktop. Never generate the alias, and do not use codex as an install target.",
     "One local private key is reused, while Device registrations and quota lineage remain separate for app.itpay.ai and dev.itpay.ai.",
     "Within each official Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
-    "Agent Type identifies the runtime. Host controls rendering and target only identifies a presentation destination. OpenClaw requires an explicit Host and IM target; Kimi Code uses the standard terminal CLI contract.",
+    "Agent Type identifies the runtime. Host and target only select a presentation destination; load render-hosts only when a handoff cannot be shown.",
     "Keep the exact Agent Type in every next or recovery command; do not fall back to a type previously used by another runtime.",
     "Do not change Agent Type or rotate local identity to reset quota or recover a failed command."
   ],

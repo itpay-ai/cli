@@ -41,7 +41,7 @@ itpay checkout [--id <checkout_id>] [--token <display_token>]
 {
   "status": "completed",
   "result": { "checkout_id": "<checkout_id>", "payment": "verified", "order_id": "<optional_order_id>", "service_execution_id": "<optional_id>" },
-  "instruction": "先告诉用户：付款已经确认，订单已经记录，不需要再次付款；结果会在同一订单下继续准备，如果最终无法正常交付，可以从原订单申请退款，处理方式由内容是否已使用决定。然后只执行 next.command 读取同一 Execution；不要再次展示付款入口、调用 pay 或创建新 Checkout/Execution，也不要承诺退款结果。",
+  "instruction": "告诉用户：付款已经确认，订单已经记录，不需要再次付款；结果会在同一订单下继续准备，如果最终无法交付，可以从原订单申请退款，处理方式由内容是否已使用决定。然后只执行 next.command 读取同一笔服务；Agent 不再展示付款入口或创建新订单，也不承诺退款结果。",
   "next": { "command": "itpay services next <service_execution_id> --json", "reason": "读取同一笔已付款 Service Execution" },
   "recovery": []
 }

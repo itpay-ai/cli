@@ -153,7 +153,7 @@ function terminalCheckoutEnvelope(presentation: CheckoutPresentation): CommandEn
   const recovery: CommandAction[] = [];
   if (payment === "verified") {
     status = "completed";
-    instruction = "先告诉用户：付款已经确认，订单已经记录，不需要再次付款；结果会在同一订单下继续准备，如果最终无法正常交付，可以从原订单申请退款，处理方式由内容是否已使用决定。然后只执行 next.command 读取同一 Execution；不要再次展示付款入口、调用 pay 或创建新 Checkout/Execution，也不要承诺退款结果。";
+    instruction = "告诉用户：付款已经确认，订单已经记录，不需要再次付款；结果会在同一订单下继续准备，如果最终无法交付，可以从原订单申请退款，处理方式由内容是否已使用决定。然后只执行 next.command 读取同一笔服务；Agent 不再展示付款入口或创建新订单，也不承诺退款结果。";
     next = serviceExecutionIDs.length === 1
       ? { command: `itpay services next ${serviceExecutionIDs[0]} --json`, reason: "读取同一笔已付款 Service Execution" }
       : presentation.completed_order_id

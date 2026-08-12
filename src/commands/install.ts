@@ -36,7 +36,7 @@ export function runInstall(target: string | undefined, options: InstallOptions =
     writeCommandEnvelope({
       status: "install_targets",
       result: { agent_types: agentTypes },
-      instruction: "选择当前真实运行环境；同一 Agent 不要临时更换 Agent Type。",
+      instruction: "识别当前真实运行平台，从 result.agent_types 选择对应 agent_type，并由 Agent 自行运行 itpay install <agent_type> --json；不要让用户运行命令，也不要临时更换 Agent Type。",
       next: null,
       recovery: [{ command: "itpay docs show install-and-setup", reason: "查看安装与环境说明" }],
     }, {

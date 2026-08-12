@@ -3,11 +3,11 @@
   "role": "buyer",
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
   "topic": "quickstart",
-  "title": "ItPay CLI Buyer Quickstart",
-  "purpose": "Run the shortest safe discovery, Service Execution, Checkout, delivery, and refund flow using server-returned next commands.",
+  "title": "Route One Human Intent Through ItPay",
+  "purpose": "Choose the correct first action from the human's words and continue through one authoritative CLI envelope at a time.",
   "when_to_use": [
     "The agent has just installed this CLI version.",
-    "The user asks what ItPay can do or asks to use a published service."
+    "The user asks to buy something, read previous content, inspect orders, or handle a refund."
   ],
   "required_state": {
     "needs": [
@@ -20,51 +20,29 @@
       "raw payload access"
     ]
   },
-  "commands": [
-    {
-      "intent": "verify the selected official Backend availability",
-      "command": "itpay --agent-type <agent_type> readyz --json",
-      "success_signal": "status is ready and next points to the complete packaged ItPay Skill"
-    },
-    {
-      "intent": "load the complete operating contract",
-      "command": "itpay --agent-type <agent_type> skill show itpay --json",
-      "success_signal": "status is shown, next is null, and the Agent chooses Catalog only because this quickstart is for a new service request"
-    },
-    {
-      "intent": "discover published services",
-      "command": "itpay --agent-type <agent_type> catalog list --json",
-      "success_signal": "a compact service journey, service_id, variants and prices are returned"
-    },
-    {
-      "intent": "start a generic service",
-      "command": "itpay --agent-type <agent_type> services start <service_id> --json",
-      "success_signal": "one service_execution_id, one preferred capability summary and one executable next command are returned"
-    },
-    {
-      "intent": "continue after every step or interruption",
-      "command": "<execute the exact next.command returned by the previous CLI envelope>",
-      "success_signal": "the next envelope reports one current state and at most one preferred action"
-    },
-    {
-      "intent": "recover from local handles",
-      "command": "itpay --agent-type <agent_type> next --json",
-      "success_signal": "one Service Execution, Checkout, Cart, or Catalog recovery command is returned"
-    }
-  ],
+  "intent_routing": {
+    "new_service": "Use catalog list only for a new service or query.",
+    "previous_content": "Use vault list, optionally with the subject as --query.",
+    "purchase_history": "Use orders.",
+    "refund_or_paid_problem": "Resume the known Order or Refund before creating anything new.",
+    "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay."
+  },
+  "commands": [{
+    "intent": "continue the selected flow",
+    "command": "<execute the exact next.command returned by the previous CLI envelope>",
+    "success_signal": "the next envelope reports one current state and at most one preferred action"
+  }],
   "agent_rules": [
-    "Use the CLI as the control surface; do not call ItPay APIs directly or hardcode a service workflow.",
+    "Use the CLI as the control surface; infer the human's intent before the first command and never hardcode a service workflow.",
     "Treat result as current facts, instruction as how to use those facts, next as the preferred executable action, and recovery as exceptional paths.",
     "Run one state-changing command at a time. Treat next.command as the preferred continuation: execute it unchanged after filling required user data only when the current result has not already satisfied the user's goal.",
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
     "When testing dev, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://dev.itpay.ai prefix is preserved.",
     "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
-    "OpenClaw must pass the current entry as --host and an IM destination as --target. Kimi Code follows the standard terminal CLI flow.",
     "Start a separate Service Execution for each independent service intent; quota remains shared according to Backend identity policy.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",
-    "Agent-visible delivery is returned by services next. Protected delivery is read only by services read-result while a human grant is active.",
-    "A human grant is scoped to one delivery, its frozen authorized Agent audience, approved fields, and a 15-minute expiry.",
-    "Normal payment uses the ItPay Checkout handoff, not itpay pay."
+    "Explain useful service facts in ordinary language; never ask the human to run commands or learn internal IDs.",
+    "Normal payment uses the returned ItPay Checkout handoff."
   ],
   "forbidden": [
     "Do not invent catalog, variant, offer, capability, result item, order or refund IDs.",
@@ -75,6 +53,10 @@
     {
       "condition": "Need service catalog language",
       "topic": "catalog-list"
+    },
+    {
+      "condition": "Need previous content or purchase history",
+      "topic": "purchased-content"
     },
     {
       "condition": "Need Cart and Checkout routing",

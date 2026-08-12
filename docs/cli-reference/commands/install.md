@@ -98,7 +98,7 @@ OpenClaw 额外明确没有默认入口：
       }
     ]
   },
-  "instruction": "选择当前真实运行环境；同一 Agent 不要临时更换 Agent Type。",
+  "instruction": "识别当前真实运行平台，从 result.agent_types 选择对应 agent_type，并由 Agent 自行运行 itpay install <agent_type> --json；不要让用户运行命令，也不要临时更换 Agent Type。",
   "next": null,
   "recovery": [
     {
@@ -108,6 +108,8 @@ OpenClaw 额外明确没有默认入口：
   ]
 }
 ```
+
+`next` 保持为空，因为 CLI 不能替 Agent 猜测其宿主平台；Agent 必须自行完成这次选择并继续执行，不得把技术选择或命令转交给用户。
 
 ## Agent Type / Host
 
