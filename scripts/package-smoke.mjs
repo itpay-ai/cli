@@ -121,13 +121,13 @@ try {
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
   assert.equal(skillHelp.result.skill, "itpay");
-  assert.match(skillHelp.result.content, /Understand The Human/);
+  assert.match(skillHelp.result.content, /Route The Human's Intent/);
   assert.match(skillHelp.result.content, /Serve The Human/);
-  assert.match(skillHelp.result.content, /Never promise an instant, unconditional, or successful refund/);
-  assert.match(skillHelp.result.content, /Previously Purchased Content/);
-  assert.match(skillHelp.result.content, /Choose One Access Lane/);
+  assert.match(skillHelp.result.content, /Explain refund eligibility as a policy route, not a promise/);
+  assert.match(skillHelp.result.content, /View previously purchased content/);
+  assert.match(skillHelp.result.content, /Keep the same Agent Type, official Backend, access lane/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
-  assert.match(skillHelp.result.content, /When authorization is required/);
+  assert.match(skillHelp.result.content, /Present one official authorization handoff/);
   assert.equal(skillHelp.next, null);
   const refundDocs = JSON.parse(execFileSync(process.execPath, [
     entry, "docs", "search", "钱扣了没结果", "--json",
