@@ -9,6 +9,7 @@ export interface Money {
 
 export interface LineItem {
   line_item_id?: string;
+  order_item_id?: string;
   cart_item_id?: string;
   checkout_item_id?: string;
   catalog_item_id?: string;
@@ -145,6 +146,21 @@ export interface DeliveryArtifact {
 
 export interface ListOrdersResponse {
   orders: Order[];
+}
+
+export interface SubmitServiceFeedbackRequest {
+  order_item_id: string;
+  rating: number;
+  note?: string;
+}
+
+export interface ServiceFeedback {
+  rating: number;
+  status: "new" | "acknowledged" | "resolved" | "dismissed";
+}
+
+export interface SubmitServiceFeedbackResponse {
+  feedback: ServiceFeedback;
 }
 
 export interface BuyerOrderSummary {

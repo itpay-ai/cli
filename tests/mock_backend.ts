@@ -30,7 +30,9 @@ export interface RecordedRequest {
 export interface MockBackendHandle {
   url: string;
   requests: RecordedRequest[];
+  feedbacks: Array<Record<string, unknown>>;
   setAccountOrders: (orders: Array<Record<string, unknown>>) => void;
+  setFeedbackError: (error?: { status: number; code: string; message: string } | "transport") => void;
   setServiceError: (error?: {
     status: number; code: string; message: string;
     service_execution_id?: string; provider_called?: boolean;
@@ -58,11 +60,13 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   const serviceExecutions: Record<string, Record<string, unknown>> = {};
   let accountOrders: Array<Record<string, unknown>> = [];
   let serviceError: Parameters<MockBackendHandle["setServiceError"]>[0];
+  let feedbackError: Parameters<MockBackendHandle["setFeedbackError"]>[0];
+  const feedbacks: Array<Record<string, unknown>> = [];
   const orderByID: Record<string, Record<string, unknown>> = {
     ord_delivery: {
       order_id: "ord_delivery", order_code: "IP-DELIVERY", checkout_id: "chk_delivery", status: "delivered",
       amount_minor: 50, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
-      items: [{ title: "Protected result", quantity: 1, amount_minor: 50, currency: "CNY" }],
+      items: [{ order_item_id: "oi_delivery", title: "Protected result", quantity: 1, amount_minor: 50, currency: "CNY", input: { company_name: "北京赢在未来科技有限公司" } }],
       delivery_artifacts: [{
         delivery_artifact_id: "da_delivery", order_id: "ord_delivery", service_execution_id: "se_granted",
         vault_artifact_id: "vault_se_granted", status: "claimable", artifact_type: "service_result",
@@ -72,13 +76,13 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     ord_agent_visible: {
       order_id: "ord_agent_visible", order_code: "IP-VISIBLE", checkout_id: "chk_visible", status: "delivered",
       amount_minor: 10, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
-      items: [{ title: "Agent-visible result", quantity: 1, amount_minor: 10, currency: "CNY" }],
+      items: [{ order_item_id: "oi_agent_visible", title: "Agent-visible result", quantity: 1, amount_minor: 10, currency: "CNY", input: { keyword: "赢在未来" } }],
       delivery_artifacts: [],
     },
     ord_locked: {
       order_id: "ord_locked", order_code: "IP-LOCKED", checkout_id: "chk_locked", status: "delivered",
       amount_minor: 50, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
-      items: [{ title: "Locked result", quantity: 1, amount_minor: 50, currency: "CNY" }],
+      items: [{ order_item_id: "oi_locked", title: "Locked result", quantity: 1, amount_minor: 50, currency: "CNY" }],
       delivery_artifacts: [{
         delivery_artifact_id: "da_locked", order_id: "ord_locked", service_execution_id: "se_vault_denied",
         vault_artifact_id: "vault_locked", status: "claimable", artifact_type: "service_result",
@@ -88,7 +92,34 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     ord_failed: {
       order_id: "ord_failed", order_code: "IP-FAILED", checkout_id: "chk_failed", status: "failed",
       amount_minor: 20, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
-      items: [{ title: "Failed delivery", quantity: 1, amount_minor: 20, currency: "CNY" }],
+      items: [{ order_item_id: "oi_failed", title: "Failed delivery", quantity: 1, amount_minor: 20, currency: "CNY" }],
+      delivery_artifacts: [],
+    },
+    ord_multi: {
+      order_id: "ord_multi", order_code: "IP-MULTI", checkout_id: "chk_multi", status: "delivered",
+      amount_minor: 220, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [
+        { order_item_id: "oi_multi_1", title: "企业名称建议", quantity: 1, amount_minor: 20, currency: "CNY", input: { keyword: "京东" } },
+        { order_item_id: "oi_multi_2", title: "企业综合报告", quantity: 1, amount_minor: 200, currency: "CNY", input: { company_name: "北京京东世纪贸易有限公司" } },
+      ],
+      delivery_artifacts: [],
+    },
+    ord_no_feedback_item: {
+      order_id: "ord_no_feedback_item", order_code: "IP-NO-ITEM", checkout_id: "chk_no_item", status: "delivered",
+      amount_minor: 20, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ title: "Legacy item", quantity: 1, amount_minor: 20, currency: "CNY" }],
+      delivery_artifacts: [],
+    },
+    ord_visible: {
+      order_id: "ord_visible", order_code: "IP-VISIBLE-RESULT", checkout_id: "chk_visible_result", status: "delivered",
+      amount_minor: 20, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ order_item_id: "oi_visible", title: "Agent-visible result", quantity: 1, amount_minor: 20, currency: "CNY" }],
+      delivery_artifacts: [],
+    },
+    ord_vault: {
+      order_id: "ord_vault", order_code: "IP-VAULT-RESULT", checkout_id: "chk_vault_result", status: "delivered",
+      amount_minor: 200, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ order_item_id: "oi_vault", title: "企业综合报告", quantity: 1, amount_minor: 200, currency: "CNY" }],
       delivery_artifacts: [],
     },
   };
@@ -791,6 +822,35 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    const feedbackMatch = path.match(/^\/v1\/orders\/([^/]+)\/feedback$/);
+    if (method === "POST" && feedbackMatch) {
+      if (feedbackError === "transport") {
+        res.destroy(new Error("mock feedback transport failure"));
+        return;
+      }
+      if (feedbackError) {
+        respond(res, feedbackError.status, { code: feedbackError.code, message: feedbackError.message });
+        return;
+      }
+      const payload = requests.at(-1)?.body ?? {};
+      const saved = {
+        feedback_id: "fb_mock",
+        order_id: feedbackMatch[1],
+        order_item_id: payload.order_item_id,
+        submitter_kind: "agent",
+        rating: payload.rating,
+        ...(typeof payload.note === "string" ? { note: payload.note } : {}),
+        status: "new",
+        created_at: "2026-08-14T12:00:00Z",
+        updated_at: "2026-08-14T12:00:00Z",
+      };
+      const existing = feedbacks.findIndex((item) => item.order_item_id === saved.order_item_id);
+      if (existing >= 0) feedbacks[existing] = saved;
+      else feedbacks.push(saved);
+      respond(res, 201, { feedback: saved });
+      return;
+    }
+
     if (method === "GET" && path === "/v1/me/orders") {
       if (bearer.startsWith("ItPayDevice ")) {
         respond(res, 200, {
@@ -962,7 +1022,9 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   return {
     url,
     requests,
+    feedbacks,
     setAccountOrders: (orders) => { accountOrders = orders; },
+    setFeedbackError: (error) => { feedbackError = error; },
     setServiceError: (error) => { serviceError = error; },
     close: () =>
       new Promise<void>((resolve, reject) => {

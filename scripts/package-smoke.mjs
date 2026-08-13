@@ -51,6 +51,7 @@ try {
     ["cart show", "commands/cart/show.md"], ["cart clear", "commands/cart/clear.md"],
     ["buy", "commands/buy.md"], ["checkout", "commands/checkout.md"], ["pay", "commands/pay.md"],
     ["order", "commands/order.md"], ["orders", "commands/orders.md"],
+    ["feedback", "commands/feedback/index.md"], ["feedback submit", "commands/feedback/submit.md"],
     ["refund", "commands/refund/index.md"], ["refund create", "commands/refund/create.md"],
     ["refund list", "commands/refund/list.md"], ["refund get", "commands/refund/get.md"],
     ["refund watch", "commands/refund/watch.md"], ["refund cancel", "commands/refund/cancel.md"],

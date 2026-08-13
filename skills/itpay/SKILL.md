@@ -3,7 +3,8 @@ name: itpay
 description: >
   Use ItPay when a human wants to discover or buy a service, view something
   they previously purchased, inspect order or delivery history, or request
-  and track a refund. Seller workflows are not yet available.
+  and track a refund, or rate a purchased service. Seller workflows are not
+  yet available.
 ---
 
 # ItPay
@@ -21,6 +22,7 @@ for the human; never ask them to run commands or learn internal concepts.
 | Find a previous result by subject | `itpay vault list --query <subject> --json` |
 | Inspect purchase history | `itpay orders --json` |
 | Track or request a refund | Resume the known Order or Refund returned by ItPay |
+| Rate a purchased service or report a blocker | Resume the known Order; submit only after the human gives a 1–5 rating |
 
 Words such as "my", "previous", "bought", "history", "report", "以前",
 "之前", "买过", "查过", "历史", and "已购内容" usually mean an existing
@@ -59,6 +61,9 @@ The current Backend response always overrides general documentation.
   If delivery fails, recover that same order before discussing a refund.
 - Explain refund eligibility as a policy route, not a promise. Only ItPay's
   final refund state proves success.
+- Finish delivery or failure recovery before inviting feedback. Ask at most
+  once per order; require an explicit 1–5 rating, run the feedback command
+  yourself, and promise only that the feedback was recorded.
 - Describe Vault/artifact/grant as "已购内容", the actual report title, or
   "临时只读授权". Do not expose Provider, Buyer, Device, Execution, capability,
   token, or internal identifiers.
@@ -90,3 +95,5 @@ The current Backend response always overrides general documentation.
   separate attempt.
 - Never claim a handoff, payment, authorization, delivery, or refund succeeded
   without the corresponding ItPay state.
+- Never infer a rating or silently upload chat, prompts, logs, contact details,
+  purchased content, credentials, or internal identifiers as feedback.

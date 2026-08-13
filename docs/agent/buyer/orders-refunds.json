@@ -68,6 +68,10 @@
     {
       "condition": "Need the original purchase path",
       "topic": "quickstart"
+    },
+    {
+      "condition": "The original order is handled and the human wants to rate the experience",
+      "topic": "service-feedback"
     }
   ],
   "search_terms": [

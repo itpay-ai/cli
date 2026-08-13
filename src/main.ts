@@ -17,6 +17,7 @@ import { runCheckoutPresentation } from "./commands/checkout.js";
 import { runPay } from "./commands/pay.js";
 import { runOrder } from "./commands/order.js";
 import { runListOrders } from "./commands/orders.js";
+import { runFeedbackSubmit } from "./commands/feedback.js";
 import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "./commands/refund.js";
 import {
   runCartAdd,
@@ -68,6 +69,7 @@ Common human intents:
   Previously purchased item vault list
   Purchase history           orders
   Delivery or refund problem resume the known Order or Refund
+  Rate a purchased service   feedback submit
 
 The Agent runs commands. Ask the human only to choose, authorize, pay, provide
 required contact details, or confirm a refund. Never expose commands or internal IDs.
@@ -1131,6 +1133,65 @@ program
         jsonOutput: Boolean(options.json),
         code: "orders_list_failed",
         instruction: "无法读取当前账号的订单摘要。不要构造 Buyer token、切换身份或通过错误差异探测其他账号。",
+        recovery: [],
+      });
+    }
+  });
+
+const feedback = program.command("feedback").description("Rate one service item from an existing order");
+
+feedback
+  .command("submit")
+  .description("Submit a human-confirmed rating and optional comment")
+  .option("--order <order_id>")
+  .option("--rating <rating>")
+  .option("--note <text>")
+  .option("--item-rank <rank>")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options: { order?: string; rating?: string; note?: string; itemRank?: string; json?: boolean }) => {
+    const config = loadConfig();
+    const jsonOutput = Boolean(options.json);
+    try {
+      await runFeedbackSubmit(newBackendClient(config), options.order, {
+        ...(options.rating !== undefined ? { rating: options.rating } : {}),
+        ...(options.note !== undefined ? { note: options.note } : {}),
+        ...(options.itemRank !== undefined ? { itemRank: options.itemRank } : {}),
+        environment: config.environment,
+        ...(config.agentType ? { agentType: config.agentType } : {}),
+        jsonOutput,
+      });
+    } catch (error) {
+      if (error instanceof HttpTransportError) {
+        reportCLIError(new CommandContractError(
+          "feedback_submission_unknown",
+          error.message,
+          "告诉用户反馈是否记录目前无法确认并停止。不要自动重试；只有用户明确要求再次提交时才可更新同一反馈。",
+          [],
+        ), { jsonOutput, code: "feedback_submission_unknown", instruction: "", recovery: [] });
+        return;
+      }
+      if (error instanceof HttpError && error.status === 404) {
+        reportCLIError(new CommandContractError(
+          "feedback_not_available_for_agent",
+          "feedback is not available to this Agent for the selected order",
+          "告诉用户当前 Agent 不能代这笔原订单提交反馈；可以使用官方订单页或原 Local Agent。不要切换身份、Backend、Device 或 MCP/Vault 线路绕过。",
+          [],
+        ), { jsonOutput, code: "feedback_not_available_for_agent", instruction: "", recovery: [] });
+        return;
+      }
+      if (error instanceof HttpError && error.status >= 400 && error.status < 500) {
+        reportCLIError(new CommandContractError(
+          "feedback_rejected",
+          error.message,
+          "告诉用户这次反馈没有被记录；只有用户修正明确的评分或内容后才可再次提交。",
+          [],
+        ), { jsonOutput, code: "feedback_rejected", instruction: "", recovery: [] });
+        return;
+      }
+      reportCLIError(error, {
+        jsonOutput,
+        code: "feedback_submit_failed",
+        instruction: "告诉用户反馈没有确认记录并停止；不要自动重试、切换身份或影响原订单。",
         recovery: [],
       });
     }
