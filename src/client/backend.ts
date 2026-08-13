@@ -20,6 +20,8 @@ import type {
   ListServiceExecutionsResponse,
   Order,
   OrderDeliveryAccess,
+  SubmitServiceFeedbackRequest,
+  SubmitServiceFeedbackResponse,
   BuyerVaultArtifactList,
   BuyerVaultRead,
   VaultAccessRequest,
@@ -127,6 +129,13 @@ export class BackendClient {
 
   getOrderDeliveryAccess(orderID: string): Promise<OrderDeliveryAccess> {
     return this.http.get<OrderDeliveryAccess>(`/v1/orders/${encodeURIComponent(orderID)}/delivery-access`);
+  }
+
+  submitServiceFeedback(orderID: string, input: SubmitServiceFeedbackRequest): Promise<SubmitServiceFeedbackResponse> {
+    return this.http.post<SubmitServiceFeedbackResponse>(
+      `/v1/orders/${encodeURIComponent(orderID)}/feedback`,
+      input,
+    );
   }
 
   listAccountOrders(limit: number, status?: string, bearer?: string, cursor?: string): Promise<ListOrdersResponse | BuyerOrderSummaryList> {

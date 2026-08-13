@@ -35,6 +35,7 @@ import { runCheckoutPresentation } from "../src/commands/checkout.js";
 import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
+import { normalizeFeedbackRating, runFeedbackSubmit } from "../src/commands/feedback.js";
 import { runListOrders } from "../src/commands/orders.js";
 import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefund } from "../src/commands/refund.js";
 import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartAddQuoteServer, runCartNext } from "../src/commands/cart.js";
@@ -108,6 +109,8 @@ before(async () => {
 
 beforeEach(() => {
   mock.requests.length = 0;
+  mock.feedbacks.length = 0;
+  mock.setFeedbackError(undefined);
   stdoutCapture = [];
   stdoutSink = (line) => {
     stdoutCapture.push(line);
@@ -669,12 +672,15 @@ test("services next exposes only safe agent-visible result fields", async () => 
   await runServicesNext(backend, "se_agent_visible", { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
-    result: { delivery_mode: string; items: Array<{ safe_payload: Record<string, unknown> }> };
+    result: { delivery_mode: string; order_id: string; items: Array<{ safe_payload: Record<string, unknown> }> };
+    instruction: string;
     next: unknown;
   };
   assert.equal(envelope.status, "result_ready");
   assert.equal(envelope.result.delivery_mode, "agent_visible_result");
+  assert.equal(envelope.result.order_id, "ord_visible");
   assert.deepEqual(envelope.result.items[0]?.safe_payload, { name: "Example result", status: "active" });
+  assert.match(envelope.instruction, /1–5/);
   assert.equal(envelope.next, null);
   assert.doesNotMatch(stdoutCapture.join(""), /stable_hash|service_capability_result_item_id/);
 });
@@ -752,6 +758,7 @@ test("paid terminal failure recovers the original order without another paid cal
   assert.equal(envelope.recovery[0]?.command, "itpay order ord_vault --json");
   assert.match(envelope.instruction, /不需要再次付款或重新下单/);
   assert.match(envelope.instruction, /不重放服务步骤、创建付款页面或再次调用数据来源/);
+  assert.match(envelope.instruction, /1–5/);
   assert.doesNotMatch(JSON.stringify(envelope.recovery), /checkout|services invoke|services start/);
 });
 
@@ -1694,7 +1701,7 @@ test("buildCheckoutQRPlan pins the brand QR payload", () => {
 
 test("readyz probes /v1/readyz", async () => {
   await runReadyz(backend, { output: stdoutSink, jsonOutput: true });
-  const req = mock.requests.at(-1)!;
+  const req = mock.requests.find((request) => request.path === "/v1/readyz")!;
   assert.equal(req.method, "GET");
   assert.equal(req.path, "/v1/readyz");
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
@@ -2097,7 +2104,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(untyped.result.content, /## Serve The Human/);
   assert.match(untyped.result.content, /Perform every technical step yourself/);
   assert.match(untyped.result.content, /policy route, not a promise/);
-  assert.match(untyped.result.content, /Seller workflows.*not yet available/);
+  assert.match(untyped.result.content, /Seller workflows are not\s+yet available/);
   assert.match(untyped.result.content, /## Follow One Envelope/);
   assert.equal(untyped.next.command, "itpay install --json");
 
@@ -3058,14 +3065,17 @@ test("services read-result relies on device authority instead of a checkout toke
   await runServicesReadResult(backend, "se_granted", { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
-    result: { service_execution_id: string; grant_expires_at: string; granted_fields: string[]; payload: Record<string, unknown> };
+    result: { service_execution_id: string; order_id: string; grant_expires_at: string; granted_fields: string[]; payload: Record<string, unknown> };
+    instruction: string;
   };
   assert.equal(envelope.status, "granted_result_ready");
   assert.equal(envelope.result.service_execution_id, "se_granted");
+  assert.equal(envelope.result.order_id, "ord_vault");
   assert.equal(envelope.result.grant_expires_at, "2026-07-13T12:15:00Z");
   assert.deepEqual(envelope.result.granted_fields, ["summary"]);
   assert.deepEqual(envelope.result.payload, { summary: "granted" });
-  const req = mock.requests.at(-1)!;
+  assert.match(envelope.instruction, /1–5/);
+  const req = mock.requests.find((request) => request.path === "/v1/service-executions/se_granted/granted-result")!;
   assert.equal(req.path, "/v1/service-executions/se_granted/granted-result");
   assert.equal(req.headers.authorization, undefined);
   assert.equal(req.path.includes("agent_device_id"), false);
@@ -3332,6 +3342,189 @@ test("services checkout rejects missing required input before creating checkout 
   assert.equal(requests.filter((request) => request.method === "POST").length, 0);
 });
 
+test("feedback accepts only explicit human scores and never infers sentiment", () => {
+  for (const [input, expected] of [
+    ["1", 1], ["5/5", 5], ["4分", 4], ["3星", 3], ["2 stars", 2], ["五", 5], ["一星", 1],
+  ] as const) {
+    assert.equal(normalizeFeedbackRating(input), expected);
+  }
+  for (const input of [undefined, "", "0", "6", "4.5", "好评", "很差", "五星好评!"]) {
+    assert.throws(() => normalizeFeedbackRating(input), (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "feedback_rating_invalid");
+      return true;
+    });
+  }
+});
+
+test("feedback submit records one existing order item with bounded Agent context", async () => {
+  await runFeedbackSubmit(backend, "ord_delivery", {
+    rating: "五",
+    note: "报告很清楚\n但授权提示还可以更直接",
+    environment: "development",
+    agentType: "workbuddy",
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { order_code: string; service_title: string; rating: number; feedback_status: string };
+    instruction: string;
+    next: unknown;
+  };
+  assert.equal(envelope.status, "feedback_submitted");
+  assert.deepEqual(envelope.result, {
+    order_code: "IP-DELIVERY",
+    service_title: "Protected result",
+    rating: 5,
+    feedback_status: "new",
+  });
+  assert.match(envelope.instruction, /已经记录/);
+  assert.equal(envelope.next, null);
+  assert.doesNotMatch(stdoutCapture.join(""), /fb_mock|oi_delivery|agent_device|buyer_/);
+
+  const posts = mock.requests.filter((request) => request.method === "POST" && request.path.endsWith("/feedback"));
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0]?.path, "/v1/orders/ord_delivery/feedback");
+  const body = posts[0]?.body as { order_item_id: string; rating: number; note: string };
+  assert.equal(body.order_item_id, "oi_delivery");
+  assert.equal(body.rating, 5);
+  assert.match(body.note, /^## Summary\n> 报告很清楚\n> 但授权提示还可以更直接/m);
+  assert.match(body.note, /Source: user-confirmed via agent/);
+  assert.match(body.note, /Outcome: delivered/);
+  assert.match(body.note, /Service: Protected result/);
+  assert.match(body.note, /Agent type: workbuddy/);
+  assert.match(body.note, /Environment: development/);
+  assert.ok(Array.from(body.note).length <= 2000);
+});
+
+test("feedback requires a human choice for a multi-item order before posting", async () => {
+  await runFeedbackSubmit(backend, "ord_multi", {
+    rating: "4/5",
+    note: "第二项更有用",
+    environment: "production",
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const selection = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { items: Array<{ rank: number; title: string; subject: string }> };
+    next: unknown;
+  };
+  assert.equal(selection.status, "feedback_item_selection_required");
+  assert.deepEqual(selection.result.items, [
+    { rank: 1, title: "企业名称建议", subject: "京东" },
+    { rank: 2, title: "企业综合报告", subject: "北京京东世纪贸易有限公司" },
+  ]);
+  assert.equal(selection.next, null);
+  assert.equal(mock.requests.filter((request) => request.method === "POST" && request.path.endsWith("/feedback")).length, 0);
+  assert.doesNotMatch(stdoutCapture.join(""), /oi_multi|order_item_id/);
+
+  stdoutCapture = [];
+  await runFeedbackSubmit(backend, "ord_multi", {
+    rating: "4/5",
+    note: "第二项更有用",
+    itemRank: "#2",
+    environment: "production",
+    agentType: "codex-desktop",
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  assert.equal(JSON.parse(stdoutCapture.join("")).status, "feedback_submitted");
+  const post = [...mock.requests].reverse().find((request) => request.method === "POST" && request.path.endsWith("/feedback"));
+  assert.equal(post?.body?.order_item_id, "oi_multi_2");
+});
+
+test("feedback validation failures stop before the write request", async () => {
+  const cases: Array<() => Promise<void>> = [
+    () => runFeedbackSubmit(backend, undefined, { rating: "5", environment: "production" }),
+    () => runFeedbackSubmit(backend, "ord_multi", { rating: "5", itemRank: "3", environment: "production" }),
+    () => runFeedbackSubmit(backend, "ord_no_feedback_item", { rating: "5", environment: "production" }),
+    () => runFeedbackSubmit(backend, "ord_delivery", { rating: "5", note: "😀".repeat(2001), environment: "production" }),
+  ];
+  const expected = ["order_required", "feedback_item_invalid", "feedback_unavailable", "feedback_note_too_long"];
+  for (const [index, run] of cases.entries()) {
+    await assert.rejects(run, (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, expected[index]);
+      return true;
+    });
+  }
+  assert.equal(mock.requests.filter((request) => request.method === "POST" && request.path.endsWith("/feedback")).length, 0);
+});
+
+test("feedback command maps ownership rejection without exposing identities", async () => {
+  mock.setFeedbackError({ status: 404, code: "not_found", message: "resource not found" });
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-feedback-denied-"));
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [
+      CLI_ENTRY, "--agent-type", "codex-desktop", "feedback", "submit",
+      "--order", "ord_delivery", "--rating", "5", "--json",
+    ], {
+      cwd: CLI_ROOT,
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string; message: string };
+        instruction: string;
+      };
+      assert.equal(envelope.error.code, "feedback_not_available_for_agent");
+      assert.match(envelope.instruction, /官方订单页或原 Local Agent/);
+      assert.doesNotMatch(JSON.stringify(envelope), /buyer_|agent_device|order_item_id/);
+      return true;
+    },
+  );
+});
+
+test("feedback documented JSON command stays identical across Agent Types", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-feedback-types-"));
+  const outputs: string[] = [];
+  for (const agentType of AGENT_TYPES) {
+    const result = await runCLI([
+      "--agent-type", agentType, "feedback", "submit",
+      "--order", "ord_delivery", "--rating", "5/5", "--note", "清楚，继续保持", "--json",
+    ], { HOME: home });
+    assert.equal(result.stderr, "");
+    outputs.push(result.stdout);
+  }
+  assert.equal(new Set(outputs).size, 1);
+  const envelope = JSON.parse(outputs[0]!) as { status: string; result: { rating: number }; next: unknown };
+  assert.equal(envelope.status, "feedback_submitted");
+  assert.equal(envelope.result.rating, 5);
+  assert.equal(envelope.next, null);
+});
+
+test("feedback transport uncertainty makes exactly one write attempt", async () => {
+  mock.setFeedbackError("transport");
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-feedback-unknown-"));
+  await assert.rejects(
+    execFileAsync(TSX_BIN, [
+      CLI_ENTRY, "--agent-type", "codex-desktop", "feedback", "submit",
+      "--order", "ord_delivery", "--rating", "5", "--json",
+    ], {
+      cwd: CLI_ROOT,
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home },
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        error: { code: string };
+        instruction: string;
+      };
+      assert.equal(envelope.error.code, "feedback_submission_unknown");
+      assert.match(envelope.instruction, /不要自动重试/);
+      return true;
+    },
+  );
+  assert.equal(mock.requests.filter((request) => request.method === "POST" && request.path.endsWith("/feedback")).length, 1);
+});
+
 test("order reads one canonical order by id", async () => {
   await runOrder(backend, "ord_delivery", { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as {
@@ -3345,6 +3538,7 @@ test("order reads one canonical order by id", async () => {
   assert.equal(envelope.result.access_locked, false);
   assert.equal(envelope.result.service_execution_id, "se_granted");
   assert.equal(envelope.next.command, "itpay services next se_granted --json");
+  assert.doesNotMatch(stdoutCapture.join(""), /1–5/);
   assert.deepEqual(mock.requests.slice(-3).map((req) => req.path).sort(), [
     "/v1/orders/ord_delivery",
     "/v1/orders/ord_delivery/delivery-access",
@@ -3375,6 +3569,7 @@ test("failed paid order checks its refund state without creating a replacement",
   assert.equal(envelope.status, "failed");
   assert.equal(envelope.next.command, "itpay refund list --order ord_failed --json");
   assert.match(envelope.instruction, /不需要重复付款或重新下单/);
+  assert.match(envelope.instruction, /1–5/);
   assert.doesNotMatch(envelope.next.command, /checkout|services start|services invoke/);
 });
 

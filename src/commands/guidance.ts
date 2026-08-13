@@ -41,6 +41,13 @@ export function isTerminalServiceExecutionStatus(status: string): boolean {
   return status === "failed" || status === "refunded" || status === "cancelled";
 }
 
+export function appendOptionalFeedbackInvitation(instruction: string, outcome: "delivered" | "failed"): string {
+  const invitation = outcome === "delivered"
+    ? "结果解释完毕后，可以询问用户是否愿意给这次服务 1–5 分和一句可选建议。只有用户明确评分后，Agent 才使用同一订单提交反馈；不要展示命令或内部 ID，同一对话最多询问一次。"
+    : "先完成同一订单的恢复和退款权利解释；处理清楚后，可以询问用户是否愿意给 1–5 分并说明卡壳点。只有用户明确评分后才提交反馈，同一对话最多询问一次。";
+  return `${instruction} ${invitation}`;
+}
+
 export class CommandContractError extends Error {
   constructor(
     readonly code: string,

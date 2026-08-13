@@ -2,7 +2,7 @@ import type { BackendClient } from "../client/backend.js";
 import type { OrderDeliveryAccess, RefundRequest } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
 import type { OutputSink } from "../render/sink.js";
-import { type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
+import { appendOptionalFeedbackInvitation, type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 
 export interface OrderOptions {
   output?: OutputSink;
@@ -42,7 +42,10 @@ function orderEnvelope(
     instruction = "告诉用户订单已经找到并说明当前交付状态。然后使用返回的读取入口；Agent 不向用户提及 delivery_mode，也不从订单摘要猜测受保护内容。";
     next = { command: `itpay services next ${delivery.service_execution_id} --json`, reason: "读取交付状态" };
   } else if (order.status === "failed") {
-    instruction = "先告诉用户这笔订单没有正常交付，不需要重复付款或重新下单；先检查原订单是否已有退款，再由用户决定是否申请。";
+    instruction = appendOptionalFeedbackInvitation(
+      "先告诉用户这笔订单没有正常交付，不需要重复付款或重新下单；先检查原订单是否已有退款，再由用户决定是否申请。",
+      "failed",
+    );
     next = { command: `itpay refund list --order ${order.order_id} --json`, reason: "检查同一订单的退款状态" };
   } else if (order.status === "refunded") {
     instruction = "先告诉用户这笔订单已经退款，原交付不可继续读取；不要再次付款或尝试恢复旧授权。";
