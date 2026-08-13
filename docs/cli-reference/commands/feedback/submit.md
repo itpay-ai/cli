@@ -2,9 +2,9 @@
 
 ## 范围与意义
 
-把用户明确给出的评分和可选建议记录到一笔已有 Order 的具体服务项目。CLI 读取
-同一 Order 选择真实 `order_item_id`，再调用现有 Feedback Owner。用户不需要知道
-Order ID、Order Item ID、Device 或 Agent Instance。
+把用户明确给出的评分和可选建议记录到当前 Local Agent 原来执行的一笔已有 Order
+的具体服务项目。CLI 读取同一 Order 选择真实 `order_item_id`，再调用现有 Feedback
+Owner。用户不需要知道 Order ID、Order Item ID、Device 或 Agent Instance。
 
 ## 语法与参数
 
@@ -24,6 +24,11 @@ itpay feedback submit \
 | `--note <text>` | 否 | 用户明确表达的建议或卡壳点。 |
 | `--item-rank <n>` | 多项目订单条件必填 | 当前 Order items 的 1-based rank。 |
 | `--json` | 否 | 输出一个稳定 JSON envelope；Agent 应使用。 |
+
+`--order` 只能来自当前对话已有的 Order context，或由同一 Local Agent 使用
+`services list -> services next` 恢复的原 Service Execution。不得从账号级 `orders`、
+Vault、MCP 或另一个 Agent 的历史中取得 Order 并尝试写反馈；这些通道只有读取权，
+不证明当前 Agent 是原执行者。
 
 rating、rank 和 note 长度在任何 Feedback POST 前验证。rating 接受 `5`、`5/5`、
 `5分`、`5星`、`5 stars` 和中文 `一` 至 `五` 的精确写法，统一保存为整数；
@@ -106,6 +111,7 @@ Provider 响应、Vault payload、完整命令输出、stack trace 或环境变�
 
 | 状态/错误 | 行为 |
 | --- | --- |
+| `order_required` | 使用当前 exact Agent 的 `services list` 恢复原服务；找不到时指向官方订单页或原 Local Agent，不用账号订单/Vault 绕过。 |
 | `feedback_rating_invalid` | 询问明确的 1–5 评分；没有 HTTP，不猜测。 |
 | `feedback_note_too_long` | 请用户缩短；不截断、不提交。 |
 | `feedback_unavailable` | 该 Order 当前没有可反馈项目；不猜 ID。 |
