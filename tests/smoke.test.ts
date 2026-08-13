@@ -3436,13 +3436,22 @@ test("feedback requires a human choice for a multi-item order before posting", a
 });
 
 test("feedback validation failures stop before the write request", async () => {
+  await assert.rejects(
+    runFeedbackSubmit(backend, undefined, { rating: "5", environment: "production" }),
+    (error: unknown) => {
+      assert.ok(error instanceof CommandContractError);
+      assert.equal(error.code, "order_required");
+      assert.equal(error.recovery[0]?.command, "itpay services list --json");
+      assert.doesNotMatch(JSON.stringify(error.recovery), /itpay orders|vault|mcp/i);
+      return true;
+    },
+  );
   const cases: Array<() => Promise<void>> = [
-    () => runFeedbackSubmit(backend, undefined, { rating: "5", environment: "production" }),
     () => runFeedbackSubmit(backend, "ord_multi", { rating: "5", itemRank: "3", environment: "production" }),
     () => runFeedbackSubmit(backend, "ord_no_feedback_item", { rating: "5", environment: "production" }),
     () => runFeedbackSubmit(backend, "ord_delivery", { rating: "5", note: "😀".repeat(2001), environment: "production" }),
   ];
-  const expected = ["order_required", "feedback_item_invalid", "feedback_unavailable", "feedback_note_too_long"];
+  const expected = ["feedback_item_invalid", "feedback_unavailable", "feedback_note_too_long"];
   for (const [index, run] of cases.entries()) {
     await assert.rejects(run, (error: unknown) => {
       assert.ok(error instanceof CommandContractError);
