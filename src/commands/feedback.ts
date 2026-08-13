@@ -33,8 +33,8 @@ export async function runFeedbackSubmit(
     throw new CommandContractError(
       "order_required",
       "--order is required",
-      "先恢复用户所说的原订单；Agent 自己取得订单，不要求用户提供内部 ID。本次未提交反馈。",
-      [{ command: "itpay orders --json", reason: "列出当前授权账号的订单摘要" }],
+      "从当前 exact Local Agent 的 Service Execution 恢复原订单；不要要求用户提供内部 ID，也不要用账号订单、Vault 或 MCP 读取权绕过。本次未提交反馈。",
+      [{ command: "itpay services list --json", reason: "恢复当前 Local Agent 可见的原服务" }],
     );
   }
   const rating = normalizeFeedbackRating(options.rating);

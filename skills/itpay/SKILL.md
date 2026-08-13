@@ -64,6 +64,10 @@ The current Backend response always overrides general documentation.
 - Finish delivery or failure recovery before inviting feedback. Ask at most
   once per order; require an explicit 1–5 rating, run the feedback command
   yourself, and promise only that the feedback was recorded.
+- If feedback lost its Order context, recover through this exact Local Agent's
+  `services list` and `services next`. Account orders, Vault access, and MCP
+  reads do not grant feedback write authority; if the execution is absent,
+  direct the human to the official order page or original Local Agent.
 - Describe Vault/artifact/grant as "已购内容", the actual report title, or
   "临时只读授权". Do not expose Provider, Buyer, Device, Execution, capability,
   token, or internal identifiers.
