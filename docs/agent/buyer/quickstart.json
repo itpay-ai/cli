@@ -7,7 +7,7 @@
   "purpose": "Choose the correct first action from the human's words and continue through one authoritative CLI envelope at a time.",
   "when_to_use": [
     "The agent has just installed this CLI version.",
-    "The user asks to buy something, read previous content, inspect orders, or handle a refund."
+    "The user asks to buy something, read previous content, inspect orders, handle a refund, or rate a purchased service."
   ],
   "required_state": {
     "needs": [
@@ -25,6 +25,7 @@
     "previous_content": "Use vault list, optionally with the subject as --query.",
     "purchase_history": "Use orders.",
     "refund_or_paid_problem": "Resume the known Order or Refund before creating anything new.",
+    "service_feedback": "Finish the original order outcome first; after the human explicitly gives a 1-5 rating, use feedback submit.",
     "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay."
   },
   "commands": [{
@@ -75,6 +76,10 @@
       "topic": "orders-refunds"
     },
     {
+      "condition": "Need to rate a purchased service or report an experience",
+      "topic": "service-feedback"
+    },
+    {
       "condition": "Need install or identity details",
       "topic": "install-and-setup"
     },
@@ -90,6 +95,8 @@
     "recovery",
     "delivery",
     "refund",
+    "feedback",
+    "rating",
     "target",
     "input"
   ]
