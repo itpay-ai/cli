@@ -27,7 +27,7 @@
   "agent_rules": [
     "A rating is optional. Normalize an explicit 1-5 rating to an integer; sentiment never implies a score. Preserve an explicit human comment without inventing one.",
     "Run every command yourself. Speak to the human only about the service, their rating, whether feedback was recorded, and any original order rights.",
-    "Submit one baseline Agent postmortem after the outcome. Do not pressure the human for a score; if they later volunteer a rating or comment, update the same feedback once.",
+    "Submit one baseline Agent postmortem after the outcome. Do not pressure the human for a score; an empty repeat is a no-op, while a later explicit rating or comment updates the same feedback.",
     "Use only the human's own words plus safe order context. Never upload the conversation, prompt, diagnostics, contact details, tokens, internal identities, provider responses, or purchased payload.",
     "A successful feedback submission does not promise a reply, resolution, refund, or order change.",
     "If submission outcome is unknown, stop and explain that recording could not be confirmed; never retry automatically."

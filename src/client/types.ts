@@ -162,7 +162,7 @@ export interface ServiceFeedback {
 export interface ServiceFeedbackOptions {
   order_code?: string;
   status: string;
-  items: Array<{ order_item_id: string; title: string; subject?: string }>;
+  items: Array<{ order_item_id: string; title: string; subject?: string; agent_feedback_submitted?: boolean }>;
 }
 
 export interface SubmitServiceFeedbackResponse {

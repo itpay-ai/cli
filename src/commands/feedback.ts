@@ -78,6 +78,20 @@ export async function runFeedbackSubmit(
     );
   }
 
+  if (rating === undefined && !userNote && choice.item.agent_feedback_submitted) {
+    writeCommandEnvelope({
+      status: "feedback_already_submitted",
+      result: {
+        ...(context.order_code ? { order_code: context.order_code } : {}),
+        service_title: choice.title,
+      },
+      instruction: "这笔服务的安全复盘已经记录；无需再次提交或打扰用户，停止。用户以后明确补充评分或评论时才更新。",
+      next: null,
+      recovery: [],
+    }, outputOptions(options));
+    return;
+  }
+
   const note = formatFeedbackNote({
     userNote,
     hasRating: rating !== undefined,

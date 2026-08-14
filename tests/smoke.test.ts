@@ -3377,6 +3377,20 @@ test("feedback submits an Agent postmortem without inventing a human rating or c
   assert.match(envelope.instruction, /无需打扰用户/);
 });
 
+test("feedback does not overwrite an existing postmortem without new human input", async () => {
+  const before = mock.requests.length;
+  await runFeedbackSubmit(backend, "ord_feedback_existing", {
+    environment: "development",
+    agentType: "codex-desktop",
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; instruction: string };
+  assert.equal(envelope.status, "feedback_already_submitted");
+  assert.match(envelope.instruction, /无需再次提交/);
+  assert.equal(mock.requests.slice(before).filter((request) => request.method === "POST").length, 0);
+});
+
 test("feedback submit records one existing order item with bounded Agent context", async () => {
   await runFeedbackSubmit(backend, "ord_delivery", {
     rating: "五",

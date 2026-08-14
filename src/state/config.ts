@@ -34,7 +34,7 @@ export interface CLIConfig {
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
 export const CLI_VERSION = "2.0.35";
-export const API_CONTRACT_REVISION = "sha256:d241448a4febbcc4be27b13506397c91c242cec9e6453baac0da6dee2abca5aa";
+export const API_CONTRACT_REVISION = "sha256:a249912e4afb3267694081231334eb8a2ec653ceb9bbcbca91969b6977159e50";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";

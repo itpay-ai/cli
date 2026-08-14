@@ -36,6 +36,9 @@ rating、rank 和 note 长度在任何 Feedback POST 前验证。提供 rating �
 `2.5`、`6`、`很好` 等含糊或越界值拒绝，不能猜测。完整结构化 note 最长 2000
 Unicode code points；超长时不截断用户原话，而是请用户缩短。
 
+同一 Agent 已记录基线复盘时，没有新增用户评分或评论的重复调用返回
+`feedback_already_submitted`，且不会覆盖已有反馈；用户以后明确补充评分或评论时仍可更新。
+
 ## 项目选择
 
 ```text
