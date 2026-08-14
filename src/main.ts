@@ -69,7 +69,7 @@ Common human intents:
   Previously purchased item vault list
   Purchase history           orders
   Delivery or refund problem resume the known Order or Refund
-  Rate a purchased service   feedback submit
+  Review a completed service feedback submit
 
 The Agent runs commands. Ask the human only to choose, authorize, pay, provide
 required contact details, or confirm a refund. Never expose commands or internal IDs.
@@ -1142,7 +1142,7 @@ const feedback = program.command("feedback").description("Rate one service item 
 
 feedback
   .command("submit")
-  .description("Submit a human-confirmed rating and optional comment")
+  .description("Submit a safe Agent postmortem with optional human rating and comment")
   .option("--order <order_id>")
   .option("--rating <rating>")
   .option("--note <text>")

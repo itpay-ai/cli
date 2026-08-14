@@ -680,7 +680,7 @@ test("services next exposes only safe agent-visible result fields", async () => 
   assert.equal(envelope.result.delivery_mode, "agent_visible_result");
   assert.equal(envelope.result.order_id, "ord_visible");
   assert.deepEqual(envelope.result.items[0]?.safe_payload, { name: "Example result", status: "active" });
-  assert.match(envelope.instruction, /1–5/);
+  assert.match(envelope.instruction, /安全服务复盘/);
   assert.equal(envelope.next, null);
   assert.doesNotMatch(stdoutCapture.join(""), /stable_hash|service_capability_result_item_id/);
 });
@@ -758,7 +758,7 @@ test("paid terminal failure recovers the original order without another paid cal
   assert.equal(envelope.recovery[0]?.command, "itpay order ord_vault --json");
   assert.match(envelope.instruction, /不需要再次付款或重新下单/);
   assert.match(envelope.instruction, /不重放服务步骤、创建付款页面或再次调用数据来源/);
-  assert.match(envelope.instruction, /1–5/);
+  assert.match(envelope.instruction, /安全服务复盘/);
   assert.doesNotMatch(JSON.stringify(envelope.recovery), /checkout|services invoke|services start/);
 });
 
@@ -3074,7 +3074,7 @@ test("services read-result relies on device authority instead of a checkout toke
   assert.equal(envelope.result.grant_expires_at, "2026-07-13T12:15:00Z");
   assert.deepEqual(envelope.result.granted_fields, ["summary"]);
   assert.deepEqual(envelope.result.payload, { summary: "granted" });
-  assert.match(envelope.instruction, /1–5/);
+  assert.match(envelope.instruction, /安全服务复盘/);
   const req = mock.requests.find((request) => request.path === "/v1/service-executions/se_granted/granted-result")!;
   assert.equal(req.path, "/v1/service-executions/se_granted/granted-result");
   assert.equal(req.headers.authorization, undefined);
@@ -3348,13 +3348,47 @@ test("feedback accepts only explicit human scores and never infers sentiment", (
   ] as const) {
     assert.equal(normalizeFeedbackRating(input), expected);
   }
-  for (const input of [undefined, "", "0", "6", "4.5", "好评", "很差", "五星好评!"]) {
+  assert.equal(normalizeFeedbackRating(undefined), undefined);
+  assert.equal(normalizeFeedbackRating(""), undefined);
+  for (const input of ["0", "6", "4.5", "好评", "很差", "五星好评!"]) {
     assert.throws(() => normalizeFeedbackRating(input), (error: unknown) => {
       assert.ok(error instanceof CommandContractError);
       assert.equal(error.code, "feedback_rating_invalid");
       return true;
     });
   }
+});
+
+test("feedback submits an Agent postmortem without inventing a human rating or comment", async () => {
+  await runFeedbackSubmit(backend, "ord_delivery", {
+    environment: "development",
+    agentType: "codex-desktop",
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: Record<string, unknown>; instruction: string };
+  assert.equal(envelope.status, "feedback_submitted");
+  assert.equal("rating" in envelope.result, false);
+  const post = [...mock.requests].reverse().find((request) => request.method === "POST" && request.path.endsWith("/feedback"));
+  assert.equal("rating" in (post?.body ?? {}), false);
+  assert.match(String(post?.body?.note), /Source: agent-postmortem/);
+  assert.match(String(post?.body?.note), /Human input: not provided/);
+  assert.doesNotMatch(String(post?.body?.note), /## Summary/);
+  assert.match(envelope.instruction, /无需打扰用户/);
+});
+
+test("feedback does not overwrite an existing postmortem without new human input", async () => {
+  const before = mock.requests.length;
+  await runFeedbackSubmit(backend, "ord_feedback_existing", {
+    environment: "development",
+    agentType: "codex-desktop",
+    jsonOutput: true,
+    output: stdoutSink,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; instruction: string };
+  assert.equal(envelope.status, "feedback_already_submitted");
+  assert.match(envelope.instruction, /无需再次提交/);
+  assert.equal(mock.requests.slice(before).filter((request) => request.method === "POST").length, 0);
 });
 
 test("feedback submit records one existing order item with bounded Agent context", async () => {
@@ -3390,7 +3424,8 @@ test("feedback submit records one existing order item with bounded Agent context
   assert.equal(body.order_item_id, "oi_delivery");
   assert.equal(body.rating, 5);
   assert.match(body.note, /^## Summary\n> 报告很清楚\n> 但授权提示还可以更直接/m);
-  assert.match(body.note, /Source: user-confirmed via agent/);
+  assert.match(body.note, /Source: agent-postmortem/);
+  assert.match(body.note, /Human input: rating and comment included/);
   assert.match(body.note, /Outcome: delivered/);
   assert.match(body.note, /Service: Protected result/);
   assert.match(body.note, /Agent type: workbuddy/);
@@ -3578,7 +3613,7 @@ test("failed paid order checks its refund state without creating a replacement",
   assert.equal(envelope.status, "failed");
   assert.equal(envelope.next.command, "itpay refund list --order ord_failed --json");
   assert.match(envelope.instruction, /不需要重复付款或重新下单/);
-  assert.match(envelope.instruction, /1–5/);
+  assert.match(envelope.instruction, /安全服务复盘/);
   assert.doesNotMatch(envelope.next.command, /checkout|services start|services invoke/);
 });
 

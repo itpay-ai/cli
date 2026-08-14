@@ -20,7 +20,7 @@ import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
 import { buildCheckoutQRPlan } from "./buy.js";
 import {
-  appendOptionalFeedbackInvitation,
+  appendFeedbackPostmortemInstruction,
   CommandContractError,
   type CommandAction,
   type CommandEnvelope,
@@ -907,7 +907,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       instruction: execution.status === "refunded"
         ? "告诉用户这笔服务已经退款并永久结束。Agent 不重放服务步骤、不创建付款页面或尝试读取旧交付。"
         : paidFailure
-          ? appendOptionalFeedbackInvitation("告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。然后从同一订单检查退款状态；Agent 不重放服务步骤、创建付款页面或再次调用数据来源，也不把技术故障归咎于用户。", "failed")
+          ? appendFeedbackPostmortemInstruction("告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。然后从同一订单检查退款状态；Agent 不重放服务步骤、创建付款页面或再次调用数据来源，也不把技术故障归咎于用户。", "failed")
           : "告诉用户本次服务已经结束且没有可继续的交付。Agent 不重放服务步骤或创建付款页面。",
       next: null,
       recovery: [
@@ -973,7 +973,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				items,
 			},
 			instruction: delivery?.order_id
-				? appendOptionalFeedbackInvitation(items.length > 0
+						? appendFeedbackPostmortemInstruction(items.length > 0
 					? selection
 						? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
 						: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Graph、safe_payload 或内部 ID。"
@@ -1124,7 +1124,7 @@ function grantedResultEnvelope(response: GrantedServiceResult, orderID?: string)
       payload: response.result,
     },
     instruction: orderID
-      ? appendOptionalFeedbackInvitation("结果来自当前有效 Vault Grant；只使用本次授权字段，过期后停止读取并重新请求用户同意。", "delivered")
+      ? appendFeedbackPostmortemInstruction("结果来自当前有效 Vault Grant；只使用本次授权字段，过期后停止读取并重新请求用户同意。", "delivered")
       : "结果来自当前有效 Vault Grant；只使用本次授权字段，过期后停止读取并重新请求用户同意。",
     next: null,
     recovery: [],

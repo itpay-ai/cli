@@ -2,16 +2,17 @@
 
 ## 范围与意义
 
-把用户明确给出的评分和可选建议记录到当前 Local Agent 原来执行的一笔已有 Order
-的具体服务项目。CLI 读取同一 Order 选择真实 `order_item_id`，再调用现有 Feedback
-Owner。用户不需要知道 Order ID、Order Item ID、Device 或 Agent Instance。
+在当前 Local Agent 完成一笔已有 Order 后，记录一次最小、安全的服务复盘。用户评分
+和原话均为可选；Agent 即使没有收到评分或评论，也要提交已知的服务结果上下文。CLI
+通过 Feedback 专用选项接口选择真实项目，再调用现有 Feedback Owner。用户不需要知道
+Order ID、Order Item ID、Device 或 Agent Instance。
 
 ## 语法与参数
 
 ```bash
 itpay feedback submit \
   --order <order_id> \
-  --rating <1-5> \
+  [--rating <1-5>] \
   [--note <text>] \
   [--item-rank <positive_integer>] \
   [--json]
@@ -20,7 +21,7 @@ itpay feedback submit \
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `--order <order_id>` | 是 | Agent 从当前订单流程取得，不要求用户提供。 |
-| `--rating <1-5>` | 是 | 用户明确给出的 1–5 评分；CLI 归一常见精确写法。 |
+| `--rating <1-5>` | 否 | 用户明确给出的 1–5 评分；缺省表示“未评分”，不能推断。 |
 | `--note <text>` | 否 | 用户明确表达的建议或卡壳点。 |
 | `--item-rank <n>` | 多项目订单条件必填 | 当前 Order items 的 1-based rank。 |
 | `--json` | 否 | 输出一个稳定 JSON envelope；Agent 应使用。 |
@@ -30,10 +31,13 @@ itpay feedback submit \
 Vault、MCP 或另一个 Agent 的历史中取得 Order 并尝试写反馈；这些通道只有读取权，
 不证明当前 Agent 是原执行者。
 
-rating、rank 和 note 长度在任何 Feedback POST 前验证。rating 接受 `5`、`5/5`、
+rating、rank 和 note 长度在任何 Feedback POST 前验证。提供 rating 时接受 `5`、`5/5`、
 `5分`、`5星`、`5 stars` 和中文 `一` 至 `五` 的精确写法，统一保存为整数；
 `2.5`、`6`、`很好` 等含糊或越界值拒绝，不能猜测。完整结构化 note 最长 2000
 Unicode code points；超长时不截断用户原话，而是请用户缩短。
+
+同一 Agent 已记录基线复盘时，没有新增用户评分或评论的重复调用返回
+`feedback_already_submitted`，且不会覆盖已有反馈；用户以后明确补充评分或评论时仍可更新。
 
 ## 项目选择
 
@@ -50,7 +54,7 @@ rank 无效 -> feedback_item_invalid，不提交
 
 ## 保存格式
 
-Backend 继续保存现有 `rating` 和 `note`。CLI 的 note 是可直接在 Admin 阅读的短
+Backend 保存可选 `rating` 和 `note`。CLI 的 note 是可直接在 Admin 阅读的短
 Markdown：
 
 ```markdown
@@ -58,7 +62,8 @@ Markdown：
 > 支付后等了很久才拿到结果。
 
 ## Context
-- Source: user-confirmed via agent
+- Source: agent-postmortem
+- Human input: comment included
 - Outcome: delivered
 - Service: 企业综合报告
 - Client: @itpay/cli <version>
@@ -66,7 +71,7 @@ Markdown：
 - Environment: development
 ```
 
-只写用户明确内容和已知安全上下文；禁止 Token、Session、联系方式、内部身份、
+没有用户评论时省略 Summary，但仍保存 Context。只写用户明确内容和已知安全上下文；禁止 Token、Session、联系方式、内部身份、
 Provider 响应、Vault payload、完整命令输出、stack trace 或环境变量。
 
 ## 成功 JSON
@@ -87,7 +92,11 @@ Provider 响应、Vault payload、完整命令输出、stack trace 或环境变�
 ```
 
 正常结果不返回 `feedback_id`、`order_item_id`、Device、Agent Instance 或 Buyer。
-同一 submitter 再次由用户明确提交会更新现有记录并重新进入 `new`，不是创建第二条。
+未评分时成功结果省略 `rating`。同一 submitter 在用户后来补充评分或评论时会更新
+现有记录并重新进入 `new`，不是创建第二条。
+
+如果用户没有给出评分或评论，Agent 仍提交 Context；成功 instruction 改为“无需打扰
+用户”，不得声称用户表达过意见。
 
 ## 多项目 JSON
 
@@ -101,7 +110,7 @@ Provider 响应、Vault payload、完整命令输出、stack trace 或环境变�
       { "rank": 2, "title": "企业综合报告", "subject": "北京京东世纪贸易有限公司" }
     ]
   },
-  "instruction": "用服务名称和主题让用户选择要评价哪一项；不要展示内部 ID。用户选择后，Agent 使用同一订单、评分和留言并加入所选 item rank 自己执行提交。",
+  "instruction": "用服务名称和主题让用户选择要复盘哪一项；不要展示内部 ID。用户选择后，Agent 使用同一订单、已有评分或留言（如有）并加入所选 item rank 自己执行提交。",
   "next": null,
   "recovery": []
 }
@@ -112,7 +121,7 @@ Provider 响应、Vault payload、完整命令输出、stack trace 或环境变�
 | 状态/错误 | 行为 |
 | --- | --- |
 | `order_required` | 使用当前 exact Agent 的 `services list` 恢复原服务；找不到时指向官方订单页或原 Local Agent，不用账号订单/Vault 绕过。 |
-| `feedback_rating_invalid` | 询问明确的 1–5 评分；没有 HTTP，不猜测。 |
+| `feedback_rating_invalid` | 用户提供了评分但格式不是 1–5；不提交、不猜测。 |
 | `feedback_note_too_long` | 请用户缩短；不截断、不提交。 |
 | `feedback_unavailable` | 该 Order 当前没有可反馈项目；不猜 ID。 |
 | `feedback_item_invalid` | 重新使用返回的项目 rank；不提交。 |

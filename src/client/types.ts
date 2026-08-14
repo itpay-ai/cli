@@ -150,13 +150,19 @@ export interface ListOrdersResponse {
 
 export interface SubmitServiceFeedbackRequest {
   order_item_id: string;
-  rating: number;
+  rating?: number;
   note?: string;
 }
 
 export interface ServiceFeedback {
-  rating: number;
+  rating?: number;
   status: "new" | "acknowledged" | "resolved" | "dismissed";
+}
+
+export interface ServiceFeedbackOptions {
+  order_code?: string;
+  status: string;
+  items: Array<{ order_item_id: string; title: string; subject?: string; agent_feedback_submitted?: boolean }>;
 }
 
 export interface SubmitServiceFeedbackResponse {
