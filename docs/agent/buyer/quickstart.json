@@ -25,7 +25,7 @@
     "previous_content": "Use vault list, optionally with the subject as --query.",
     "purchase_history": "Use orders.",
     "refund_or_paid_problem": "Resume the known Order or Refund before creating anything new.",
-    "service_feedback": "Finish the original order outcome first; after the human explicitly gives a 1-5 rating, use feedback submit.",
+    "service_feedback": "Finish the original order outcome first, then submit one safe Agent postmortem; include a rating or comment only when the human explicitly gives it.",
     "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay."
   },
   "commands": [{

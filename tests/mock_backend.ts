@@ -822,6 +822,36 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    const feedbackOptionsMatch = path.match(/^\/v1\/orders\/([^/]+)\/feedback-options$/);
+    if (method === "GET" && feedbackOptionsMatch) {
+      if (feedbackError && feedbackError !== "transport") {
+        respond(res, feedbackError.status, { code: feedbackError.code, message: feedbackError.message });
+        return;
+      }
+      const order = orderByID[feedbackOptionsMatch[1]!];
+      if (!order) {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      const items = (order.items ?? []) as Array<{
+        order_item_id?: string;
+        title?: string;
+        input?: Record<string, unknown>;
+      }>;
+      respond(res, 200, {
+        order_code: order.order_code,
+        status: order.status,
+        items: items.map((item) => ({
+          order_item_id: item.order_item_id,
+          title: item.title,
+          subject: ["company_name_or_credit_no", "company_name", "company", "target", "keyword"]
+            .map((key) => item.input?.[key])
+            .find((value) => typeof value === "string"),
+        })),
+      });
+      return;
+    }
+
     const feedbackMatch = path.match(/^\/v1\/orders\/([^/]+)\/feedback$/);
     if (method === "POST" && feedbackMatch) {
       if (feedbackError === "transport") {

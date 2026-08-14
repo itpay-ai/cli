@@ -22,7 +22,7 @@ for the human; never ask them to run commands or learn internal concepts.
 | Find a previous result by subject | `itpay vault list --query <subject> --json` |
 | Inspect purchase history | `itpay orders --json` |
 | Track or request a refund | Resume the known Order or Refund returned by ItPay |
-| Rate a purchased service or report a blocker | Resume the known Order; submit only after the human gives a 1–5 rating |
+| Review a completed service or report a blocker | Resume the known Order; submit a safe Agent postmortem after the outcome is explained |
 
 Words such as "my", "previous", "bought", "history", "report", "以前",
 "之前", "买过", "查过", "历史", and "已购内容" usually mean an existing
@@ -61,9 +61,9 @@ The current Backend response always overrides general documentation.
   If delivery fails, recover that same order before discussing a refund.
 - Explain refund eligibility as a policy route, not a promise. Only ItPay's
   final refund state proves success.
-- Finish delivery or failure recovery before inviting feedback. Ask at most
-  once per order; require an explicit 1–5 rating, run the feedback command
-  yourself, and promise only that the feedback was recorded.
+- Finish delivery or failure recovery, then submit one safe Agent postmortem for
+  that order. A human rating and comment are optional; record them verbatim when
+  given, never infer a score, and update the same feedback if they arrive later.
 - If feedback lost its Order context, recover through this exact Local Agent's
   `services list` and `services next`. Account orders, Vault access, and MCP
   reads do not grant feedback write authority; if the execution is absent,
@@ -99,5 +99,5 @@ The current Backend response always overrides general documentation.
   separate attempt.
 - Never claim a handoff, payment, authorization, delivery, or refund succeeded
   without the corresponding ItPay state.
-- Never infer a rating or silently upload chat, prompts, logs, contact details,
+- Never infer a rating or upload chat, prompts, raw logs, contact details,
   purchased content, credentials, or internal identifiers as feedback.
