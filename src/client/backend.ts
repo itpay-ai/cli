@@ -22,6 +22,7 @@ import type {
   OrderDeliveryAccess,
   SubmitServiceFeedbackRequest,
   SubmitServiceFeedbackResponse,
+  ServiceFeedbackOptions,
   BuyerVaultArtifactList,
   BuyerVaultRead,
   VaultAccessRequest,
@@ -136,6 +137,10 @@ export class BackendClient {
       `/v1/orders/${encodeURIComponent(orderID)}/feedback`,
       input,
     );
+  }
+
+  getServiceFeedbackOptions(orderID: string): Promise<ServiceFeedbackOptions> {
+    return this.http.get<ServiceFeedbackOptions>(`/v1/orders/${encodeURIComponent(orderID)}/feedback-options`);
   }
 
   listAccountOrders(limit: number, status?: string, bearer?: string, cursor?: string): Promise<ListOrdersResponse | BuyerOrderSummaryList> {

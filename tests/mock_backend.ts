@@ -73,6 +73,12 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         sensitive_content_redacted: true,
       }],
     },
+    ord_feedback_existing: {
+      order_id: "ord_feedback_existing", order_code: "IP-FEEDBACK", checkout_id: "chk_feedback", status: "delivered",
+      amount_minor: 50, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
+      items: [{ order_item_id: "oi_feedback_existing", title: "Existing feedback", quantity: 1, amount_minor: 50, currency: "CNY", input: { company_name: "北京赢在未来科技有限公司", agent_feedback_submitted: true } }],
+      delivery_artifacts: [],
+    },
     ord_agent_visible: {
       order_id: "ord_agent_visible", order_code: "IP-VISIBLE", checkout_id: "chk_visible", status: "delivered",
       amount_minor: 10, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
@@ -818,6 +824,37 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         ...(agentVisible ? {} : { delivery_artifact_id: `da_${orderID.replace("ord_", "")}`, vault_artifact_id: `vault_${orderID.replace("ord_", "")}` }),
         status: "completed",
         delivery_mode: agentVisible ? "agent_visible_result" : "vault_artifact",
+      });
+      return;
+    }
+
+    const feedbackOptionsMatch = path.match(/^\/v1\/orders\/([^/]+)\/feedback-options$/);
+    if (method === "GET" && feedbackOptionsMatch) {
+      if (feedbackError && feedbackError !== "transport") {
+        respond(res, feedbackError.status, { code: feedbackError.code, message: feedbackError.message });
+        return;
+      }
+      const order = orderByID[feedbackOptionsMatch[1]!];
+      if (!order) {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      const items = (order.items ?? []) as Array<{
+        order_item_id?: string;
+        title?: string;
+        input?: Record<string, unknown>;
+      }>;
+      respond(res, 200, {
+        order_code: order.order_code,
+        status: order.status,
+        items: items.map((item) => ({
+          order_item_id: item.order_item_id,
+          title: item.title,
+          agent_feedback_submitted: item.input?.agent_feedback_submitted === true,
+          subject: ["company_name_or_credit_no", "company_name", "company", "target", "keyword"]
+            .map((key) => item.input?.[key])
+            .find((value) => typeof value === "string"),
+        })),
       });
       return;
     }
