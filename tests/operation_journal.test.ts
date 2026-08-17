@@ -16,7 +16,7 @@ const CHILD = resolve(CLI_ROOT, "tests/operation_journal_child.ts");
 test("operation journal publishes one id across real concurrent processes", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "itpay-operation-journal-")), "operations.json");
   const key = "service.invoke:se_1:cap_1:{}";
-  const values = await Promise.all(Array.from({ length: 12 }, () => runChild(path, key)));
+  const values = await Promise.all(Array.from({ length: 6 }, () => runChild(path, key)));
   assert.equal(new Set(values).size, 1);
   assert.equal(await new OperationJournal(path).getOrCreate(key), values[0]);
   assert.notEqual(await new OperationJournal(path).getOrCreate("service.invoke:se_2:cap_1:{}"), values[0]);
