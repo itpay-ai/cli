@@ -45,7 +45,9 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
   const workBuddyAction = isWorkBuddyPlainChat(options.agentType, platform);
   const zcodeAction = isZCodePlainChat(options.agentType, platform);
   if (!terminal && !verified && (workBuddyAction || zcodeAction)) {
-    const url = intent.action?.mobile_wallet_url ?? intent.action?.qr_image_url;
+    const url = zcodeAction
+      ? intent.action?.qr_image_url ?? intent.action?.mobile_wallet_url
+      : intent.action?.mobile_wallet_url ?? intent.action?.qr_image_url;
     if (url) {
       handoff.url = url;
       if (workBuddyAction) handoff.agent_action = buildWorkBuddyPresentFilesAction(url);

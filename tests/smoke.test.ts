@@ -2837,6 +2837,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     } else if (agentType === "zcode") {
       assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
       assert.match(envelope.instruction, /停止等待/);
+      assert.match(String(envelope.handoff.url), /^https:\/\/qr\.alipay\.com\//);
       assert.equal(envelope.handoff.agent_action, undefined);
     } else {
       assert.doesNotMatch(envelope.instruction, /present_files/);
