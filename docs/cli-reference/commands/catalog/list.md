@@ -40,7 +40,7 @@ itpay catalog list [--json]
 
 ## 异常处理
 
-输出不得包含 snapshot、manifest 原文、compiled graph 或 Provider secret。服务为空时返回 `catalog_empty`，要求稍后重试，不猜服务 ID。
+输出不得包含 snapshot、manifest 原文、Arazzo workflow 或 Provider secret。服务为空时返回 `catalog_empty`，要求稍后重试，不猜服务 ID。
 
 ## Agent Type / Host
 

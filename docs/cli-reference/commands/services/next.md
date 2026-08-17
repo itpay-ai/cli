@@ -7,9 +7,9 @@
 读取一笔 Service Execution 的当前状态，并只返回一个首选下一步。若交付模式允许 Agent 直接读取，本命令同时返回完整 safe result。
 
 **上游：** `services start`、`invoke`、`action`、`checkout`，或一次中断恢复。  
-**下游：** 一个可执行命令、需要用户完成的候选选择或授权，或 Graph 真正到达终态。
+**下游：** 一个可执行命令、需要用户完成的候选选择或授权，或 Arazzo workflow 真正到达终态。
 
-本命令不返回原始 Backend DTO、capability 列表、内部 result ID/hash、graph、binding 或重复 guidance。
+本命令不返回原始 Backend DTO、capability 列表、内部 result ID/hash、Arazzo workflow、binding 或重复 guidance。
 
 Backend 会根据当前 capability 选择 `current_delivery`；完整 `delivery_bindings` 仅是历史记录。CLI 不按数组位置猜测当前交付，同一 Execution 后续产生的新交付会取代旧交付成为默认结果。
 
@@ -28,7 +28,7 @@ itpay services next <service_execution_id> [--json]
 
 ## 候选选择
 
-免费或付费候选已经产生、Graph 允许继续选择时，恢复输出必须包含当前 Result Set 的安全候选：
+免费或付费候选已经产生、Arazzo workflow 允许继续选择时，恢复输出必须包含当前 Result Set 的安全候选：
 
 ```json
 {
@@ -76,7 +76,7 @@ itpay services next <service_execution_id> [--json]
 }
 ```
 
-只有 Graph 允许继续选择时才返回上述 `next`。若结果本身就是最终交付，instruction 要求用普通语言解释可公开字段并停止，且 `next: null`。文本输出可以保留 Agent 执行所需的 Execution 与 `delivery_mode`，但 Agent 不向用户暴露这些内部词、Result Item ID、Invocation ID 或 Hash。
+只有 Arazzo workflow 允许继续选择时才返回上述 `next`。若结果本身就是最终交付，instruction 要求用普通语言解释可公开字段并停止，且 `next: null`。文本输出可以保留 Agent 执行所需的 Execution 与 `delivery_mode`，但 Agent 不向用户暴露这些内部词、Result Item ID、Invocation ID 或 Hash。
 
 ## Vault 交付
 
@@ -91,7 +91,7 @@ itpay services next <service_execution_id> [--json]
     "delivery_mode": "vault_artifact",
     "grant_status": "none"
   },
-  "instruction": "这是当前 Graph 步骤对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
+  "instruction": "这是当前 Arazzo step 对应的交付；请用户在订单页面授权，未授权前不要读取或猜测内容。",
   "next": {
     "command": "itpay services read-result <id> --json",
     "reason": "仅在用户确认授权后执行"
@@ -141,7 +141,7 @@ itpay services next <service_execution_id> [--json]
     "grant_status": "active",
     "grant_expires_at": "<RFC3339 time>"
   },
-  "instruction": "这是当前 Graph 步骤对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。",
+  "instruction": "这是当前 Arazzo step 对应的交付；用户授权有效，立即读取并遵守字段范围与到期时间。",
   "next": {
     "command": "itpay services read-result <id> --json",
     "reason": "读取当前有效 grant 的结果"

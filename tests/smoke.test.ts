@@ -1045,7 +1045,7 @@ test("services get returns a bounded public timeline", async () => {
   assert.equal(envelope.result.timeline_truncated, true);
   assert.match(envelope.next.command, /services invoke se_timeline/);
   assert.equal(envelope.recovery[0]?.command, "itpay services events se_timeline --json");
-  assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|graph_projection|capabilities/);
+  assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|capabilities/);
 });
 
 test("services get keeps facts stable across Agent Types and keeps not-found opaque", async () => {

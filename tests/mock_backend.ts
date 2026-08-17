@@ -421,7 +421,6 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       respond(res, 201, {
         execution: model.execution,
         capabilities: model.capabilities,
-        graph_id: "csg_mock",
       });
       return;
     }
@@ -1086,7 +1085,6 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
       service_execution_id: serviceExecutionID,
       service_id: "svc_qizhidao_company_lookup",
       service_contract_version_id: "sdcv_mock",
-      compiled_service_graph_id: "csg_mock",
       agent_device_id: "agent_smoke",
 		status: agentVisible ? "completed" : vaultDelivery ? (grantActive ? "grant_available" : "delivery_issued") : checkoutRequired ? "quote_locked" : nextAction === "select_candidate" ? "human_action_required" : "running",
       phase: agentVisible ? "completed" : vaultDelivery ? "delivery" : checkoutRequired ? "quote" : "pre_purchase",
@@ -1271,7 +1269,6 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
 					redacted_summary: { delivery_mode: "vault_artifact" },
 				}
 			: undefined,
-    graph_projection: [],
     refunds: refundLocked ? [{
       refund_request_id: "rr_locked",
       order_id: "ord_vault",
