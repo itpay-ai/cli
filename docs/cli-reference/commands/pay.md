@@ -103,6 +103,7 @@ API 安全合同要求后端验证 display token 是该 Checkout 当前有效的
 | `claude-code-desktop` | `claude-code` | 把安全 handoff 发到当前桌面对话。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示渠道动作。 |
 | `workbuddy` | `plain-chat` | 受控逃生入口返回 `handoff.url` 和可原样执行的 `present_files` action；打开一次后停止，不立即查询或创建替代付款。 |
+| `zcode` | `plain-chat` | 受控逃生入口返回 `handoff.url`；同时存在渠道动作时优先使用浏览器可打开的 `qr_image_url`，只有它缺失时才回退到 `mobile_wallet_url`。立即用内置浏览器打开并停止，浏览器不可用时才展示同一个链接。 |
 | `kimi-code` | `terminal` | 使用标准 CLI 终端展示渠道动作。 |
 | `openclaw` | 必须显式提供 | 按显式 Host 返回安全渠道动作；IM Host 仍要求真实 target。 |
 

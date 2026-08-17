@@ -72,4 +72,4 @@ Timeout 只表示本次 CLI 等待结束，不表示退款失败：
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 返回相同退款事实。Desktop 不会把每次无变化轮询发送到用户对话；Host 不改变 timeout 或退款状态。
+所有正式支持的 Local Agent Type 返回相同退款事实。Desktop 不会把每次无变化轮询发送到用户对话；Host 不改变 timeout 或退款状态。

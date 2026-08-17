@@ -73,6 +73,9 @@ Markdown：
 
 没有用户评论时省略 Summary，但仍保存 Context。只写用户明确内容和已知安全上下文；禁止 Token、Session、联系方式、内部身份、
 Provider 响应、Vault payload、完整命令输出、stack trace 或环境变量。
+CLI 不读取或上传 Host 对话、WorkBuddy/ZCode sandbox 日志或其他本地 Agent
+记录。用户自愿提供本地证据时，Agent 也只能提炼与本单有关的安全摘要，不能把原始
+日志作为 Feedback note 上传。
 
 ## 成功 JSON
 

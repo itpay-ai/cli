@@ -36,6 +36,11 @@
       "responsibility": "execute handoff.agent_action exactly once to open the fully rendered handoff.url with present_files; show the amount and stop"
     },
     {
+      "agent_type": "zcode",
+      "default_host": "plain-chat",
+      "responsibility": "open handoff.url immediately in the ZCode built-in browser and stop; only show the same clickable URL when the built-in browser is unavailable"
+    },
+    {
       "agent_type": "kimi-code",
       "default_host": "terminal",
       "responsibility": "use the standard CLI terminal QR and Checkout URL"
@@ -64,6 +69,7 @@
     "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
     "For workbuddy with plain-chat, execute handoff.agent_action exactly once; it calls present_files with handoff.url as the only files element and opens the rendered Card Link in the right-side browser.",
+    "For zcode with plain-chat, open handoff.url in the built-in browser. Do not only paste text, download or rebuild a QR, or invent a private browser-tool payload; use the same clickable URL only as fallback.",
     "If the WorkBuddy action fails, send the original handoff.url, report that it did not auto-open, and stop without creating another payment resource.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
@@ -92,6 +98,7 @@
     "terminal",
     "desktop",
     "workbuddy",
+    "zcode",
     "kimi code",
     "openclaw",
     "telegram"

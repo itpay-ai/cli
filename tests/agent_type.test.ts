@@ -12,6 +12,7 @@ test("canonicalAgentType maps the Codex surface alias to the Backend agent type"
 test("canonicalAgentType preserves canonical and unknown normalized values", () => {
   assert.equal(canonicalAgentType("codex-cli"), "codex-cli");
   assert.equal(canonicalAgentType(" WorkBuddy "), "workbuddy");
+  assert.equal(canonicalAgentType(" ZCode "), "zcode");
   assert.equal(canonicalAgentType("future-agent"), "future-agent");
   assert.equal(canonicalAgentType("  "), undefined);
 });

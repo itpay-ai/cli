@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createPublicKey, verify } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -32,6 +32,7 @@ test("device authority enrolls once, survives concurrent processes, and register
   assert.equal(statSync(statePath).mode & 0o777, 0o600);
   assert.equal(statSync(privateKeyPath).mode & 0o777, 0o600);
   assert.equal(existsSync(`${statePath}.lock`), false);
+  assert.equal(existsSync(`${statePath}.lock.released`), true);
 
   const requestCount = server.requestCount;
   await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
@@ -102,11 +103,11 @@ test("device authority stops when every existing instance is revoked", async () 
   assert.equal(server.enrollmentCount, 1, "revoked instances must not create a replacement device");
 });
 
-test("device authority replaces a stale legacy file lock with the directory lock", async () => {
+test("device authority renames a stale legacy lock and releases without deletion", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-legacy-lock-"));
   const statePath = join(root, "identity.json");
   const lockPath = `${statePath}.lock`;
-  writeFileSync(lockPath, "");
+  mkdirSync(lockPath);
   const stale = new Date(Date.now() - 31_000);
   utimesSync(lockPath, stale, stale);
 
@@ -118,6 +119,15 @@ test("device authority replaces a stale legacy file lock with the directory lock
 
   assert.equal(headers["X-ItPay-Agent-Instance-ID"], "ain_workbuddy");
   assert.equal(existsSync(lockPath), false);
+  assert.equal(existsSync(`${lockPath}.stale`), true);
+  assert.equal(existsSync(`${lockPath}.released`), true);
+});
+
+test("device identity lock lifecycle does not depend on sandbox delete operations", () => {
+  const source = readFileSync(new URL("../src/state/device_authority.ts", import.meta.url), "utf8");
+  const lockLifecycle = source.slice(source.indexOf("async function withFileLock"), source.indexOf("function asDeviceStateError"));
+  assert.doesNotMatch(lockLifecycle, /\b(?:unlinkSync|rmdirSync)\b/);
+  assert.match(lockLifecycle, /renameSync/);
 });
 
 test("device authority returns a stable error when its state path is not writable", async () => {

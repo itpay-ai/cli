@@ -62,4 +62,4 @@ itpay services quote <service_execution_id> --capability <capability_id>
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 返回相同 Quote 事实、instruction 和 next。本命令不显示二维码；Agent Type 只作为设备与审计上下文，不改变价格或候选规则。
+所有正式支持的 Local Agent Type 返回相同 Quote 事实、instruction 和 next。本命令不显示二维码；Agent Type 只作为设备与审计上下文，不改变价格或候选规则。

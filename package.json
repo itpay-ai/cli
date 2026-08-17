@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.0.35",
+  "version": "2.0.37",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -30,6 +30,7 @@
     "claude-code",
     "codex",
     "openclaw",
+    "zcode",
     "trae"
   ],
   "license": "MIT",

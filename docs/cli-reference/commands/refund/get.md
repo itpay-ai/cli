@@ -64,4 +64,4 @@ CLI 不因为退款终态自行修改订单或 grant。
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 返回完全相同的退款事实、instruction 和 next。Host 不改变 Refund Owner 状态或访问锁。
+所有正式支持的 Local Agent Type 返回完全相同的退款事实、instruction 和 next。Host 不改变 Refund Owner 状态或访问锁。

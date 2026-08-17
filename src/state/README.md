@@ -17,19 +17,31 @@ handles use separate files.
   in generated ItPay commands.
 - `device_authority.ts` — keeps one local Ed25519 key and one registration per
   official Backend, with one Agent Instance per Agent Type.
+- `operation_journal.ts` — preserves idempotency with one immutable owner-only
+  record per operation key. Legacy `operations.json` is read only; operations
+  never wait on one global lock.
 
 ## Rules
 
 - Keep the private key and Device state owner-only (`0600`); never expose them
   in command output or use a Backend other than official app.itpay.ai/dev.itpay.ai.
 - Reuse one Agent Instance for all windows and chats of the same Agent Type.
-- Serialize Device state changes with an atomic owner-only directory lock and
-  atomic file replacement. Return `device_state_unwritable` when the Host
-  cannot persist this state; never advise switching runtimes or identities.
+- Serialize Device state changes with an atomic owner-token file lock and
+  atomic file replacement. Release and stale recovery rename the canonical
+  lock instead of deleting it, so sandbox safe-delete/trash shims cannot turn
+  a successful authorization into a failure. Only the current owner may
+  release the lock. Return `device_state_unwritable` when the Host cannot
+  persist this state; never advise switching runtimes or identities.
+- Multiple local Agent Types share the same Device key but keep distinct Agent
+  Instances. A local lock wait is never a Backend Buyer lock and never crosses
+  computers.
 - Renew a rejected session and retry the same request exactly once. Never
   replace a revoked v2 Device automatically.
 - Persist checkout-scoped `display_token` only in the cart session file, with
   owner-only file permissions (`0600`), for checkout recovery.
+- Persist each idempotency handle under `operations.json.d/` (or the dev
+  equivalent) with owner-only permissions. Publish each record atomically,
+  preserve legacy IDs, and fail closed on a malformed authority record.
 - Persist Service checkout handoffs atomically before QR rendering. Recover a
   lost or expired handoff with `services checkout <execution_id> --resume
   --json`; the server reuses the existing checkout owner facts.

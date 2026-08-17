@@ -209,4 +209,4 @@ itpay services get <service_execution_id> --json
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 返回完全相同的状态、safe payload、instruction 和 next。本命令不渲染二维码，也不包含 Host handoff。
+所有正式支持的 Local Agent Type 返回完全相同的状态、safe payload、instruction 和 next。本命令不渲染二维码，也不包含 Host handoff。

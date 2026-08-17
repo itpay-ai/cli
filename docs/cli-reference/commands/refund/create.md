@@ -84,4 +84,4 @@ CLI 使用 Device Authority 或已有 Buyer bearer，并用订单+原因生成�
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 使用相同 Device Authority、退款政策和输出。未绑定订单时不得改用新 Device ID、Buyer ID 或开发者权限绕过 Owner 鉴权。
+所有正式支持的 Local Agent Type 使用相同 Device Authority、退款政策和输出。未绑定订单时不得改用新 Device ID、Buyer ID 或开发者权限绕过 Owner 鉴权。

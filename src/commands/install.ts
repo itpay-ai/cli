@@ -9,6 +9,7 @@ export const INSTALL_AGENT_TYPES = [
   "claude-code-desktop",
   "claude-code-cli",
   "workbuddy",
+  "zcode",
   "kimi-code",
   "openclaw",
 ] as const;
@@ -26,6 +27,7 @@ const INSTRUCTIONS: Record<InstallAgentType, string> = {
   "claude-code-desktop": "在 Claude Code Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "claude-code-cli": "在 Claude Code CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
   workbuddy: "在 WorkBuddy 中始终传这个 Agent Type。运行会持久化 ~/.itpay-v3 的 ItPay Bash 命令前，把 Shell 工具参数 dangerouslyDisableSandbox 设为 true；用户拒绝权限时停止，不要切换 Node、删除 identity 或处理 lock。Checkout 返回已渲染的付款 Card Link 和 present_files action；原样执行一次 action 打开 handoff.url，不要检查本地二维码文件。",
+  zcode: "在 ZCode 中始终传这个 Agent Type。Checkout 或授权返回 handoff.url 后，立即用 ZCode 内置浏览器打开；不要只粘贴文字链接或重建二维码。只有内置浏览器不可用时才展示同一个可点击链接。",
   "kimi-code": "保持 kimi-code Agent Type，使用标准 CLI 命令和终端付款交接；不要切换到其他平台身份。",
   openclaw: "保持 openclaw Agent Type；每个展示命令都从当前可信会话上下文显式传 --host，IM 入口同时传 --target。Telegram 使用返回的原生 message action，其他入口展示标准二维码和付款链接。",
 };
