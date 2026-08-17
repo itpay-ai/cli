@@ -65,4 +65,4 @@ execution 不存在或不属于当前身份时保留不透明 `not_found`，只�
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 的状态、timeline、instruction 和 next 相同。本命令没有二维码或 Host handoff。
+所有正式支持的 Local Agent Type 的状态、timeline、instruction 和 next 相同。本命令没有二维码或 Host handoff。

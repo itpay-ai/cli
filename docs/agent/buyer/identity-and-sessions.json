@@ -25,8 +25,9 @@
   ],
   "local_state_recovery": [
     "Device state updates use an atomic directory lock and owner-only atomic file replacement; no lock file is opened with fs.open or fs.openSync.",
+    "Operation idempotency uses one immutable owner-only record per operation key. Different commands and Agent processes do not share a global operation-journal lock; legacy operations.json is read only.",
     "On device_state_unwritable, use the reported operation and errno to diagnose the failing stage without exposing local paths; keep the same Agent Type and CLI/Node launcher, restore Host-approved persistent access to ~/.itpay-v3, then retry the original command.",
-    "Do not manually create a lock, switch Node runtimes, delete identity, or rotate Agent Type as a retry strategy."
+    "Do not manually create or delete state locks, switch Node runtimes, delete identity, or rotate Agent Type as a retry strategy."
   ],
   "commands": [
     {

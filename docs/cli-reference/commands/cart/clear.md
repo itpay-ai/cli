@@ -52,4 +52,4 @@ itpay cart clear [--local] [--json]
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 行为相同。
+所有正式支持的 Local Agent Type 行为相同。

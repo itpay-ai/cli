@@ -81,6 +81,7 @@ export function defaultHostForAgentType(agentType: string | undefined): ClientHo
   if (normalized === "codex-desktop") return "codex";
   if (normalized === "claude-code-desktop") return "claude-code";
   if (normalized === "workbuddy") return "plain-chat";
+  if (normalized === "zcode") return "plain-chat";
   if (normalized === "openclaw") return undefined;
   return "terminal";
 }

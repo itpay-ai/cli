@@ -2,7 +2,7 @@ import type { ClientHost } from "../state/client_context.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { downloadBrandQRToTmp } from "../render/ide.js";
 import { renderTerminalQR, type QRFormat } from "../render/qr.js";
-import { buildWorkBuddyPresentFilesAction, isWorkBuddyPlainChat } from "./checkout_handoff.js";
+import { buildWorkBuddyPresentFilesAction, isWorkBuddyPlainChat, isZCodePlainChat } from "./checkout_handoff.js";
 
 const AUTH_ATTACH_REASON =
   "The human must be able to open or scan this official ItPay authorization handoff. " +
@@ -36,6 +36,13 @@ export async function buildVaultHandoff(input: VaultHandoffInput): Promise<Vault
     return {
       handoff,
       instruction: "向用户说明这是查看已购内容的只读授权，然后严格按 handoff.agent_action 原样执行一次。打开成功后停止等待；失败时只发送同一个 handoff.url。用户完成后重新运行最初的读取命令，不要再次创建授权请求。",
+    };
+  }
+
+  if (isZCodePlainChat(input.agentType, platform)) {
+    return {
+      handoff,
+      instruction: "向用户说明这是查看已购内容的只读授权，然后立即用 ZCode 内置浏览器打开 handoff.url。确认已发起打开后停止等待；不要只粘贴文字链接，也不要下载或重建二维码。只有内置浏览器明确不可用时，才展示同一个可点击 handoff.url。用户完成后重新运行最初的读取命令，不要再次创建授权请求。",
     };
   }
 

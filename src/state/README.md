@@ -17,6 +17,9 @@ handles use separate files.
   in generated ItPay commands.
 - `device_authority.ts` — keeps one local Ed25519 key and one registration per
   official Backend, with one Agent Instance per Agent Type.
+- `operation_journal.ts` — preserves idempotency with one immutable owner-only
+  record per operation key. Legacy `operations.json` is read only; operations
+  never wait on one global lock.
 
 ## Rules
 
@@ -30,6 +33,9 @@ handles use separate files.
   replace a revoked v2 Device automatically.
 - Persist checkout-scoped `display_token` only in the cart session file, with
   owner-only file permissions (`0600`), for checkout recovery.
+- Persist each idempotency handle under `operations.json.d/` (or the dev
+  equivalent) with owner-only permissions. Publish each record atomically,
+  preserve legacy IDs, and fail closed on a malformed authority record.
 - Persist Service checkout handoffs atomically before QR rendering. Recover a
   lost or expired handoff with `services checkout <execution_id> --resume
   --json`; the server reuses the existing checkout owner facts.
