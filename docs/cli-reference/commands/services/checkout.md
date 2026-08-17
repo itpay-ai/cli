@@ -83,6 +83,7 @@ itpay services checkout <service_execution_id> --resume
 | `claude-code-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
 | `claude-code-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
 | `workbuddy` | `handoff={url,agent_action}`；原样执行一次 `present_files(files=[url])` 打开完整渲染的 HTML Card Link，然后停止；不得检查或生成本地文件。 |
+| `zcode` | `handoff={url}`；立即用 ZCode 内置浏览器打开，然后停止；只有浏览器不可用时才展示同一个可点击链接。 |
 | `kimi-code` | `handoff={url}`；复用标准 CLI 终端展示。 |
 | `openclaw` | 必须显式传 Host；Telegram 还必须传 OpenClaw 原生 Target，并返回必须原样执行的 `message` action；其他入口返回标准 `url,qr_image_url`。 |
 
@@ -90,6 +91,12 @@ WorkBuddy 的准确 instruction 语义必须完整包含：
 
 ```text
 Backend 尚未确认付款。立即严格按 handoff.agent_action.tool 和 handoff.agent_action.arguments 原样执行一次，在右侧打开 handoff.url；确认工具调用成功后说明金额，然后停止等待。若工具失败，只发送原始 handoff.url，报告未自动打开并停止。不要用 present_files 打开本地文件或二维码 PNG，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
+```
+
+ZCode 的准确 instruction 语义必须完整包含：
+
+```text
+Backend 尚未确认付款。立即用 ZCode 内置浏览器打开 handoff.url，让用户完成付款；确认已发起打开后说明金额，然后停止等待。不要只粘贴文字链接，不要下载、解析或重建二维码，不要创建新 Checkout、Payment Intent 或 Execution。只有内置浏览器明确不可用时，才展示同一个可点击 handoff.url。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
 ```
 
 `--locale` 默认 `zh-CN`，可显式使用 `--locale en`。语言只影响 Card 渲染，不改变 Checkout、付款或恢复状态。

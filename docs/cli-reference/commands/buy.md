@@ -135,7 +135,7 @@ itpay buy \
 
 ## 幂等与中断恢复
 
-- CLI 在本机 operation journal 中为 `checkout.create:<cart_id>` 保存稳定幂等键。
+- CLI 在本机 `operations.json.d/`（dev 使用独立目录）中为 `checkout.create:<cart_id>` 保存一条不可变、owner-only 的稳定幂等记录；不同操作不共享全局锁。
 - HTTP 请求通过 `Idempotency-Key` 提交该键。
 - Checkout 响应丢失时，重跑同一命令会复用已保存的 canonical Cart 和同一幂等键。
 - 后端返回同一个待处理 Checkout，并轮换新的交接 token；不会创建第二笔订单。
@@ -168,6 +168,7 @@ itpay buy \
 | `claude-code-desktop` | `claude-code` | `url`、可用时 `qr_local_path` 和 `markdown` | 把 Markdown handoff 发到当前桌面对话，不能只输出本地路径。 |
 | `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
 | `workbuddy` | `plain-chat` | `url,agent_action` | 原样执行一次 `present_files(files=[url])`，在右侧打开完整渲染的 HTML Card Link，然后停止。 |
+| `zcode` | `plain-chat` | `url` | 立即用 ZCode 内置浏览器打开 URL；只有浏览器不可用时才展示同一个可点击链接。 |
 | `kimi-code` | `terminal` | `url` | 使用标准 CLI 非 JSON 终端二维码和链接。 |
 | `openclaw` | 必须显式 | Telegram 返回 `url,qr_image_url,agent_action`；其他入口返回 `url,qr_image_url` | Telegram 执行原生 `message` action；其他入口直接展示图片和链接。 |
 

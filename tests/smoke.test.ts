@@ -51,7 +51,7 @@ const execFileAsync = promisify(execFile);
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
-const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "kimi-code", "openclaw"] as const;
+const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "kimi-code", "openclaw"] as const;
 const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
 
 test("CLI version matches package version", () => {
@@ -88,7 +88,7 @@ async function runCLI(args: string[], env: Record<string, string>): Promise<{ st
 }
 
 function withoutQualifiedAgentType(output: string): string {
-  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy|kimi-code|openclaw) /g, "itpay ");
+  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy|zcode|kimi-code|openclaw) /g, "itpay ");
 }
 
 function assertQualifiedAgentType(output: string, agentType: string): void {
@@ -154,8 +154,8 @@ test("production and dev keep separate cart and operation state", async () => {
 
   await operationID(loadConfig(productionEnv), "same-operation");
   await operationID(loadConfig(developmentEnv), "same-operation");
-  assert.ok(existsSync(join(home, ".itpay-v3", "operations.json")));
-  assert.ok(existsSync(join(home, ".itpay-v3", "operations.dev.json")));
+  assert.ok(existsSync(join(home, ".itpay-v3", "operations.json.d")));
+  assert.ok(existsSync(join(home, ".itpay-v3", "operations.dev.json.d")));
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -174,6 +174,7 @@ test("agent type selects the default client surface", () => {
   assert.equal(defaultHostForAgentType("claude-code-desktop"), "claude-code");
   assert.equal(defaultHostForAgentType("claude-code-cli"), "terminal");
   assert.equal(defaultHostForAgentType("workbuddy"), "plain-chat");
+  assert.equal(defaultHostForAgentType("zcode"), "plain-chat");
   assert.equal(defaultHostForAgentType("kimi-code"), "terminal");
   assert.equal(defaultHostForAgentType("openclaw"), undefined);
 });
@@ -432,6 +433,7 @@ test("cart add derives Host from Agent Type and keeps output contract stable", a
     "claude-code-desktop": "claude-code",
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
+    zcode: "plain-chat",
   };
   for (const [agentType, expectedHost] of Object.entries(expectedHosts)) {
     const result = await runCLI([
@@ -2178,6 +2180,7 @@ test("install returns one official contract for every supported Agent Type", asy
     "claude-code-desktop": "claude-code",
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
+    zcode: "plain-chat",
     "kimi-code": "terminal",
     openclaw: null,
   };
@@ -2204,6 +2207,10 @@ test("install returns one official contract for every supported Agent Type", asy
       assert.match(envelope.instruction, /Card Link/);
       assert.match(envelope.instruction, /不要检查本地二维码文件/);
     }
+    if (agentType === "zcode") {
+      assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
+      assert.match(envelope.instruction, /不要只粘贴文字链接/);
+    }
     if (agentType === "kimi-code") assert.match(envelope.instruction, /标准 CLI/);
     if (agentType === "openclaw") assert.match(envelope.instruction, /--host/);
     assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
@@ -2221,7 +2228,7 @@ test("install lists supported types and rejects obsolete Host targets", async ()
   };
   assert.equal(listEnvelope.status, "install_targets");
   assert.deepEqual(listEnvelope.result.agent_types.map((item) => item.agent_type), [
-    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "kimi-code", "openclaw",
+    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "kimi-code", "openclaw",
   ]);
   assert.match(listed.stdout, /由 Agent 自行运行 itpay install <agent_type> --json/);
   assert.match(listed.stdout, /不要让用户运行命令/);
@@ -2477,6 +2484,28 @@ test("workbuddy checkout action always opens the rendered Checkout URL", () => {
   assert.doesNotMatch(result.instruction, /读取 handoff\.qr_image_url/);
 });
 
+test("zcode checkout opens only the rendered URL in the built-in browser", async () => {
+  const result = await runCLI([
+    "--agent-type", "zcode", "checkout",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: mkdtempSync(join(tmpdir(), "itpay-zcode-checkout-")),
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    handoff: Record<string, unknown>;
+    instruction: string;
+    next: { command: string };
+  };
+  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
+  assert.match(String(envelope.handoff.url), /\/card\?/);
+  assert.match(envelope.instruction, /ZCode 内置浏览器打开 handoff\.url/);
+  assert.match(envelope.instruction, /不要只粘贴文字链接/);
+  assert.match(envelope.instruction, /内置浏览器明确不可用/);
+  assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
+  assert.equal(envelope.next.command, "itpay --agent-type zcode checkout --id chk_pending --token cdt_pending --json");
+});
+
 test("explicit terminal Host overrides WorkBuddy presentation without changing Agent Type", async () => {
   const result = await runCLI([
     "--agent-type", "workbuddy", "checkout", "--host", "terminal",
@@ -2605,6 +2634,7 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     "claude-code-desktop": "claude-code",
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
+    zcode: "plain-chat",
   };
   for (const [agentType, expectedHost] of Object.entries(expectedHosts)) {
     const before = mock.requests.length;
@@ -2626,12 +2656,14 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
       ? ["markdown", "qr_local_path", "url"]
       : agentType === "workbuddy"
         ? ["agent_action", "url"]
-      : expectedHost === "plain-chat" && agentType !== "workbuddy"
+      : agentType === "zcode"
+        ? ["url"]
+      : expectedHost === "plain-chat" && agentType !== "workbuddy" && agentType !== "zcode"
         ? ["qr_image_url", "url"]
         : ["url"];
     assert.deepEqual(Object.keys(envelope.handoff).sort(), expectedHandoffKeys);
     assert.equal(Boolean(envelope.handoff.markdown), desktop);
-    assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat" && agentType !== "workbuddy");
+    assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat" && agentType !== "workbuddy" && agentType !== "zcode");
     assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/card.png?display_token=")), desktop);
     if (agentType === "workbuddy") {
       assert.match(envelope.handoff.url, /\/card\?/);
@@ -2642,6 +2674,11 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
       assert.match(envelope.instruction, /原样执行一次/);
       assert.match(envelope.instruction, /然后停止等待/);
       assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
+    } else if (agentType === "zcode") {
+      assert.match(envelope.handoff.url, /\/card\?/);
+      assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
+      assert.match(envelope.instruction, /不要只粘贴文字链接/);
+      assert.equal(envelope.handoff.agent_action, undefined);
     } else {
       assert.doesNotMatch(envelope.instruction, /present_files/);
     }
@@ -2783,7 +2820,10 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     };
     assert.equal(envelope.status, "payment_action_ready");
     assert.equal(Object.keys(envelope.result).length, 4);
-    assert.deepEqual(Object.keys(envelope.handoff).sort(), agentType === "workbuddy" ? ["agent_action", "url"] : ["mobile_wallet_url", "qr_image_url"]);
+    assert.deepEqual(
+      Object.keys(envelope.handoff).sort(),
+      agentType === "workbuddy" ? ["agent_action", "url"] : agentType === "zcode" ? ["url"] : ["mobile_wallet_url", "qr_image_url"],
+    );
     assert.match(envelope.next.command, /checkout --id .* --token .* --json/);
     if (agentType === "workbuddy") {
       assert.match(envelope.instruction, /handoff\.url/);
@@ -2794,12 +2834,16 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
       assert.match(envelope.instruction, /原样执行一次/);
       assert.match(envelope.instruction, /金额 1\.00 CNY/);
       assert.match(envelope.instruction, /停止等待/);
+    } else if (agentType === "zcode") {
+      assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
+      assert.match(envelope.instruction, /停止等待/);
+      assert.equal(envelope.handoff.agent_action, undefined);
     } else {
       assert.doesNotMatch(envelope.instruction, /present_files/);
     }
     instructions.push(envelope.instruction);
   }
-  assert.equal(new Set(instructions).size, 4);
+  assert.equal(new Set(instructions).size, 5);
 
   const before = mock.requests.length;
   await assert.rejects(
@@ -3881,6 +3925,17 @@ test("vault authorization handoff is host-ready without exposing credentials as 
   };
   assert.equal(workbuddy.handoff.agent_action.tool, "present_files");
   assert.deepEqual(workbuddy.handoff.agent_action.arguments.files, [workbuddy.handoff.url]);
+
+  const zcode = JSON.parse((await runCLI([
+    "--agent-type", "zcode", "vault", "access", "--json",
+  ], { HOME: mkdtempSync(join(tmpdir(), "itpay-vault-zcode-")) })).stdout) as {
+    handoff: Record<string, unknown>;
+    instruction: string;
+  };
+  assert.deepEqual(Object.keys(zcode.handoff), ["url"]);
+  assert.match(zcode.instruction, /ZCode 内置浏览器打开 handoff\.url/);
+  assert.match(zcode.instruction, /不要只粘贴文字链接/);
+  assert.doesNotMatch(zcode.instruction, /present_files|qr_image_url/);
 
   const telegram = JSON.parse((await runCLI([
     "--agent-type", "openclaw", "vault", "access", "--host", "telegram", "--target", "telegram:42", "--json",

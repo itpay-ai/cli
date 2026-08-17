@@ -152,4 +152,4 @@ Provider 已收到请求时，Backend 返回同一 Execution 的权威调用和�
 
 ## Agent Type / Host
 
-`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw` 七种 Agent Type 的 safe result 一致。instruction 可以适配对话表述，但不得隐藏 quota、价格或 schema 错误。
+所有正式支持的 Local Agent Type 的 safe result 一致。instruction 可以适配对话表述，但不得隐藏 quota、价格或 schema 错误。

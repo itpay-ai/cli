@@ -24,7 +24,7 @@ import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
 import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
-import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
+import { buildCheckoutHandoff, isLinkOnlyBrowserAgent, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 import { qualifyItPayCommand } from "../state/agent_type.js";
 
 export type ContactField = "email" | "phone";
@@ -401,7 +401,7 @@ export function buildCheckoutQRPlan(input: {
     host: input.host,
     summary,
     url: input.qrPayload,
-    ...(input.agentType?.trim().toLowerCase() === "workbuddy" && input.cardURL ? { linkOnlyURL: input.cardURL } : {}),
+    ...(isLinkOnlyBrowserAgent(input.agentType, platformKeyForHost(input.host)) && input.cardURL ? { linkOnlyURL: input.cardURL } : {}),
     preferredQRSources: [input.qrPNGURL ?? input.qrPayload],
     checkoutID: input.checkoutID,
     platform,

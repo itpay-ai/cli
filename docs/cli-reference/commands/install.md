@@ -18,10 +18,10 @@ itpay install [target] [--json]
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `target` | 否 | 七种正式 Agent Type 之一；省略或传 `list` 时列出全部。Host 名称不是合法 target。 |
+| `target` | 否 | 八种正式 Agent Type 之一；省略或传 `list` 时列出全部。Host 名称不是合法 target。 |
 | `--json` | 否 | 返回标准命令 envelope；推荐 Agent 使用。 |
 
-正式 target：`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`kimi-code`、`openclaw`。
+正式 target：`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`zcode`、`kimi-code`、`openclaw`。
 
 ## 指定 Agent Type 输出
 
@@ -77,7 +77,7 @@ OpenClaw 额外明确没有默认入口：
 
 ## 列表输出
 
-省略 target 或传 `list` 时返回七组运行时定义，不重复每种类型的完整 instruction：
+省略 target 或传 `list` 时返回八组运行时定义，不重复每种类型的完整 instruction：
 
 ```json
 {
@@ -89,6 +89,7 @@ OpenClaw 额外明确没有默认入口：
       { "agent_type": "claude-code-desktop", "default_host": "claude-code" },
       { "agent_type": "claude-code-cli", "default_host": "terminal" },
       { "agent_type": "workbuddy", "default_host": "plain-chat" },
+      { "agent_type": "zcode", "default_host": "plain-chat" },
       { "agent_type": "kimi-code", "default_host": "terminal" },
       {
         "agent_type": "openclaw",
@@ -120,6 +121,7 @@ OpenClaw 额外明确没有默认入口：
 | `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
 | `workbuddy` | `plain-chat` | 会持久化 `~/.itpay-v3` 的 Bash 调用先设 Shell 工具参数 `dangerouslyDisableSandbox=true`；拒绝权限时停止。Checkout 原样执行返回的 `present_files` action，打开渲染后的 Card Link。 |
+| `zcode` | `plain-chat` | Checkout 或授权返回后立即用 ZCode 内置浏览器打开 `handoff.url`；只有浏览器不可用时才展示同一个可点击链接。 |
 | `kimi-code` | `terminal` | 使用标准 CLI 流程和终端展示，不增加 Kimi 专属命令。 |
 | `openclaw` | 无 | 必须显式提供当前入口；Telegram 使用原生 action，其他入口展示标准二维码和链接。 |
 
@@ -138,7 +140,7 @@ OpenClaw 额外明确没有默认入口：
     "code": "unsupported_agent_type",
     "message": "unsupported install target: codex"
   },
-  "instruction": "target 只接受：codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, kimi-code, openclaw。",
+  "instruction": "target 只接受：codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, zcode, kimi-code, openclaw。",
   "next": null,
   "recovery": [
     {

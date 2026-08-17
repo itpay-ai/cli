@@ -51,6 +51,11 @@ itpay docs search <keyword> --json
 
 The current Backend response always overrides general documentation.
 
+When a handoff returns an official URL, open it yourself on the current
+platform whenever possible. Only show the same clickable URL when no browser
+or native action is available; never ask the human to run a command or rebuild
+a QR code.
+
 ## Serve The Human
 
 - Ask the human only to choose, authorize, pay, provide required contact
