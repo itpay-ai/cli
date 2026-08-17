@@ -13,7 +13,6 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  rmdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -385,17 +384,19 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
   } catch (error) {
     throw asDeviceStatePathError(error, "prepare_lock") ?? error;
   }
+  const ownerToken = randomUUID();
   let acquired = false;
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
-      mkdirSync(path, { mode: 0o700 });
+      writeFileSync(path, ownerToken, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      chmodSync(path, 0o600);
       acquired = true;
       break;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock") ?? error;
       try {
-        if (Date.now() - statSync(path).mtimeMs > 30_000) removeLock(path, "remove_stale_lock");
+        if (Date.now() - statSync(path).mtimeMs > 30_000) moveLockAside(path, "stale", "remove_stale_lock");
       } catch (statError) {
         if ((statError as NodeJS.ErrnoException).code !== "ENOENT") {
           throw asDeviceStateError(statError, "inspect_lock") ?? statError;
@@ -408,16 +409,30 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
   try {
     return await run();
   } finally {
-    removeLock(path, "release_lock");
+    releaseLock(path, ownerToken);
   }
 }
 
-function removeLock(path: string, operation: DeviceStateOperation): void {
+function releaseLock(path: string, ownerToken: string): void {
   try {
-    if (statSync(path).isDirectory()) rmdirSync(path);
-    else unlinkSync(path);
+    if (readFileSync(path, "utf8") !== ownerToken) return;
+    moveLockAside(path, "released", "release_lock");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, operation) ?? error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, "release_lock") ?? error;
+  }
+}
+
+function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation): void {
+  try {
+    renameSync(path, `${path}.${suffix}`);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    if (code === "EEXIST" || code === "ENOTEMPTY") {
+      renameSync(path, `${path}.${suffix}.${randomUUID()}`);
+      return;
+    }
+    throw asDeviceStateError(error, operation) ?? error;
   }
 }
 
