@@ -43,7 +43,7 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { CLI_VERSION, DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
+import { CLI_VERSION, SANDBOX_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -65,7 +65,7 @@ test("top-level help gives one Agent-owned setup path and human intent map", asy
   assert.match(result.stdout, /itpay install --json/);
   assert.match(result.stdout, /Previously purchased item vault list/);
   assert.match(result.stdout, /The Agent runs commands/);
-  assert.doesNotMatch(result.stdout, /ITPAY_BACKEND_URL=https:\/\/dev\.itpay\.ai/);
+  assert.doesNotMatch(result.stdout, /ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai/);
   assert.equal(result.stderr, "");
 });
 
@@ -123,14 +123,14 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("Backend override accepts only official production and dev origins", () => {
+test("Backend override accepts only official production and sandbox origins", () => {
   assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
   assert.equal(loadConfig({
-    ITPAY_BACKEND_URL: "https://dev.itpay.ai",
+    ITPAY_BACKEND_URL: "https://sandbox.itpay.ai",
     ITPAY_IDEMPOTENCY_KEY: "config-test",
-  }).baseURL, DEV_BASE_URL);
+  }).baseURL, SANDBOX_BASE_URL);
   assert.equal(loadConfig({
-    ITPAY_BACKEND_URL: "https://dev.itpay.ai/",
+    ITPAY_BACKEND_URL: "https://sandbox.itpay.ai/",
     ITPAY_IDEMPOTENCY_KEY: "config-test",
   }).environment, "development");
   assert.equal(loadConfig({
@@ -138,17 +138,17 @@ test("Backend override accepts only official production and dev origins", () => 
     ITPAY_IDEMPOTENCY_KEY: "config-test",
   }).baseURL, DEFAULT_BASE_URL);
   for (const value of [
-    "http://dev.itpay.ai", "https://test.itpay.ai", "https://dev.itpay.ai/path",
-    "https://dev.itpay.ai?x=1", "https://127.0.0.1", "http://localhost:8080",
+    "http://sandbox.itpay.ai", "https://test.itpay.ai", "https://sandbox.itpay.ai/path",
+    "https://sandbox.itpay.ai?x=1", "https://127.0.0.1", "http://localhost:8080",
   ]) {
     assert.throws(() => loadConfig({ ITPAY_BACKEND_URL: value, ITPAY_IDEMPOTENCY_KEY: "config-test" }), /only supports/);
   }
 });
 
-test("production and dev keep separate cart and operation state", async () => {
+test("production and sandbox keep separate cart and operation state", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-backend-state-"));
   const productionEnv = { HOME: home };
-  const developmentEnv = { HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL };
+  const developmentEnv = { HOME: home, ITPAY_BACKEND_URL: SANDBOX_BASE_URL };
   assert.equal(cartSessionPath(productionEnv), join(home, ".itpay-v3", "cart.json"));
   assert.equal(cartSessionPath(developmentEnv), join(home, ".itpay-v3", "cart.dev.json"));
 
@@ -2029,9 +2029,9 @@ test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay --json");
 });
 
-test("dev Backend is explicit and preserved in every next command", async () => {
+test("sandbox Backend is explicit and preserved in every next command", async () => {
   const result = await runCLI(["readyz", "--json"], {
-    ITPAY_BACKEND_URL: DEV_BASE_URL,
+    ITPAY_BACKEND_URL: SANDBOX_BASE_URL,
     ITPAY_AGENT_TYPE: "workbuddy",
   });
   const envelope = JSON.parse(result.stdout) as {
@@ -2041,12 +2041,12 @@ test("dev Backend is explicit and preserved in every next command", async () => 
   };
   assert.deepEqual(envelope.result, {
     backend: "available",
-    backend_url: DEV_BASE_URL,
+    backend_url: SANDBOX_BASE_URL,
     environment: "development",
     agent_type: "workbuddy",
   });
-  assert.match(envelope.instruction, /dev Backend/);
-  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${DEV_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
+  assert.match(envelope.instruction, /sandbox Backend/);
+  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
 });
 
 test("forbidden Backend override fails before any request", async () => {
@@ -2058,7 +2058,7 @@ test("forbidden Backend override fails before any request", async () => {
         error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
       };
       assert.equal(envelope.error.code, "backend_override_forbidden");
-      assert.match(envelope.instruction, /https:\/\/dev\.itpay\.ai/);
+      assert.match(envelope.instruction, /https:\/\/sandbox\.itpay\.ai/);
       assert.equal(envelope.next, null);
       assert.deepEqual(envelope.recovery, []);
       return true;

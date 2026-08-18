@@ -25,7 +25,7 @@ Official Agent install prompt（可直接复制给 Agent）：
 Use a separate test prompt to set the exact official Dev Backend. Never put a
 Dev override in the public install prompt.
 
-The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit tests may set `ITPAY_BACKEND_URL=https://dev.itpay.ai`; every other Backend URL is rejected before network or local state access.
+The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit sandbox runs may set `ITPAY_BACKEND_URL=https://sandbox.itpay.ai`; every other Backend URL is rejected before network or local state access.
 
 ## Output Contract
 
@@ -95,7 +95,7 @@ The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-sco
 ## Environment
 
 - `ITPAY_AGENT_TYPE`: stable alternative to global `--agent-type`.
-- `ITPAY_BACKEND_URL`: optional test override; only the exact official URL `https://dev.itpay.ai` is accepted. Unset it for production.
+- `ITPAY_BACKEND_URL`: optional sandbox override; only the exact official URL `https://sandbox.itpay.ai` is accepted. Unset it for production.
 - `ITPAY_BEARER_TOKEN`: optional account-scoped browser session for legacy account reads. Local Agents normally use signed Device Authority plus the time-limited human authorization returned by `vault access`.
 - `ITPAY_CART_SESSION_PATH`: local recovery-state path override.
 - `ITPAY_CURRENCY`: ordinary Cart currency, default `CNY`.

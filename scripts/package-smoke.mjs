@@ -110,14 +110,14 @@ try {
   const developmentEnv = {
     ...process.env,
     HOME: join(scratch, "production-home"),
-    ITPAY_BACKEND_URL: "https://dev.itpay.ai",
+    ITPAY_BACKEND_URL: "https://sandbox.itpay.ai",
   };
   mkdirSync(developmentEnv.HOME);
   const backendProof = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex-cli", "device", "recover", "--confirm-backend-reset", "--json",
   ], { env: developmentEnv, encoding: "utf8" }));
-  assert.equal(backendProof.result.backend, "https://dev.itpay.ai");
-  assert.match(backendProof.next.command, /^ITPAY_BACKEND_URL=https:\/\/dev\.itpay\.ai /);
+  assert.equal(backendProof.result.backend, "https://sandbox.itpay.ai");
+  assert.match(backendProof.next.command, /^ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai /);
   const skillHelp = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
