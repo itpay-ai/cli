@@ -12,7 +12,7 @@
   ],
   "identity_model": {
     "local_key": "One owner-only Ed25519 private key for the local installation.",
-    "backend_registration": "One registration per official Backend: app.itpay.ai by default and dev.itpay.ai only with the exact test override.",
+    "backend_registration": "One registration per official Backend: app.itpay.ai by default and sandbox.itpay.ai only with the exact test override.",
     "agent_instance": "One instance per agent_type under each Backend registration; same-type windows and chats reuse it.",
     "presentation": "Host and target route output only and never identify the Agent or provide business input."
   },
@@ -50,13 +50,13 @@
     "Use the real runtime type and keep it stable across every command in the flow.",
     "Keep the same CLI/Node launcher and Host-approved permission context for the whole flow.",
     "Treat a new window, chat, task, or process of the same runtime as the same Agent Type, not a new identity.",
-    "Expect production traffic to use https://app.itpay.ai. Use https://dev.itpay.ai only for an explicit test and keep the complete returned Backend-prefixed command for that entire flow.",
+    "Expect production traffic to use https://app.itpay.ai. Use https://sandbox.itpay.ai only for an explicit test and keep the complete returned Backend-prefixed command for that entire flow.",
     "After automatic recovery fails, stop and report the exact code, selected official Backend, Agent Type, and command family without exposing private keys or tokens."
   ],
   "forbidden": [
     "Do not delete ~/.itpay-v3, rotate the key, switch Agent Type, or repeatedly retry to obtain fresh quota.",
     "Do not use device recover for session expiry, revocation, quota recovery, or an unconfirmed Backend failure.",
-    "Do not redirect the CLI to test, local, an IP, or any custom Backend; only the exact official dev.itpay.ai test override is allowed.",
+    "Do not redirect the CLI to dev, local, an IP, or any custom Backend; only the exact official sandbox.itpay.ai test override is allowed.",
     "Do not use --target as identity or service input."
   ],
   "next_docs": [

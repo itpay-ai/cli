@@ -270,7 +270,7 @@ function reportCLIError(
             ? "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。"
             : "网络在完整响应前中断；当前写操作没有安全重放合同，因此 CLI 未自动重试。按 recovery 查询权威状态；不要原样重放或创建替代 Checkout、Execution、Payment 或 Refund。"
 		: backendOverrideError
-			? "移除 ITPAY_BACKEND_URL 使用正式环境，或准确设置为 https://dev.itpay.ai。"
+			? "移除 ITPAY_BACKEND_URL 使用正式环境，或准确设置为 https://sandbox.itpay.ai。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
       recovery: incompatible

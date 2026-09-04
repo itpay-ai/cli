@@ -12,7 +12,7 @@
 itpay --agent-type <agent_type> device recover --confirm-backend-reset --json
 ```
 
-命令只作用于当前官方 Backend 的 Device registration，并保留本地 Ed25519 私钥、Cart 和业务资源。默认是 `https://app.itpay.ai`；显式测试可使用准确的 `ITPAY_BACKEND_URL=https://dev.itpay.ai`。该命令不访问 Backend、不自动创建新身份；返回的只读 `services list` 会保留同一 Backend，是重新登记入口。
+命令只作用于当前官方 Backend 的 Device registration，并保留本地 Ed25519 私钥、Cart 和业务资源。默认是 `https://app.itpay.ai`；显式测试可使用准确的 `ITPAY_BACKEND_URL=https://sandbox.itpay.ai`。该命令不访问 Backend、不自动创建新身份；返回的只读 `services list` 会保留同一 Backend，是重新登记入口。
 
 同一台电脑上的多个 Local Agent Type 共享本地 Device key，但各自使用独立 Agent
 Instance。CLI 只在原子更新 Device state 时使用短期本地锁；释放和 stale recovery

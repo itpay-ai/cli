@@ -59,7 +59,7 @@ itpay services get <service_execution_id> [--json]
 
 ## 异常处理
 
-默认不返回原始 events、Provider metadata、内部 bindings、graph projection、capability schema、candidate hash、client context 或完整 payload。需要完整但仍经服务端脱敏的事件时才运行 `services events`。
+默认不返回原始 events、Provider metadata、内部 bindings、Arazzo workflow、capability schema、candidate hash、client context 或完整 payload。需要完整但仍经服务端脱敏的事件时才运行 `services events`。
 
 execution 不存在或不属于当前身份时保留不透明 `not_found`，只恢复到 `itpay services list --json`；不得通过错误差异探测其他账号。
 

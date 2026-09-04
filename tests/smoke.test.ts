@@ -33,6 +33,7 @@ import { CommandContractError, errorRecoveryActions } from "../src/commands/guid
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
 import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
+import { buildVaultHandoff } from "../src/commands/vault_handoff.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { normalizeFeedbackRating, runFeedbackSubmit } from "../src/commands/feedback.js";
@@ -43,7 +44,7 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { CLI_VERSION, DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
+import { CLI_VERSION, SANDBOX_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -51,7 +52,7 @@ const execFileAsync = promisify(execFile);
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
-const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "kimi-code", "openclaw"] as const;
+const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw"] as const;
 const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
 
 test("CLI version matches package version", () => {
@@ -65,7 +66,7 @@ test("top-level help gives one Agent-owned setup path and human intent map", asy
   assert.match(result.stdout, /itpay install --json/);
   assert.match(result.stdout, /Previously purchased item vault list/);
   assert.match(result.stdout, /The Agent runs commands/);
-  assert.doesNotMatch(result.stdout, /ITPAY_BACKEND_URL=https:\/\/dev\.itpay\.ai/);
+  assert.doesNotMatch(result.stdout, /ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai/);
   assert.equal(result.stderr, "");
 });
 
@@ -88,7 +89,7 @@ async function runCLI(args: string[], env: Record<string, string>): Promise<{ st
 }
 
 function withoutQualifiedAgentType(output: string): string {
-  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy|zcode|kimi-code|openclaw) /g, "itpay ");
+  return output.replace(/itpay --agent-type (?:codex-desktop|codex-cli|claude-code-desktop|claude-code-cli|workbuddy|zcode|doubao-work|kimi-code|openclaw) /g, "itpay ");
 }
 
 function assertQualifiedAgentType(output: string, agentType: string): void {
@@ -123,14 +124,14 @@ after(async () => {
 
 // --- client context ------------------------------------------------------
 
-test("Backend override accepts only official production and dev origins", () => {
+test("Backend override accepts only official production and sandbox origins", () => {
   assert.equal(DEFAULT_BASE_URL, "https://app.itpay.ai");
   assert.equal(loadConfig({
-    ITPAY_BACKEND_URL: "https://dev.itpay.ai",
+    ITPAY_BACKEND_URL: "https://sandbox.itpay.ai",
     ITPAY_IDEMPOTENCY_KEY: "config-test",
-  }).baseURL, DEV_BASE_URL);
+  }).baseURL, SANDBOX_BASE_URL);
   assert.equal(loadConfig({
-    ITPAY_BACKEND_URL: "https://dev.itpay.ai/",
+    ITPAY_BACKEND_URL: "https://sandbox.itpay.ai/",
     ITPAY_IDEMPOTENCY_KEY: "config-test",
   }).environment, "development");
   assert.equal(loadConfig({
@@ -138,24 +139,24 @@ test("Backend override accepts only official production and dev origins", () => 
     ITPAY_IDEMPOTENCY_KEY: "config-test",
   }).baseURL, DEFAULT_BASE_URL);
   for (const value of [
-    "http://dev.itpay.ai", "https://test.itpay.ai", "https://dev.itpay.ai/path",
-    "https://dev.itpay.ai?x=1", "https://127.0.0.1", "http://localhost:8080",
+    "http://sandbox.itpay.ai", "https://test.itpay.ai", "https://sandbox.itpay.ai/path",
+    "https://sandbox.itpay.ai?x=1", "https://127.0.0.1", "http://localhost:8080",
   ]) {
     assert.throws(() => loadConfig({ ITPAY_BACKEND_URL: value, ITPAY_IDEMPOTENCY_KEY: "config-test" }), /only supports/);
   }
 });
 
-test("production and dev keep separate cart and operation state", async () => {
+test("production and sandbox keep separate cart and operation state", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-backend-state-"));
   const productionEnv = { HOME: home };
-  const developmentEnv = { HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL };
+  const developmentEnv = { HOME: home, ITPAY_BACKEND_URL: SANDBOX_BASE_URL };
   assert.equal(cartSessionPath(productionEnv), join(home, ".itpay-v3", "cart.json"));
-  assert.equal(cartSessionPath(developmentEnv), join(home, ".itpay-v3", "cart.dev.json"));
+  assert.equal(cartSessionPath(developmentEnv), join(home, ".itpay-v3", "cart.sandbox.json"));
 
   await operationID(loadConfig(productionEnv), "same-operation");
   await operationID(loadConfig(developmentEnv), "same-operation");
   assert.ok(existsSync(join(home, ".itpay-v3", "operations.json.d")));
-  assert.ok(existsSync(join(home, ".itpay-v3", "operations.dev.json.d")));
+  assert.ok(existsSync(join(home, ".itpay-v3", "operations.sandbox.json.d")));
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -175,6 +176,7 @@ test("agent type selects the default client surface", () => {
   assert.equal(defaultHostForAgentType("claude-code-cli"), "terminal");
   assert.equal(defaultHostForAgentType("workbuddy"), "plain-chat");
   assert.equal(defaultHostForAgentType("zcode"), "plain-chat");
+  assert.equal(defaultHostForAgentType("doubao-work"), "plain-chat");
   assert.equal(defaultHostForAgentType("kimi-code"), "terminal");
   assert.equal(defaultHostForAgentType("openclaw"), undefined);
 });
@@ -434,6 +436,7 @@ test("cart add derives Host from Agent Type and keeps output contract stable", a
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
     zcode: "plain-chat",
+    "doubao-work": "plain-chat",
   };
   for (const [agentType, expectedHost] of Object.entries(expectedHosts)) {
     const result = await runCLI([
@@ -1047,7 +1050,7 @@ test("services get returns a bounded public timeline", async () => {
   assert.equal(envelope.result.timeline_truncated, true);
   assert.match(envelope.next.command, /services invoke se_timeline/);
   assert.equal(envelope.recovery[0]?.command, "itpay services events se_timeline --json");
-  assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|graph_projection|capabilities/);
+  assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|capabilities/);
 });
 
 test("services get keeps facts stable across Agent Types and keeps not-found opaque", async () => {
@@ -2029,9 +2032,9 @@ test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay --json");
 });
 
-test("dev Backend is explicit and preserved in every next command", async () => {
+test("sandbox Backend is explicit and preserved in every next command", async () => {
   const result = await runCLI(["readyz", "--json"], {
-    ITPAY_BACKEND_URL: DEV_BASE_URL,
+    ITPAY_BACKEND_URL: SANDBOX_BASE_URL,
     ITPAY_AGENT_TYPE: "workbuddy",
   });
   const envelope = JSON.parse(result.stdout) as {
@@ -2041,12 +2044,12 @@ test("dev Backend is explicit and preserved in every next command", async () => 
   };
   assert.deepEqual(envelope.result, {
     backend: "available",
-    backend_url: DEV_BASE_URL,
+    backend_url: SANDBOX_BASE_URL,
     environment: "development",
     agent_type: "workbuddy",
   });
-  assert.match(envelope.instruction, /dev Backend/);
-  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${DEV_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
+  assert.match(envelope.instruction, /sandbox Backend/);
+  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
 });
 
 test("forbidden Backend override fails before any request", async () => {
@@ -2058,7 +2061,7 @@ test("forbidden Backend override fails before any request", async () => {
         error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
       };
       assert.equal(envelope.error.code, "backend_override_forbidden");
-      assert.match(envelope.instruction, /https:\/\/dev\.itpay\.ai/);
+      assert.match(envelope.instruction, /https:\/\/sandbox\.itpay\.ai/);
       assert.equal(envelope.next, null);
       assert.deepEqual(envelope.recovery, []);
       return true;
@@ -2181,6 +2184,7 @@ test("install returns one official contract for every supported Agent Type", asy
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
     zcode: "plain-chat",
+    "doubao-work": "plain-chat",
     "kimi-code": "terminal",
     openclaw: null,
   };
@@ -2211,6 +2215,10 @@ test("install returns one official contract for every supported Agent Type", asy
       assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
       assert.match(envelope.instruction, /不要只粘贴文字链接/);
     }
+    if (agentType === "doubao-work") {
+      assert.match(envelope.instruction, /handoff\.url 和 handoff\.qr_image_url/);
+      assert.match(envelope.instruction, /另一台设备扫码/);
+    }
     if (agentType === "kimi-code") assert.match(envelope.instruction, /标准 CLI/);
     if (agentType === "openclaw") assert.match(envelope.instruction, /--host/);
     assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
@@ -2228,7 +2236,7 @@ test("install lists supported types and rejects obsolete Host targets", async ()
   };
   assert.equal(listEnvelope.status, "install_targets");
   assert.deepEqual(listEnvelope.result.agent_types.map((item) => item.agent_type), [
-    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "kimi-code", "openclaw",
+    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw",
   ]);
   assert.match(listed.stdout, /由 Agent 自行运行 itpay install <agent_type> --json/);
   assert.match(listed.stdout, /不要让用户运行命令/);
@@ -2506,6 +2514,28 @@ test("zcode checkout opens only the rendered URL in the built-in browser", async
   assert.equal(envelope.next.command, "itpay --agent-type zcode checkout --id chk_pending --token cdt_pending --json");
 });
 
+test("doubao-work checkout returns the documented direct and QR links", async () => {
+  const result = await runCLI([
+    "--agent-type", "doubao-work", "checkout",
+    "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    HOME: mkdtempSync(join(tmpdir(), "itpay-doubao-work-checkout-")),
+  });
+  const envelope = JSON.parse(result.stdout) as {
+    handoff: Record<string, unknown>;
+    instruction: string;
+    next: { command: string };
+  };
+  assert.deepEqual(Object.keys(envelope.handoff), ["url", "qr_image_url"]);
+  assert.match(String(envelope.handoff.url), /\/checkout\/chk_pending\?/);
+  assert.match(String(envelope.handoff.qr_image_url), /\/card\.png\?/);
+  assert.match(envelope.instruction, /手机直接打开收银台/);
+  assert.match(envelope.instruction, /二维码图片（保存或用另一台设备扫码）/);
+  assert.match(envelope.instruction, /不要调用 pay/);
+  assert.doesNotMatch(envelope.instruction, /present_files/);
+  assert.equal(envelope.next.command, "itpay --agent-type doubao-work checkout --id chk_pending --token cdt_pending --json");
+});
+
 test("explicit terminal Host overrides WorkBuddy presentation without changing Agent Type", async () => {
   const result = await runCLI([
     "--agent-type", "workbuddy", "checkout", "--host", "terminal",
@@ -2635,6 +2665,7 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     "claude-code-cli": "terminal",
     workbuddy: "plain-chat",
     zcode: "plain-chat",
+    "doubao-work": "plain-chat",
   };
   for (const [agentType, expectedHost] of Object.entries(expectedHosts)) {
     const before = mock.requests.length;
@@ -2678,6 +2709,12 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
       assert.match(envelope.handoff.url, /\/card\?/);
       assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
       assert.match(envelope.instruction, /不要只粘贴文字链接/);
+      assert.equal(envelope.handoff.agent_action, undefined);
+    } else if (agentType === "doubao-work") {
+      assert.match(envelope.handoff.url, /\/checkout\//);
+      assert.match(envelope.handoff.qr_image_url ?? "", /\/card\.png\?/);
+      assert.match(envelope.instruction, /手机直接打开收银台/);
+      assert.match(envelope.instruction, /二维码图片（保存或用另一台设备扫码）/);
       assert.equal(envelope.handoff.agent_action, undefined);
     } else {
       assert.doesNotMatch(envelope.instruction, /present_files/);
@@ -3938,6 +3975,19 @@ test("vault authorization handoff is host-ready without exposing credentials as 
   assert.match(zcode.instruction, /不要只粘贴文字链接/);
   assert.doesNotMatch(zcode.instruction, /present_files|qr_image_url/);
 
+  const doubao = JSON.parse((await runCLI([
+    "--agent-type", "doubao-work", "vault", "access", "--json",
+  ], { HOME: mkdtempSync(join(tmpdir(), "itpay-vault-doubao-work-")) })).stdout) as {
+    handoff: Record<string, unknown>;
+    instruction: string;
+  };
+  assert.deepEqual(Object.keys(doubao.handoff), ["url", "qr_image_url"]);
+  assert.match(String(doubao.handoff.url), /^https:\/\/app\.itpay\.ai\/vault\/access\//);
+  assert.match(String(doubao.handoff.qr_image_url), /\/qr\.png\?/);
+  assert.match(doubao.instruction, /直接打开授权页/);
+  assert.match(doubao.instruction, /授权二维码图片（保存或用另一台设备扫码）/);
+  assert.doesNotMatch(doubao.instruction, /present_files/);
+
   const telegram = JSON.parse((await runCLI([
     "--agent-type", "openclaw", "vault", "access", "--host", "telegram", "--target", "telegram:42", "--json",
   ], { HOME: mkdtempSync(join(tmpdir(), "itpay-vault-openclaw-")) })).stdout) as {
@@ -3946,6 +3996,27 @@ test("vault authorization handoff is host-ready without exposing credentials as 
   assert.equal(telegram.handoff.agent_action.tool, "message");
   assert.equal(telegram.handoff.agent_action.arguments.target, "42");
   assert.ok(telegram.handoff.agent_action.arguments.presentation);
+});
+
+test("doubao-work derives the documented Vault QR link for compatible Backends", async () => {
+  const handoff = await buildVaultHandoff({
+    agentType: "doubao-work",
+    host: "plain-chat",
+    requestID: "var_compat",
+    authorizationURL: "https://app.itpay.ai/vault/access/var_compat?start_token=secret%2Bvalue",
+    imageAttachEnabled: false,
+  });
+  assert.deepEqual(handoff.handoff, {
+    url: "https://app.itpay.ai/vault/access/var_compat?start_token=secret%2Bvalue",
+    qr_image_url: "https://app.itpay.ai/v1/vault/access-requests/var_compat/qr.png?start_token=secret%2Bvalue",
+  });
+  await assert.rejects(buildVaultHandoff({
+    agentType: "doubao-work",
+    host: "plain-chat",
+    requestID: "var_invalid",
+    authorizationURL: "https://app.itpay.ai/vault/access/var_invalid",
+    imageAttachEnabled: false,
+  }), /usable Vault authorization QR URL/);
 });
 
 test("vault authorization validates an OpenClaw delivery target before creating a request", async () => {

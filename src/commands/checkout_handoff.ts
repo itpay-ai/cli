@@ -77,6 +77,9 @@ function checkoutHandoffInstruction(
   if (isZCodePlainChat(agentType, platform)) {
     return `Backend 尚未确认付款。立即用 ZCode 内置浏览器打开 handoff.url，让用户完成付款；确认已发起打开后说明金额 ${amount}，然后停止等待。不要只粘贴文字链接，不要下载、解析或重建二维码，不要创建新 Checkout、Payment Intent 或 Execution。只有内置浏览器明确不可用时，才展示同一个可点击 handoff.url。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
   }
+  if (agentType?.trim().toLowerCase() === "doubao-work" && platform === "plain_chat") {
+    return `Backend 尚未确认付款。在当前豆包工作对话中展示两个有标签的官方入口：将 handoff.url 标为“手机直接打开收银台”，将 handoff.qr_image_url 标为“二维码图片（保存或用另一台设备扫码）”。说明金额 ${amount} 后停止等待。不要解析或单独输出 URL credential，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+  }
   if (platform === "markdown") {
     return `Backend 尚未确认付款。把 handoff.markdown 原样发送到当前桌面对话，确认二维码、付款链接和金额 ${amount} 均已实际对用户可见，然后停止等待。不要创建新 Checkout、Payment Intent 或 Execution；只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
   }

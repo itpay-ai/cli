@@ -169,6 +169,7 @@ itpay buy \
 | `claude-code-cli` | `terminal` | `url` | 在用户可见终端展示；不能声称桌面对话已收到图片。 |
 | `workbuddy` | `plain-chat` | `url,agent_action` | 原样执行一次 `present_files(files=[url])`，在右侧打开完整渲染的 HTML Card Link，然后停止。 |
 | `zcode` | `plain-chat` | `url` | 立即用 ZCode 内置浏览器打开 URL；只有浏览器不可用时才展示同一个可点击链接。 |
+| `doubao-work` | `plain-chat` | `url,qr_image_url` | 展示“手机直接打开收银台”和“二维码图片（保存或用另一台设备扫码）”两个有标签的官方入口，说明金额后停止。 |
 | `kimi-code` | `terminal` | `url` | 使用标准 CLI 非 JSON 终端二维码和链接。 |
 | `openclaw` | 必须显式 | Telegram 返回 `url,qr_image_url,agent_action`；其他入口返回 `url,qr_image_url` | Telegram 执行原生 `message` action；其他入口直接展示图片和链接。 |
 

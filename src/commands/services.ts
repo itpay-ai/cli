@@ -976,12 +976,12 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 						? appendFeedbackPostmortemInstruction(items.length > 0
 					? selection
 						? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
-						: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Graph、safe_payload 或内部 ID。"
+						: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
 					: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。", "delivered")
 				: items.length > 0
 				? selection
 					? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
-					: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Graph、safe_payload 或内部 ID。"
+					: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
 				: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。",
 			next: selection ? {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,

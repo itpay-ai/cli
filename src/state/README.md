@@ -24,7 +24,7 @@ handles use separate files.
 ## Rules
 
 - Keep the private key and Device state owner-only (`0600`); never expose them
-  in command output or use a Backend other than official app.itpay.ai/dev.itpay.ai.
+  in command output or use a Backend other than official app.itpay.ai/sandbox.itpay.ai.
 - Reuse one Agent Instance for all windows and chats of the same Agent Type.
 - Serialize Device state changes with an atomic owner-token file lock and
   atomic file replacement. Release and stale recovery rename the canonical

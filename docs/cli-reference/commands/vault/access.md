@@ -27,7 +27,8 @@ itpay vault access [--artifact <artifact_ref>] [--host <host>] [--target <target
   "handoff": {
     "url": "https://app.itpay.ai/vault/access/...",
     "qr_local_path": "<desktop-optional-local-path>",
-    "markdown": "<desktop-optional-host-ready-markdown>"
+    "markdown": "<desktop-optional-host-ready-markdown>",
+    "qr_image_url": "<chat-host-optional-absolute-https-png>"
   },
   "instruction": "说明这是当前智能体的只读授权，实际展示 handoff，然后停止；用户完成后重新运行最初的读取命令。",
   "next": null,
@@ -53,6 +54,7 @@ Agent不得提取、单独输出、记录或重建其中的 credential；但不�
 | `claude-code-cli / terminal` | `url`；文本模式同时渲染终端二维码 |
 | `workbuddy / plain-chat` | `url, agent_action` |
 | `zcode / plain-chat` | `url`；立即用内置浏览器打开，浏览器不可用时才展示可点击链接 |
+| `doubao-work / plain-chat` | `url, qr_image_url`；展示“直接打开授权页”和“授权二维码图片（保存或用另一台设备扫码）”两个有标签的官方入口 |
 | `kimi-code / terminal` | `url`；文本模式同时渲染终端二维码 |
 | `openclaw / telegram` | `url, qr_image_url, agent_action` |
 | `openclaw / other` | `url, qr_image_url` |
@@ -61,3 +63,5 @@ Agent不得提取、单独输出、记录或重建其中的 credential；但不�
 未显示并发送同一个 URL；不得创建替代请求。
 
 ZCode 不接收图片路径或二维码 URL。instruction 必须要求 Agent立即用内置浏览器打开完整 `handoff.url`，然后停止等待；不得只粘贴文字链接或重建二维码。仅当内置浏览器明确不可用时才展示同一个可点击链接。
+
+Doubao Work 的两个字段都是必需项。若兼容 Backend 未直接返回二维码 URL，CLI 必须从同一官方授权入口派生 Backend 的对应二维码端点；无法安全派生时命令必须明确失败，不得返回缺字段的 handoff。instruction 必须要求 Agent 同时展示完整 `handoff.url` 与 `handoff.qr_image_url`，清楚区分直接打开与跨设备扫码用途，然后停止等待。不得解析 credential、下载或重建二维码，也不得重复执行 `vault access` 检查状态。

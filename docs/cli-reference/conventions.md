@@ -37,7 +37,7 @@ CLI 输出是给 Agent 执行的协议，不是后端 DTO 的调试转储。默�
 - `recovery`：成功时通常为空；失败或中断时最多两个动作。
 - 一旦命令声明 `--agent-type` 或 `ITPAY_AGENT_TYPE`，所有 ItPay `next.command` 和 `recovery.command` 都保留同一类型。
 - 相同事实不得同时出现在顶层、`agent_guidance`、`next_actions` 等多个位置。
-- 默认隐藏 buyer、device、contract version、compiled graph、quote lock、内部 event ID 等实现细节。
+- 默认隐藏 buyer、device、contract version、Arazzo workflow、quote lock、内部 event ID 等实现细节。
 - token、付款 URL 和本地二维码路径只在确实需要交给用户时返回，并不得写入日志型命令。
 
 ## 默认文本输出

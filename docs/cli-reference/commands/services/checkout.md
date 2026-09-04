@@ -84,6 +84,7 @@ itpay services checkout <service_execution_id> --resume
 | `claude-code-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
 | `workbuddy` | `handoff={url,agent_action}`；原样执行一次 `present_files(files=[url])` 打开完整渲染的 HTML Card Link，然后停止；不得检查或生成本地文件。 |
 | `zcode` | `handoff={url}`；立即用 ZCode 内置浏览器打开，然后停止；只有浏览器不可用时才展示同一个可点击链接。 |
+| `doubao-work` | `handoff={url,qr_image_url}`；在当前对话中展示手机直达收银台链接和官方二维码图片链接，说明金额后停止。 |
 | `kimi-code` | `handoff={url}`；复用标准 CLI 终端展示。 |
 | `openclaw` | 必须显式传 Host；Telegram 还必须传 OpenClaw 原生 Target，并返回必须原样执行的 `message` action；其他入口返回标准 `url,qr_image_url`。 |
 
@@ -97,6 +98,12 @@ ZCode 的准确 instruction 语义必须完整包含：
 
 ```text
 Backend 尚未确认付款。立即用 ZCode 内置浏览器打开 handoff.url，让用户完成付款；确认已发起打开后说明金额，然后停止等待。不要只粘贴文字链接，不要下载、解析或重建二维码，不要创建新 Checkout、Payment Intent 或 Execution。只有内置浏览器明确不可用时，才展示同一个可点击 handoff.url。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
+```
+
+Doubao Work 的准确 instruction 语义必须完整包含：
+
+```text
+Backend 尚未确认付款。在当前豆包工作对话中展示两个有标签的官方入口：将 handoff.url 标为“手机直接打开收银台”，将 handoff.qr_image_url 标为“二维码图片（保存或用另一台设备扫码）”。说明金额后停止等待。不要解析或单独输出 URL credential，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
 ```
 
 `--locale` 默认 `zh-CN`，可显式使用 `--locale en`。语言只影响 Card 渲染，不改变 Checkout、付款或恢复状态。

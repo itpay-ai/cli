@@ -1,5 +1,5 @@
 // CLI configuration loader. Production defaults to app.itpay.ai; the only
-// allowed override is the official dev Backend. Checkout
+// allowed override is the official sandbox Backend. Checkout
 // display-token persistence belongs to the cart session file, protected with
 // owner-only permissions. Provider secrets are explicitly out of scope here.
 
@@ -32,9 +32,9 @@ export interface CLIConfig {
 }
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
-export const DEV_BASE_URL = "https://dev.itpay.ai";
-export const CLI_VERSION = "2.0.37";
-export const API_CONTRACT_REVISION = "sha256:b97025ee4e6f7539757d6aedbe193dd65b3a0f84f1111f678abb5e757065f888";
+export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
+export const CLI_VERSION = "2.0.38";
+export const API_CONTRACT_REVISION = "sha256:06930cb6833e761813d6ad2e260cf0605469234b515402fa25c0c58b9f3c27e9";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -51,7 +51,7 @@ export class BackendOverrideError extends Error {
   readonly code = "backend_override_forbidden";
 
   constructor() {
-    super(`ITPAY_BACKEND_URL only supports ${DEFAULT_BASE_URL} or ${DEV_BASE_URL}`);
+    super(`ITPAY_BACKEND_URL only supports ${DEFAULT_BASE_URL} or ${SANDBOX_BASE_URL}`);
     this.name = "BackendOverrideError";
   }
 }
@@ -59,21 +59,21 @@ export class BackendOverrideError extends Error {
 export function resolveBackendURL(env: NodeJS.ProcessEnv = process.env): string {
   const requested = env.ITPAY_BACKEND_URL?.trim();
   if (!requested || requested === DEFAULT_BASE_URL || requested === `${DEFAULT_BASE_URL}/`) return DEFAULT_BASE_URL;
-  if (requested === DEV_BASE_URL || requested === `${DEV_BASE_URL}/`) return DEV_BASE_URL;
+  if (requested === SANDBOX_BASE_URL || requested === `${SANDBOX_BASE_URL}/`) return SANDBOX_BASE_URL;
   throw new BackendOverrideError();
 }
 
 export function qualifyBackendCommand(command: string, env: NodeJS.ProcessEnv = process.env): string {
   const requested = env.ITPAY_BACKEND_URL?.trim();
-  if (requested !== DEV_BASE_URL && requested !== `${DEV_BASE_URL}/`) return command;
-  if (!command.startsWith("itpay ") || command.startsWith(`ITPAY_BACKEND_URL=${DEV_BASE_URL} `)) return command;
-  return `ITPAY_BACKEND_URL=${DEV_BASE_URL} ${command}`;
+  if (requested !== SANDBOX_BASE_URL && requested !== `${SANDBOX_BASE_URL}/`) return command;
+  if (!command.startsWith("itpay ") || command.startsWith(`ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} `)) return command;
+  return `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} ${command}`;
 }
 
 function stateFilename(filename: string, baseURL: string): string {
-  if (baseURL !== DEV_BASE_URL) return filename;
+  if (baseURL !== SANDBOX_BASE_URL) return filename;
   const dot = filename.lastIndexOf(".");
-  return dot < 0 ? `${filename}.dev` : `${filename.slice(0, dot)}.dev${filename.slice(dot)}`;
+  return dot < 0 ? `${filename}.sandbox` : `${filename.slice(0, dot)}.sandbox${filename.slice(dot)}`;
 }
 
 function stateDir(env: NodeJS.ProcessEnv): string {
@@ -99,7 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const ideImageDirOverride = env.ITPAY_IDE_IMAGE_DIR_OVERRIDE;
   return {
     baseURL,
-    environment: baseURL === DEV_BASE_URL ? "development" : "production",
+    environment: baseURL === SANDBOX_BASE_URL ? "development" : "production",
     ...(agentType ? { agentType } : {}),
     checkoutCurrency,
     idempotencyKey,

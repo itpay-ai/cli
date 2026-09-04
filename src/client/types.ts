@@ -387,7 +387,6 @@ export interface ServiceExecution {
   service_execution_id: string;
   service_id: string;
   service_contract_version_id: string;
-  compiled_service_graph_id?: string;
   buyer_id?: string;
   agent_device_id?: string;
   status: string;
@@ -411,7 +410,6 @@ export interface StartServiceExecutionRequest {
 export interface ServiceExecutionStarted {
   execution: ServiceExecution;
   capabilities: ServiceCapability[];
-  graph_id?: string;
 }
 
 export interface InvokeServiceCapabilityRequest {
