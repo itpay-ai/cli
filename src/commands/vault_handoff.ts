@@ -46,6 +46,14 @@ export async function buildVaultHandoff(input: VaultHandoffInput): Promise<Vault
     };
   }
 
+  if (input.agentType?.trim().toLowerCase() === "doubao-work" && platform === "plain_chat") {
+    if (input.qrPNGURL) handoff.qr_image_url = input.qrPNGURL;
+    return {
+      handoff,
+      instruction: "向用户说明这是查看已购内容的只读授权。在当前豆包工作对话中将 handoff.url 标为“直接打开授权页”，将 handoff.qr_image_url 标为“授权二维码图片（保存或用另一台设备扫码）”，然后停止等待。不要解析 URL credential、下载或重建二维码，也不要重复创建授权请求；用户完成后重新运行最初的读取命令。",
+    };
+  }
+
   if (platform === "markdown") {
     const downloaded = input.imageAttachEnabled && input.qrPNGURL
       ? await downloadBrandQRToTmp(input.qrPNGURL, "auth", input.requestID, {
