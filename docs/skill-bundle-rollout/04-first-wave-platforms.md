@@ -12,6 +12,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ChatGPT + Codex | `itpay-plugin-chatgpt` | ChatGPT MCP；本地 Codex CLI | OpenAI app-plus-skills plugin、MCP config、Skill、离线 CLI | blocked：Buyer Vault 候选尚未完成外部发布 | 2026-08-10 automated CI；ChatGPT/Codex 真机待验收 | pre-Vault `2b1e8a9c8030` | 当前 MCP 合同、OAuth refresh/revoke、OpenAI 审核；本地 CLI bundle pin |
 | WorkBuddy | `itpay-skill-workbuddy` | 本地 CLI；显式 MCP | SkillHub/local Skill 包、单文件 CLI、MCP OAuth | blocked：Buyer Vault 候选尚未同步 SkillHub | 2026-08-10 automated CI；WorkBuddy 真机待验收 | pre-Vault `584ebf3f8c46` | 权限模式、窄浏览器、OAuth 回跳/refresh、SkillHub 状态 |
+| 豆包工作 | `itpay-ai/cli` | 云电脑内的本地 CLI | 官方 npm CLI；`doubao-work` Agent Type | candidate：CLI 合同与自动化测试完成后待豆包工作真机验收 | 待本轮 automated CI 与真机验收 | 发布前 CLI tag | 云电脑安装/持久化、本机直达链接、二维码备用链接 |
 | OpenClaw / ClawHub | `itpay-skill-openclaw` | host-dependent CLI | ClawHub Skill、单文件 CLI | blocked：Buyer Vault 候选尚未同步 ClawHub | 2026-08-10 automated CI；OpenClaw 真机待验收 | pre-Vault `af2aa79d85c8` | 公开目录/审核状态、host renderer、更新/回滚 |
 | Kimi Work / Kimi Code | `itpay-plugin-kimi-work` | Work MCP；Code host-dependent CLI | Kimi plugin + Skill、离线 CLI | blocked：Buyer Vault 候选尚未发布；公开 release 仍为 `v2.0.17` | 2026-08-10 automated CI；两个 surface 真机待验收 | `v2.0.17` / `b8d40fe9cffd` | 两个 surface 真机、MCP Token persistence、市场状态 |
 | Hermes Agent / Skills Hub | `itpay-skill-hermes` | host-dependent CLI | GitHub Skill tap、单文件 CLI | blocked：Buyer Vault 候选尚未同步 Skills Hub | 2026-08-10 automated CI；Hermes 真机待验收 | pre-Vault `1189f25103fd` | Skills Hub/trusted 状态、更新/回滚、可选 MCP 真机 |
@@ -29,7 +30,7 @@ the named platform has real acceptance and its distribution surface is updated.
 | --- | --- | --- |
 | Claude / Claude Code | planned | 确认分发面和仓库，完成 manifest、CLI/MCP 路由、OAuth/Device 真机验收。 |
 | Gemini CLI | planned | 确认当前 Extension 规则，完成仓库、manifest、bundle 和真机验收。 |
-| 豆包/扣子/火山/其他 | unconfirmed | 明确具体产品面和官方第三方发布入口，不能相互代替。 |
+| 扣子/火山/其他 | unconfirmed | 明确具体产品面和官方第三方发布入口，不能相互代替。 |
 
 不要创建空仓库占位，也不要根据旧建议名单宣称支持。
 

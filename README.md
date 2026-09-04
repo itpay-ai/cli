@@ -54,6 +54,7 @@ Normative per-command contracts: [CLI Command Reference](docs/cli-reference/inde
 | `claude-code-cli` | `terminal` |
 | `workbuddy` | `plain-chat` |
 | `zcode` | `plain-chat` |
+| `doubao-work` | `plain-chat` |
 | `kimi-code` | `terminal` |
 | `openclaw` | 必须显式提供 |
 

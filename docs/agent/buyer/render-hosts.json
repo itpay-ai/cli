@@ -41,6 +41,11 @@
       "responsibility": "open handoff.url immediately in the ZCode built-in browser and stop; only show the same clickable URL when the built-in browser is unavailable"
     },
     {
+      "agent_type": "doubao-work",
+      "default_host": "plain-chat",
+      "responsibility": "show handoff.url as the preferred same-phone checkout or authorization link and handoff.qr_image_url as the labeled save-or-scan fallback; state the amount for Checkout and stop"
+    },
+    {
       "agent_type": "kimi-code",
       "default_host": "terminal",
       "responsibility": "use the standard CLI terminal QR and Checkout URL"
@@ -70,6 +75,7 @@
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
     "For workbuddy with plain-chat, execute handoff.agent_action exactly once; it calls present_files with handoff.url as the only files element and opens the rendered Card Link in the right-side browser.",
     "For zcode with plain-chat, open handoff.url in the built-in browser. Do not only paste text, download or rebuild a QR, or invent a private browser-tool payload; use the same clickable URL only as fallback.",
+    "For doubao-work with plain-chat, show two labeled official links: handoff.url for direct same-phone opening and handoff.qr_image_url for saving or scanning on another device; do not parse credentials, download or rebuild the QR, or create an alternative resource.",
     "If the WorkBuddy action fails, send the original handoff.url, report that it did not auto-open, and stop without creating another payment resource.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
@@ -99,6 +105,7 @@
     "desktop",
     "workbuddy",
     "zcode",
+    "doubao work",
     "kimi code",
     "openclaw",
     "telegram"
