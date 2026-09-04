@@ -73,7 +73,7 @@ export function qualifyBackendCommand(command: string, env: NodeJS.ProcessEnv = 
 function stateFilename(filename: string, baseURL: string): string {
   if (baseURL !== SANDBOX_BASE_URL) return filename;
   const dot = filename.lastIndexOf(".");
-  return dot < 0 ? `${filename}.dev` : `${filename.slice(0, dot)}.dev${filename.slice(dot)}`;
+  return dot < 0 ? `${filename}.sandbox` : `${filename.slice(0, dot)}.sandbox${filename.slice(dot)}`;
 }
 
 function stateDir(env: NodeJS.ProcessEnv): string {

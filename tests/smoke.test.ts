@@ -33,6 +33,7 @@ import { CommandContractError, errorRecoveryActions } from "../src/commands/guid
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
 import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
+import { buildVaultHandoff } from "../src/commands/vault_handoff.js";
 import { runPay } from "../src/commands/pay.js";
 import { runOrder } from "../src/commands/order.js";
 import { normalizeFeedbackRating, runFeedbackSubmit } from "../src/commands/feedback.js";
@@ -150,12 +151,12 @@ test("production and sandbox keep separate cart and operation state", async () =
   const productionEnv = { HOME: home };
   const developmentEnv = { HOME: home, ITPAY_BACKEND_URL: SANDBOX_BASE_URL };
   assert.equal(cartSessionPath(productionEnv), join(home, ".itpay-v3", "cart.json"));
-  assert.equal(cartSessionPath(developmentEnv), join(home, ".itpay-v3", "cart.dev.json"));
+  assert.equal(cartSessionPath(developmentEnv), join(home, ".itpay-v3", "cart.sandbox.json"));
 
   await operationID(loadConfig(productionEnv), "same-operation");
   await operationID(loadConfig(developmentEnv), "same-operation");
   assert.ok(existsSync(join(home, ".itpay-v3", "operations.json.d")));
-  assert.ok(existsSync(join(home, ".itpay-v3", "operations.dev.json.d")));
+  assert.ok(existsSync(join(home, ".itpay-v3", "operations.sandbox.json.d")));
 });
 
 test("normalizeHost handles aliases and rejects unknown hosts", () => {
@@ -3995,6 +3996,27 @@ test("vault authorization handoff is host-ready without exposing credentials as 
   assert.equal(telegram.handoff.agent_action.tool, "message");
   assert.equal(telegram.handoff.agent_action.arguments.target, "42");
   assert.ok(telegram.handoff.agent_action.arguments.presentation);
+});
+
+test("doubao-work derives the documented Vault QR link for compatible Backends", async () => {
+  const handoff = await buildVaultHandoff({
+    agentType: "doubao-work",
+    host: "plain-chat",
+    requestID: "var_compat",
+    authorizationURL: "https://app.itpay.ai/vault/access/var_compat?start_token=secret%2Bvalue",
+    imageAttachEnabled: false,
+  });
+  assert.deepEqual(handoff.handoff, {
+    url: "https://app.itpay.ai/vault/access/var_compat?start_token=secret%2Bvalue",
+    qr_image_url: "https://app.itpay.ai/v1/vault/access-requests/var_compat/qr.png?start_token=secret%2Bvalue",
+  });
+  await assert.rejects(buildVaultHandoff({
+    agentType: "doubao-work",
+    host: "plain-chat",
+    requestID: "var_invalid",
+    authorizationURL: "https://app.itpay.ai/vault/access/var_invalid",
+    imageAttachEnabled: false,
+  }), /usable Vault authorization QR URL/);
 });
 
 test("vault authorization validates an OpenClaw delivery target before creating a request", async () => {
