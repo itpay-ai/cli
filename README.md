@@ -91,7 +91,7 @@ itpay --agent-type <agent_type> services checkout <service_execution_id> --resum
 itpay checkout --id <checkout_id> --token <display_token> --json
 ```
 
-The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-scoped Device registrations and Agent instances, idempotency operations, and recovery handles. Production uses `cart.json` / `operations.json`; dev uses `cart.dev.json` / `operations.dev.json`. Backend state remains authoritative. Do not delete or rotate this identity to recover quota.
+The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-scoped Device registrations and Agent instances, idempotency operations, and recovery handles. Production uses `cart.json` / `operations.json`; sandbox uses `cart.sandbox.json` / `operations.sandbox.json`. Backend state remains authoritative. Do not delete or rotate this identity to recover quota.
 
 ## Environment
 

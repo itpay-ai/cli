@@ -4,9 +4,9 @@
 
 ## 范围与意义
 
-检查当前官方 Backend 是否可用。默认使用生产环境 `https://app.itpay.ai`；仅测试时可通过 `ITPAY_BACKEND_URL=https://dev.itpay.ai` 选择官方开发环境。它只调用 `/v1/readyz` 做 liveness 诊断，不执行平台兼容性 gate、不登记设备、不创建业务资源；需要服务端合同的命令仍会在各自入口严格检查 compatibility。
+检查当前官方 Backend 是否可用。默认使用生产环境 `https://app.itpay.ai`；仅测试时可通过 `ITPAY_BACKEND_URL=https://sandbox.itpay.ai` 选择官方沙箱环境。它只调用 `/v1/readyz` 做 liveness 诊断，不执行平台兼容性 gate、不登记设备、不创建业务资源；需要服务端合同的命令仍会在各自入口严格检查 compatibility。
 
-**上游：** CLI 安装；Backend 只能是官方 `https://app.itpay.ai` 或 `https://dev.itpay.ai`，其他 override 在网络或本地状态写入前被拒绝。
+**上游：** CLI 安装；Backend 只能是官方 `https://app.itpay.ai` 或 `https://sandbox.itpay.ai`，其他 override 在网络或本地状态写入前被拒绝。
 **下游：** 完整 `itpay` Skill；由 Agent 根据用户意图选择新服务、已购内容、订单或退款入口。
 
 ## 语法与参数
@@ -31,14 +31,14 @@ itpay readyz [--json]
 }
 ```
 
-开发环境返回同一 envelope，但明确标记环境并在每个后续命令中保留 dev Backend：
+沙箱环境返回同一 envelope，但明确标记环境并在每个后续命令中保留 sandbox Backend：
 
 ```json
 {
   "status": "ready",
-  "result": { "backend": "available", "backend_url": "https://dev.itpay.ai", "environment": "development" },
-  "instruction": "ItPay dev 可用。先完整读取内置 Skill，再根据用户意图选择新服务、已购内容、订单或退款入口；后续必须执行返回的完整命令并保持同一 dev Backend。",
-  "next": { "command": "ITPAY_BACKEND_URL=https://dev.itpay.ai itpay skill show itpay --json", "reason": "加载完整操作与安全规则" },
+  "result": { "backend": "available", "backend_url": "https://sandbox.itpay.ai", "environment": "development" },
+  "instruction": "ItPay sandbox 可用。先完整读取内置 Skill，再根据用户意图选择新服务、已购内容、订单或退款入口；后续必须执行返回的完整命令并保持同一 sandbox Backend。",
+  "next": { "command": "ITPAY_BACKEND_URL=https://sandbox.itpay.ai itpay skill show itpay --json", "reason": "加载完整操作与安全规则" },
   "recovery": []
 }
 ```
@@ -54,9 +54,9 @@ itpay readyz [--json]
   "status": "error",
   "error": {
     "code": "backend_override_forbidden",
-    "message": "ITPAY_BACKEND_URL only supports https://app.itpay.ai or https://dev.itpay.ai"
+    "message": "ITPAY_BACKEND_URL only supports https://app.itpay.ai or https://sandbox.itpay.ai"
   },
-  "instruction": "移除 ITPAY_BACKEND_URL 使用正式环境，或准确设置为 https://dev.itpay.ai。",
+  "instruction": "移除 ITPAY_BACKEND_URL 使用正式环境，或准确设置为 https://sandbox.itpay.ai。",
   "next": null,
   "recovery": []
 }
