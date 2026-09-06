@@ -376,6 +376,7 @@ export interface ServiceCapability {
   delivery_email_required: boolean;
   delivery_email_purpose?: "receipt" | "claim" | "receipt_and_claim" | "delivery";
   price_amount_minor?: number;
+  pricing_method?: "rail_fare_plus_fee";
   price_currency?: string;
   free_quota_limit?: number;
   quota_subject?: string;
