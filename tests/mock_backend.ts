@@ -468,10 +468,27 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    if (method === "POST" && path === "/v1/rail/phone-links") {
+      respond(res, 201, { verification_url: "http://localhost/rail/verify?link=local#token=fake", verification_mode: "fake" });
+      return;
+    }
     const serviceInvokeMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/capabilities\/([^/]+)\/invoke$/);
     if (method === "POST" && serviceInvokeMatch) {
       const serviceExecutionID = serviceInvokeMatch[1]!;
       const capabilityID = serviceInvokeMatch[2]!;
+      if (serviceExecutionID === "se_rail_phone") {
+        respond(res, 403, { code: "verified_phone_required", message: "verify phone" });
+        return;
+      }
+      if (serviceExecutionID === "se_rail_catalog") {
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        respond(res, 200, {
+          execution: model.execution,
+          invocation: { safe_result_preview: { catalog_total: 25, recommendation: "rail_0", decision_source: "model", coverage: { search_exhaustive: false } } },
+          result_items: Array.from({ length: 25 }, (_, i) => ({ rank: i + 1, display_title: `train ${i}`, safe_payload: { candidate_id: `rail_${i}`, recommended: i === 0 } })),
+        });
+        return;
+      }
       if (serviceExecutionID === "se_quota") {
         const quotaModel = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
         quotaModel.execution = {
