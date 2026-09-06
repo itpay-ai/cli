@@ -161,3 +161,5 @@ Provider 已收到请求时，Backend 返回同一 Execution 的权威调用和�
 ## Agent Type / Host
 
 所有正式支持的 Local Agent Type 的 safe result 一致。instruction 可以适配对话表述，但不得隐藏 quota、价格或 schema 错误。
+
+本地模拟购票阶段：用户选定候选后才提交选择，并使用 `services quote --capability book_ticket` 获取实时票款加每张 2 元服务费的锁定报价。精确查询需在报价输入中指定候选里可售的 `seat_type`；智能方案沿用所选席别。`pricing_method=rail_fare_plus_fee` 不代表总价 2 元。乘客资料仅在 Checkout 网页填写。本地出票结果明确标记 `simulation=true`，不表示真实出票。

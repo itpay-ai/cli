@@ -6,11 +6,11 @@ import { BackendClient } from "../src/client/backend.js";
 import { HttpClient } from "../src/client/http.js";
 import { DeviceAuthority } from "../src/state/device_authority.js";
 import { CLI_VERSION, API_CONTRACT_REVISION, loadConfig } from "../src/state/config.js";
-import { runServicesStart, runServicesInvoke } from "../src/commands/services.js";
+import { runServicesStart, runServicesInvoke, runServicesAction, runServicesQuote, runServicesCheckout } from "../src/commands/services.js";
 
 const [mode, json] = process.argv.slice(2);
-if (!['exact', 'smart'].includes(mode ?? '') || !json || !process.env.ITPAY_RAIL_LOCAL_STATE_DIR) {
-  throw new Error('Usage: ITPAY_RAIL_LOCAL_STATE_DIR=/absolute/private/test-directory tsx scripts/rail-local.ts exact|smart \'{"origin":"…","destination":"…","travel_date":"YYYY-MM-DD"}\'');
+if (!['exact', 'smart', 'select', 'quote', 'checkout', 'get'].includes(mode ?? '') || !json || !process.env.ITPAY_RAIL_LOCAL_STATE_DIR) {
+  throw new Error('Usage: ITPAY_RAIL_LOCAL_STATE_DIR=/absolute/private/test-directory tsx scripts/rail-local.ts exact|smart|select|quote|checkout|get \'{"origin":"…","destination":"…","travel_date":"YYYY-MM-DD"}\'');
 }
 const input = JSON.parse(json) as Record<string, unknown>;
 const root = resolve(process.env.ITPAY_RAIL_LOCAL_STATE_DIR);
@@ -27,6 +27,23 @@ const device = new DeviceAuthority({ baseURL: config.baseURL, requestedAgentType
   compatibilityHeaders: headers, statePath: resolve(root, 'device.json'), privateKeyPath: resolve(root, 'device.pem'), fetchImpl: transport });
 const backend = new BackendClient(new HttpClient({ baseURL: config.baseURL, fetchImpl: transport, defaultHeaders: headers,
   requestAuthorizer: (request) => device.authorizationHeaders(request), recoverAuthorization: () => device.recoverAuthorization() }));
+const output = { jsonOutput: true, output: (line: string) => process.stdout.write(line) };
+if (mode === 'select') {
+  await runServicesAction(backend, String(input.execution), 'select_candidate', {}, { ...output, candidateRank: Number(input.rank), actorType: 'human', status: 'approved' });
+  process.exit(0);
+}
+if (mode === 'quote') {
+  await runServicesQuote(backend, String(input.execution), 'book_ticket', input.seat_type ? { seat_type: input.seat_type } : {}, output);
+  process.exit(0);
+}
+if (mode === 'checkout') {
+  await runServicesCheckout(backend, config, String(input.execution), 'book_ticket', { ...output, lockedInput: input.seat_type ? { seat_type: input.seat_type } : {}, persistHandoff: (handoff) => writeFileSync(resolve(root, 'checkout.json'), JSON.stringify(handoff), { mode: 0o600 }) });
+  process.exit(0);
+}
+if (mode === 'get') {
+  process.stdout.write(JSON.stringify(await backend.getServiceExecution(String(input.execution))));
+  process.exit(0);
+}
 const path = resolve(root, fingerprint + '.json');
 let execution: string;
 if (existsSync(path)) {

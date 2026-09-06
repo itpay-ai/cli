@@ -301,6 +301,7 @@ function checkoutCommand(
 }
 
 function capabilityPrice(capability: ServiceCapability): string {
+	if (capability.pricing_method === "rail_fare_plus_fee") return "实时票款 + 每张票 2 元服务费（最终金额以锁定报价为准）";
 	return capability.price_amount_minor !== undefined && capability.price_currency
 		? formatMoney(capability.price_amount_minor, capability.price_currency)
 		: "当前发布价格";
