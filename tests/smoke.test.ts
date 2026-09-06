@@ -4559,3 +4559,24 @@ test("markdown renderer keeps command output bounded and delegates image attachm
   assert.ok(Buffer.byteLength(text) < 12_000, `markdown handoff unexpectedly large: ${Buffer.byteLength(text)} bytes`);
   assert.match(text, /!\[ItPay 付款二维码\]\(</);
 });
+
+test("rail invocation preserves the entire catalog and recommendation metadata", async () => {
+  await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.items.length, 25);
+  assert.equal(result.result.items[24].safe_payload.candidate_id, "rail_24");
+  assert.equal(result.result.items[0].safe_payload.recommended, true);
+  assert.equal(result.result.catalog.total, 25);
+  assert.equal(result.result.catalog.decision_source, "model");
+});
+
+test("rail phone handoff stops without collecting identity or retrying provider", async () => {
+  await runServicesInvoke(backend, config, "se_rail_phone", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "human_action_required");
+  assert.equal(result.next, null);
+  assert.match(result.result.verification_url, /\/rail\/verify/);
+  assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
+  assert.equal(mock.requests.filter(r => r.path === "/v1/rail/phone-links").length, 1);
+  assert.match(result.recovery[0].command, /se_rail_phone/);
+});

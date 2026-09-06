@@ -20,6 +20,14 @@ itpay services invoke <service_execution_id> --capability <capability_id>
 
 ## 有结果输出
 
+火车票目录：`items` 保留服务端返回的全部合格方案，不按推荐数量截断。
+`result.catalog` 带搜索覆盖范围、模型来源和推荐引用；`recommended=true` 的方案排在首位。
+本地 Agent 应先解释首推及不同取舍，用户不满意时可继续查看同一次返回的完整列表。
+智能规划返回 `verified_phone_required` 时，先完成 ItPay 网页手机号验证，不在 CLI 收集手机号、身份证或姓名。
+该错误发生在供应商调用和额度预占之前。
+本地验证环境中 CLI 会返回 `verification_url`，用户在该网页验证手机号并确认连接 Agent。
+完成后重试同一条 invoke；不在终端输入或回传手机验证码。
+
 ```json
 {
   "status": "result_ready",

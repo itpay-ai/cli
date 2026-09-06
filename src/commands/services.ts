@@ -1,4 +1,5 @@
 import type { BackendClient } from "../client/backend.js";
+import { HttpError } from "../client/http.js";
 import type {
   GrantedServiceResult,
   RecordServiceExecutionActionRequest,
@@ -138,10 +139,24 @@ export async function runServicesInvoke(
     );
   }
   const idempotencyKey = await operationID(config, `service.invoke:${serviceExecutionID}:${capabilityID}:${stableInput(input)}`);
-  const response = await backend.invokeServiceCapability(serviceExecutionID, capabilityID, {
-    idempotency_key: idempotencyKey,
-    redacted_summary: input,
-  });
+  let response: ServiceCapabilityInvoked;
+  try {
+    response = await backend.invokeServiceCapability(serviceExecutionID, capabilityID, {
+      idempotency_key: idempotencyKey,
+      redacted_summary: input,
+    });
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.code !== "verified_phone_required") throw error;
+    const link = await backend.createRailPhoneLink();
+    writeCommandEnvelope({
+      status: "human_action_required",
+      result: { service_execution_id: serviceExecutionID, ...link },
+      instruction: "请用户打开 verification_url，在 ItPay 网页验证手机号并确认连接当前 Agent。CLI 不接收手机号或验证码；等待用户完成后再重试查询。",
+      next: null,
+      recovery: [{ command: `itpay services invoke ${serviceExecutionID} --capability ${capabilityID}${formatInputOptions(input)} --json`, reason: "仅在用户完成网页验证后重试" }],
+    }, { ...options, plainResult: [`手机号验证：${link.verification_url}`] });
+    return;
+  }
   const envelope = invokedEnvelope(response, requestedCapability, readModel.capabilities, input);
   writeCommandEnvelope(envelope.value, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -171,11 +186,24 @@ function invokedEnvelope(
     items,
     ...(quota ? { quota } : {}),
   };
+  const preview = response.invocation?.safe_result_preview;
+  if (typeof preview?.catalog_total === "number") {
+    baseResult.catalog = {
+      total: preview.catalog_total,
+      recommendation: preview.recommendation,
+      decision_source: preview.decision_source,
+      coverage: preview.coverage,
+      notices: preview.notices,
+    };
+  }
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
 		? "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。"
     : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
   let next: CommandAction | null = null;
+  if (items.length > 0 && baseResult.catalog) {
+    instruction = "先向用户说明排在首位的推荐方案和其他方案的时间、费用与便利性取舍。items 已包含本次发现的完整合格列表，用户不满意时继续从该列表比较，不必重复查票。覆盖范围和模型降级以 catalog 为准；费用尚需购票前核验。姓名、身份证和手机号仅在 ItPay 网页填写。";
+  }
 
   if (response.effective_quota?.exhausted) {
     status = "quota_exhausted";
