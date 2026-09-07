@@ -480,6 +480,13 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         respond(res, 403, { code: "verified_phone_required", message: "verify phone" });
         return;
       }
+      if (serviceExecutionID === "se_rail_transfer_empty") {
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        respond(res, 200, { execution: model.execution,
+          invocation: { safe_result_preview: { catalog_total: 0, notices: [{ code: "RAIL_TRANSFER_SEARCH_INCOMPLETE", message: "本次中转查询未完整完成。当前支持最多一次铁路中转；可能需要更多次中转，建议分段查询，后续版本支持。" }] } },
+          result_items: [] });
+        return;
+      }
       if (serviceExecutionID === "se_rail_catalog") {
         const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
         respond(res, 200, {

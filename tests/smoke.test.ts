@@ -4580,3 +4580,14 @@ test("rail phone handoff stops without collecting identity or retrying provider"
   assert.equal(mock.requests.filter(r => r.path === "/v1/rail/phone-links").length, 1);
   assert.match(result.recovery[0].command, /se_rail_phone/);
 });
+
+test("rail empty transfer result preserves official guidance and stops", async () => {
+  await runServicesInvoke(backend, config, "se_rail_transfer_empty", "fuzzy_disambiguation", { keyword: "横栏到建水" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "no_result");
+  assert.equal(result.next, null);
+  assert.match(result.instruction, /本次中转查询未完整完成/);
+  assert.match(result.instruction, /建议分段查询/);
+  assert.equal(result.result.catalog.notices[0].code, "RAIL_TRANSFER_SEARCH_INCOMPLETE");
+  assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
+});

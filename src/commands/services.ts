@@ -200,6 +200,14 @@ function invokedEnvelope(
   let instruction = items.length > 0
 		? "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。"
     : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
+  if (items.length === 0 && Array.isArray(preview?.notices)) {
+    const railNotice = preview.notices.find((notice: unknown) => {
+      if (!notice || typeof notice !== "object") return false;
+      const value = notice as Record<string, unknown>;
+      return ["RAIL_TRANSFER_SCOPE_LIMIT", "RAIL_TRANSFER_SEARCH_INCOMPLETE"].includes(String(value.code)) && typeof value.message === "string";
+    }) as { message: string } | undefined;
+    if (railNotice) instruction = `向用户展示官方提示：${railNotice.message} 不要断言该行程必须多次中转或没有车。等待用户选择分段查询的起终点，不自动更换输入或重试。`;
+  }
   let next: CommandAction | null = null;
   if (items.length > 0 && baseResult.catalog) {
     instruction = "先向用户说明排在首位的推荐方案和其他方案的时间、费用与便利性取舍。items 已包含本次发现的完整合格列表，用户不满意时继续从该列表比较，不必重复查票。覆盖范围和模型降级以 catalog 为准；费用尚需购票前核验。姓名、身份证和手机号仅在 ItPay 网页填写。";
