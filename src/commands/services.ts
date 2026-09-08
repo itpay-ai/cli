@@ -1,4 +1,5 @@
 import type { BackendClient } from "../client/backend.js";
+import { HttpError } from "../client/http.js";
 import type {
   GrantedServiceResult,
   RecordServiceExecutionActionRequest,
@@ -58,6 +59,7 @@ export async function runServicesStart(
   const capabilitySummary = capability ? {
     capability_id: capability.capability_id,
     required_input: requiredInput,
+    input_schema: capability.input_schema,
     ...(capability.free_quota_limit !== undefined ? { free_quota_limit: capability.free_quota_limit } : {}),
   } : null;
   writeCommandEnvelope({
@@ -69,7 +71,7 @@ export async function runServicesStart(
       capability: capabilitySummary,
     },
     instruction: capability
-      ? "填写首选 capability 的 required_input；一次只提交当前 execution 所代表的服务意图。"
+      ? "填写首选 capability 的 required_input；一次只提交当前 execution 所代表的服务意图。" + locationInputInstruction(capability.input_schema)
       : "当前没有可直接调用的 capability；读取服务端下一步，不要猜测 capability。",
     next: {
       command,
@@ -92,9 +94,33 @@ export async function runServicesStart(
   });
 }
 
+function locationConfirmationEnvelope(executionID: string, capabilityID: string, input: Record<string, unknown>, confirmation: Record<string, unknown>): CommandEnvelope {
+  input = (confirmation.input ?? input) as Record<string, unknown>;
+  const endpoints = (confirmation.endpoints ?? []) as Array<{side: string}>;
+  const choices = Object.fromEntries(endpoints.map((endpoint) => [endpoint.side, "<用户选择的候选 id>"]));
+  return {
+    status: "location_confirmation_required",
+    result: { service_execution_id: executionID, query: input, location_confirmation: confirmation },
+    instruction: "尚未查票。仅向用户确认 endpoints 中有歧义的地点，展示真实候选名称、地址和高德链接。不要自行选择候选、把区域改成车站或重复调用原查询。用户选择后保留原输入，带 location_confirmation 回到同一服务。没有候选时请用户补充已知城市或准确地名，再使用修正输入查询。",
+    next: null,
+    recovery: confirmation.can_resume ? [{
+      command: `itpay services invoke ${executionID} --capability ${capabilityID}${formatInputOptions({...input,
+        location_confirmation: { plan_id: confirmation.plan_id, token: confirmation.token, choices }})} --json`,
+      reason: "仅在用户明确选择后替换 choices 并执行；30 分钟有效",
+    }] : [],
+  };
+}
+
 function requiredInputFields(schema: Record<string, unknown> | undefined): string[] {
   const required = schema?.required;
   return Array.isArray(required) ? required.filter((field): field is string => typeof field === "string") : [];
+}
+
+function locationInputInstruction(schema: Record<string, unknown> | undefined): string {
+  const properties = schema?.properties as Record<string, unknown> | undefined;
+  if (!properties?.origin_location || !properties?.destination_location) return "";
+  if (!properties.location_confirmation) return " 地点保留用户已知最完整名称或城市范围；不要编造坐标或把城市改成同名车站。坐标及其他可选字段严格按当前 input_schema 提交。";
+  return " 地点输入：先向用户说明本服务接受两个地点或城市范围。已有可信高德 GCJ-02 坐标时，可用 --input 'origin_location={\"lng\":113.0,\"lat\":23.0,\"coordinate_system\":\"gcj02\",\"source\":\"amap\"}'（数值必须替换为真实查询结果，destination_location 同理）；没有地图能力时，直接传用户已知最完整的 origin/destination，可附 origin_city/destination_city。不要编造坐标、补猜地址或把深圳等城市改成深圳站；精确站查须明确站名。用户只给城市、县或镇就保留区域意图，不追问门牌。明确地点由服务自动解析；只有返回 location_confirmation 才展示候选名称、地址和高德链接，等待用户选择，禁止自行选第一项。";
 }
 
 export async function runServicesInvoke(
@@ -138,10 +164,24 @@ export async function runServicesInvoke(
     );
   }
   const idempotencyKey = await operationID(config, `service.invoke:${serviceExecutionID}:${capabilityID}:${stableInput(input)}`);
-  const response = await backend.invokeServiceCapability(serviceExecutionID, capabilityID, {
-    idempotency_key: idempotencyKey,
-    redacted_summary: input,
-  });
+  let response: ServiceCapabilityInvoked;
+  try {
+    response = await backend.invokeServiceCapability(serviceExecutionID, capabilityID, {
+      idempotency_key: idempotencyKey,
+      redacted_summary: input,
+    });
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.code !== "verified_phone_required") throw error;
+    const link = await backend.createRailPhoneLink();
+    writeCommandEnvelope({
+      status: "human_action_required",
+      result: { service_execution_id: serviceExecutionID, ...link },
+      instruction: "请用户打开 verification_url，在 ItPay 网页验证手机号并确认连接当前 Agent。CLI 不接收手机号或验证码；等待用户完成后再重试查询。",
+      next: null,
+      recovery: [{ command: `itpay services invoke ${serviceExecutionID} --capability ${capabilityID}${formatInputOptions(input)} --json`, reason: "仅在用户完成网页验证后重试" }],
+    }, { ...options, plainResult: [`手机号验证：${link.verification_url}`] });
+    return;
+  }
   const envelope = invokedEnvelope(response, requestedCapability, readModel.capabilities, input);
   writeCommandEnvelope(envelope.value, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -171,11 +211,50 @@ function invokedEnvelope(
     items,
     ...(quota ? { quota } : {}),
   };
+  const preview = response.invocation?.safe_result_preview;
+  if (!response.effective_quota?.exhausted && preview?.search_status === "LOCATION_CONFIRMATION_REQUIRED" && preview.location_confirmation) {
+    return { value: locationConfirmationEnvelope(response.execution.service_execution_id,
+      requestedCapability.capability_id, input, preview.location_confirmation as Record<string, unknown>),
+      plainResult: [JSON.stringify(preview.location_confirmation)] };
+  }
+  if (typeof preview?.catalog_total === "number") {
+    baseResult.catalog = {
+      total: preview.catalog_total,
+      recommendation: preview.recommendation,
+      decision_source: preview.decision_source,
+      coverage: preview.coverage,
+      notices: preview.notices,
+      search_status: preview.search_status,
+      searched_scope: preview.searched_scope,
+      effective_policy_hash: preview.effective_policy_hash,
+      api_cost: preview.api_cost,
+      stage_timestamps: preview.stage_timestamps,
+      page: preview.catalog_page,
+      journey_summary: preview.journey_summary,
+      journeys: preview.journeys,
+      train_services: preview.train_services,
+      resolved_locations: preview.resolved_locations,
+    };
+  }
   let status = items.length > 0 ? "result_ready" : "no_result";
   let instruction = items.length > 0
 		? "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。"
     : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
+  if (items.length === 0 && Array.isArray(preview?.notices)) {
+    const railNotice = preview.notices.find((notice: unknown) => {
+      if (!notice || typeof notice !== "object") return false;
+      const value = notice as Record<string, unknown>;
+      return ["RAIL_TRANSFER_SCOPE_LIMIT", "RAIL_TRANSFER_SEARCH_INCOMPLETE"].includes(String(value.code)) && typeof value.message === "string";
+    }) as { message: string } | undefined;
+    if (railNotice) instruction = `向用户展示官方提示：${railNotice.message} 不要断言该行程必须多次中转或没有车。等待用户选择分段查询的起终点，不自动更换输入或重试。`;
+  }
   let next: CommandAction | null = null;
+  if (items.length > 0 && baseResult.catalog) {
+    instruction = "先向用户说明排在首位的推荐方案和其他方案的时间、费用与便利性取舍。items 包含本次返回的合格候选，用户不满意时继续从该列表比较，不必重复查票。搜索是否完成、目录是否截断、覆盖范围和模型降级以 catalog 为准；不能把部分结果说成完整搜索。费用尚需购票前核验。姓名、身份证和手机号仅在 ItPay 网页填写。";
+  }
+  if (items.length > 0 && preview?.journey_summary) {
+    instruction = "先按 journey_summary 报告本次已查询范围内的可用车次、换乘走法和实际乘车组合数量，不能用 catalog.total 或 items 数量冒充车次或组合数。按 journeys 展示组合，推荐置顶，保留全部组合和 train_services 车次列表供用户查看。每组先说明乘坐哪些车、在哪里真正换车以及等待多久；rides.onboard_stops 是同车接续停站，无需下车，可能需车内换座，不计入换乘次数。席别、余票、价格及接驳是组合下的选择，通过 candidate_ids 查对应 items；确认具体选择后才使用该 item 的编号，不猜席别或自动付款。30 分钟只是在已确认便捷换乘站点的筛选下限，不是接续保证。不得把多段票称为已可购买的套票；以 purchase_supported 为准。覆盖不完整、截断和模型仅看短名单时必须说明。姓名、身份证和手机号只在 ItPay 网页填写。";
+  }
 
   if (response.effective_quota?.exhausted) {
     status = "quota_exhausted";
@@ -215,6 +294,7 @@ function invokedEnvelope(
   } else if (items.length === 0) {
     next = null;
   }
+  if (preview?.resolved_locations) instruction += " 按 resolved_locations 说明实际解析地点；区域级位置仅是范围代表点，接驳时间不是从用户精确位置计算的。";
 
   return {
     value: { status, result: baseResult, instruction, next, recovery: [] },
@@ -233,6 +313,13 @@ function serviceResultPlainLines(result: Record<string, unknown>): string[] {
     for (const [key, value] of Object.entries(query)) lines.push(`${key}: ${String(value)}`);
   }
   if (items.length === 0) lines.push("results: 0");
+  const catalog = result.catalog as Record<string, unknown> | undefined;
+  if (catalog?.resolved_locations) lines.push(`resolved_locations: ${JSON.stringify(catalog.resolved_locations)}`);
+  if (catalog?.journey_summary) {
+    for (const key of ["journey_summary", "train_services", "journeys"]) {
+      lines.push(`${key}: ${JSON.stringify(catalog[key])}`);
+    }
+  }
   if (result.quota) lines.push(`quota: ${JSON.stringify(result.quota)}`);
   if (result.checkout) lines.push(`checkout: ${JSON.stringify(result.checkout)}`);
   if (items.length > 0) {
@@ -273,6 +360,7 @@ function checkoutCommand(
 }
 
 function capabilityPrice(capability: ServiceCapability): string {
+	if (capability.pricing_method === "rail_fare_plus_fee") return "实时票款 + 每张票 2 元服务费（最终金额以锁定报价为准）";
 	return capability.price_amount_minor !== undefined && capability.price_currency
 		? formatMoney(capability.price_amount_minor, capability.price_currency)
 		: "当前发布价格";
@@ -362,7 +450,7 @@ function formatInputOptions(input: Record<string, unknown>): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => String(value) === "<value>"
       ? ` --input ${key}=<value>`
-      : ` --input ${shellArgument(`${key}=${String(value)}`)}`)
+      : ` --input ${shellArgument(`${key}=${typeof value === "object" && value !== null ? JSON.stringify(value) : String(value)}`)}`)
     .join("");
 }
 
@@ -927,6 +1015,13 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 		};
 	}
 	const currentItems = model.current_result_items ?? [];
+  const latestInvocation = model.provider_invocations.at(-1);
+  const latestPreview = latestInvocation?.safe_result_preview as Record<string, unknown> | undefined;
+  if (currentItems.length === 0 && latestPreview?.search_status === "LOCATION_CONFIRMATION_REQUIRED" && latestPreview.location_confirmation) {
+    const capability = model.capabilities.find((item) => item.capability_id === latestInvocation?.capability_id && item.phase === execution.phase && !item.requires_payment);
+    if (capability) return locationConfirmationEnvelope(execution.service_execution_id, capability.capability_id,
+      (latestInvocation?.request_summary ?? {}) as Record<string, unknown>, latestPreview.location_confirmation as Record<string, unknown>);
+  }
 	const delivery = currentDelivery;
 	const deliveryMode = serviceDeliveryMode(model);
 	const candidateSelection = model.allowed_actions?.find((action) => action.type === "select_candidate");
@@ -1063,7 +1158,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				? "告诉用户付款和订单已经确认，结果仍在同一笔服务中处理，不需要再次付款；如果最终无法交付，将从原订单检查退款路径。稍后只执行 next.command；Agent 不创建新服务、付款页面或数据请求，也不承诺退款结果。"
 				: preferred?.requires_human
 			? "当前下一步需要用户明确选择；先展示必要信息并等待确认。"
-			: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" : "当前没有后续动作。",
+				: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" + locationInputInstruction(model.capabilities.find((item) => item.capability_id === preferred.capability_id)?.input_schema) : "当前没有后续动作。",
 		next,
 		recovery: [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "仅在当前动作异常时检查时间线" }],
 	};
@@ -1238,6 +1333,7 @@ export function collectOption(value: string, previous: string[] = []): string[] 
 }
 
 function parseValue(value: string): unknown {
+  if (value.startsWith("{") || value.startsWith("[")) return JSON.parse(value);
   if (value === "true") return true;
   if (value === "false") return false;
   if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);

@@ -4559,3 +4559,91 @@ test("markdown renderer keeps command output bounded and delegates image attachm
   assert.ok(Buffer.byteLength(text) < 12_000, `markdown handoff unexpectedly large: ${Buffer.byteLength(text)} bytes`);
   assert.match(text, /!\[ItPay 付款二维码\]\(</);
 });
+
+test("rail invocation preserves the entire catalog and recommendation metadata", async () => {
+  await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.items.length, 25);
+  assert.equal(result.result.items[24].safe_payload.candidate_id, "rail_24");
+  assert.equal(result.result.items[0].safe_payload.recommended, true);
+  assert.equal(result.result.catalog.total, 25);
+  assert.equal(result.result.catalog.journey_summary.journey_count, 10);
+  assert.equal(result.result.catalog.journey_summary.available_train_count, 7);
+  assert.deepEqual(result.result.catalog.journeys[0].candidate_ids, ["rail_0", "rail_1"]);
+  assert.equal(result.result.catalog.train_services[0].train_code, "G1");
+  assert.match(result.instruction, /不能用 catalog.total/);
+  assert.match(result.instruction, /无需下车/);
+  assert.equal(result.result.catalog.decision_source, "model");
+  assert.equal(result.result.catalog.search_status, "PARTIAL_RESULTS");
+  assert.equal(result.result.catalog.effective_policy_hash, "fixture-policy");
+  assert.equal(result.result.catalog.api_cost.tengyun_network_attempts, 22);
+  assert.equal(result.result.catalog.coverage.catalog_complete_for_discovered_candidates, false);
+  stdoutCapture.length = 0;
+  await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: false, output: stdoutSink });
+  const plain = stdoutCapture.join("");
+  assert.match(plain, /journey_summary: .*"journey_count":10/);
+  assert.ok(plain.indexOf("journey_summary:") < plain.indexOf("items:"));
+});
+
+test("rail phone handoff stops without collecting identity or retrying provider", async () => {
+  await runServicesInvoke(backend, config, "se_rail_phone", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "human_action_required");
+  assert.equal(result.next, null);
+  assert.match(result.result.verification_url, /\/rail\/verify/);
+  assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
+  assert.equal(mock.requests.filter(r => r.path === "/v1/rail/phone-links").length, 1);
+  assert.match(result.recovery[0].command, /se_rail_phone/);
+});
+
+test("rail empty transfer result preserves official guidance and stops", async () => {
+  await runServicesInvoke(backend, config, "se_rail_transfer_empty", "fuzzy_disambiguation", { keyword: "横栏到建水" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "no_result");
+  assert.equal(result.next, null);
+  assert.match(result.instruction, /本次中转查询未完整完成/);
+  assert.match(result.instruction, /最多两次枢纽同站中转/);
+  assert.match(result.instruction, /主要枢纽分段查询/);
+  assert.equal(result.result.catalog.notices[0].code, "RAIL_TRANSFER_SEARCH_INCOMPLETE");
+  assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
+});
+
+test("rail location guidance precedes invocation and confirmation survives next", async () => {
+  const base = await backend.getServiceExecution("se_mock_next");
+  const capability = {...base.capabilities[0]!, capability_id: "plan", requires_payment: false,
+    phase: base.execution.phase, input_schema: {required:["origin","destination","travel_date"], properties:{origin_location:{type:"object"},destination_location:{type:"object"},location_confirmation:{type:"object"}}}};
+  const query = {origin:"金尊府",destination:"深圳",travel_date:"2026-09-10"};
+  const confirmation = {plan_id:"a".repeat(32),token:"b".repeat(32),can_resume:true,input:query,
+    endpoints:[{side:"origin",candidates:[{id:"origin_1",name:"真实候选",map_url:"https://uri.amap.com/marker?position=113,23"}]}]};
+  const preview = {search_status:"LOCATION_CONFIRMATION_REQUIRED",location_confirmation:confirmation};
+  const fake = Object.create(backend) as BackendClient;
+  fake.startServiceExecution = async () => ({execution:base.execution, capabilities:[capability]}) as Awaited<ReturnType<BackendClient["startServiceExecution"]>>;
+  fake.getServiceExecution = async () => ({...base,execution:{...base.execution,status:"quota_checked"},capabilities:[capability],current_result_items:[],provider_invocations:[{capability_id:"plan",safe_result_preview:preview}]});
+  fake.invokeServiceCapability = async () => ({execution:base.execution,result_items:[],provider_called:true,invocation:{service_capability_invocation_id:"inv-location",service_execution_id:base.execution.service_execution_id,capability_id:"plan",status:"succeeded",created_at:"2026-09-08T00:00:00Z",safe_result_preview:preview}}) as Awaited<ReturnType<BackendClient["invokeServiceCapability"]>>;
+  const output:string[]=[]; const opts={jsonOutput:true,output:(line:string)=>output.push(line)};
+  await runServicesStart(fake,"svc_itpay_rail_smart",opts);
+  let envelope=JSON.parse(output.join(""));
+  assert.match(envelope.instruction,/GCJ-02/); assert.match(envelope.instruction,/不追问门牌/);
+  assert.ok(envelope.result.capability.input_schema.properties.origin_location);
+  output.length=0;
+  await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
+  envelope=JSON.parse(output.join(""));
+  assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
+  assert.match(envelope.recovery[0].command,/location_confirmation=.*plan_id/);
+  assert.doesNotMatch(envelope.recovery[0].command,/\[object Object\]/);
+  assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
+  output.length=0;
+  await runServicesNext(fake,base.execution.service_execution_id,opts);
+  envelope=JSON.parse(output.join(""));
+  assert.equal(envelope.status,"location_confirmation_required");
+  assert.match(envelope.recovery[0].command,/origin=金尊府/);
+});
+
+
+test("structured CLI location inputs parse as objects with source intact", async () => {
+  const {parseKeyValueList}=await import("../src/commands/services.js");
+  const input=parseKeyValueList(['origin=广东省中山市横栏镇金尊府小区', 'origin_location={"lng":113.2,"lat":22.5,"coordinate_system":"gcj02","source":"amap"}', 'location_confirmation={"plan_id":"saved","token":"opaque","choices":{"origin":"origin_1"}}']);
+  assert.equal((input.origin_location as Record<string,unknown>).source,"amap");
+  assert.deepEqual((input.location_confirmation as Record<string,unknown>).choices,{origin:"origin_1"});
+  assert.throws(()=>parseKeyValueList(['origin_location={invalid}']));
+});
