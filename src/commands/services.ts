@@ -59,6 +59,7 @@ export async function runServicesStart(
   const capabilitySummary = capability ? {
     capability_id: capability.capability_id,
     required_input: requiredInput,
+    input_schema: capability.input_schema,
     ...(capability.free_quota_limit !== undefined ? { free_quota_limit: capability.free_quota_limit } : {}),
   } : null;
   writeCommandEnvelope({
@@ -70,7 +71,7 @@ export async function runServicesStart(
       capability: capabilitySummary,
     },
     instruction: capability
-      ? "填写首选 capability 的 required_input；一次只提交当前 execution 所代表的服务意图。"
+      ? "填写首选 capability 的 required_input；一次只提交当前 execution 所代表的服务意图。" + locationInputInstruction(capability.input_schema)
       : "当前没有可直接调用的 capability；读取服务端下一步，不要猜测 capability。",
     next: {
       command,
@@ -93,9 +94,33 @@ export async function runServicesStart(
   });
 }
 
+function locationConfirmationEnvelope(executionID: string, capabilityID: string, input: Record<string, unknown>, confirmation: Record<string, unknown>): CommandEnvelope {
+  input = (confirmation.input ?? input) as Record<string, unknown>;
+  const endpoints = (confirmation.endpoints ?? []) as Array<{side: string}>;
+  const choices = Object.fromEntries(endpoints.map((endpoint) => [endpoint.side, "<用户选择的候选 id>"]));
+  return {
+    status: "location_confirmation_required",
+    result: { service_execution_id: executionID, query: input, location_confirmation: confirmation },
+    instruction: "尚未查票。仅向用户确认 endpoints 中有歧义的地点，展示真实候选名称、地址和高德链接。不要自行选择候选、把区域改成车站或重复调用原查询。用户选择后保留原输入，带 location_confirmation 回到同一服务。没有候选时请用户补充已知城市或准确地名，再使用修正输入查询。",
+    next: null,
+    recovery: confirmation.can_resume ? [{
+      command: `itpay services invoke ${executionID} --capability ${capabilityID}${formatInputOptions({...input,
+        location_confirmation: { plan_id: confirmation.plan_id, token: confirmation.token, choices }})} --json`,
+      reason: "仅在用户明确选择后替换 choices 并执行；30 分钟有效",
+    }] : [],
+  };
+}
+
 function requiredInputFields(schema: Record<string, unknown> | undefined): string[] {
   const required = schema?.required;
   return Array.isArray(required) ? required.filter((field): field is string => typeof field === "string") : [];
+}
+
+function locationInputInstruction(schema: Record<string, unknown> | undefined): string {
+  const properties = schema?.properties as Record<string, unknown> | undefined;
+  if (!properties?.origin_location || !properties?.destination_location) return "";
+  if (!properties.location_confirmation) return " 地点保留用户已知最完整名称或城市范围；不要编造坐标或把城市改成同名车站。坐标及其他可选字段严格按当前 input_schema 提交。";
+  return " 地点输入：先向用户说明本服务接受两个地点或城市范围。已有可信高德 GCJ-02 坐标时，可用 --input 'origin_location={\"lng\":113.0,\"lat\":23.0,\"coordinate_system\":\"gcj02\",\"source\":\"amap\"}'（数值必须替换为真实查询结果，destination_location 同理）；没有地图能力时，直接传用户已知最完整的 origin/destination，可附 origin_city/destination_city。不要编造坐标、补猜地址或把深圳等城市改成深圳站；精确站查须明确站名。用户只给城市、县或镇就保留区域意图，不追问门牌。明确地点由服务自动解析；只有返回 location_confirmation 才展示候选名称、地址和高德链接，等待用户选择，禁止自行选第一项。";
 }
 
 export async function runServicesInvoke(
@@ -187,6 +212,11 @@ function invokedEnvelope(
     ...(quota ? { quota } : {}),
   };
   const preview = response.invocation?.safe_result_preview;
+  if (!response.effective_quota?.exhausted && preview?.search_status === "LOCATION_CONFIRMATION_REQUIRED" && preview.location_confirmation) {
+    return { value: locationConfirmationEnvelope(response.execution.service_execution_id,
+      requestedCapability.capability_id, input, preview.location_confirmation as Record<string, unknown>),
+      plainResult: [JSON.stringify(preview.location_confirmation)] };
+  }
   if (typeof preview?.catalog_total === "number") {
     baseResult.catalog = {
       total: preview.catalog_total,
@@ -203,6 +233,7 @@ function invokedEnvelope(
       journey_summary: preview.journey_summary,
       journeys: preview.journeys,
       train_services: preview.train_services,
+      resolved_locations: preview.resolved_locations,
     };
   }
   let status = items.length > 0 ? "result_ready" : "no_result";
@@ -263,6 +294,7 @@ function invokedEnvelope(
   } else if (items.length === 0) {
     next = null;
   }
+  if (preview?.resolved_locations) instruction += " 按 resolved_locations 说明实际解析地点；区域级位置仅是范围代表点，接驳时间不是从用户精确位置计算的。";
 
   return {
     value: { status, result: baseResult, instruction, next, recovery: [] },
@@ -282,6 +314,7 @@ function serviceResultPlainLines(result: Record<string, unknown>): string[] {
   }
   if (items.length === 0) lines.push("results: 0");
   const catalog = result.catalog as Record<string, unknown> | undefined;
+  if (catalog?.resolved_locations) lines.push(`resolved_locations: ${JSON.stringify(catalog.resolved_locations)}`);
   if (catalog?.journey_summary) {
     for (const key of ["journey_summary", "train_services", "journeys"]) {
       lines.push(`${key}: ${JSON.stringify(catalog[key])}`);
@@ -417,7 +450,7 @@ function formatInputOptions(input: Record<string, unknown>): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => String(value) === "<value>"
       ? ` --input ${key}=<value>`
-      : ` --input ${shellArgument(`${key}=${String(value)}`)}`)
+      : ` --input ${shellArgument(`${key}=${typeof value === "object" && value !== null ? JSON.stringify(value) : String(value)}`)}`)
     .join("");
 }
 
@@ -982,6 +1015,13 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 		};
 	}
 	const currentItems = model.current_result_items ?? [];
+  const latestInvocation = model.provider_invocations.at(-1);
+  const latestPreview = latestInvocation?.safe_result_preview as Record<string, unknown> | undefined;
+  if (currentItems.length === 0 && latestPreview?.search_status === "LOCATION_CONFIRMATION_REQUIRED" && latestPreview.location_confirmation) {
+    const capability = model.capabilities.find((item) => item.capability_id === latestInvocation?.capability_id && item.phase === execution.phase && !item.requires_payment);
+    if (capability) return locationConfirmationEnvelope(execution.service_execution_id, capability.capability_id,
+      (latestInvocation?.request_summary ?? {}) as Record<string, unknown>, latestPreview.location_confirmation as Record<string, unknown>);
+  }
 	const delivery = currentDelivery;
 	const deliveryMode = serviceDeliveryMode(model);
 	const candidateSelection = model.allowed_actions?.find((action) => action.type === "select_candidate");
@@ -1118,7 +1158,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				? "告诉用户付款和订单已经确认，结果仍在同一笔服务中处理，不需要再次付款；如果最终无法交付，将从原订单检查退款路径。稍后只执行 next.command；Agent 不创建新服务、付款页面或数据请求，也不承诺退款结果。"
 				: preferred?.requires_human
 			? "当前下一步需要用户明确选择；先展示必要信息并等待确认。"
-			: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" : "当前没有后续动作。",
+				: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" + locationInputInstruction(model.capabilities.find((item) => item.capability_id === preferred.capability_id)?.input_schema) : "当前没有后续动作。",
 		next,
 		recovery: [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "仅在当前动作异常时检查时间线" }],
 	};
@@ -1293,6 +1333,7 @@ export function collectOption(value: string, previous: string[] = []): string[] 
 }
 
 function parseValue(value: string): unknown {
+  if (value.startsWith("{") || value.startsWith("[")) return JSON.parse(value);
   if (value === "true") return true;
   if (value === "false") return false;
   if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
