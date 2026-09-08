@@ -4567,11 +4567,22 @@ test("rail invocation preserves the entire catalog and recommendation metadata",
   assert.equal(result.result.items[24].safe_payload.candidate_id, "rail_24");
   assert.equal(result.result.items[0].safe_payload.recommended, true);
   assert.equal(result.result.catalog.total, 25);
+  assert.equal(result.result.catalog.journey_summary.journey_count, 10);
+  assert.equal(result.result.catalog.journey_summary.available_train_count, 7);
+  assert.deepEqual(result.result.catalog.journeys[0].candidate_ids, ["rail_0", "rail_1"]);
+  assert.equal(result.result.catalog.train_services[0].train_code, "G1");
+  assert.match(result.instruction, /不能用 catalog.total/);
+  assert.match(result.instruction, /无需下车/);
   assert.equal(result.result.catalog.decision_source, "model");
   assert.equal(result.result.catalog.search_status, "PARTIAL_RESULTS");
   assert.equal(result.result.catalog.effective_policy_hash, "fixture-policy");
   assert.equal(result.result.catalog.api_cost.tengyun_network_attempts, 22);
   assert.equal(result.result.catalog.coverage.catalog_complete_for_discovered_candidates, false);
+  stdoutCapture.length = 0;
+  await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: false, output: stdoutSink });
+  const plain = stdoutCapture.join("");
+  assert.match(plain, /journey_summary: .*"journey_count":10/);
+  assert.ok(plain.indexOf("journey_summary:") < plain.indexOf("items:"));
 });
 
 test("rail phone handoff stops without collecting identity or retrying provider", async () => {
