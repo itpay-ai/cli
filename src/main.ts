@@ -1,3 +1,5 @@
+import { readFileSync as readWorkflowInputFile } from "node:fs";
+import { runServicesRun } from "./commands/services.js";
 // V3 CLI entrypoint. Each command maps 1:1 to a route family in
 // services/backend/internal/httpapi/handlers/*.go. Commands only
 // orchestrate; HTTP and rendering live in src/client and src/render.
@@ -1407,6 +1409,41 @@ vault
 // --- service execution ----------------------------------------------------
 
 const services = program.command("services").description("Generic V3 Service Execution commands");
+
+services
+  .command("run")
+  .description("Run a published service and present Checkout when payment is required")
+  .argument("<service_id>")
+  .option("--input-json <file>", "JSON object containing the service input")
+  .option("--execution <execution_id>", "resume the same execution")
+  .option("--timeout <seconds>", "maximum wait before returning current progress", Number, 120)
+  .option("--host <host>")
+  .option("--target <target>")
+  .option("--json", "output JSON")
+  .action(async (serviceID: string, options) => {
+    const config = loadConfig();
+    try {
+      const input = options.inputJson ? JSON.parse(readWorkflowInputFile(options.inputJson, "utf8")) : undefined;
+      if (input !== undefined && (!input || typeof input !== "object" || Array.isArray(input))) {
+        throw new Error("input JSON must be an object");
+      }
+      if (!Number.isFinite(options.timeout) || options.timeout < 0 || options.timeout > 600) {
+        throw new Error("timeout must be between 0 and 600 seconds");
+      }
+      await runServicesRun(newBackendClient(config), config, serviceID, input, {
+        ...(options.execution ? { executionID: options.execution } : {}),
+        jsonOutput: Boolean(options.json),
+        host: withHost(options.host, config.agentType, options.target),
+        ...(options.target ? { target: options.target } : {}),
+        timeoutSeconds: options.timeout,
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json), code: "workflow_run_failed",
+        instruction: "按服务输入声明补齐参数；已有 execution 时继续该执行。", recovery: [],
+      });
+    }
+  });
 
 services
   .command("start")

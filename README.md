@@ -127,3 +127,9 @@ Source boundaries:
 - `src/state`: local Device Authority, idempotency journal, and recovery handles.
 - `docs/cli-reference`: normative command contracts.
 - `docs/agent/buyer`: packaged progressive workflow guidance.
+
+### Run a published service
+
+Use `itpay services run <service_id> --input-json ./input.json --json` for a published workflow. The input file must contain a JSON object matching the service input schema. With no input file, the CLI reports required fields and a command to continue the same execution.
+
+Use `itpay services run <service_id> --execution <execution_id> --json` to resume. At payment, the CLI uses the existing Checkout QR/card handoff. The backend continues after verified payment even if the CLI exits. `--timeout <seconds>` controls initial status polling (default 120, maximum 600). Use existing order/refund commands for refund requests; an application is not a successful refund until its final status confirms success.
