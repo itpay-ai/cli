@@ -483,7 +483,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       if (serviceExecutionID === "se_rail_transfer_empty") {
         const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
         respond(res, 200, { execution: model.execution,
-          invocation: { safe_result_preview: { catalog_total: 0, notices: [{ code: "RAIL_TRANSFER_SEARCH_INCOMPLETE", message: "本次中转查询未完整完成。当前支持最多一次铁路中转；可能需要更多次中转，建议分段查询，后续版本支持。" }] } },
+          invocation: { safe_result_preview: { catalog_total: 0, notices: [{ code: "RAIL_TRANSFER_SEARCH_INCOMPLETE", message: "本次中转查询未完整完成。当前支持最多两次枢纽同站中转；本次覆盖有限，不代表全国无路，可按主要枢纽分段查询。" }] } },
           result_items: [] });
         return;
       }
@@ -491,7 +491,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
         respond(res, 200, {
           execution: model.execution,
-          invocation: { safe_result_preview: { catalog_total: 25, recommendation: "rail_0", decision_source: "model", coverage: { search_exhaustive: false } } },
+          invocation: { safe_result_preview: { catalog_total: 25, recommendation: "rail_0", decision_source: "model", search_status: "PARTIAL_RESULTS", effective_policy_hash: "fixture-policy", api_cost: { tengyun_network_attempts: 22 }, coverage: { search_exhaustive: false, catalog_complete_for_discovered_candidates: false } } },
           result_items: Array.from({ length: 25 }, (_, i) => ({ rank: i + 1, display_title: `train ${i}`, safe_payload: { candidate_id: `rail_${i}`, recommended: i === 0 } })),
         });
         return;

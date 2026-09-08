@@ -194,6 +194,12 @@ function invokedEnvelope(
       decision_source: preview.decision_source,
       coverage: preview.coverage,
       notices: preview.notices,
+      search_status: preview.search_status,
+      searched_scope: preview.searched_scope,
+      effective_policy_hash: preview.effective_policy_hash,
+      api_cost: preview.api_cost,
+      stage_timestamps: preview.stage_timestamps,
+      page: preview.catalog_page,
     };
   }
   let status = items.length > 0 ? "result_ready" : "no_result";
@@ -210,7 +216,7 @@ function invokedEnvelope(
   }
   let next: CommandAction | null = null;
   if (items.length > 0 && baseResult.catalog) {
-    instruction = "先向用户说明排在首位的推荐方案和其他方案的时间、费用与便利性取舍。items 已包含本次发现的完整合格列表，用户不满意时继续从该列表比较，不必重复查票。覆盖范围和模型降级以 catalog 为准；费用尚需购票前核验。姓名、身份证和手机号仅在 ItPay 网页填写。";
+    instruction = "先向用户说明排在首位的推荐方案和其他方案的时间、费用与便利性取舍。items 包含本次返回的合格候选，用户不满意时继续从该列表比较，不必重复查票。搜索是否完成、目录是否截断、覆盖范围和模型降级以 catalog 为准；不能把部分结果说成完整搜索。费用尚需购票前核验。姓名、身份证和手机号仅在 ItPay 网页填写。";
   }
 
   if (response.effective_quota?.exhausted) {

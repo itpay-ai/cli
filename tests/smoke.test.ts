@@ -4568,6 +4568,10 @@ test("rail invocation preserves the entire catalog and recommendation metadata",
   assert.equal(result.result.items[0].safe_payload.recommended, true);
   assert.equal(result.result.catalog.total, 25);
   assert.equal(result.result.catalog.decision_source, "model");
+  assert.equal(result.result.catalog.search_status, "PARTIAL_RESULTS");
+  assert.equal(result.result.catalog.effective_policy_hash, "fixture-policy");
+  assert.equal(result.result.catalog.api_cost.tengyun_network_attempts, 22);
+  assert.equal(result.result.catalog.coverage.catalog_complete_for_discovered_candidates, false);
 });
 
 test("rail phone handoff stops without collecting identity or retrying provider", async () => {
@@ -4587,7 +4591,8 @@ test("rail empty transfer result preserves official guidance and stops", async (
   assert.equal(result.status, "no_result");
   assert.equal(result.next, null);
   assert.match(result.instruction, /本次中转查询未完整完成/);
-  assert.match(result.instruction, /建议分段查询/);
+  assert.match(result.instruction, /最多两次枢纽同站中转/);
+  assert.match(result.instruction, /主要枢纽分段查询/);
   assert.equal(result.result.catalog.notices[0].code, "RAIL_TRANSFER_SEARCH_INCOMPLETE");
   assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
 });
