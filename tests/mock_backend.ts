@@ -491,7 +491,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
         respond(res, 200, {
           execution: model.execution,
-          invocation: { safe_result_preview: { catalog_total: 25, recommendation: "rail_0", decision_source: "model", search_status: "PARTIAL_RESULTS", effective_policy_hash: "fixture-policy", api_cost: { tengyun_network_attempts: 22 }, coverage: { search_exhaustive: false, catalog_complete_for_discovered_candidates: false } } },
+          invocation: { safe_result_preview: { catalog_total: 25, journey_summary: { available_train_count: 7, route_count: 2, journey_count: 10, door_to_door_candidate_count: 25 }, journeys: [{ journey_id: "journey_0", candidate_ids: ["rail_0", "rail_1"] }], train_services: [{ train_code: "G1", boarding_date: "2026-09-10" }], recommendation: "rail_0", decision_source: "model", search_status: "PARTIAL_RESULTS", effective_policy_hash: "fixture-policy", api_cost: { tengyun_network_attempts: 22 }, coverage: { search_exhaustive: false, catalog_complete_for_discovered_candidates: false } } },
           result_items: Array.from({ length: 25 }, (_, i) => ({ rank: i + 1, display_title: `train ${i}`, safe_payload: { candidate_id: `rail_${i}`, recommended: i === 0 } })),
         });
         return;
