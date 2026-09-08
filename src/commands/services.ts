@@ -48,6 +48,10 @@ export async function runServicesStart(
       ...(options.clientContext ?? {}),
     },
   });
+  if (response.workflow_entry) {
+    writeCommandEnvelope({ status: "input_required", result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema }, instruction: "根据服务声明填写输入，然后继续同一服务执行。", next: {command: `itpay services run ${serviceID} --execution ${response.execution.service_execution_id} --input-json <file> --json`,reason:"提交买家输入"}, recovery: [] }, {...options});
+    return;
+  }
   const capability = response.capabilities.find((item) =>
     item.phase === response.execution.phase && !item.requires_payment,
   );
@@ -538,6 +542,10 @@ export async function runServicesCheckout(
     ...(options.email ? { email: options.email } : {}),
   };
   if (!options.resume && !capabilityID) {
+    const model = await backend.getServiceExecution(serviceExecutionID);
+    capabilityID = model.workflow_entry?.capability_id;
+  }
+  if (!options.resume && !capabilityID) {
     throw new CommandContractError(
       "capability_required",
       "--capability is required when creating a service checkout",
@@ -558,7 +566,7 @@ export async function runServicesCheckout(
     }
     const lockedInput = options.lockedInput ?? {};
     const missingInput = missingRequiredInput(capability.input_schema, lockedInput);
-    if (missingInput.length > 0 && readModel.execution.next_action !== "create_checkout") {
+    if (missingInput.length > 0 && !readModel.workflow_entry && readModel.execution.next_action !== "create_checkout") {
       throw new CommandContractError(
         "capability_input_invalid",
         `missing required capability input: ${missingInput.join(", ")}`,
@@ -871,6 +879,31 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   const execution = model.execution;
   const currentDelivery = model.current_delivery ?? model.delivery_bindings.at(-1);
   const lockedRefund = model.refunds.find((refund) => refund.access_locked);
+  if (model.workflow_entry && !lockedRefund && !["completed", "delivery"].includes(model.workflow?.status ?? "")) {
+    const id = execution.service_execution_id;
+    const state = model.workflow?.status ?? "input_required";
+    const recovery = state === "recovery_required" || state === "failed";
+    let command = `itpay services next ${id} --json`;
+    if (state === "payment") command = `itpay services checkout ${id} --json`;
+    if (state === "input_required") command = `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`;
+    return {
+      status: state,
+      result: {
+        service_execution_id: id,
+        service_id: execution.service_id,
+        workflow: model.workflow,
+        ...(state === "input_required" ? { input_schema: model.workflow_entry.input_schema } : {}),
+      },
+      instruction: recovery
+        ? "执行未完成，请按步骤错误处理；不要重建执行或重复调用。"
+        : state === "payment"
+          ? "服务已到付款步骤，使用现有 Checkout 完成扫码付款。"
+          : "继续读取同一执行；缺少输入时按服务声明补齐。",
+      next: recovery ? null : { command, reason: "继续当前流程" },
+      recovery: [],
+    };
+  }
+
   if (lockedRefund) {
     const terminal = lockedRefund.status === "succeeded";
     return {
@@ -1342,5 +1375,74 @@ function tokenizedCheckoutURL(checkoutURL: string, displayToken: string, qrPaylo
   } catch {
     const separator = checkoutURL.includes("?") ? "&" : "?";
     return `${checkoutURL}${separator}display_token=${encodeURIComponent(displayToken)}`;
+  }
+}
+
+
+export interface ServicesRunOptions extends ServicesCommandOptions {
+  executionID?: string;
+  jsonOutput?: boolean;
+  host?: ClientHost;
+  target?: string;
+  timeoutSeconds?: number;
+  pollIntervalMS?: number;
+  sleep?: (milliseconds: number) => Promise<void>;
+}
+
+export async function runServicesRun(
+  backend: BackendClient,
+  config: CLIConfig,
+  serviceID: string,
+  input: Record<string, unknown> | undefined,
+  options: ServicesRunOptions = {},
+): Promise<void> {
+  let id = options.executionID;
+  if (!id) {
+    const started = await backend.startServiceExecution({
+      service_id: serviceID,
+      client_context: { host: options.host ?? "terminal", ...(options.target ? { target: options.target } : {}) },
+    });
+    id = started.execution.service_execution_id;
+    if (!started.workflow_entry) {
+      await runServicesNext(backend, id, options);
+      return;
+    }
+  }
+  try {
+    let model = await backend.getServiceExecution(id);
+    if (model.execution.service_id !== serviceID) throw new Error("execution belongs to another service");
+    if (!model.workflow_entry || (input === undefined && !model.workflow)) {
+      await runServicesNext(backend, id, options);
+      return;
+    }
+    if (input !== undefined) {
+      model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`);
+    }
+    const until = Date.now() + (options.timeoutSeconds ?? 120) * 1000;
+    const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
+    while (["queued", "running"].includes(model.workflow?.status ?? "") && Date.now() < until) {
+      await sleep(options.pollIntervalMS ?? 1500);
+      model = await backend.getServiceExecution(id);
+    }
+    if (model.refunds.some(refund => refund.access_locked)) {
+      await runServicesNext(backend, id, options);
+      return;
+    }
+    if (model.workflow?.status === "payment") {
+      await runServicesCheckout(backend, config, id, model.workflow_entry?.capability_id, {
+        ...options,
+        ...(config.agentType ? { agentType: config.agentType } : {}),
+        resume: model.checkout_bindings.length > 0,
+      });
+      return;
+    }
+    await runServicesNext(backend, id, options);
+  } catch (cause) {
+    throw new CommandContractError(
+      "workflow_run_failed",
+      cause instanceof Error ? cause.message : "workflow run failed",
+      "保留当前执行并按错误处理，不要重复创建服务执行。",
+      [{ command: `itpay services run ${serviceID} --execution ${id} --json`, reason: "恢复同一执行" }],
+    );
   }
 }

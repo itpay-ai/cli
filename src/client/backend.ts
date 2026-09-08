@@ -205,6 +205,10 @@ export class BackendClient {
     return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input);
   }
 
+  advanceServiceExecution(id: string, input: Record<string, unknown> | undefined, idempotencyKey: string): Promise<ServiceExecutionReadModel> {
+    return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey });
+  }
+
   invokeServiceCapability(
     serviceExecutionID: string,
     capabilityID: string,

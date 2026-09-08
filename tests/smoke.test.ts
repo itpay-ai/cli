@@ -42,7 +42,7 @@ import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefun
 import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartAddQuoteServer, runCartNext } from "../src/commands/cart.js";
 import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
-import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
+import { runServicesRun, runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
 import { CLI_VERSION, SANDBOX_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
@@ -4558,4 +4558,65 @@ test("markdown renderer keeps command output bounded and delegates image attachm
   assert.equal(dataURLs.length, 0);
   assert.ok(Buffer.byteLength(text) < 12_000, `markdown handoff unexpectedly large: ${Buffer.byteLength(text)} bytes`);
   assert.match(text, /!\[ItPay 付款二维码\]\(</);
+});
+
+test("catalog discovers seller services with ordinary priced variants", async () => {
+  const sellerBackend = {
+    getCatalogManifest: async () => ({
+      version: "seller_catalog", status: "published", item_count: 1,
+      manifest: { items: [{ catalog_item_id: "seller_item", service_id: "seller-service", title: "Seller API", description: "Reviewed service", variants: [{ catalog_variant_id: "seller_variant", offer_id: "default", title: "API call", amount_minor: 250, currency: "CNY" }] }] },
+    }),
+  } as unknown as BackendClient;
+  const output: string[] = [];
+  await runCatalogList(sellerBackend, { jsonOutput: true, output: line => output.push(line) });
+  const result = JSON.parse(output.join(""));
+  assert.equal(result.result.services[0].service_id, "seller-service");
+  assert.equal(result.result.services[0].primary_offer.price, "¥2.50");
+  assert.equal(result.next.command, "itpay services start seller-service --json");
+});
+
+
+test("services run reports published input schema without guessing or advancing", async () => {
+ const base=await backend.getServiceExecution("se_mock_next");
+ const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object",required:["query"],properties:{query:{type:"string",description:"Search keyword"}}}}};
+ let starts=0;
+ const client=Object.create(backend) as BackendClient;
+ client.startServiceExecution=async()=>{starts++;return {execution:model.execution,capabilities:model.capabilities,workflow_entry:model.workflow_entry};};
+ client.getServiceExecution=async()=>model;
+ client.advanceServiceExecution=async()=>{throw new Error("must not guess input");};
+ await runServicesRun(client,config,model.execution.service_id,undefined,{jsonOutput:true,output:stdoutSink});
+ const result=JSON.parse(stdoutCapture.join(""));
+ assert.equal(starts,1);
+ assert.equal(result.status,"input_required");
+ assert.deepEqual(result.result.input_schema,model.workflow_entry.input_schema);
+ assert.match(result.next.command,/--execution/);
+});
+
+test("services run resumes same execution and never retries uncertain provider", async () => {
+ const base=await backend.getServiceExecution("se_mock_next");
+ const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object"}},workflow:{status:"recovery_required",current_step:"third",revision:7,steps:{first:"success"},error_code:"provider_outcome_unknown"}};
+ const client=Object.create(backend) as BackendClient;
+ client.startServiceExecution=async()=>{throw new Error("must not start another execution");};
+ client.advanceServiceExecution=async()=>{throw new Error("must not retry input");};
+ client.getServiceExecution=async()=>model;
+ await runServicesRun(client,config,model.execution.service_id,undefined,{executionID:model.execution.service_execution_id,jsonOutput:true,output:stdoutSink});
+ const result=JSON.parse(stdoutCapture.join(""));
+ assert.equal(result.status,"recovery_required");assert.equal(result.next,null);
+ assert.equal(result.result.workflow.current_step,"third");
+});
+
+test("services run submits input once and delegates payment to existing Checkout", async () => {
+ const base=await backend.getServiceExecution("se_demo");
+ const capability={...base.capabilities.find(item=>item.requires_payment)!,delivery_email_required:false};
+ let advanced=0;
+ let model:ServiceExecutionReadModel={...base,capabilities:[capability],workflow_entry:{capability_id:capability.capability_id,input_schema:{type:"object"}}};
+ const client=Object.create(backend) as BackendClient;
+ client.getServiceExecution=async()=>model;
+ client.advanceServiceExecution=async(id,input,key)=>{
+  advanced++;assert.equal(id,"se_demo");assert.deepEqual(input,{query:"test"});assert.match(key,/se_demo/);
+  model={...model,workflow:{status:"payment",current_step:"payment",revision:2,steps:{input:"success"}}};return model;
+ };
+ await runServicesRun(client,config,model.execution.service_id,{query:"test"},{executionID:"se_demo",host:"plain-chat",jsonOutput:true,output:stdoutSink});
+ const result=JSON.parse(stdoutCapture.join(""));
+ assert.equal(advanced,1);assert.equal(result.status,"human_checkout_required");assert.ok(result.handoff.url);
 });
