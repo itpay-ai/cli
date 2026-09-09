@@ -1,3 +1,4 @@
+import {registerSell} from "./sell/commands.js";
 import { readFileSync as readWorkflowInputFile } from "node:fs";
 import { runServicesRun } from "./commands/services.js";
 // V3 CLI entrypoint. Each command maps 1:1 to a route family in
@@ -1744,6 +1745,8 @@ services
       });
     }
   });
+
+registerSell(program);
 
 program.parseAsync(process.argv).catch((error) => {
   reportCLIError(error);

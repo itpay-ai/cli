@@ -33,8 +33,8 @@ export interface CLIConfig {
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
-export const CLI_VERSION = "2.0.40";
-export const API_CONTRACT_REVISION = "sha256:6445dc76e23c5b9f0d19cfbfd2a552c0dd96dd0a169f793fe0f6a1c93f3ea1a1";
+export const CLI_VERSION = "2.1.0";
+export const API_CONTRACT_REVISION = "sha256:baf0fd57aa21e8a37c73753547c86eb169ed578624e4ae152a89c5f0187612b9";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -60,6 +60,7 @@ export function resolveBackendURL(env: NodeJS.ProcessEnv = process.env): string 
   const requested = env.ITPAY_BACKEND_URL?.trim();
   if (!requested || requested === DEFAULT_BASE_URL || requested === `${DEFAULT_BASE_URL}/`) return DEFAULT_BASE_URL;
   if (requested === SANDBOX_BASE_URL || requested === `${SANDBOX_BASE_URL}/`) return SANDBOX_BASE_URL;
+  if (env.ITPAY_CLI_DEV === "1") return requested.replace(/\/$/, "");
   throw new BackendOverrideError();
 }
 

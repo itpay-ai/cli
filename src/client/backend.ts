@@ -47,6 +47,12 @@ import type {
 export class BackendClient {
   constructor(private readonly http: HttpClient) {}
 
+  // Called only through the fixed Sell operation contract, never arbitrary Agent URLs.
+  sellRequest(request: {path:string; method:"GET"|"POST"|"PUT"|"DELETE"; body?:unknown}): Promise<unknown> {
+    if (!request.path.startsWith("/v1/seller/organizations") && !request.path.startsWith("/v1/library/")) throw new Error("Invalid Sell route");
+    return this.http.request(request.path,{method:request.method,...(request.body!==undefined?{body:request.body}:{})});
+  }
+
   readyz(): Promise<ReadyResponse> {
     return this.http.get<ReadyResponse>("/v1/readyz");
   }
