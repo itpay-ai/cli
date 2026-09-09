@@ -78,6 +78,7 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
 ### 通用服务执行
 
 - [`itpay services`](commands/services/index.md)
+  - [`itpay services run`](commands/services/run.md)
   - [`itpay services start`](commands/services/start.md)
   - [`itpay services invoke`](commands/services/invoke.md)
   - [`itpay services action`](commands/services/action.md)
