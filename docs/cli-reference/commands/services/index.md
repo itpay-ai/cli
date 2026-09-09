@@ -1,6 +1,6 @@
 # `itpay services`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Seller-published workflows enter the same Buyer execution, Checkout, delivery, and refund state machine as ItPay services.
 
 ## 命令范围
 
@@ -22,6 +22,7 @@
 ## 子命令
 
 - [`start`](start.md)
+- [`run`](run.md)
 - [`invoke`](invoke.md)
 - [`action`](action.md)
 - [`quote`](quote.md)
@@ -40,7 +41,7 @@
 itpay services --help
 ```
 
-输出十个子命令及一句选择规则：正常推进使用 `next`，深度诊断才使用 `get/events`。未知子命令返回参数错误和本 help，不创建 Execution。
+输出十一个子命令及一句选择规则：运行已发布服务使用 `run`，正常推进使用 `next`，深度诊断才使用 `get/events`。未知子命令返回参数错误和本 help，不创建 Execution。
 
 ## Agent Type / Host
 
