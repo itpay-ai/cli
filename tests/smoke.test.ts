@@ -2110,7 +2110,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(untyped.result.content, /## Serve The Human/);
   assert.match(untyped.result.content, /Perform every technical step yourself/);
   assert.match(untyped.result.content, /policy route, not a promise/);
-  assert.match(untyped.result.content, /Seller workflows are not\s+yet available/);
+  assert.match(untyped.result.content, /## Sell a Service/);
+  assert.match(untyped.result.content, /itpay sell guide --json/);
   assert.match(untyped.result.content, /## Follow One Envelope/);
   assert.equal(untyped.next.command, "itpay install --json");
 
