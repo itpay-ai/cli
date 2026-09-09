@@ -1,4 +1,6 @@
 import type { BackendClient } from "../client/backend.js";
+import { HttpError } from "../client/http.js";
+import { HttpTransportError } from "../client/transport.js";
 import type {
   GrantedServiceResult,
   RecordServiceExecutionActionRequest,
@@ -1397,18 +1399,18 @@ export async function runServicesRun(
   options: ServicesRunOptions = {},
 ): Promise<void> {
   let id = options.executionID;
-  if (!id) {
-    const started = await backend.startServiceExecution({
-      service_id: serviceID,
-      client_context: { host: options.host ?? "terminal", ...(options.target ? { target: options.target } : {}) },
-    });
-    id = started.execution.service_execution_id;
-    if (!started.workflow_entry) {
-      await runServicesNext(backend, id, options);
-      return;
-    }
-  }
   try {
+    if (!id) {
+      const started = await backend.startServiceExecution({
+        service_id: serviceID,
+        client_context: { host: options.host ?? "terminal", ...(options.target ? { target: options.target } : {}) },
+      });
+      id = started.execution.service_execution_id;
+      if (!started.workflow_entry) {
+        await runServicesNext(backend, id, options);
+        return;
+      }
+    }
     let model = await backend.getServiceExecution(id);
     if (model.execution.service_id !== serviceID) throw new Error("execution belongs to another service");
     if (!model.workflow_entry || (input === undefined && !model.workflow)) {
@@ -1438,6 +1440,16 @@ export async function runServicesRun(
     }
     await runServicesNext(backend, id, options);
   } catch (cause) {
+    if (cause instanceof CommandContractError || cause instanceof HttpError) throw cause;
+    if (cause instanceof HttpTransportError && !id) {
+      throw new CommandContractError(
+        "workflow_start_outcome_unknown",
+        cause.message,
+        "创建服务执行时没有收到完整响应。先查询当前身份可见的执行；不要直接重跑并创建替代执行。",
+        [{ command: "itpay services list --json", reason: "查找可能已经创建的服务执行" }],
+      );
+    }
+    if (cause instanceof HttpTransportError) throw cause;
     throw new CommandContractError(
       "workflow_run_failed",
       cause instanceof Error ? cause.message : "workflow run failed",

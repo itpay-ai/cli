@@ -63,6 +63,8 @@ itpay services run <service_id> --execution <execution_id> --json
 ## 终态和异常
 
 - 成功、付款、交付、授权、退款锁等状态使用既有命令的标准信封，不额外包装 Seller 专用格式。
+- 既有 Checkout、身份、兼容性和网络错误保持原错误码、instruction 与 recovery；`services run` 不得覆盖可执行的邮箱、登录、升级或状态恢复指令。
+- 如果创建 Execution 后未收到完整响应，返回 `workflow_start_outcome_unknown`，只允许先执行 `itpay services list --json` 查找刚创建的 Execution；不得直接重跑 `services run` 创建替代 Execution。
 - `recovery_required` 或 `failed` 返回当前 workflow step，`next: null`，并明确禁止重建 Execution 或重放结果未知的 Provider 请求。
 - service 不匹配、输入文件不是 JSON object、timeout 越界或 Backend 错误返回 `workflow_run_failed`。
 - `--timeout` 到期不是失败，只返回同一 Execution 当前可恢复状态。

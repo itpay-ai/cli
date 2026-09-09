@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { HttpClient, HttpError } from "../src/client/http.js";
+import { HttpTransportError } from "../src/client/transport.js";
 import { BackendClient } from "../src/client/backend.js";
 import type { ServiceExecutionReadModel } from "../src/client/types.js";
 import { CartSession } from "../src/state/cart_session.js";
@@ -4619,4 +4620,25 @@ test("services run submits input once and delegates payment to existing Checkout
  await runServicesRun(client,config,model.execution.service_id,{query:"test"},{executionID:"se_demo",host:"plain-chat",jsonOutput:true,output:stdoutSink});
  const result=JSON.parse(stdoutCapture.join(""));
  assert.equal(advanced,1);assert.equal(result.status,"human_checkout_required");assert.ok(result.handoff.url);
+});
+
+test("services run preserves Checkout recovery that requires delivery email", async () => {
+ const base=await backend.getServiceExecution("se_demo");
+ const capability={...base.capabilities.find(item=>item.requires_payment)!,delivery_email_required:true};
+ const model:ServiceExecutionReadModel={...base,capabilities:[capability],workflow_entry:{capability_id:capability.capability_id,input_schema:{type:"object"}},workflow:{status:"payment",current_step:"payment",revision:2,steps:{input:"success"}}};
+ const client=Object.create(backend) as BackendClient;
+ client.getServiceExecution=async()=>model;
+ await assert.rejects(
+  runServicesRun(client,config,model.execution.service_id,undefined,{executionID:"se_demo",jsonOutput:true,output:stdoutSink}),
+  (error:unknown)=>error instanceof CommandContractError && error.code==="delivery_email_required" && error.recovery.some(action=>action.command.includes("--email <email>")),
+ );
+});
+
+test("services run recovers an uncertain start through the execution list", async () => {
+ const client=Object.create(backend) as BackendClient;
+ client.startServiceExecution=async()=>{throw new HttpTransportError("network_timeout",1,"ETIMEDOUT",new Error("timeout"));};
+ await assert.rejects(
+  runServicesRun(client,config,"seller-service",undefined,{jsonOutput:true,output:stdoutSink}),
+  (error:unknown)=>error instanceof CommandContractError && error.code==="workflow_start_outcome_unknown" && error.recovery[0]?.command==="itpay services list --json",
+ );
 });
