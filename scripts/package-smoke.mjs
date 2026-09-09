@@ -58,6 +58,7 @@ try {
     ["vault", "commands/vault/index.md"], ["vault list", "commands/vault/list.md"],
     ["vault access", "commands/vault/access.md"], ["vault read", "commands/vault/read.md"],
     ["services", "commands/services/index.md"], ["services start", "commands/services/start.md"],
+    ["services run", "commands/services/run.md"],
     ["services invoke", "commands/services/invoke.md"], ["services action", "commands/services/action.md"],
     ["services quote", "commands/services/quote.md"], ["services checkout", "commands/services/checkout.md"],
     ["services list", "commands/services/list.md"], ["services get", "commands/services/get.md"],
