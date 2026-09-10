@@ -2049,7 +2049,8 @@ test("sandbox Backend is explicit and preserved in every next command", async ()
     environment: "development",
     agent_type: "workbuddy",
   });
-  assert.match(envelope.instruction, /sandbox Backend/);
+  assert.ok(envelope.instruction.includes(SANDBOX_BASE_URL));
+  assert.match(envelope.instruction, /同一 Backend/);
   assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
 });
 
