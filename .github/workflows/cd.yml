@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - package.json
+      - .github/workflows/cd.yml
 
 jobs:
   publish:
@@ -44,7 +45,9 @@ jobs:
             fi
             echo "Version $VERSION already published from this commit — skipping"
           else
-            npm publish --access public --tag "$TAG"
+            # npm run check above already verifies tests, coverage, build and packed assets.
+            # Avoid rerunning prepublishOnly and prepack inside the same timed job.
+            npm publish --ignore-scripts --access public --tag "$TAG"
             echo "Published @itpay/cli@$VERSION with dist-tag $TAG"
           fi
         env:
