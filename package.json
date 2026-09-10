@@ -18,7 +18,8 @@
     "docs/",
     "skills/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets/"
   ],
   "publishConfig": {
     "access": "public"
@@ -61,11 +62,12 @@
     "check": "npm run lint && npm run test:coverage && npm run test:package",
     "pack:dry-run": "npm run clean && npm run build && npm pack --dry-run --ignore-scripts",
     "prepare": "node scripts/install-git-hooks.mjs",
-    "test:package": "npm run clean && npm run build && node scripts/package-smoke.mjs",
-    "prepack": "npm run clean && npm run build",
+    "test:package": "node scripts/check-sell-package.mjs && npm run clean && npm run build && node scripts/package-smoke.mjs",
+    "prepack": "node scripts/check-sell-package.mjs && npm run clean && npm run build",
     "prepublishOnly": "npm run check",
     "test": "tsx --test tests/*.test.ts",
     "test:coverage": "c8 --all --src src --extension .ts --exclude=src/client/types.ts --exclude=tests/** --exclude=scripts/** --reporter=text --reporter=lcov --check-coverage --lines 85 --statements 85 --functions 90 --branches 70 npm test",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "precheck": "node scripts/fetch-sell-runtime.mjs"
   }
 }

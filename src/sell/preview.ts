@@ -8,7 +8,8 @@ export async function preview(directory: string): Promise<{
     url: string;
     close: () => void;
 }> {
-    const assets = fileURLToPath(new URL('../../../assets/sell-preview/', import.meta.url));
+    const packaged = fileURLToPath(new URL('../../../assets/sell-preview/', import.meta.url));
+    const assets = existsSync(packaged) ? packaged : fileURLToPath(new URL('../../assets/sell-preview/', import.meta.url));
     if (!existsSync(resolve(assets, 'index.html')))
         throw new Error('CLI preview assets are missing; install the complete CLI package');
     const token = randomBytes(24).toString('hex');

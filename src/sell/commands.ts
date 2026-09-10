@@ -1,3 +1,4 @@
+import { sellerAuth } from "./auth.js";
 import { registerSync } from "./sync.js";
 import { preview } from "./preview.js";
 import { serveSellMCP } from "./mcp.js";
@@ -8,6 +9,10 @@ import { loadConfig, newBackendClient } from '../state/config.js';
 import { SELL_GUIDE, SELL_OPERATIONS, sellRequest } from './contract.js';
 export function registerSell(program: Command) {
     const sell = program.command('sell').description('Create, test and submit your service for review');
+    const auth = sell.command('auth').description('Authorize this CLI using normal ItPay account login');
+    for (const action of ['login', 'status', 'logout'] as const) auth.command(action).action(async () => {
+        process.stdout.write(JSON.stringify(await sellerAuth(action, loadConfig().baseURL)) + '\n');
+    });
     const groups = new Map<string, Command>([['', sell]]);
     for (const operation of SELL_OPERATIONS) {
         const parts = operation.command.split(' ');

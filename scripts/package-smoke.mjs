@@ -65,6 +65,7 @@ try {
     ["services next", "commands/services/next.md"], ["services read-result", "commands/services/read-result.md"],
     ["services events", "commands/services/events.md"],
     ["sell", "commands/sell.md"],
+    ...["sell auth", "sell auth login", "sell auth status", "sell auth logout"].map(command => [command, "commands/sell.md"]),
     ["sell status", "commands/sell.md"],
     ["sell guide", "commands/sell.md"],
     ["sell library", "commands/sell.md"],

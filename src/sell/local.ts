@@ -27,7 +27,9 @@ export function localDependencies(state: string): LocalData {
  return dependencies;
 }
 export async function companion(input: LocalData, onEvent?: (event: LocalData) => void): Promise<LocalData[]> {
-    const binary = process.env.ITPAY_SELL_RUNNER ?? fileURLToPath(new URL(`../../../bin/${process.platform}-${process.arch}/itpay-sell${process.platform === 'win32' ? '.exe' : ''}`, import.meta.url));
+    const target = `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}/itpay-sell${process.platform === 'win32' ? '.exe' : ''}`;
+    const packaged = fileURLToPath(new URL(`../../../bin/${target}`, import.meta.url));
+    const binary = process.env.ITPAY_SELL_RUNNER ?? (existsSync(packaged) ? packaged : fileURLToPath(new URL(`../../bin/${target}`, import.meta.url)));
     if (!existsSync(binary))
         throw new Error(`Local runner missing for ${process.platform}-${process.arch}; install a CLI package including its native runner`);
     return new Promise((done, fail) => {

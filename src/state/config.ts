@@ -1,8 +1,10 @@
-// CLI configuration loader. Production defaults to app.itpay.ai; the only
-// allowed override is the official sandbox Backend. Checkout
+import { sellerSessionToken } from "../sell/auth.js";
+// CLI configuration loader. Production defaults to app.itpay.ai; supported public overrides
+// are the official sandbox and dev Backends. Checkout
 // display-token persistence belongs to the cart session file, protected with
 // owner-only permissions. Provider secrets are explicitly out of scope here.
 
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -32,6 +34,7 @@ export interface CLIConfig {
 }
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
+export const DEV_BASE_URL = "https://dev.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
 export const CLI_VERSION = "2.1.0";
 export const API_CONTRACT_REVISION = "sha256:baf0fd57aa21e8a37c73753547c86eb169ed578624e4ae152a89c5f0187612b9";
@@ -51,7 +54,7 @@ export class BackendOverrideError extends Error {
   readonly code = "backend_override_forbidden";
 
   constructor() {
-    super(`ITPAY_BACKEND_URL only supports ${DEFAULT_BASE_URL} or ${SANDBOX_BASE_URL}`);
+    super(`ITPAY_BACKEND_URL only supports ${DEFAULT_BASE_URL}, ${SANDBOX_BASE_URL}, or ${DEV_BASE_URL}`);
     this.name = "BackendOverrideError";
   }
 }
@@ -60,21 +63,25 @@ export function resolveBackendURL(env: NodeJS.ProcessEnv = process.env): string 
   const requested = env.ITPAY_BACKEND_URL?.trim();
   if (!requested || requested === DEFAULT_BASE_URL || requested === `${DEFAULT_BASE_URL}/`) return DEFAULT_BASE_URL;
   if (requested === SANDBOX_BASE_URL || requested === `${SANDBOX_BASE_URL}/`) return SANDBOX_BASE_URL;
-  if (env.ITPAY_CLI_DEV === "1") return requested.replace(/\/$/, "");
+  if (requested === DEV_BASE_URL || requested === `${DEV_BASE_URL}/`) return DEV_BASE_URL;
+  if (env.ITPAY_CLI_DEV === "1" && /^http:\/\/(localhost|127\.0\.0\.1):\d+\/?$/.test(requested)) return requested.replace(/\/$/, "");
   throw new BackendOverrideError();
 }
 
 export function qualifyBackendCommand(command: string, env: NodeJS.ProcessEnv = process.env): string {
   const requested = env.ITPAY_BACKEND_URL?.trim();
-  if (requested !== SANDBOX_BASE_URL && requested !== `${SANDBOX_BASE_URL}/`) return command;
-  if (!command.startsWith("itpay ") || command.startsWith(`ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} `)) return command;
-  return `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} ${command}`;
+  if (!requested) return command;
+  const target = resolveBackendURL(env);
+  if (target === DEFAULT_BASE_URL) return command;
+  if (!command.startsWith("itpay ") || command.startsWith(`ITPAY_BACKEND_URL=${target} `)) return command;
+  return `ITPAY_BACKEND_URL=${target} ${command}`;
 }
 
 function stateFilename(filename: string, baseURL: string): string {
-  if (baseURL !== SANDBOX_BASE_URL) return filename;
+  if (baseURL === DEFAULT_BASE_URL) return filename;
+  const suffix = baseURL === SANDBOX_BASE_URL ? "sandbox" : baseURL === DEV_BASE_URL ? "dev" : `local-${createHash("sha256").update(baseURL).digest("hex").slice(0, 16)}`;
   const dot = filename.lastIndexOf(".");
-  return dot < 0 ? `${filename}.sandbox` : `${filename.slice(0, dot)}.sandbox${filename.slice(dot)}`;
+  return dot < 0 ? `${filename}.${suffix}` : `${filename.slice(0, dot)}.${suffix}${filename.slice(dot)}`;
 }
 
 function stateDir(env: NodeJS.ProcessEnv): string {
@@ -100,7 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const ideImageDirOverride = env.ITPAY_IDE_IMAGE_DIR_OVERRIDE;
   return {
     baseURL,
-    environment: baseURL === SANDBOX_BASE_URL ? "development" : "production",
+    environment: baseURL === DEFAULT_BASE_URL ? "production" : "development",
     ...(agentType ? { agentType } : {}),
     checkoutCurrency,
     idempotencyKey,
@@ -131,7 +138,14 @@ export function newBackendClient(config: CLIConfig): BackendClient {
       "X-ItPay-CLI-Version": CLI_VERSION,
       "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
-    requestAuthorizer: (input) => authority.authorizationHeaders(input),
+    requestAuthorizer: (input) => {
+      if (/^\/v1\/(seller\/organizations(?:\/|\?|$)|library\/)/.test(input.path)) {
+        const token = config.bearerToken ?? sellerSessionToken(config.baseURL);
+        if (!token) throw new Error("Seller login required; run itpay sell auth login");
+        return Promise.resolve({ Authorization: `Bearer ${token}` });
+      }
+      return authority.authorizationHeaders(input);
+    },
     recoverAuthorization: () => authority.recoverAuthorization(),
   });
   return new BackendClient(http);

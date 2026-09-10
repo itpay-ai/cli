@@ -1,0 +1,12 @@
+{
+  "source_repository": "itpay-ai/compose",
+  "source_commit": "0eab39802cf71871a13fff59cf1b581b244d4d74",
+  "tag": "seller-runtime-0eab39802cf7",
+  "sha256": {
+    "darwin-arm64": "8c1544aca4e46eff0dce566c4af93761190b8fc9211f43dbc4353c76ec1b1fbf",
+    "darwin-amd64": "97479e461b7760bf49fc52f04385dcfde11605f6327f21faa8bb04c0354c642c",
+    "linux-arm64": "ac8805761a532326f3e3fabaa7cf4d41802831c8ee7a34516ec9c7b5607734ec",
+    "linux-amd64": "c7bf1d4f255953a8acb7943f6037f545e1ba827405ac64a87689d3725e40780c",
+    "windows-amd64": "c61467daa05bc6c595b9a7be1e781a9305b36f1959fe63d26c423d50c0db1ca5"
+  }
+}

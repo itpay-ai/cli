@@ -1,6 +1,6 @@
 # Sell Agent guide
 
-`itpay sell` is the Seller command namespace. Buyer `services` commands remain separate. Read `itpay sell guide --json` first, authenticate with the existing device/account flow, then use `sell status` to select the user's existing merchant. An unverified merchant must finish KYB and payout setup in the dashboard.
+`itpay sell` is the Seller command namespace. Buyer `services` commands remain separate. Read `itpay sell guide --json` first, authenticate with `itpay sell auth login` and complete the standard ItPay browser login, then run `itpay sell auth status`, then use `sell status` to select the user's existing merchant. An unverified merchant must finish KYB and payout setup in the dashboard.
 
 ## Local-first workflow
 
@@ -1336,3 +1336,7 @@ Options:
   --project <directory>  Project directory (default: ".")
   -h, --help             display help for command
 ```
+
+## Seller login and dev
+
+Use `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth login --json` to receive the normal ItPay authorization link. After browser login and required email verification, run `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth status --json`. The CLI claims its own account session through the standard API and stores it in an owner-only file; never copy tokens or browser cookies. `itpay sell auth logout --json` revokes this session. Keep the same backend prefix on subsequent commands; production, dev, and sandbox state are isolated. Agent device enrollment does not grant Seller organization access.

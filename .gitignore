@@ -47,7 +47,6 @@ Thumbs.db
 # Generated local runtime binaries, packaged by the release build.
 bin/*/itpay-sell*
 
-assets/sell-preview/
 
 .turbo/
 .itpay-sell/
