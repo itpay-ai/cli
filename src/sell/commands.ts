@@ -1,4 +1,4 @@
-import { sellerAuth } from "./auth.js";
+import { sellerAuth } from "../state/account_auth.js";
 import { registerSync } from "./sync.js";
 import { preview } from "./preview.js";
 import { serveSellMCP } from "./mcp.js";

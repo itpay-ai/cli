@@ -4643,3 +4643,34 @@ test("services run recovers an uncertain start through the execution list", asyn
   (error:unknown)=>error instanceof CommandContractError && error.code==="workflow_start_outcome_unknown" && error.recovery[0]?.command==="itpay services list --json",
  );
 });
+
+test("free workflow limits guide login or waiting without checkout or automatic retry", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  for (const code of ["login_required", "rate_limited"]) {
+    stdoutCapture.length=0;
+    const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"quota",revision:2,steps:{input:"success"},error_code:code}};
+    const client=Object.create(backend) as BackendClient;
+    client.getServiceExecution=async()=>model;
+    client.startServiceExecution=async()=>{throw new Error("no automatic new query");};
+    client.advanceServiceExecution=async()=>{throw new Error("no automatic retry");};
+    await runServicesRun(client,config,model.execution.service_id,undefined,{executionID:model.execution.service_execution_id,jsonOutput:true,output:stdoutSink});
+    const result=JSON.parse(stdoutCapture.join(""));
+    assert.equal(result.status,code);
+    if (code==="login_required") assert.match(result.next.command,/itpay auth login/);
+    else assert.equal(result.next,null);
+  }
+});
+
+
+test("completed free workflow returns its full result instead of a terminal empty message", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const payload={journeys:[{id:"j1",seats:[{type:"second"}]}],recommendations:["j1"],coverage:{bounded:true}};
+  const model={...base,execution:{...base.execution,status:"completed"},capabilities:[{...base.capabilities[0]!,capability_id:"itpay_service",requires_payment:false,vault_required:false}],workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"completed",current_step:"success",revision:4,steps:{}},current_result_items:[{...base.current_result_items?.[0],rank:1,display_title:"Route results",safe_payload:{result:payload}}]} as ServiceExecutionReadModel;
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  await runServicesRun(client,config,model.execution.service_id,undefined,{executionID:model.execution.service_execution_id,jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"result_ready");
+  assert.deepEqual(result.result.items[0].safe_payload.result,payload);
+  assert.equal(result.next,null);
+});

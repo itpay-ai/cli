@@ -1,4 +1,4 @@
-import { sellerSessionToken } from "../sell/auth.js";
+import { sellerSessionToken } from "./account_auth.js";
 // CLI configuration loader. Production defaults to app.itpay.ai; supported public overrides
 // are the official sandbox and dev Backends. Checkout
 // display-token persistence belongs to the cart session file, protected with
@@ -36,8 +36,8 @@ export interface CLIConfig {
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
-export const CLI_VERSION = "2.1.0";
-export const API_CONTRACT_REVISION = "sha256:bedacd161be3576aeed35c7a4f54ea4fedae65a88d1e024f0445f969a1fc1fc2";
+export const CLI_VERSION = "2.1.1";
+export const API_CONTRACT_REVISION = "sha256:b8593e4d73782a3ddeb5d070df1db572e422dd0aa08083372bc8971b5412b643";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";

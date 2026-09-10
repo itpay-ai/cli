@@ -39,6 +39,7 @@ try {
   const commandDocs = new Map([
     ["", "index.md"],
     ["readyz", "commands/readyz.md"],
+    ...["auth", "auth login", "auth status"].map(command => [command, "commands/auth.md"]),
     ["device", "commands/device.md"], ["device recover", "commands/device.md"],
     ["skill", "commands/skill.md"], ["skill show", "commands/skill.md"],
     ["next", "commands/next.md"],
