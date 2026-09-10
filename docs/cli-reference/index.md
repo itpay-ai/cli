@@ -89,3 +89,7 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
   - [`itpay services next`](commands/services/next.md)
   - [`itpay services read-result`](commands/services/read-result.md)
   - [`itpay services events`](commands/services/events.md)
+
+- [Sell: create, test and submit services](commands/sell.md)
+
+- [Run a published service](commands/services/run.md)

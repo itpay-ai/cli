@@ -883,7 +883,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   const lockedRefund = model.refunds.find((refund) => refund.access_locked);
   if (model.workflow_entry && !lockedRefund && !["completed", "delivery"].includes(model.workflow?.status ?? "")) {
     const id = execution.service_execution_id;
-    const state = model.workflow?.status ?? "input_required";
+    const paymentVerified = model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
+    const state = model.workflow?.status === "payment" && paymentVerified ? "running" : model.workflow?.status ?? "input_required";
     const recovery = state === "recovery_required" || state === "failed";
     let command = `itpay services next ${id} --json`;
     if (state === "payment") command = `itpay services checkout ${id} --json`;
@@ -928,7 +929,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       recovery: [],
     };
   }
-	if (isTerminalServiceExecutionStatus(execution.status)) {
+	if (isTerminalServiceExecutionStatus(execution.status) && !(model.workflow_entry && currentDelivery && ["completed", "delivery_completed"].includes(execution.status))) {
     const paid = model.checkout_bindings.some((binding) => binding.status === "payment_verified") || Boolean(currentDelivery?.order_id);
     const paidFailure = execution.status === "failed" && paid;
     return {
@@ -1422,7 +1423,8 @@ export async function runServicesRun(
     }
     const until = Date.now() + (options.timeoutSeconds ?? 120) * 1000;
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
-    while (["queued", "running"].includes(model.workflow?.status ?? "") && Date.now() < until) {
+    const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
+    while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && !model.current_delivery && Date.now() < until) {
       await sleep(options.pollIntervalMS ?? 1500);
       model = await backend.getServiceExecution(id);
     }
@@ -1430,7 +1432,7 @@ export async function runServicesRun(
       await runServicesNext(backend, id, options);
       return;
     }
-    if (model.workflow?.status === "payment") {
+    if (model.workflow?.status === "payment" && !paid()) {
       await runServicesCheckout(backend, config, id, model.workflow_entry?.capability_id, {
         ...options,
         ...(config.agentType ? { agentType: config.agentType } : {}),

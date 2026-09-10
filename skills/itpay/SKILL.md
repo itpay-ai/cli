@@ -3,8 +3,8 @@ name: itpay
 description: >
   Use ItPay when a human wants to discover or buy a service, view something
   they previously purchased, inspect order or delivery history, or request
-  and track a refund, or rate a purchased service. Seller workflows are not
-  yet available.
+  and track a refund, rate a purchased service, or create, test and submit
+  a Seller service using itpay sell.
 ---
 
 # ItPay
@@ -17,6 +17,7 @@ for the human; never ask them to run commands or learn internal concepts.
 
 | Human intent | First action |
 | --- | --- |
+| Create, sell or publish a service | `itpay sell guide --json`, then `itpay sell status --json` |
 | Discover services or make a new query | `itpay catalog list --json` |
 | View previously purchased content | `itpay vault list --json` |
 | Find a previous result by subject | `itpay vault list --query <subject> --json` |
@@ -106,3 +107,9 @@ a QR code.
   without the corresponding ItPay state.
 - Never infer a rating or upload chat, prompts, raw logs, contact details,
   purchased content, credentials, or internal identifiers as feedback.
+
+## Sell a Service
+
+Use only the `itpay sell` namespace for Seller work. Read its Guide and the packaged `docs/sell.md`. Authenticate with the existing account/device flow; do not create a second merchant. The user's Agent may generate the workflow only from locked API contracts and the exact supported node catalog. Required parameters, Content-Type, method and credentials are not creative choices.
+
+Use local MCP (`itpay sell mcp --stdio --project <directory>`) or the CLI for local files and real local tests. Show the existing Builder when helpful. Ask for explicit confirmation after showing the exact workflow/version, Provider side effects or submission agreements. Never pass secrets through chat or workflow files. Local success does not satisfy platform verification, and submission does not mean approval or publication. Follow the server Guide and keep buyer commands separate.

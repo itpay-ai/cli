@@ -43,3 +43,10 @@ temp/
 Thumbs.db
 .idea/
 .vscode/
+
+# Generated local runtime binaries, packaged by the release build.
+bin/*/itpay-sell*
+
+
+.turbo/
+.itpay-sell/
