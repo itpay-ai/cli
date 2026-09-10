@@ -1,3 +1,4 @@
+import { agentAuth } from "./state/account_auth.js";
 import {registerSell} from "./sell/commands.js";
 import { readFileSync as readWorkflowInputFile } from "node:fs";
 import { runServicesRun } from "./commands/services.js";
@@ -367,6 +368,17 @@ program
       });
     }
   });
+
+const authCmd = program.command("auth").description("Log in and bind this enrolled Agent to your ItPay account");
+for (const action of ["login", "status"] as const) {
+  authCmd.command(action).option("--json", "output JSON").action(async (options) => {
+    const config = loadConfig();
+    try {
+      const result = await agentAuth(action, config.baseURL, newBackendClient(config));
+      process.stdout.write(JSON.stringify(result) + "\n");
+    } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", instruction: "完成官方网页登录后重试 itpay auth status；不要清除设备登记。"}); }
+  });
+}
 
 // --- device ---------------------------------------------------------------
 

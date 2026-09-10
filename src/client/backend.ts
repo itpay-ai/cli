@@ -53,6 +53,13 @@ export class BackendClient {
     return this.http.request(request.path,{method:request.method,...(request.body!==undefined?{body:request.body}:{})});
   }
 
+  agentAccountStatus(): Promise<{status: string}> {
+    return this.http.get('/v1/agent-device-account-bindings');
+  }
+  bindAgentAccount(input: {dashboard_auth_session_id: string; start_token: string}): Promise<{status: string}> {
+    return this.http.post('/v1/agent-device-account-bindings', input);
+  }
+
   readyz(): Promise<ReadyResponse> {
     return this.http.get<ReadyResponse>("/v1/readyz");
   }

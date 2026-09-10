@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sellerAuth, sellerAuthPath, sellerSessionToken } from '../src/sell/auth.js';
+import { sellerAuth, sellerAuthPath, sellerSessionToken } from '../src/state/account_auth.js';
 import { resolveBackendURL, qualifyBackendCommand, cartSessionPath, DEV_BASE_URL } from '../src/state/config.js';
 
 test('Seller login uses the standard browser flow and never exposes the claimed token', async () => {

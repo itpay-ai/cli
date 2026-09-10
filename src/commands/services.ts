@@ -885,6 +885,16 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     const id = execution.service_execution_id;
     const paymentVerified = model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     const state = model.workflow?.status === "payment" && paymentVerified ? "running" : model.workflow?.status ?? "input_required";
+    if (state === "failed" && ["login_required", "rate_limited"].includes(model.workflow?.error_code ?? "")) {
+      const login = model.workflow?.error_code === "login_required";
+      return {
+        status: login ? "login_required" : "rate_limited",
+        result: {service_execution_id: id, service_id: execution.service_id},
+        instruction: login ? "匿名免费额度已用完。使用官方网页登录并绑定当前 Agent，完成后重新发起查询；不需要付款。" : "已达到登录账号每分钟查询上限。请等到下一分钟再发起查询，不要连续重试。",
+        next: login ? {command: "itpay auth login --json", reason: "登录继续免费查询"} : null,
+        recovery: [],
+      };
+    }
     const recovery = state === "recovery_required" || state === "failed";
     let command = `itpay services next ${id} --json`;
     if (state === "payment") command = `itpay services checkout ${id} --json`;
@@ -929,7 +939,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       recovery: [],
     };
   }
-	if (isTerminalServiceExecutionStatus(execution.status) && !(model.workflow_entry && currentDelivery && ["completed", "delivery_completed"].includes(execution.status))) {
+	if (isTerminalServiceExecutionStatus(execution.status) && !(model.workflow_entry && (currentDelivery || serviceDeliveryMode(model) === "agent_visible_result") && ["completed", "delivery_completed"].includes(execution.status))) {
     const paid = model.checkout_bindings.some((binding) => binding.status === "payment_verified") || Boolean(currentDelivery?.order_id);
     const paidFailure = execution.status === "failed" && paid;
     return {
@@ -1140,6 +1150,8 @@ function serviceAllowedActionCommand(model: ServiceExecutionReadModel, action: S
 
 function serviceDeliveryMode(model: ServiceExecutionReadModel): string {
 	const delivery = model.current_delivery ?? model.delivery_bindings.at(-1);
+  const entry = model.capabilities.find(capability => capability.capability_id === model.workflow_entry?.capability_id);
+  if (!delivery && model.workflow?.status === "completed" && entry?.requires_payment === false && !entry.vault_required) return "agent_visible_result";
   const explicit = String(delivery?.redacted_summary?.delivery_mode ?? "");
   if (explicit) return explicit;
   return delivery?.vault_artifact_id ? "vault_artifact" : "";
