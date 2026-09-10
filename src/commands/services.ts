@@ -895,6 +895,15 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         recovery: [],
       };
     }
+    if (state === "human_action" && model.workflow?.human_action) {
+      return {
+        status: "confirmation_required",
+        result: { service_execution_id: id, service_id: execution.service_id, human_action: model.workflow.human_action },
+        instruction: "请展示待确认的位置，请用户明确确认后，按 input_schema 填写 --input 字段。继续同一执行，不重新查询；这一步不是购买确认。",
+        next: { command: `itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input <key=value> --json`, reason: "用户确认后继续当前查询" },
+        recovery: [],
+      };
+    }
     const recovery = state === "recovery_required" || state === "failed";
     let command = `itpay services next ${id} --json`;
     if (state === "payment") command = `itpay services checkout ${id} --json`;

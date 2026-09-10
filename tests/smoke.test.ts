@@ -4674,3 +4674,17 @@ test("completed free workflow returns its full result instead of a terminal empt
   assert.deepEqual(result.result.items[0].safe_payload.result,payload);
   assert.equal(result.next,null);
 });
+
+
+test("location confirmation retains the execution and does not invite checkout", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"human_action",current_step:"confirm",revision:3,steps:{},human_action:{action_type:"workflow:confirm",input_schema:{type:"object"},context:{candidate:"POI"}}}};
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  await runServicesNext(client,model.execution.service_execution_id,{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"confirmation_required");
+  assert.deepEqual(result.result.human_action.context,{candidate:"POI"});
+  assert.match(result.next.command,/--action workflow:confirm --actor-type human --status approved/);
+  assert.doesNotMatch(result.next.command,/checkout|services run/);
+});
