@@ -46,3 +46,14 @@ test('Init rejects an existing workflow before writing service settings', async 
   assert.throws(()=>readFileSync(join(directory,'service.json')),/ENOENT/);
  } finally {rmSync(directory,{recursive:true,force:true});}
 });
+
+test('Live checkout commands bind a saved revision and Agent without accepting payment assertions', () => {
+ const start=SELL_OPERATIONS.find(o=>o.command==='tests start-checkout')!;
+ const accept=SELL_OPERATIONS.find(o=>o.command==='tests accept-checkout')!;
+ assert.equal(start.confirmation,true);
+ assert.equal(accept.confirmation,true);
+ assert.deepEqual(sellRequest(start,{merchant_id:'m',draft_id:'d'},{expected_revision:3,agent_instance_id:'agent'}).body,{expected_revision:3,agent_instance_id:'agent'});
+ assert.throws(()=>sellRequest(start,{merchant_id:'m',draft_id:'d'},{expected_revision:3}),/agent_instance_id/);
+ assert.throws(()=>sellRequest(accept,{merchant_id:'m',draft_id:'d',execution_id:'e'},{paid:true}),/Unsupported field/);
+ assert.equal(sellRequest(accept,{merchant_id:'m',draft_id:'d',execution_id:'e'}).path,'/v1/seller/organizations/m/service-drafts/d/live-checkout-tests/e/accept');
+});
