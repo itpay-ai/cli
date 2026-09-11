@@ -409,7 +409,7 @@ export interface StartServiceExecutionRequest {
 
 export interface ServiceExecutionStarted {
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
-  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string };
+  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];
@@ -577,7 +577,7 @@ export interface ServiceDeliveryBinding {
 
 export interface ServiceExecutionReadModel {
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
-  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string };
+  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];

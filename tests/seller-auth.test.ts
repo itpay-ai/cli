@@ -37,6 +37,33 @@ test('Seller login rejects redirecting a session to a different origin', async (
   await assert.rejects(sellerAuth('login', DEV_BASE_URL, {}, fetcher), /origin/);
 });
 
+test('Seller login accepts official Alipay state and dashboard fragment tokens, rejecting mismatched sessions', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'itpay-wallet-auth-'));
+  const env = { HOME: directory };
+  const oauth = 'https://openauth.alipay.com/oauth2/publicAppAuthorize.htm';
+  let startURL = oauth + '?state=auth_1.start_fixture';
+  const fetcher: typeof fetch = async (input) => {
+    if (String(input).endsWith('/auth-sessions')) return Response.json({ dashboard_auth_session_id: 'auth_1', poll_token: 'poll_fixture', start_url: startURL });
+    if (String(input).includes('/claim?start_token=start_fixture')) return Response.json({ expires_at: '2099-01-01T00:00:00Z' }, { headers: { 'Set-Cookie': 'itpay_buyer_session=secret_fixture; Path=/; HttpOnly' } });
+    return Response.json({ status: 'completed' });
+  };
+  try {
+    for (const value of [startURL, DEV_BASE_URL + '/#dashboard-auth?dashboard_auth_session_id=auth_1&start_token=start_fixture']) {
+      startURL = value;
+      assert.equal((await sellerAuth('login', DEV_BASE_URL, env, fetcher) as any).authorization_url, value);
+      assert.equal((await sellerAuth('status', DEV_BASE_URL, env, fetcher) as any).status, 'authenticated');
+    }
+    for (const state of ['wrong_session.start_fixture', 'auth_1.', 'auth_1.start.extra']) {
+      startURL = oauth + '?state=' + state;
+      await assert.rejects(sellerAuth('login', DEV_BASE_URL, env, fetcher), /Incomplete/);
+    }
+    for (const value of ['http://openauth.alipay.com/oauth2/publicAppAuthorize.htm', 'https://openauth.alipay.com.evil.invalid/oauth2/publicAppAuthorize.htm', 'https://openauth.alipay.com/unexpected', 'https://user@openauth.alipay.com/oauth2/publicAppAuthorize.htm']) {
+      startURL = value + '?state=auth_1.start_fixture';
+      await assert.rejects(sellerAuth('login', DEV_BASE_URL, env, fetcher), /origin/);
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('Public CLI supports official dev and isolates its state from production', () => {
   const home = mkdtempSync(join(tmpdir(), 'itpay-dev-'));
   try {

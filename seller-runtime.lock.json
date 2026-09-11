@@ -1,12 +1,12 @@
 {
   "source_repository": "itpay-ai/compose",
-  "source_commit": "7802b5ab59ba834fcd5134e7b3daf1ac60d1e7ef",
-  "tag": "seller-runtime-7802b5ab59ba",
+  "source_commit": "071e629b37b5ff880dbacb15c177239ab74abf1a",
+  "tag": "seller-runtime-071e629b37b5",
   "sha256": {
-    "darwin-arm64": "933d6678572e9be3618531cfedcdc9a8da2d9c0e715a70f2b764261ced337c4e",
-    "darwin-amd64": "476adcf51a5a7b3ab15a9cee863dfc3f6c246faeb0efec07dde667e3f3b630d7",
-    "linux-arm64": "3db32f41e981e0d214b0685b75a97f8b3914ceab3103f438cccd1430f9244730",
-    "linux-amd64": "7c97eaa52aa8deb23da9bf68b8ba4fbf58ed3aeae0de5fa8afd57a43952b839e",
-    "windows-amd64": "0faecf4c0c614c5b77ce883bab45c57451db665f20221a21aca69a6d50ba7b3b"
+    "darwin-arm64": "ee79913b2c8b53d390ac522386c2e522ceca028673f8ed471f99da6d476e4da2",
+    "darwin-amd64": "fd917b0ae9e55ef1d8b0784684c85042d11c81e99b64446dcddc77250508ad44",
+    "linux-arm64": "13e0e407c4cc11c677d1d1abef31a1d981688cfd02333393b9f1f78b82354c9d",
+    "linux-amd64": "e7c4d6630c1dbc267393d6bb4baa83bbdc5198db34774b28cdc1a392b7198c2e",
+    "windows-amd64": "8ca706fa386d8d21d51db70d38e290cc1c782423971c021e4faa204e2e8f23c5"
   }
 }

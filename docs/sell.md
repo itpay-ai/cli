@@ -1,5 +1,11 @@
 # Sell Agent guide
 
+The railway acceptance release `2.1.2` is published under npm's `next` tag,
+not `latest`. Install this explicit version for dev acceptance and set
+`ITPAY_BACKEND_URL=https://dev.itpay.ai` on every command. Its API contract requires
+the matching dev backend release; do not use it against the older production
+backend. Promote the npm latest tag only after production compatibility is verified.
+
 `itpay sell` is the Seller command namespace. Buyer `services` commands remain separate. Read `itpay sell guide --json` first, authenticate with `itpay sell auth login` and complete the standard ItPay browser login, then run `itpay sell auth status`, then use `sell status` to select the user's existing merchant. An unverified merchant must finish KYB and payout setup in the dashboard.
 
 ## Local-first workflow
@@ -23,7 +29,8 @@ All platform operations accept `--input-json <file>` for their declared fields a
 
 ## Invariants
 
-- Current public runtime is synchronous, acyclic, single entry, per-call pricing, one payment node, and delivery on success. Quota, prepaid consumption and async workflows are not publishable.
+- The current runtime accepts bounded, acyclic, single-entry workflows with multiple API nodes. Free queries can use quota and explicit human confirmation; paid workflows use one payment node and either fixed per-call pricing or a trusted pre-payment dynamic quote. Prepaid balance billing remains unsupported.
+- Protected railway fulfillment resumes through the platform booking Owner only after verified payment and Web passenger confirmation. A standalone API probe cannot supply a payment identity or passenger records. Follow the server Guide for actual acceptance and publication blockers; local graph validation is not live ticket-issuance evidence.
 - Local reports are diagnostics, not platform approval evidence. Platform verification is required; existing valid evidence may be reused. Admin approval never repeats Provider calls.
 - Every visual view reads the same YAML. Layout is presentation only.
 - Disclosure/confirmation binds the version being acted on. Do not turn `--confirm` into blanket permission for later changes.
@@ -35,7 +42,7 @@ The local `.itpay-sell` directory contains private fixtures, reports and the enc
 
 Local reports never substitute for the platform verification gate. Repeated upload of an unchanged saved version reuses its cloud version; a changed cloud revision or fixture revision requires explicit pull/review.
 
-For repository builds, run `scripts/v3/build-sell-runtime.sh`, build `apps/web/vite.sell-preview.config.ts`, and then build/package `apps/cli`. Packaging rejects missing native binaries or preview assets. `scripts/v3/sync-sell-contract.mjs --check` verifies that the CLI command contracts match the backend/MCP package.
+For CLI repository builds, run `node scripts/fetch-sell-runtime.mjs` to obtain the exact checksummed native runtime in `seller-runtime.lock.json`, then `npm run test:package`. The committed `assets/sell-preview` directory supplies the local Builder. Packaging rejects missing native binaries or preview assets; do not substitute an arbitrary local binary for the locked release.
 
 Example local MCP configuration (use the existing authenticated CLI account):
 
@@ -53,4 +60,4 @@ Example local MCP configuration (use the existing authenticated CLI account):
 
 ## Seller login and dev
 
-Use `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth login --json` to receive the normal ItPay authorization link. After browser login and required email verification, run `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth status --json`. The CLI claims its own account session through the standard API and stores it in an owner-only file; never copy tokens or browser cookies. `itpay sell auth logout --json` revokes this session. Keep the same backend prefix on subsequent commands; production, dev, and sandbox state are isolated. Agent device enrollment does not grant Seller organization access.
+Use `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth login` to receive the normal ItPay authorization link. After browser login and required email verification, run `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth status`. The CLI claims its own account session through the standard API and stores it in an owner-only file; never copy tokens or browser cookies. `itpay sell auth logout` revokes this session. Keep the same backend prefix on subsequent commands; production, dev, and sandbox state are isolated. Agent device enrollment does not grant Seller organization access.

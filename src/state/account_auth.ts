@@ -48,8 +48,14 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
     const response = await request('/v1/dashboard/auth-sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: 'alipay', return_to: backend ? '/' : '/seller' }) });
     const result = await response.json() as { dashboard_auth_session_id: string; start_url: string; poll_token: string };
     const url = new URL(result.start_url, baseURL);
-    if (url.origin !== new URL(baseURL).origin) throw new Error('Unexpected authorization origin');
-    const startToken = url.searchParams.get('start_token');
+    const sameOrigin = url.origin === new URL(baseURL).origin;
+    const alipay = url.origin === 'https://openauth.alipay.com' && url.pathname === '/oauth2/publicAppAuthorize.htm' && !url.username && !url.password;
+    if (!sameOrigin && !alipay) throw new Error('Unexpected authorization origin');
+    const fragment = new URLSearchParams(url.hash.replace(/^#dashboard-auth\?/, ''));
+    const state = url.searchParams.get('state')?.split('.');
+    const startToken = alipay
+      ? (state?.length === 2 && state[0] === result.dashboard_auth_session_id ? state[1] : undefined)
+      : url.searchParams.get('start_token') || fragment.get('start_token');
     if (!startToken || !result.poll_token || !result.dashboard_auth_session_id) throw new Error('Incomplete authorization response');
     save({ baseURL, sessionID: result.dashboard_auth_session_id, pollToken: result.poll_token, startToken }, env, purpose);
     return { status: 'authorization_required', authorization_url: url.href, instruction: `Complete ItPay login in the browser, then run ${command}.` };
