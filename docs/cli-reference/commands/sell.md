@@ -1341,3 +1341,24 @@ Options:
 ## Seller login and dev
 
 Use `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth login` to receive the normal ItPay authorization link. After browser login and required email verification, run `ITPAY_BACKEND_URL=https://dev.itpay.ai itpay sell auth status`. The CLI claims its own account session through the standard API and stores it in an owner-only file; never copy tokens or browser cookies. `itpay sell auth logout` revokes this session. Keep the same backend prefix on subsequent commands; production, dev, and sandbox state are isolated. Agent device enrollment does not grant Seller organization access.
+
+## Private dev live checkout acceptance
+
+`itpay sell tests start-checkout --merchant-id <merchant> --draft-id <draft> --input-json <file> --confirm --json`
+
+Requires the dev server in live Provider mode, an account-scoped platform admin session,
+and an active enrolled Agent already bound to the same buyer. The JSON contains
+`expected_revision` and `agent_instance_id`. Save exactly one success fixture first.
+This queues a private canary execution; it does not publish a service or pay for a ticket.
+Disclose the live query side effects before using `--confirm`.
+
+Resume the returned `service_execution_id` using the normal workflow commands through
+that Agent. The user confirms the route and submits passenger details in the protected
+Checkout page. Only a verified payment callback permits supplier creation/payment.
+
+`itpay sell tests accept-checkout --merchant-id <merchant> --draft-id <draft> --execution-id <execution> --confirm --json`
+
+Records server-observed completed delivery and issued tickets for the exact frozen
+workflow, fixture and dependency hashes. Pending, partial, manual-recovery, unpaid or
+changed tests cannot pass. No payment or issuance assertions are accepted as input.
+Then use the normal submission and admin review flow; this test alone is not publication.
