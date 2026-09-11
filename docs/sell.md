@@ -1,5 +1,11 @@
 # Sell Agent guide
 
+The railway acceptance release `2.1.2` is published under npm's `next` tag,
+not `latest`. Install this explicit version for dev acceptance and set
+`ITPAY_BACKEND_URL=https://dev.itpay.ai` on every command. Its API contract requires
+the matching dev backend release; do not use it against the older production
+backend. Promote the npm latest tag only after production compatibility is verified.
+
 `itpay sell` is the Seller command namespace. Buyer `services` commands remain separate. Read `itpay sell guide --json` first, authenticate with `itpay sell auth login` and complete the standard ItPay browser login, then run `itpay sell auth status`, then use `sell status` to select the user's existing merchant. An unverified merchant must finish KYB and payout setup in the dashboard.
 
 ## Local-first workflow

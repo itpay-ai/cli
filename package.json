@@ -22,7 +22,8 @@
     "assets/"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "next"
   },
   "keywords": [
     "itpay",

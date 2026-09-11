@@ -33,7 +33,7 @@ jobs:
       - name: Publish to npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          TAG=latest
+          TAG=$(node -p "require('./package.json').publishConfig?.tag || 'latest'")
           if [[ "$VERSION" == *-* ]]; then
             TAG=next
           fi
