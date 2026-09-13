@@ -4,8 +4,66 @@ import { serveSellMCP } from "./mcp.js";
 import { registerLocal } from "./local.js";
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
+import { createInterface } from 'node:readline/promises';
 import { loadConfig, newBackendClient } from '../state/config.js';
 import { SELL_GUIDE, SELL_OPERATIONS, sellRequest } from './contract.js';
+import { consumePlatformGate, enforcePlatformGate, GateRequiredError, GATE_META, listEntries, recordApproval, type GateId, type GatePurpose } from './gates.js';
+
+function registerGateCommands(sell: Command) {
+    const gates = sell.command('gates').description('Human approval gates for the six publishing decisions (agents cannot self-approve)');
+    gates.command('approve')
+        .description('Record the human decision for a publishing gate')
+        .requiredOption('--gate <g1|g2|g3|g4|g5|g6>', 'Publishing gate')
+        .requiredOption('--merchant-id <id>')
+        .option('--draft-id <id>')
+        .option('--purpose <import|library|apply|fixtures|version>')
+        .option('--run-id <id>', 'Orchestration run (g3 apply) or validation run (g4)')
+        .option('--expected-revision <n>', 'Draft revision the approval is bound to', (value) => {
+            const parsed = Number(value);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('expected-revision must be a nonnegative integer');
+            return parsed;
+        })
+        .option('--input-json <file>', 'Exact reviewed payload (same file used for the gated command)')
+        .option('--note <text>', "The human's decision in their own words (required when not running in a TTY)")
+        .action(async (options) => {
+            try {
+                const config = loadConfig();
+                const backend = newBackendClient(config);
+                const input = options.inputJson ? JSON.parse(readFileSync(String(options.inputJson), 'utf8')) : undefined;
+                const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+                let confirmed = false;
+                if (interactive) {
+                    process.stdout.write(`\nGate ${options.gate} · ${GATE_META[options.gate as GateId].title}\n${GATE_META[options.gate as GateId].decision}\n\n`);
+                    if (options.note) process.stdout.write(`Note: ${options.note}\n`);
+                    const rl = createInterface({ input: process.stdin, output: process.stdout });
+                    const answer = (await rl.question('Type APPROVE to record this human decision: ')).trim();
+                    rl.close();
+                    confirmed = answer === 'APPROVE';
+                }
+                const { entry, review } = await recordApproval({
+                    gate: options.gate as GateId,
+                    merchantId: options.merchantId,
+                    draftId: options.draftId,
+                    purpose: options.purpose as GatePurpose | undefined,
+                    runId: options.runId,
+                    expectedRevision: options.expectedRevision,
+                    input,
+                    note: options.note,
+                    nonInteractive: !interactive,
+                    confirmed,
+                    backend,
+                }, process.env);
+                process.stdout.write(JSON.stringify({ status: 'ok', gate_recorded: entry, review }, null, 2) + '\n');
+            }
+            catch (error) {
+                process.exitCode = 1;
+                process.stdout.write(JSON.stringify({ status: 'error', operation: 'gates approve', message: error instanceof Error ? error.message : 'Approval failed' }, null, 2) + '\n');
+            }
+        });
+    gates.command('list').description('List recorded human approvals').option('--merchant-id <id>').option('--draft-id <id>').action((options) => {
+        process.stdout.write(JSON.stringify({ status: 'ok', ...listEntries({ merchantId: options.merchantId, draftId: options.draftId }) }, null, 2) + '\n');
+    });
+}
 export function registerSell(program: Command) {
     const sell = program.command('sell').description('Create, test and submit your service for review');
     const groups = new Map<string, Command>([['', sell]]);
@@ -43,17 +101,41 @@ export function registerSell(program: Command) {
                 for (const field of required)
                     params[field] = options[field.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())];
                 const request = sellRequest(operation, params, input);
-                const result = await newBackendClient(loadConfig()).sellRequest(request);
-                process.stdout.write(JSON.stringify({ status: 'ok', operation: operation.command, result: result ?? null }, null, 2) + '\n');
+                const config = loadConfig();
+                const backend = newBackendClient(config);
+                const gateReceipt = await enforcePlatformGate({
+                    command: operation.command,
+                    merchantId: params.merchant_id as string | undefined,
+                    draftId: params.draft_id as string | undefined,
+                    runId: params.run_id as string | undefined,
+                    input,
+                    request,
+                    backend,
+                    config,
+                });
+                const result = await backend.sellRequest(request);
+                if (gateReceipt)
+                    consumePlatformGate(gateReceipt, { merchantId: params.merchant_id as string | undefined, draftId: params.draft_id as string | undefined });
+                process.stdout.write(JSON.stringify({
+                    status: 'ok',
+                    operation: operation.command,
+                    result: result ?? null,
+                    ...(gateReceipt ? { gate: gateReceipt } : {}),
+                }, null, 2) + '\n');
             }
             catch (error) {
                 process.exitCode = 1;
+                if (error instanceof GateRequiredError) {
+                    process.stdout.write(JSON.stringify(error.block, null, 2) + '\n');
+                    return;
+                }
                 process.stdout.write(JSON.stringify({ status: 'error', operation: operation.command, message: error instanceof Error ? error.message : 'Sell operation failed', next: 'itpay sell guide --json' }, null, 2) + '\n');
             }
         });
     }
     registerLocal(sell);
     registerSync(sell);
+    registerGateCommands(sell);
     sell.commands.find(command => command.name() === "workflow")!.command("preview").option("--project <directory>", "Project directory", ".").action(async (options) => { const result = await preview(options.project); process.stdout.write(JSON.stringify({ url: result.url, instruction: "Open this local URL to inspect the saved workflow" }) + "\n"); });
     sell.command("mcp").description("Serve local Seller MCP over stdio").requiredOption("--stdio").option("--project <directory>", "Project directory", ".").action(async (options) => { await serveSellMCP(options.project); });
     const submission = sell.commands.find(command => command.name() === "submission")!;

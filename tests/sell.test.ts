@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SELL_OPERATIONS, sellRequest } from '../src/sell/contract.js';
 import { localAction } from '../src/sell/local.js';
+import { consumePlatformGate, enforcePlatformGate, GateRequiredError, recordApproval } from '../src/sell/gates.js';
 test('Sell operations cannot select arbitrary endpoints or silently add request fields', () => {
     const op = SELL_OPERATIONS.find(o => o.command === 'submission submit')!;
     assert.throws(() => sellRequest(op, {}, {}), /merchant_id/);
@@ -36,6 +37,44 @@ test('Version deletion sends its revision in the strict JSON body', () => {
  assert.equal(request.method,'DELETE');
  assert.equal(request.path.includes('?'),false);
  assert.deepEqual(request.body,{expected_revision:3});
+});
+test('Seller gates block until approved and are consumed after the gated action', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'itpay-gates-'));
+    const env = { ...process.env, HOME: home };
+    const config = { baseURL: 'http://seller-gate-test.invalid' } as never;
+    const backend = {} as never;
+    const input = { service_id: 'gated-demo', public_name: 'Gated Demo' };
+    const baseArgs = {
+        command: 'services create',
+        merchantId: 'm',
+        input,
+        request: { method: 'POST' as const, path: '/v1/seller/organizations/m/service-drafts', body: input },
+        backend,
+        config,
+    };
+    try {
+        await assert.rejects(() => enforcePlatformGate(baseArgs, env), (error: unknown) => {
+            assert.ok(error instanceof GateRequiredError);
+            assert.equal(error.block.gate, 'g1');
+            assert.match(error.block.approve_command, /itpay sell gates approve --gate g1/);
+            return true;
+        });
+        await assert.rejects(
+            () => recordApproval({ gate: 'g1', merchantId: 'm', input, nonInteractive: true, confirmed: false, backend }, env),
+            /--note/);
+        const { entry } = await recordApproval({ gate: 'g1', merchantId: 'm', input, note: 'human said yes', nonInteractive: true, confirmed: false, backend }, env);
+        assert.equal(entry.fingerprint.startsWith('itpay-sell-gate.v1:g1:'), true);
+        const receipt = await enforcePlatformGate(baseArgs, env);
+        assert.equal(receipt?.bypassed, false);
+        consumePlatformGate(receipt!, { merchantId: 'm' }, env);
+        await assert.rejects(() => enforcePlatformGate(baseArgs, env), GateRequiredError);
+        // Changed content must not match the old approval.
+        const changed = { ...baseArgs, input: { service_id: 'gated-demo', public_name: 'Changed Name' }, request: { method: 'POST' as const, path: baseArgs.request.path, body: { service_id: 'gated-demo', public_name: 'Changed Name' } } };
+        await assert.rejects(() => enforcePlatformGate(changed, env), GateRequiredError);
+        // G5 cannot be approved before G4 evidence is accepted.
+        await assert.rejects(() => recordApproval({ gate: 'g5', merchantId: 'm', draftId: 'd', input: { expected_revision: 1, pricing: {} }, note: 'x', nonInteractive: true, confirmed: false, backend }, env), /G4/);
+    }
+    finally { rmSync(home, { recursive: true, force: true }); }
 });
 test('Init rejects an existing workflow before writing service settings', async () => {
  const directory=mkdtempSync(join(tmpdir(),'itpay-sell-existing-'));
