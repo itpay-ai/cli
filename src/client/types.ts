@@ -576,6 +576,7 @@ export interface ServiceDeliveryBinding {
 }
 
 export interface ServiceExecutionReadModel {
+  rail_booking?: { state: "pending" | "issued" | "manual_review"; message: string; issued_legs: number; legs: Array<{ leg_index: number; state: string; issued: boolean }> };
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
   workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 

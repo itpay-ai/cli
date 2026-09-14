@@ -4624,16 +4624,28 @@ test("services run submits input once and delegates payment to existing Checkout
  assert.equal(advanced,1);assert.equal(result.status,"human_checkout_required");assert.ok(result.handoff.url);
 });
 
-test("services run preserves Checkout recovery that requires delivery email", async () => {
+test("workflow Checkout collects required email on the protected page", async () => {
  const base=await backend.getServiceExecution("se_demo");
  const capability={...base.capabilities.find(item=>item.requires_payment)!,delivery_email_required:true};
  const model:ServiceExecutionReadModel={...base,capabilities:[capability],workflow_entry:{capability_id:capability.capability_id,input_schema:{type:"object"}},workflow:{status:"payment",current_step:"payment",revision:2,steps:{input:"success"}}};
  const client=Object.create(backend) as BackendClient;
  client.getServiceExecution=async()=>model;
- await assert.rejects(
-  runServicesRun(client,config,model.execution.service_id,undefined,{executionID:"se_demo",jsonOutput:true,output:stdoutSink}),
-  (error:unknown)=>error instanceof CommandContractError && error.code==="delivery_email_required" && error.recovery.some(action=>action.command.includes("--email <email>")),
- );
+ await runServicesRun(client,config,model.execution.service_id,undefined,{executionID:"se_demo",host:"plain-chat",jsonOutput:true,output:stdoutSink});
+ const result=JSON.parse(stdoutCapture.join(""));
+ assert.equal(result.status,"human_checkout_required");assert.ok(result.handoff.url);
+});
+
+test("CLI preserves safe railway fulfillment status and workflow progress", async () => {
+ const base=await backend.getServiceExecution("se_demo");
+ const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{quote:"success",payment:"success"}},rail_booking:{state:"manual_review",message:"部分车票已出票，其余待核对",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true},{leg_index:1,state:"manual_review",issued:false}]}};
+ const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+ for(const run of [runServicesGet,runServicesNext]) {
+  const output:string[]=[];
+  await run(client,"se_demo",{jsonOutput:true,output:(value:string)=>{output.push(value);}});
+  const result=JSON.parse(output.join(""));
+  assert.deepEqual(result.result.rail_booking,model.rail_booking);
+  assert.deepEqual(result.result.workflow,model.workflow);
+ }
 });
 
 test("services run recovers an uncertain start through the execution list", async () => {

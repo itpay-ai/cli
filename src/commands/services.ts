@@ -576,7 +576,7 @@ export async function runServicesCheckout(
         [{ command: checkoutCommand(serviceExecutionID, capability, lockedInput), reason: "提交完整且会被锁定的服务输入" }],
       );
     }
-    if (capability.delivery_email_required && String(deliveryContact.email ?? "").trim() === "") {
+    if (capability.delivery_email_required && readModel.workflow_entry?.capability_id !== capability.capability_id && String(deliveryContact.email ?? "").trim() === "") {
       throw new CommandContractError(
         "delivery_email_required",
         "delivery email is required before creating this service checkout",
@@ -693,7 +693,7 @@ export async function runServicesQuote(
   const selectionBacked = model.execution.status === "human_action_approved" &&
     model.allowed_actions?.some((action) => action.type === "prepare_quote" && action.capability_id === capabilityID);
   const missingInput = missingRequiredInput(capability.input_schema, input);
-  if (missingInput.length > 0 && !selectionBacked) {
+  if (missingInput.length > 0 && !selectionBacked && model.workflow_entry?.capability_id !== capability.capability_id) {
     throw new CommandContractError(
       "capability_input_invalid",
       `missing required capability input: ${missingInput.join(", ")}`,
@@ -705,7 +705,7 @@ export async function runServicesQuote(
     ...(options.deliveryContact ?? {}),
     ...(options.email ? { email: options.email } : {}),
   };
-  if (capability.delivery_email_required && String(deliveryContact.email ?? "").trim() === "") {
+  if (capability.delivery_email_required && model.workflow_entry?.capability_id !== capability.capability_id && String(deliveryContact.email ?? "").trim() === "") {
     throw new CommandContractError(
       "delivery_email_required",
       "delivery email is required before preparing this service quote",
@@ -767,6 +767,8 @@ export async function runServicesGet(
     ...(execution.current_capability_id ? { current_capability_id: execution.current_capability_id } : {}),
     updated_at: execution.updated_at,
     timeline,
+    ...(response.workflow ? { workflow: response.workflow } : {}),
+    ...(response.rail_booking ? { rail_booking: response.rail_booking } : {}),
     ...(response.events.length > timeline.length ? { timeline_truncated: true } : {}),
     ...(deliveryMode ? { delivery_mode: deliveryMode } : {}),
     ...(lockedRefund ? {
@@ -803,6 +805,7 @@ export async function runServicesNext(
 ): Promise<void> {
   const response = await backend.getServiceExecution(serviceExecutionID);
   const envelope = servicesNextEnvelope(response);
+  if (response.rail_booking) envelope.result = { ...envelope.result, rail_booking: response.rail_booking };
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
     ...(options.output ? { output: options.output } : {}),
