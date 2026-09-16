@@ -136,13 +136,17 @@ function pendingCheckoutEnvelope(
           time: `${leg.departure}–${leg.arrival}`,
           seat_name: leg.seat_name,
           ...(leg.seat_preferences?.length ? { seat_preferences: leg.seat_preferences } : {}),
+          ...(leg.seat_request_planned ? {
+            seat_request_planned: leg.seat_request_planned,
+            auto_reason: leg.auto_reason ?? "none",
+          } : {}),
         })),
       } } : {}),
       ...(railPassengersPending ? { rail_passengers_confirmed: false } : {}),
     },
     handoff: presentationHandoff.handoff,
     instruction: railPassengersPending
-      ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好不保证满足，以实际出票为准。`
+      ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好仅为购票请求、购票时才提交给供应商且不保证满足；无法逐人提交的偏好将自动分配座位，以实际出票为准。`
       : presentationHandoff.instruction,
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
     recovery: [],

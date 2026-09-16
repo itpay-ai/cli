@@ -1000,6 +1000,7 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
     ...(leg.from || leg.to ? { route: `${leg.from ?? ""} → ${leg.to ?? ""}` } : {}),
     ...(leg.departure || leg.arrival ? { time: `${leg.departure ?? ""}–${leg.arrival ?? ""}` } : {}),
     ...(leg.seat_name ? { seat_name: leg.seat_name } : {}),
+    ...(leg.seat_request ? { seat_request: leg.seat_request } : {}),
     ...(leg.seat_preferences?.length ? { seat_preferences: leg.seat_preferences } : {}),
     ...(leg.seats?.length ? { seats: leg.seats.map(railLegSeatSummary) } : {}),
   }));
@@ -1014,7 +1015,7 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
     return {
       status: "issued",
       result,
-      instruction: `告诉用户：车票已出票，座位以实际出票为准，平台不提供 12306 票号，可在订单页核对行程。不要在对话中索要乘车人身份信息。${detailsPending ? "部分席位详情仍在同步，稍后重新读取。" : ""}`,
+      instruction: `告诉用户：车票已出票，座位以实际出票为准，平台不提供 12306 票号，可在订单页核对行程。不要在对话中索要乘车人身份信息。${detailsPending ? "部分席位信息未能同步，请前往 12306 核对行程；不要重复购买。" : ""}`,
       next: orderID ? { command: `itpay order ${orderID} --json`, reason: "查看订单及退款入口" } : null,
       recovery: [],
     };

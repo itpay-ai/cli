@@ -4854,5 +4854,5 @@ test("rail checkout presentation keeps passenger entry on the protected page", a
   assert.equal(result.result.rail_passengers_confirmed,false);
   assert.equal(result.result.rail_quote.legs[0].seat_preferences[0].preference,"window");
   assert.match(result.instruction,/受保护网页填写乘车人/);
-  assert.match(result.instruction,/座位偏好不保证满足/);
+  assert.match(result.instruction,/座位偏好仅为购票请求、购票时才提交给供应商且不保证满足/);
 });

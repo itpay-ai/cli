@@ -101,6 +101,10 @@ export interface RailQuoteLegSummary {
   service_fee_minor: number;
   seat_options?: string[];
   seat_preferences?: RailSeatPreference[];
+  /** Planned supplier request before any order exists; never a submitted fact. */
+  seat_request_planned?: "choose_seats" | "choose_beds" | "auto";
+  /** Why the leg falls back to automatic assignment. */
+  auto_reason?: "partial_preferences" | "unencodable" | "none";
 }
 
 export interface RailQuoteSummary {
