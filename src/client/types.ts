@@ -83,12 +83,43 @@ export interface CheckoutCreated {
   card_png_url?: string;
 }
 
+export interface RailSeatPreference {
+  passenger_index: number;
+  preference: string;
+}
+
+export interface RailQuoteLegSummary {
+  train_code: string;
+  travel_date: string;
+  from: string;
+  to: string;
+  departure: string;
+  arrival: string;
+  seat_name?: string;
+  unit_fare_minor: number;
+  fare_minor: number;
+  service_fee_minor: number;
+  seat_options?: string[];
+  seat_preferences?: RailSeatPreference[];
+}
+
+export interface RailQuoteSummary {
+  amount_minor: number;
+  currency: string;
+  expires_at: string;
+  passengers: number;
+  legs: RailQuoteLegSummary[];
+}
+
 export interface CheckoutPresentation {
   checkout: Checkout;
   items: LineItem[];
   payment_intents: PaymentIntent[];
   buyer_session: { state: string };
   completed_order_id?: string;
+  checkout_details?: string;
+  rail_passengers_confirmed?: boolean;
+  rail_quote?: RailQuoteSummary;
   qr_png_url?: string;
   card_url?: string;
   card_png_url?: string;
@@ -448,6 +479,7 @@ export interface ServiceCapabilityResultItem {
 }
 
 export interface ServiceCapabilityInvoked {
+  execution_request_id?: string;
   execution: ServiceExecution;
   invocation?: ServiceCapabilityInvocation;
   result_items: ServiceCapabilityResultItem[];
@@ -576,8 +608,44 @@ export interface ServiceDeliveryBinding {
   };
 }
 
+export interface RailSeatObservation {
+  passenger_index: number;
+  seat_type_name?: string;
+  seat_label?: string;
+  coach_no?: string;
+  seat_no?: string;
+  seat_source?: string;
+  confirmed: boolean;
+}
+
+export interface RailBookingLegStatus {
+  leg_index: number;
+  state: string;
+  issued: boolean;
+  details_pending?: boolean;
+  seat_request?: string;
+  supplier_state?: string;
+  train_code?: string;
+  travel_date?: string;
+  from?: string;
+  to?: string;
+  departure?: string;
+  arrival?: string;
+  seat_name?: string;
+  seat_options?: string[];
+  seat_preferences?: RailSeatPreference[];
+  seats?: RailSeatObservation[];
+}
+
+export interface RailBookingStatus {
+  state: "pending" | "issued" | "manual_review" | string;
+  message: string;
+  issued_legs: number;
+  legs: RailBookingLegStatus[];
+}
+
 export interface ServiceExecutionReadModel {
-  rail_booking?: { state: "pending" | "issued" | "manual_review"; message: string; issued_legs: number; legs: Array<{ leg_index: number; state: string; issued: boolean }> };
+  rail_booking?: RailBookingStatus;
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
   workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 

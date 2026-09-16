@@ -4789,3 +4789,70 @@ test("structured CLI location inputs parse as objects with source intact", async
   assert.deepEqual((input.location_confirmation as Record<string,unknown>).choices,{origin:"origin_1"});
   assert.throws(()=>parseKeyValueList(['origin_location={invalid}']));
 });
+
+test("queued service run reports running instead of a stale or empty state", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"input_required",current_step:"input",revision:1,steps:{}},execution_requests:[{execution_request_id:"exr_1",execution_kind:"service.execution.run",aggregate_type:"service_execution",aggregate_id:"se_demo",status:"pending",operation:"start",dispatch_attempts:0}]};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"running");
+  assert.equal(result.result.execution_request_id,"exr_1");
+  assert.match(result.instruction,/不要重新/);
+  assert.doesNotMatch(result.instruction,/没有车|0 个结果/);
+});
+
+test("queued capability invoke is waiting, not an empty search result", async () => {
+  const queued=Object.create(backend) as BackendClient;
+  queued.invokeServiceCapability=async(...args:Parameters<BackendClient["invokeServiceCapability"]>)=>({...await backend.invokeServiceCapability(...args),execution_request_id:"exr_queued",result_items:[],provider_called:false});
+  await runServicesInvoke(queued,config,"se_empty","company_name_suggestion",{keyword:"北京赢在未来公司"},{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"running");
+  assert.match(result.next.command,/services next se_empty/);
+  assert.doesNotMatch(result.instruction,/没有找到|0 个结果/);
+});
+
+test("rail booking issuing state never claims payment means a ticket", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{quote:"success",payment:"success"}},rail_booking:{state:"pending",message:"已付款，正在出票",issued_legs:0,legs:[{leg_index:0,state:"polling",issued:false,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",seat_preferences:[{passenger_index:0,preference:"window"}]}]}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"issuing");
+  assert.equal(result.result.rail.legs[0].train_code,"G1");
+  assert.equal(result.result.rail.legs[0].seat_preferences[0].preference,"window");
+  assert.match(result.instruction,/付款成功不代表已出票/);
+  assert.match(result.next.command,/services next se_demo/);
+});
+
+test("issued rail booking shows actual seats without requiring a ticket number", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,rail_booking:{state:"issued",message:"全部车票已出票",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",seats:[{passenger_index:0,seat_type_name:"二等座",seat_label:"03车10D",confirmed:true},{passenger_index:1,seat_type_name:"二等座",seat_label:"03车10F",confirmed:true}]}]},current_delivery:{service_delivery_binding_id:"sdb_1",service_execution_id:"se_demo",order_id:"ord_rail",status:"completed"}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"issued");
+  assert.equal(result.result.order_id,"ord_rail");
+  assert.equal(result.result.rail.legs[0].seats[0].seat,"03车10D");
+  assert.match(result.instruction,/实际出票/);
+  assert.match(result.instruction,/不提供 12306 票号/);
+  assert.match(result.next.command,/itpay order ord_rail/);
+});
+
+test("rail checkout presentation keeps passenger entry on the protected page", async () => {
+  const presentation={
+    checkout:{checkout_id:"chk_rail",status:"payment_required",amount_minor:6400,currency:"CNY",next_action:"create_payment_intent"},
+    items:[],payment_intents:[],buyer_session:{state:"active"},
+    checkout_details:"rail_passengers",rail_passengers_confirmed:false,
+    rail_quote:{amount_minor:6400,currency:"CNY",expires_at:"2026-09-16T12:00:00Z",passengers:2,legs:[{train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",unit_fare_minor:3000,fare_minor:6000,service_fee_minor:400,seat_options:["auto","window","aisle"],seat_preferences:[{passenger_index:0,preference:"window"},{passenger_index:1,preference:"auto"}]}]},
+  };
+  const client=Object.create(backend) as BackendClient;
+  client.getCheckoutPresentation=async()=>presentation;
+  await runCheckoutPresentation(client,{checkoutID:"chk_rail",displayToken:"tok",jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"human_checkout_required");
+  assert.equal(result.result.rail_passengers_confirmed,false);
+  assert.equal(result.result.rail_quote.legs[0].seat_preferences[0].preference,"window");
+  assert.match(result.instruction,/受保护网页填写乘车人/);
+  assert.match(result.instruction,/座位偏好不保证满足/);
+});

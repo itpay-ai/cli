@@ -118,15 +118,32 @@ function pendingCheckoutEnvelope(
       : {}),
     ...(platform === "markdown" ? { markdown: buildAgentChatHandoff(plan).markdown } : {}),
   });
+  const railQuote = presentation.rail_quote;
+  const railPassengersPending = presentation.checkout_details === "rail_passengers" && !presentation.rail_passengers_confirmed;
   return {
     status: "human_checkout_required",
     result: {
       checkout_id: presentation.checkout.checkout_id,
       payment: "pending",
       amount,
+      ...(railQuote ? { rail_quote: {
+        passengers: railQuote.passengers,
+        expires_at: railQuote.expires_at,
+        legs: railQuote.legs.map((leg) => ({
+          train_code: leg.train_code,
+          travel_date: leg.travel_date,
+          route: `${leg.from} → ${leg.to}`,
+          time: `${leg.departure}–${leg.arrival}`,
+          seat_name: leg.seat_name,
+          ...(leg.seat_preferences?.length ? { seat_preferences: leg.seat_preferences } : {}),
+        })),
+      } } : {}),
+      ...(railPassengersPending ? { rail_passengers_confirmed: false } : {}),
     },
     handoff: presentationHandoff.handoff,
-    instruction: presentationHandoff.instruction,
+    instruction: railPassengersPending
+      ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好不保证满足，以实际出票为准。`
+      : presentationHandoff.instruction,
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
     recovery: [],
   };
