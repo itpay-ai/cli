@@ -1029,12 +1029,65 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
       recovery: [],
     };
   }
+  // A rail booking run only exists after a verified payment, so payment is
+  // confirmed here — but only `pending` actually means supplier issuance is in
+  // flight. Any state added later falls back to a conservative re-read instead
+  // of claiming issuance.
+  if (rail.state === "pending") {
+    return {
+      status: "issuing",
+      result,
+      instruction: "告诉用户：付款已确认，后台正在出票；付款成功不代表已出票，请勿重复购买或再次付款。稍后只读取同一任务。",
+      next: { command: `itpay services next ${execution.service_execution_id} --json`, reason: "稍后读取同一出票任务" },
+      recovery: [],
+    };
+  }
   return {
-    status: "issuing",
+    status: "processing",
     result,
-    instruction: "告诉用户：付款已确认，后台正在出票；付款成功不代表已出票，请勿重复购买或再次付款。稍后只读取同一任务。",
+    instruction: `告诉用户：付款已确认，订单处理状态待确认（${rail.state}）；付款成功不代表已出票，请勿重复购买或再次付款。稍后只读取同一任务。`,
     next: { command: `itpay services next ${execution.service_execution_id} --json`, reason: "稍后读取同一出票任务" },
     recovery: [],
+  };
+}
+
+function terminalExecutionEnvelope(model: ServiceExecutionReadModel): CommandEnvelope | null {
+  const execution = model.execution;
+  const currentDelivery = model.current_delivery ?? model.delivery_bindings.at(-1);
+  if (!isTerminalServiceExecutionStatus(execution.status) ||
+      (model.workflow_entry && (currentDelivery || serviceDeliveryMode(model) === "agent_visible_result") && ["completed", "delivery_completed"].includes(execution.status))) {
+    return null;
+  }
+  const paid = model.checkout_bindings.some((binding) => binding.status === "payment_verified") || Boolean(currentDelivery?.order_id);
+  const paidFailure = execution.status === "failed" && paid;
+  return {
+    status: execution.status,
+    result: {
+      service_execution_id: execution.service_execution_id,
+      service_id: execution.service_id,
+      phase: execution.phase,
+      ...(currentDelivery?.order_id ? { order_id: currentDelivery.order_id } : {}),
+    },
+    instruction: execution.status === "refunded"
+      ? "告诉用户这笔服务已经退款并永久结束。Agent 不重放服务步骤、不创建付款页面或尝试读取旧交付。"
+      : paidFailure
+        ? appendFeedbackPostmortemInstruction("告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。然后从同一订单检查退款状态；Agent 不重放服务步骤、创建付款页面或再次调用数据来源，也不把技术故障归咎于用户。", "failed")
+        : "告诉用户本次服务已经结束且没有可继续的交付。Agent 不重放服务步骤或创建付款页面。",
+    next: null,
+    recovery: [
+      ...(paidFailure
+        ? [{
+            command: currentDelivery?.order_id
+              ? `itpay order ${currentDelivery.order_id} --json`
+              : "itpay orders --json",
+            reason: "恢复同一笔已付款订单及其退款状态",
+          }]
+        : []),
+      {
+        command: `itpay services events ${execution.service_execution_id} --json`,
+        reason: "仅在需要诊断终止原因时读取事件",
+      },
+    ],
   };
 }
 
@@ -1073,6 +1126,13 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       next: { command: `itpay services next ${execution.service_execution_id} --json`, reason: "稍后读取同一任务状态" },
       recovery: [],
     };
+  }
+  // A terminal execution wins over the rail read model: a failed, cancelled,
+  // or refunded run must not render as still issuing. Completed executions
+  // keep the rail view so issued seats stay visible.
+  if (model.rail_booking && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
+    const terminal = terminalExecutionEnvelope(model);
+    if (terminal) return terminal;
   }
   if (model.rail_booking) return railBookingEnvelope(model);
   if (latestRun && ["failed", "cancelled"].includes(latestRun.status) && !model.workflow_entry) {
@@ -1129,39 +1189,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     };
   }
 
-	if (isTerminalServiceExecutionStatus(execution.status) && !(model.workflow_entry && (currentDelivery || serviceDeliveryMode(model) === "agent_visible_result") && ["completed", "delivery_completed"].includes(execution.status))) {
-    const paid = model.checkout_bindings.some((binding) => binding.status === "payment_verified") || Boolean(currentDelivery?.order_id);
-    const paidFailure = execution.status === "failed" && paid;
-    return {
-      status: execution.status,
-      result: {
-        service_execution_id: execution.service_execution_id,
-        service_id: execution.service_id,
-        phase: execution.phase,
-        ...(currentDelivery?.order_id ? { order_id: currentDelivery.order_id } : {}),
-      },
-      instruction: execution.status === "refunded"
-        ? "告诉用户这笔服务已经退款并永久结束。Agent 不重放服务步骤、不创建付款页面或尝试读取旧交付。"
-        : paidFailure
-          ? appendFeedbackPostmortemInstruction("告诉用户：付款和订单已经记录，但本次服务没有正常完成，不需要再次付款或重新下单。然后从同一订单检查退款状态；Agent 不重放服务步骤、创建付款页面或再次调用数据来源，也不把技术故障归咎于用户。", "failed")
-          : "告诉用户本次服务已经结束且没有可继续的交付。Agent 不重放服务步骤或创建付款页面。",
-      next: null,
-      recovery: [
-        ...(paidFailure
-          ? [{
-              command: currentDelivery?.order_id
-                ? `itpay order ${currentDelivery.order_id} --json`
-                : "itpay orders --json",
-              reason: "恢复同一笔已付款订单及其退款状态",
-            }]
-          : []),
-        {
-          command: `itpay services events ${execution.service_execution_id} --json`,
-          reason: "仅在需要诊断终止原因时读取事件",
-        },
-      ],
-		};
-	}
+	const terminalEnvelope = terminalExecutionEnvelope(model);
+	if (terminalEnvelope) return terminalEnvelope;
 	const currentItems = model.current_result_items ?? [];
   const latestInvocation = model.provider_invocations.at(-1);
   const latestPreview = latestInvocation?.safe_result_preview as Record<string, unknown> | undefined;
@@ -1483,7 +1512,12 @@ export function collectOption(value: string, previous: string[] = []): string[] 
 }
 
 function parseValue(value: string): unknown {
-  if (value.startsWith("{") || value.startsWith("[")) return JSON.parse(value);
+  // Structured inputs (objects/arrays) are passed as JSON; a string that merely
+  // starts with a JSON delimiter but is not valid JSON stays a string — the
+  // backend schema validates the field type either way.
+  if (value.startsWith("{") || value.startsWith("[")) {
+    try { return JSON.parse(value); } catch { return value; }
+  }
   if (value === "true") return true;
   if (value === "false") return false;
   if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);

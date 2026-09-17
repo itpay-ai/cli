@@ -4787,7 +4787,10 @@ test("structured CLI location inputs parse as objects with source intact", async
   const input=parseKeyValueList(['origin=广东省中山市横栏镇金尊府小区', 'origin_location={"lng":113.2,"lat":22.5,"coordinate_system":"gcj02","source":"amap"}', 'location_confirmation={"plan_id":"saved","token":"opaque","choices":{"origin":"origin_1"}}']);
   assert.equal((input.origin_location as Record<string,unknown>).source,"amap");
   assert.deepEqual((input.location_confirmation as Record<string,unknown>).choices,{origin:"origin_1"});
-  assert.throws(()=>parseKeyValueList(['origin_location={invalid}']));
+  // A value that merely starts with a JSON delimiter but is not valid JSON is
+  // preserved as a string; backend schema validation decides field types.
+  assert.equal(parseKeyValueList(['origin_location={invalid}']).origin_location,"{invalid}");
+  assert.equal(parseKeyValueList(['keyword=[北京]公司']).keyword,"[北京]公司");
 });
 
 test("queued service run reports running instead of a stale or empty state", async () => {
@@ -4837,6 +4840,36 @@ test("issued rail booking shows actual seats without requiring a ticket number",
   assert.match(result.instruction,/实际出票/);
   assert.match(result.instruction,/不提供 12306 票号/);
   assert.match(result.next.command,/itpay order ord_rail/);
+});
+
+test("terminal execution wins over rail booking status", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"failed"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"book",revision:3,steps:{}},rail_booking:{state:"pending",message:"已付款，正在出票",issued_legs:0,legs:[{leg_index:0,state:"polling",issued:false,train_code:"G1"}]},checkout_bindings:[{service_checkout_binding_id:"scb_1",service_execution_id:"se_demo",checkout_id:"chk_1",service_quote_lock_id:"sql_1",status:"payment_verified"}]};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"failed");
+  assert.equal(result.next,null);
+});
+
+test("completed rail execution still surfaces issued seats", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"completed"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"completed",current_step:"done",revision:3,steps:{}},rail_booking:{state:"issued",message:"全部车票已出票",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true,train_code:"G1",seats:[{passenger_index:0,seat_label:"03车10D",confirmed:true}]}]},current_delivery:{service_delivery_binding_id:"sdb_1",service_execution_id:"se_demo",order_id:"ord_rail",status:"completed"}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"issued");
+  assert.equal(result.result.rail.legs[0].seats[0].seat,"03车10D");
+});
+
+test("unrecognized rail state reports processing, not issuing", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{}},rail_booking:{state:"future_state",message:"",issued_legs:0,legs:[{leg_index:0,state:"unknown",issued:false,train_code:"G1"}]}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"processing");
+  assert.match(result.instruction,/付款成功不代表已出票/);
 });
 
 test("rail checkout presentation keeps passenger entry on the protected page", async () => {
