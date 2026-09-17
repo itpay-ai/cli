@@ -4889,3 +4889,63 @@ test("rail checkout presentation keeps passenger entry on the protected page", a
   assert.match(result.instruction,/受保护网页填写乘车人/);
   assert.match(result.instruction,/座位偏好仅为购票请求、购票时才提交给供应商且不保证满足/);
 });
+
+test("rail input_required returns teaching guidance, not an empty schema", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object",additionalProperties:true}}};
+  const client=Object.create(backend) as BackendClient;
+  client.startServiceExecution=async()=>({execution:{...model.execution,service_id:"itpay-rail-exact"},capabilities:model.capabilities,workflow_entry:model.workflow_entry});
+  await runServicesStart(client,"itpay-rail-exact",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"input_required");
+  assert.equal(result.result.guidance.when_to_use.includes("itpay-rail-smart"),true);
+  assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["origin","destination","travel_date"]);
+  assert.match(result.result.guidance.input_fields[2].description,/travel_date/);
+  assert.equal(result.result.guidance.input_example.travel_date,"2026-09-19");
+  assert.match(result.instruction,/guidance/);
+});
+
+test("failed rail workflow reports the failed step, its meaning, and retry guidance", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-smart"},provider_invocations:[{provider_invocation_id:"pvi_1",capability_id:"geo",status:"failed",error_code:"invalid_location",error_message:"无法解析目的地：广州南南站"}],workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object"}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",geo:"failure"},error_code:"invalid_location"}};
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"failed");
+  assert.equal(result.result.failed_step,"geo");
+  assert.equal(result.result.failed_step_meaning,"位置解析");
+  assert.equal(result.result.retryable,true);
+  assert.equal(result.result.provider_error_code,"invalid_location");
+  assert.equal(result.result.error_detail,"无法解析目的地：广州南南站");
+  assert.match(result.instruction,/位置解析/);
+  assert.match(result.instruction,/供应商返回：无法解析目的地：广州南南站/);
+  assert.match(result.instruction,/新建执行/);
+  assert.equal(result.next,null);
+  assert.equal(result.recovery[0].command,"itpay services start itpay-rail-smart --json");
+  assert.equal(result.recovery[1].command,"itpay docs show rail-booking --json");
+});
+
+test("failed rail workflow search step explains the field-name contract", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-exact"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",search:"failure"},error_code:"workflow_failed"}};
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.failed_step,"search");
+  assert.equal(result.result.failed_step_meaning,"供应商车次检索");
+  assert.match(result.instruction,/travel_date/);
+});
+
+test("failed workflow on an unmapped step keeps the generic failure guidance", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",unknown_step:"failure"},error_code:"workflow_failed"}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.failed_step,"unknown_step");
+  assert.equal(result.result.failed_step_meaning,undefined);
+  assert.match(result.instruction,/执行已失败（失败步骤：unknown_step）且不可续用/);
+  assert.match(result.instruction,/新建执行/);
+});
