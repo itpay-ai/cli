@@ -4701,3 +4701,191 @@ test("location confirmation retains the execution and does not invite checkout",
   assert.match(result.next.command,/--action workflow:confirm --actor-type human --status approved/);
   assert.doesNotMatch(result.next.command,/checkout|services run/);
 });
+
+test("rail invocation preserves the entire catalog and recommendation metadata", async () => {
+  await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.items.length, 25);
+  assert.equal(result.result.items[24].safe_payload.candidate_id, "rail_24");
+  assert.equal(result.result.items[0].safe_payload.recommended, true);
+  assert.equal(result.result.catalog.total, 25);
+  assert.equal(result.result.catalog.journey_summary.journey_count, 10);
+  assert.equal(result.result.catalog.journey_summary.available_train_count, 7);
+  assert.deepEqual(result.result.catalog.journeys[0].candidate_ids, ["rail_0", "rail_1"]);
+  assert.equal(result.result.catalog.train_services[0].train_code, "G1");
+  assert.match(result.instruction, /不能用 catalog.total/);
+  assert.match(result.instruction, /无需下车/);
+  assert.equal(result.result.catalog.decision_source, "model");
+  assert.equal(result.result.catalog.search_status, "PARTIAL_RESULTS");
+  assert.equal(result.result.catalog.effective_policy_hash, "fixture-policy");
+  assert.equal(result.result.catalog.api_cost.tengyun_network_attempts, 22);
+  assert.equal(result.result.catalog.coverage.catalog_complete_for_discovered_candidates, false);
+  stdoutCapture.length = 0;
+  await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: false, output: stdoutSink });
+  const plain = stdoutCapture.join("");
+  assert.match(plain, /journey_summary: .*"journey_count":10/);
+  assert.ok(plain.indexOf("journey_summary:") < plain.indexOf("items:"));
+});
+
+test("rail phone handoff stops without collecting identity or retrying provider", async () => {
+  await runServicesInvoke(backend, config, "se_rail_phone", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "human_action_required");
+  assert.equal(result.next, null);
+  assert.match(result.result.verification_url, /\/rail\/verify/);
+  assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
+  assert.equal(mock.requests.filter(r => r.path === "/v1/rail/phone-links").length, 1);
+  assert.match(result.recovery[0].command, /se_rail_phone/);
+});
+
+test("rail empty transfer result preserves official guidance and stops", async () => {
+  await runServicesInvoke(backend, config, "se_rail_transfer_empty", "fuzzy_disambiguation", { keyword: "横栏到建水" }, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "no_result");
+  assert.equal(result.next, null);
+  assert.match(result.instruction, /本次中转查询未完整完成/);
+  assert.match(result.instruction, /最多两次枢纽同站中转/);
+  assert.match(result.instruction, /主要枢纽分段查询/);
+  assert.equal(result.result.catalog.notices[0].code, "RAIL_TRANSFER_SEARCH_INCOMPLETE");
+  assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
+});
+
+test("rail location guidance precedes invocation and confirmation survives next", async () => {
+  const base = await backend.getServiceExecution("se_mock_next");
+  const capability = {...base.capabilities[0]!, capability_id: "plan", requires_payment: false,
+    phase: base.execution.phase, input_schema: {required:["origin","destination","travel_date"], properties:{origin_location:{type:"object"},destination_location:{type:"object"},location_confirmation:{type:"object"}}}};
+  const query = {origin:"金尊府",destination:"深圳",travel_date:"2026-09-10"};
+  const confirmation = {plan_id:"a".repeat(32),token:"b".repeat(32),can_resume:true,input:query,
+    endpoints:[{side:"origin",candidates:[{id:"origin_1",name:"真实候选",map_url:"https://uri.amap.com/marker?position=113,23"}]}]};
+  const preview = {search_status:"LOCATION_CONFIRMATION_REQUIRED",location_confirmation:confirmation};
+  const fake = Object.create(backend) as BackendClient;
+  fake.startServiceExecution = async () => ({execution:base.execution, capabilities:[capability]}) as Awaited<ReturnType<BackendClient["startServiceExecution"]>>;
+  fake.getServiceExecution = async () => ({...base,execution:{...base.execution,status:"quota_checked"},capabilities:[capability],current_result_items:[],provider_invocations:[{capability_id:"plan",safe_result_preview:preview}]});
+  fake.invokeServiceCapability = async () => ({execution:base.execution,result_items:[],provider_called:true,invocation:{service_capability_invocation_id:"inv-location",service_execution_id:base.execution.service_execution_id,capability_id:"plan",status:"succeeded",created_at:"2026-09-08T00:00:00Z",safe_result_preview:preview}}) as Awaited<ReturnType<BackendClient["invokeServiceCapability"]>>;
+  const output:string[]=[]; const opts={jsonOutput:true,output:(line:string)=>output.push(line)};
+  await runServicesStart(fake,"svc_itpay_rail_smart",opts);
+  let envelope=JSON.parse(output.join(""));
+  assert.match(envelope.instruction,/GCJ-02/); assert.match(envelope.instruction,/不追问门牌/);
+  assert.ok(envelope.result.capability.input_schema.properties.origin_location);
+  output.length=0;
+  await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
+  envelope=JSON.parse(output.join(""));
+  assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
+  assert.match(envelope.recovery[0].command,/location_confirmation=.*plan_id/);
+  assert.doesNotMatch(envelope.recovery[0].command,/\[object Object\]/);
+  assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
+  output.length=0;
+  await runServicesNext(fake,base.execution.service_execution_id,opts);
+  envelope=JSON.parse(output.join(""));
+  assert.equal(envelope.status,"location_confirmation_required");
+  assert.match(envelope.recovery[0].command,/origin=金尊府/);
+});
+
+
+test("structured CLI location inputs parse as objects with source intact", async () => {
+  const {parseKeyValueList}=await import("../src/commands/services.js");
+  const input=parseKeyValueList(['origin=广东省中山市横栏镇金尊府小区', 'origin_location={"lng":113.2,"lat":22.5,"coordinate_system":"gcj02","source":"amap"}', 'location_confirmation={"plan_id":"saved","token":"opaque","choices":{"origin":"origin_1"}}']);
+  assert.equal((input.origin_location as Record<string,unknown>).source,"amap");
+  assert.deepEqual((input.location_confirmation as Record<string,unknown>).choices,{origin:"origin_1"});
+  // A value that merely starts with a JSON delimiter but is not valid JSON is
+  // preserved as a string; backend schema validation decides field types.
+  assert.equal(parseKeyValueList(['origin_location={invalid}']).origin_location,"{invalid}");
+  assert.equal(parseKeyValueList(['keyword=[北京]公司']).keyword,"[北京]公司");
+});
+
+test("queued service run reports running instead of a stale or empty state", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"input_required",current_step:"input",revision:1,steps:{}},execution_requests:[{execution_request_id:"exr_1",execution_kind:"service.execution.run",aggregate_type:"service_execution",aggregate_id:"se_demo",status:"pending",operation:"start",dispatch_attempts:0}]};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"running");
+  assert.equal(result.result.execution_request_id,"exr_1");
+  assert.match(result.instruction,/不要重新/);
+  assert.doesNotMatch(result.instruction,/没有车|0 个结果/);
+});
+
+test("queued capability invoke is waiting, not an empty search result", async () => {
+  const queued=Object.create(backend) as BackendClient;
+  queued.invokeServiceCapability=async(...args:Parameters<BackendClient["invokeServiceCapability"]>)=>({...await backend.invokeServiceCapability(...args),execution_request_id:"exr_queued",result_items:[],provider_called:false});
+  await runServicesInvoke(queued,config,"se_empty","company_name_suggestion",{keyword:"北京赢在未来公司"},{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"running");
+  assert.match(result.next.command,/services next se_empty/);
+  assert.doesNotMatch(result.instruction,/没有找到|0 个结果/);
+});
+
+test("rail booking issuing state never claims payment means a ticket", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{quote:"success",payment:"success"}},rail_booking:{state:"pending",message:"已付款，正在出票",issued_legs:0,legs:[{leg_index:0,state:"polling",issued:false,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",seat_preferences:[{passenger_index:0,preference:"window"}]}]}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"issuing");
+  assert.equal(result.result.rail.legs[0].train_code,"G1");
+  assert.equal(result.result.rail.legs[0].seat_preferences[0].preference,"window");
+  assert.match(result.instruction,/付款成功不代表已出票/);
+  assert.match(result.next.command,/services next se_demo/);
+});
+
+test("issued rail booking shows actual seats without requiring a ticket number", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,rail_booking:{state:"issued",message:"全部车票已出票",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",seats:[{passenger_index:0,seat_type_name:"二等座",seat_label:"03车10D",confirmed:true},{passenger_index:1,seat_type_name:"二等座",seat_label:"03车10F",confirmed:true}]}]},current_delivery:{service_delivery_binding_id:"sdb_1",service_execution_id:"se_demo",order_id:"ord_rail",status:"completed"}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"issued");
+  assert.equal(result.result.order_id,"ord_rail");
+  assert.equal(result.result.rail.legs[0].seats[0].seat,"03车10D");
+  assert.match(result.instruction,/实际出票/);
+  assert.match(result.instruction,/不提供 12306 票号/);
+  assert.match(result.next.command,/itpay order ord_rail/);
+});
+
+test("terminal execution wins over rail booking status", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"failed"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"book",revision:3,steps:{}},rail_booking:{state:"pending",message:"已付款，正在出票",issued_legs:0,legs:[{leg_index:0,state:"polling",issued:false,train_code:"G1"}]},checkout_bindings:[{service_checkout_binding_id:"scb_1",service_execution_id:"se_demo",checkout_id:"chk_1",service_quote_lock_id:"sql_1",status:"payment_verified"}]};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"failed");
+  assert.equal(result.next,null);
+});
+
+test("completed rail execution still surfaces issued seats", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"completed"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"completed",current_step:"done",revision:3,steps:{}},rail_booking:{state:"issued",message:"全部车票已出票",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true,train_code:"G1",seats:[{passenger_index:0,seat_label:"03车10D",confirmed:true}]}]},current_delivery:{service_delivery_binding_id:"sdb_1",service_execution_id:"se_demo",order_id:"ord_rail",status:"completed"}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"issued");
+  assert.equal(result.result.rail.legs[0].seats[0].seat,"03车10D");
+});
+
+test("unrecognized rail state reports processing, not issuing", async () => {
+  const base=await backend.getServiceExecution("se_demo");
+  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{}},rail_booking:{state:"future_state",message:"",issued_legs:0,legs:[{leg_index:0,state:"unknown",issued:false,train_code:"G1"}]}};
+  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
+  await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"processing");
+  assert.match(result.instruction,/付款成功不代表已出票/);
+});
+
+test("rail checkout presentation keeps passenger entry on the protected page", async () => {
+  const presentation={
+    checkout:{checkout_id:"chk_rail",status:"payment_required",amount_minor:6400,currency:"CNY",next_action:"create_payment_intent"},
+    items:[],payment_intents:[],buyer_session:{state:"active"},
+    checkout_details:"rail_passengers",rail_passengers_confirmed:false,
+    rail_quote:{amount_minor:6400,currency:"CNY",expires_at:"2026-09-16T12:00:00Z",passengers:2,legs:[{train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",unit_fare_minor:3000,fare_minor:6000,service_fee_minor:400,seat_options:["auto","window","aisle"],seat_preferences:[{passenger_index:0,preference:"window"},{passenger_index:1,preference:"auto"}]}]},
+  };
+  const client=Object.create(backend) as BackendClient;
+  client.getCheckoutPresentation=async()=>presentation;
+  await runCheckoutPresentation(client,{checkoutID:"chk_rail",displayToken:"tok",jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"human_checkout_required");
+  assert.equal(result.result.rail_passengers_confirmed,false);
+  assert.equal(result.result.rail_quote.legs[0].seat_preferences[0].preference,"window");
+  assert.match(result.instruction,/受保护网页填写乘车人/);
+  assert.match(result.instruction,/座位偏好仅为购票请求、购票时才提交给供应商且不保证满足/);
+});

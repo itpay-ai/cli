@@ -222,6 +222,10 @@ export class BackendClient {
     return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey });
   }
 
+  createRailPhoneLink(): Promise<{ verification_url: string; expires_at: string; verification_mode: string }> {
+    return this.http.post("/v1/rail/phone-links", {});
+  }
+
   invokeServiceCapability(
     serviceExecutionID: string,
     capabilityID: string,
