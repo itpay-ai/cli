@@ -36,6 +36,80 @@ export interface ServicesCommandOptions {
 
 const serviceActionStatuses = new Set(["pending", "approved", "rejected", "expired", "cancelled"]);
 
+// Teaching-oriented guidance for ItPay's own rail services. The published
+// workflow input schema may be permissive, so the CLI teaches the real
+// contract here instead of letting agents guess field names.
+interface RailFieldSpec { name: string; required?: boolean; description: string; example?: string; enum?: string }
+
+interface RailServiceGuidance {
+  when_to_use: string;
+  input_fields: RailFieldSpec[];
+  optional_fields?: RailFieldSpec[];
+  input_example: Record<string, unknown>;
+  notes?: string[];
+}
+
+const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
+  "itpay-rail-exact": {
+    when_to_use: "出发和到达都是明确的火车站名时使用本服务（直达查询，最快）。只有城市、模糊位置或想要方案推荐时改用 itpay-rail-smart。",
+    input_fields: [
+      { name: "origin", required: true, description: "出发火车站名（如'古镇'），不能是城市或地址", example: "古镇" },
+      { name: "destination", required: true, description: "到达火车站名（如'广州南'）", example: "广州南" },
+      { name: "travel_date", required: true, description: "出行日期 YYYY-MM-DD；字段名必须是 travel_date，'date' 等别名无效", example: "2026-09-19" },
+    ],
+    input_example: { origin: "古镇", destination: "广州南", travel_date: "2026-09-19" },
+    notes: [
+      "本服务只接受这三个字段，多传字段会被供应商拒绝",
+      "站名不确定就改用 itpay-rail-smart 先解析位置，不要在两个服务之间反复试错",
+    ],
+  },
+  "itpay-rail-smart": {
+    when_to_use: "只有城市名、模糊位置或需要中转规划与方案推荐时使用本服务；平台负责把位置解析到车站。",
+    input_fields: [
+      { name: "origin", required: true, description: "出发地：已知最完整的位置名或区域（城市/区县/地址均可）", example: "中山古镇" },
+      { name: "destination", required: true, description: "目的地：与 origin 同样的位置规则", example: "广州南" },
+      { name: "travel_date", required: true, description: "出行日期 YYYY-MM-DD；字段名必须是 travel_date", example: "2026-09-19" },
+    ],
+    optional_fields: [
+      { name: "origin_city", description: "出发地城市提示，辅助位置解析" },
+      { name: "destination_city", description: "目的地城市提示" },
+      { name: "origin_location", description: "已知坐标对象（高德 GCJ-02）" },
+      { name: "destination_location", description: "目的地坐标对象" },
+      { name: "depart_after", description: "不早于该时间出发" },
+      { name: "arrive_before", description: "不晚于该时间到达" },
+      { name: "priority", enum: "balanced|fastest|cheapest|safest|flexible", description: "方案偏好" },
+      { name: "max_transfers", description: "允许中转次数，0-2" },
+    ],
+    input_example: { origin: "中山古镇", destination: "广州南", travel_date: "2026-09-19", priority: "fastest" },
+    notes: [
+      "位置有歧义时会进入位置确认步骤，请用户选定后继续同一执行",
+      "推荐结果含每趟车的席别与余票；购票在后续受保护流程完成",
+    ],
+  },
+};
+
+function railServiceGuidance(serviceID: string): RailServiceGuidance | undefined {
+  return RAIL_SERVICE_GUIDANCE[serviceID];
+}
+
+const WORKFLOW_STEP_GUIDANCE: Record<string, { meaning: string; hint: string }> = {
+  input: { meaning: "输入校验", hint: "对照服务声明的输入契约补齐字段后重新发起" },
+  quota: { meaning: "额度检查", hint: "免费额度或限流未通过；登录或稍后重试" },
+  geo: { meaning: "位置解析", hint: "检查 origin/destination 是否为真实地名；可附 origin_city 或坐标对象提示" },
+  search: { meaning: "供应商车次检索", hint: "最常见是字段名错误（必须是 travel_date）或站名不存在；按 itpay docs show rail-booking 核对输入" },
+  catalog: { meaning: "可行车次计算", hint: "位置已解析但无可行车次；换日期或换站点重试" },
+  recommend: { meaning: "方案推荐", hint: "候选集无法产出推荐；放宽条件或换日期重试" },
+  delivery: { meaning: "交付", hint: "结果组装失败；稍后重试或联系运营" },
+};
+
+function failedWorkflowStep(steps: Record<string, string> | undefined): string | undefined {
+  if (!steps) return undefined;
+  for (const [step, status] of Object.entries(steps)) {
+    if (status === "failure" && step !== "failure") return step;
+  }
+  return undefined;
+}
+
 export async function runServicesStart(
   backend: BackendClient,
   serviceID: string,
@@ -51,7 +125,8 @@ export async function runServicesStart(
     },
   });
   if (response.workflow_entry) {
-    writeCommandEnvelope({ status: "input_required", result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema }, instruction: "根据服务声明填写输入，然后继续同一服务执行。", next: {command: `itpay services run ${serviceID} --execution ${response.execution.service_execution_id} --input-json <file> --json`,reason:"提交买家输入"}, recovery: [] }, {...options});
+    const guidance = railServiceGuidance(serviceID);
+    writeCommandEnvelope({ status: "input_required", result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema, ...(guidance ? { guidance } : {}) }, instruction: guidance ? "按 result.guidance 逐项填写输入（when_to_use 说明本服务适用场景、input_fields 是必填契约、input_example 可直接照抄），然后继续同一服务执行。不要臆造字段名。" : "根据服务声明填写输入，然后继续同一服务执行。", next: {command: `itpay services run ${serviceID} --execution ${response.execution.service_execution_id} --input-json <file> --json`,reason:"提交买家输入"}, recovery: [] }, {...options});
     return;
   }
   const capability = response.capabilities.find((item) =>
@@ -1171,6 +1246,21 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     let command = `itpay services next ${id} --json`;
     if (state === "payment") command = `itpay services checkout ${id} --json`;
     if (state === "input_required") command = `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`;
+    const guidance = railServiceGuidance(execution.service_id);
+    const failedStep = recovery ? failedWorkflowStep(model.workflow?.steps) : undefined;
+    const failedStepGuidance = failedStep ? WORKFLOW_STEP_GUIDANCE[failedStep] : undefined;
+    const failedInvocation = recovery
+      ? [...model.provider_invocations].reverse().find((item) => typeof item.status === "string" && item.status.startsWith("failed"))
+      : undefined;
+    const errorDetail = typeof failedInvocation?.error_message === "string" && failedInvocation.error_message ? failedInvocation.error_message : undefined;
+    const providerErrorCode = typeof failedInvocation?.error_code === "string" && failedInvocation.error_code ? failedInvocation.error_code : undefined;
+    const failedInstruction = recovery
+      ? failedStepGuidance
+        ? `执行在「${failedStepGuidance.meaning}」步失败：${failedStepGuidance.hint}${errorDetail ? `。供应商返回：${errorDetail}` : ""}。本执行已终止不能续用；修正后用同一服务新建执行重试，不要盲目重放。`
+        : state === "failed"
+          ? `执行已失败${failedStep ? `（失败步骤：${failedStep}）` : ""}且不可续用；修正输入后用同一服务新建执行重试。`
+          : "执行未完成，请按步骤错误处理；不要重建执行或重复调用。"
+      : undefined;
     return {
       status: state,
       result: {
@@ -1178,14 +1268,25 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         service_id: execution.service_id,
         workflow: model.workflow,
         ...(state === "input_required" ? { input_schema: model.workflow_entry.input_schema } : {}),
+        ...(guidance && state === "input_required" ? { guidance } : {}),
+        ...(failedStep ? { failed_step: failedStep, ...(failedStepGuidance ? { failed_step_meaning: failedStepGuidance.meaning } : {}) } : {}),
+        ...(providerErrorCode ? { provider_error_code: providerErrorCode } : {}),
+        ...(errorDetail ? { error_detail: errorDetail } : {}),
+        ...(recovery ? { retryable: state === "failed" } : {}),
       },
-      instruction: recovery
-        ? "执行未完成，请按步骤错误处理；不要重建执行或重复调用。"
-        : state === "payment"
+      instruction: failedInstruction
+        ?? (state === "payment"
           ? "服务已到付款步骤，使用现有 Checkout 完成扫码付款。"
-          : "继续读取同一执行；缺少输入时按服务声明补齐。",
+          : guidance
+            ? "按 result.guidance 的字段契约填写输入后继续同一服务执行；不要臆造字段名。"
+            : "继续读取同一执行；缺少输入时按服务声明补齐。"),
       next: recovery ? null : { command, reason: "继续当前流程" },
-      recovery: [],
+      recovery: recovery && state === "failed"
+        ? [
+            { command: `itpay services start ${execution.service_id} --json`, reason: "修正输入后重新发起（本执行已终止不能续用）" },
+            ...(guidance ? [{ command: "itpay docs show rail-booking --json", reason: "查看本服务输入字段契约与示例" }] : []),
+          ]
+        : [],
     };
   }
 

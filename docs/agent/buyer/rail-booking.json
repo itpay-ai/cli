@@ -1,0 +1,80 @@
+{
+  "schema_version": "itp.agent_doc.v1",
+  "role": "buyer",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "topic": "rail-booking",
+  "title": "Railway Query, Planning, and Ticket Booking",
+  "purpose": "Choose the right railway service for the buyer's situation, submit the exact input contract each service expects, and follow the protected booking flow without inventing field names.",
+  "when_to_use": [
+    "The buyer wants train schedules, routes, or tickets.",
+    "A railway service execution fails at the geo, search, catalog, or recommend step.",
+    "The buyer only knows a city or fuzzy location rather than a station name.",
+    "The buyer asks about seat preferences, refunds, or ticket issuance status."
+  ],
+  "service_selection": {
+    "itpay-rail-exact": "Use when the buyer knows BOTH the exact departure and arrival railway station names (e.g. 古镇 → 广州南). Direct train query, fastest path. Do NOT use it with only a city or fuzzy location.",
+    "itpay-rail-smart": "Use when the buyer has a city name, an area, an address, or wants transfer planning and recommendations. The platform resolves locations to stations itself; never silently convert a city into its namesake station.",
+    "svc_qizhidao_company_lookup": "Not a railway service; do not mix intents."
+  },
+  "input_contract": {
+    "itpay-rail-exact": {
+      "required": {
+        "origin": "Departure railway station name only, e.g. 古镇. Not a city or an address.",
+        "destination": "Arrival railway station name only, e.g. 广州南.",
+        "travel_date": "Travel date in YYYY-MM-DD. The field name must be exactly travel_date; aliases like date are rejected."
+      },
+      "optional": "None. additionalProperties is false — extra fields are rejected by the provider.",
+      "example": {"origin": "古镇", "destination": "广州南", "travel_date": "2026-09-19"}
+    },
+    "itpay-rail-smart": {
+      "required": {
+        "origin": "Fullest known departure location: city, district, area, or address is all acceptable.",
+        "destination": "Fullest known arrival location, same rule as origin.",
+        "travel_date": "Travel date in YYYY-MM-DD. The field name must be exactly travel_date."
+      },
+      "optional": {
+        "origin_city": "Departure city hint that helps location resolution.",
+        "destination_city": "Arrival city hint.",
+        "origin_location": "Known coordinate object (AMap GCJ-02).",
+        "destination_location": "Destination coordinate object.",
+        "depart_after": "Do not depart before this time.",
+        "arrive_before": "Do not arrive after this time.",
+        "priority": "One of balanced | fastest | cheapest | safest | flexible.",
+        "max_transfers": "Integer 0-2, allowed transfer count."
+      },
+      "example": {"origin": "中山古镇", "destination": "广州南", "travel_date": "2026-09-19", "priority": "fastest"}
+    }
+  },
+  "flow": [
+    "services start <service> --json returns input_required plus the guidance block for rail services.",
+    "Submit input with services run <service> --execution <id> --input-json <file> --json on the SAME execution.",
+    "itpay-rail-smart may stop at a location confirmation step; show the candidate places to the buyer, then continue the same execution after the human confirms.",
+    "After a train and seat are chosen, the booking flow moves to a protected checkout page: passenger identity data is entered by the human on that page, never through the CLI.",
+    "Payment success does not mean the ticket is issued. Issuance is asynchronous; keep reading the same execution with services next.",
+    "If seat details are still syncing after issuance, advise the buyer to verify the itinerary on 12306 instead of repeating the query."
+  ],
+  "failure_handling": {
+    "failed_step": "The CLI reports failed_step and failed_step_meaning in the result when a workflow fails.",
+    "geo": "Location resolution failed: check origin/destination are real place names, or attach origin_city/coordinate hints, then start a NEW execution (a failed execution is terminal).",
+    "search": "Supplier query failed: most commonly a wrong field name (must be travel_date) or a nonexistent station name; recheck input against this doc.",
+    "catalog_or_recommend": "Location resolved but no feasible trains: change the date or stations.",
+    "general_rule": "Never replay a failed execution and never guess different field names; correct the input and start a new execution of the same service."
+  },
+  "seat_preferences": {
+    "meaning": "A buyer's seat-letter preference may be planned per leg before payment. The plan is submitted to the supplier when encodable; unsupported combinations fall back to automatic assignment.",
+    "letters": "Evidence-backed letters only: O=ABCDF (second class), M=ACDF (first class), 9=ACF (business class). Other layouts auto-assign.",
+    "boundary": "Never claim a preference was fulfilled before supplier confirmation; check the issued seat in the order/status output."
+  },
+  "agent_rules": [
+    "Pick the service by the buyer's input precision: exact station names → itpay-rail-exact; anything fuzzier → itpay-rail-smart.",
+    "Never invent input field names. If the guidance block or this doc does not list a field, do not send it.",
+    "Never ask the buyer for passenger names, ID numbers, or phone numbers in chat; those are collected only on the protected checkout page.",
+    "Do not repeat or replay a failed execution; correct the input and start a new one.",
+    "Do not claim payment equals ticket issuance; issuance is asynchronous and confirmed only by the issued seat status."
+  ],
+  "human_language": {
+    "prefer": ["车次", "出发站", "到达站", "出行日期", "座位", "余票", "出票中", "已出票"],
+    "avoid": ["workflow", "execution", "provider", "seat_source", "candidate_id"]
+  },
+  "search_terms": ["rail", "railway", "train", "ticket", "火车", "火车票", "高铁", "车票", "车次", "seat", "booking", "rail-booking"]
+}
