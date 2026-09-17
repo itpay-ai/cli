@@ -105,14 +105,16 @@ const WORKFLOW_STEP_GUIDANCE: Record<string, { meaning: string; hint: string }> 
   delivery: { meaning: "交付", hint: "结果组装失败；稍后重试或联系运营" },
 };
 
-function failedWorkflowStep(steps: Record<string, string> | undefined): string | undefined {
+function failedWorkflowStep(steps: Record<string, string> | undefined, errorCode?: string): string | undefined {
   if (!steps) return undefined;
   for (const [step, status] of Object.entries(steps)) {
     if (status === "failure" && step !== "failure") return step;
   }
-  // A condition step whose false outcome routed into the failure node is the real failure point.
-  for (const [step, status] of Object.entries(steps)) {
-    if (status === "false" && step !== "failure") return step;
+  // Only a backend-recorded condition_unmet proves a false branch routed to failure.
+  if (errorCode === "condition_unmet") {
+    for (const [step, status] of Object.entries(steps)) {
+      if (status === "false" && step !== "failure") return step;
+    }
   }
   return undefined;
 }
@@ -1243,32 +1245,46 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     if (state === "human_action" && model.workflow?.human_action) {
       const action = model.workflow.human_action;
       const requiredFields = requiredInputFields(action.input_schema);
-      const places = (action.context?.places ?? {}) as Record<string, {
-        resolution_status?: string;
-        formatted_address?: string; poi_name?: string; query?: string; location?: number[];
-        resolution_candidates?: Array<{ poi_name?: string; query?: string; formatted_address?: string; location?: number[] }>;
-      }>;
-      const sides = ["origin", "destination"].map((side) => {
-        const place = places[side];
-        const candidates = Array.isArray(place?.resolution_candidates) ? place.resolution_candidates : [];
-        const name = (item: { poi_name?: string; query?: string; formatted_address?: string }) =>
-          item.poi_name ?? item.query ?? item.formatted_address;
+      const rawPlaces = action.context?.places;
+      // Only the location-confirmation action carries origin/destination places;
+      // every other human action keeps the generic envelope.
+      const isLocationConfirmation = !!rawPlaces && typeof rawPlaces === "object" &&
+        ("origin" in rawPlaces || "destination" in rawPlaces);
+      if (isLocationConfirmation) {
+        const places = rawPlaces as Record<string, {
+          resolution_status?: string;
+          formatted_address?: string; poi_name?: string; query?: string; location?: number[];
+          resolution_candidates?: Array<{ poi_name?: string; query?: string; formatted_address?: string; location?: number[] }>;
+        }>;
+        const sides = ["origin", "destination"].map((side) => {
+          const place = places[side];
+          const candidates = Array.isArray(place?.resolution_candidates) ? place.resolution_candidates : [];
+          const name = (item: { poi_name?: string; query?: string; formatted_address?: string }) =>
+            item.poi_name ?? item.query ?? item.formatted_address;
+          return {
+            side,
+            status: place?.resolution_status,
+            ...(place?.resolution_status === "resolved"
+              ? { resolved_place: { name: name(place), location: place.location } }
+              : {}),
+            ...(candidates.length
+              ? { candidates: candidates.slice(0, 5).map((item) => ({ name: name(item), location: item.location })) }
+              : {}),
+          };
+        });
         return {
-          side,
-          status: place?.resolution_status,
-          ...(place?.resolution_status === "resolved"
-            ? { resolved_place: { name: name(place), location: place.location } }
-            : {}),
-          ...(candidates.length
-            ? { candidates: candidates.slice(0, 5).map((item) => ({ name: name(item), location: item.location })) }
-            : {}),
+          status: "confirmation_required",
+          result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
+            required_fields: requiredFields, sides },
+          instruction: "向用户展示 sides 中 status=needs_confirmation 一端的候选（名称+坐标），请用户选定后按 required_fields 逐项各传一个 --input：名称取候选 name，坐标取候选 location 的 [lng,lat]；已 resolved 的一端把其 resolved_place 原样填入。继续同一执行，不重新查询；这一步不是购买确认。",
+          next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`, reason: "用户确认后继续当前查询" },
+          recovery: [],
         };
-      });
+      }
       return {
         status: "confirmation_required",
-        result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
-          required_fields: requiredFields, sides },
-        instruction: "向用户展示 sides 中 status=needs_confirmation 一端的候选（名称+坐标），请用户选定后按 required_fields 逐项各传一个 --input：名称取候选 name，坐标取候选 location 的 [lng,lat]；已 resolved 的一端把其 resolved_place 原样填入。继续同一执行，不重新查询；这一步不是购买确认。",
+        result: { service_execution_id: id, service_id: execution.service_id, human_action: action },
+        instruction: "请展示待确认的内容，请用户明确确认后，按 input_schema 填写 --input 字段。继续同一执行，不重新查询；这一步不是购买确认。",
         next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`, reason: "用户确认后继续当前查询" },
         recovery: [],
       };
@@ -1278,7 +1294,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     if (state === "payment") command = `itpay services checkout ${id} --json`;
     if (state === "input_required") command = `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`;
     const guidance = railServiceGuidance(execution.service_id);
-    const failedStep = recovery ? failedWorkflowStep(model.workflow?.steps) : undefined;
+    const failedStep = recovery ? failedWorkflowStep(model.workflow?.steps, model.workflow?.error_code) : undefined;
     const failedStepGuidance = failedStep ? WORKFLOW_STEP_GUIDANCE[failedStep] : undefined;
     const failedInvocation = recovery
       ? [...model.provider_invocations].reverse().find((item) => typeof item.status === "string" && item.status.startsWith("failed"))
