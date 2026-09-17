@@ -96,6 +96,9 @@ const WORKFLOW_STEP_GUIDANCE: Record<string, { meaning: string; hint: string }> 
   input: { meaning: "输入校验", hint: "对照服务声明的输入契约补齐字段后重新发起" },
   quota: { meaning: "额度检查", hint: "免费额度或限流未通过；登录或稍后重试" },
   geo: { meaning: "位置解析", hint: "检查 origin/destination 是否为真实地名；可附 origin_city 或坐标对象提示" },
+  geo_confirm: { meaning: "确认后位置解析", hint: "用户确认的地点仍未解析成功；重新执行并让用户从候选项中按名称+坐标选择" },
+  resolved: { meaning: "位置解析复核", hint: "位置解析未满足继续条件；检查 origin/destination 后新建执行重试" },
+  resolved_after_confirm: { meaning: "位置确认复核", hint: "确认后的位置仍未通过复核；重新执行并核对用户所选候选项" },
   search: { meaning: "供应商车次检索", hint: "最常见是字段名错误（必须是 travel_date）或站名不存在；按 itpay docs show rail-booking 核对输入" },
   catalog: { meaning: "可行车次计算", hint: "位置已解析但无可行车次；换日期或换站点重试" },
   recommend: { meaning: "方案推荐", hint: "候选集无法产出推荐；放宽条件或换日期重试" },
@@ -106,6 +109,10 @@ function failedWorkflowStep(steps: Record<string, string> | undefined): string |
   if (!steps) return undefined;
   for (const [step, status] of Object.entries(steps)) {
     if (status === "failure" && step !== "failure") return step;
+  }
+  // A condition step whose false outcome routed into the failure node is the real failure point.
+  for (const [step, status] of Object.entries(steps)) {
+    if (status === "false" && step !== "failure") return step;
   }
   return undefined;
 }
@@ -1234,11 +1241,35 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       };
     }
     if (state === "human_action" && model.workflow?.human_action) {
+      const action = model.workflow.human_action;
+      const requiredFields = requiredInputFields(action.input_schema);
+      const places = (action.context?.places ?? {}) as Record<string, {
+        resolution_status?: string;
+        formatted_address?: string; poi_name?: string; query?: string; location?: number[];
+        resolution_candidates?: Array<{ poi_name?: string; query?: string; formatted_address?: string; location?: number[] }>;
+      }>;
+      const sides = ["origin", "destination"].map((side) => {
+        const place = places[side];
+        const candidates = Array.isArray(place?.resolution_candidates) ? place.resolution_candidates : [];
+        const name = (item: { poi_name?: string; query?: string; formatted_address?: string }) =>
+          item.poi_name ?? item.query ?? item.formatted_address;
+        return {
+          side,
+          status: place?.resolution_status,
+          ...(place?.resolution_status === "resolved"
+            ? { resolved_place: { name: name(place), location: place.location } }
+            : {}),
+          ...(candidates.length
+            ? { candidates: candidates.slice(0, 5).map((item) => ({ name: name(item), location: item.location })) }
+            : {}),
+        };
+      });
       return {
         status: "confirmation_required",
-        result: { service_execution_id: id, service_id: execution.service_id, human_action: model.workflow.human_action },
-        instruction: "请展示待确认的位置，请用户明确确认后，按 input_schema 填写 --input 字段。继续同一执行，不重新查询；这一步不是购买确认。",
-        next: { command: `itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input <key=value> --json`, reason: "用户确认后继续当前查询" },
+        result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
+          required_fields: requiredFields, sides },
+        instruction: "向用户展示 sides 中 status=needs_confirmation 一端的候选（名称+坐标），请用户选定后按 required_fields 逐项各传一个 --input：名称取候选 name，坐标取候选 location 的 [lng,lat]；已 resolved 的一端把其 resolved_place 原样填入。继续同一执行，不重新查询；这一步不是购买确认。",
+        next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`, reason: "用户确认后继续当前查询" },
         recovery: [],
       };
     }
