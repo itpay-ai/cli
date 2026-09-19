@@ -1,19 +1,21 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows use the same entry point via itpay sell.",
   "topic": "rail-booking",
   "title": "Railway Query, Planning, and Ticket Booking",
-  "purpose": "Choose the right railway service for the buyer's situation, submit the exact input contract each service expects, and follow the protected booking flow without inventing field names.",
+  "purpose": "Choose the right railway service for the buyer's situation, submit the exact input contract each service expects, bridge a chosen train into booking via the server-issued selection, and follow the protected checkout flow without inventing field names.",
   "when_to_use": [
     "The buyer wants train schedules, routes, or tickets.",
     "A railway service execution fails at the geo, search, catalog, or recommend step.",
     "The buyer only knows a city or fuzzy location rather than a station name.",
-    "The buyer asks about seat preferences, refunds, or ticket issuance status."
+    "The buyer asks about seat preferences, refunds, or ticket issuance status.",
+    "A query returned login_required or rate_limited."
   ],
   "service_selection": {
     "itpay-rail-exact": "Use when the buyer knows BOTH the exact departure and arrival railway station names (e.g. 古镇 → 广州南). Direct train query, fastest path. Do NOT use it with only a city or fuzzy location.",
     "itpay-rail-smart": "Use when the buyer has a city name, an area, an address, or wants transfer planning and recommendations. The platform resolves locations to stations itself; never silently convert a city into its namesake station.",
+    "itpay-rail-booking": "Purchase service — use ONLY after the buyer explicitly chose a train and seat from a query result. Starts quote → protected checkout → payment → asynchronous issuance on one execution. Never queried for schedules.",
     "svc_qizhidao_company_lookup": "Not a railway service; do not mix intents."
   },
   "input_contract": {
@@ -43,13 +45,41 @@
         "max_transfers": "Integer 0-2, allowed transfer count."
       },
       "example": {"origin": "中山古镇", "destination": "广州南", "travel_date": "2026-09-19", "priority": "fastest"}
+    },
+    "itpay-rail-booking": {
+      "preferred": {
+        "passengers": "Integer 1-5: number of passengers, NOT passenger identity records.",
+        "selection": {
+          "token": "The booking_offer.selection_token carried on the chosen result item.",
+          "seat_type": "Seat code when the user picked a specific class, e.g. O."
+        }
+      },
+      "explicit_legs": {
+        "passengers": "Integer 1-5.",
+        "legs": "Array of 1-3 legs, each: from_station_code, to_station_code, travel_date, train_code, departure_time (HH:MM), arrival_time (HH:MM), arrival_days (int 0-7), seat_type. Only use when no booking_offer is available; never guess these values."
+      },
+      "boundary": "Identity fields (names, ID numbers, phones) never belong in this input; they are collected on the protected checkout page."
     }
+  },
+  "selection_flow": [
+    "Exact results carry per-train candidates; smart results carry journeys. Bookable options carry booking_offer with a server-signed selection_token.",
+    "The token binds the stored result snapshot and the chosen option. Submit it with passengers (and seat_type when the user picked a class); the server derives the authoritative legs and re-quotes live. Do NOT hand-build legs JSON from the visible result.",
+    "An expired or foreign token returns a clear error; recover by running a fresh query or by explicit legs — never by guessing token contents.",
+    "Repeating the same selection restores the same booking execution instead of creating a second one."
+  ],
+  "trial_and_login": {
+    "policy": "itpay-rail-exact and itpay-rail-smart each allow 2 anonymous queries per enrolled device lineage — independent counters, not a shared pool of 4.",
+    "login_required": "Trial for that service is exhausted. The query is paused BEFORE provider calls; the execution keeps its input. Offer itpay auth login; after binding, resume the SAME execution with services run --execution <id> (no input file). Do not start a new execution, do not make the user re-describe the trip, and do not burn the other service's quota to dodge the gate.",
+    "rate_limited": "Registered accounts have no cumulative search cap but normal per-minute limits apply; wait retry_after_ms and resume the same execution.",
+    "fourth_result": "The 4th result is delivered first; only the next new query requires authorization.",
+    "purchase_after_trial": "Selecting a saved option and buying it does not consume search quota and works even when trial is exhausted."
   },
   "flow": [
     "services start <service> --json returns input_required plus the guidance block for rail services.",
     "Submit input with services run <service> --execution <id> --input-json <file> --json on the SAME execution.",
     "itpay-rail-smart may stop at a location confirmation step; show the candidate places to the buyer, then continue the same execution after the human confirms.",
-    "After a train and seat are chosen, the booking flow moves to a protected checkout page: passenger identity data is entered by the human on that page, never through the CLI.",
+    "After the buyer explicitly picks a train/seat, run itpay-rail-booking with the selection token (preferred) or explicit legs.",
+    "The booking execution reaches a protected checkout: passenger identity data is entered by the human on that page, never through the CLI. Account authentication may happen inside checkout — do not force a separate auth login first (Path B).",
     "Payment success does not mean the ticket is issued. Issuance is asynchronous; keep reading the same execution with services next.",
     "If seat details are still syncing after issuance, advise the buyer to verify the itinerary on 12306 instead of repeating the query."
   ],
@@ -58,6 +88,7 @@
     "geo": "Location resolution failed: check origin/destination are real place names, or attach origin_city/coordinate hints, then start a NEW execution (a failed execution is terminal).",
     "search": "Supplier query failed: most commonly a wrong field name (must be travel_date) or a nonexistent station name; recheck input against this doc.",
     "catalog_or_recommend": "Location resolved but no feasible trains: change the date or stations.",
+    "login_required_is_not_failure": "login_required / rate_limited pause the execution; they are NOT failures and never justify a replacement execution.",
     "general_rule": "Never replay a failed execution and never guess different field names; correct the input and start a new execution of the same service."
   },
   "seat_preferences": {
@@ -66,15 +97,17 @@
     "boundary": "Never claim a preference was fulfilled before supplier confirmation; check the issued seat in the order/status output."
   },
   "agent_rules": [
-    "Pick the service by the buyer's input precision: exact station names → itpay-rail-exact; anything fuzzier → itpay-rail-smart.",
+    "Pick the service by the buyer's input precision: exact station names → itpay-rail-exact; anything fuzzier → itpay-rail-smart; explicit purchase intent after a selection → itpay-rail-booking.",
     "Never invent input field names. If the guidance block or this doc does not list a field, do not send it.",
     "Never ask the buyer for passenger names, ID numbers, or phone numbers in chat; those are collected only on the protected checkout page.",
+    "Never reconstruct provider-shaped legs JSON when a booking_offer.selection_token is available; submit the token plus passengers.",
+    "login_required and rate_limited are pauses, not failures: resume the same execution, never spawn a replacement.",
     "Do not repeat or replay a failed execution; correct the input and start a new one.",
     "Do not claim payment equals ticket issuance; issuance is asynchronous and confirmed only by the issued seat status."
   ],
   "human_language": {
-    "prefer": ["车次", "出发站", "到达站", "出行日期", "座位", "余票", "出票中", "已出票"],
-    "avoid": ["workflow", "execution", "provider", "seat_source", "candidate_id"]
+    "prefer": ["车次", "出发站", "到达站", "出行日期", "座位", "余票", "出票中", "已出票", "登录后继续免费查询"],
+    "avoid": ["workflow", "execution", "provider", "seat_source", "candidate_id", "token", "quota"]
   },
   "search_terms": ["rail", "railway", "train", "ticket", "火车", "火车票", "高铁", "车票", "车次", "seat", "booking", "rail-booking"]
 }

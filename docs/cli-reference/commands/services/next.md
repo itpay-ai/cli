@@ -197,6 +197,58 @@ itpay services next <service_execution_id> [--json]
 
 `succeeded` 退款改为“交付永久关闭”，并返回 `next: null`。取消、拒绝或确定未产生资金影响的失败退款不再阻塞，但旧 grant 不会复活；用户必须重新授权。
 
+## 额度暂停（试用/限流）
+
+查询 Execution 因免费试用耗尽或限流被暂停时，状态为 `login_required` 或 `rate_limited`（不是 `failed`）。Execution 保留输入，可用同一 `services run <service> --execution <id> --json` 恢复——登录后或限流窗口过后从额度节点继续，不重放已完成阶段，不要新建 Execution 或重述行程。
+
+```json
+{
+  "status": "login_required",
+  "result": {
+    "service_execution_id": "<id>",
+    "service_id": "itpay-rail-exact",
+    "admission": "login_required",
+    "query_quota": [
+      { "service_id": "itpay-rail-exact", "used": 2, "limit": 2, "remaining": 0 },
+      { "service_id": "itpay-rail-smart", "used": 0, "limit": 2, "remaining": 2 }
+    ]
+  },
+  "instruction": "如实告知该服务的免费试用次数与剩余；请用户登录后继续，原查询无需重新输入。",
+  "next": { "command": "itpay auth login --json", "reason": "官方登录绑定后继续免费查询" },
+  "recovery": [
+    { "command": "itpay services run itpay-rail-exact --execution <id> --json", "when": "auth_bound" }
+  ]
+}
+```
+
+`rate_limited` 只等待 `retry_after_ms` 后恢复同一执行；不需要登录、不扣试用。
+
+## 查询结果中的购买承接
+
+铁路查询结果项可携带服务端签发的购票承接 `booking_offer`：
+
+```json
+{
+  "rank": 1,
+  "title": "C6908 二等座 11:48→12:20",
+  "safe_payload": { "...": "..." },
+  "booking_offer": {
+    "service_id": "itpay-rail-booking",
+    "selection_token": "sel_...",
+    "expires_at": "2026-09-20T04:00:00Z"
+  }
+}
+```
+
+用户明确选择某班次/席别并要求购买时，用该 token 开启购票执行：
+
+```bash
+itpay services run itpay-rail-booking --input-json booking.json --json
+# booking.json: {"passengers": 1, "selection": {"token": "<selection_token>", "seat_type": "O"}}
+```
+
+`booking_offer` 只是受条件约束的可选承接：查询完成本身已满足查询目标，不自动购买；过期 token 返回明确错误，恢复方式是按 `services run` 输入合同重新查询或显式提供 `legs`。
+
 ## 异常处理
 
 execution 不存在或不属于当前设备/账号时返回错误信封，并仅建议：

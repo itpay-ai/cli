@@ -88,6 +88,7 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
   - [`itpay services list`](commands/services/list.md)
   - [`itpay services get`](commands/services/get.md)
   - [`itpay services next`](commands/services/next.md)
+  - [`itpay services page`](commands/services/page.md)
   - [`itpay services read-result`](commands/services/read-result.md)
   - [`itpay services events`](commands/services/events.md)
 

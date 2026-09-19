@@ -441,6 +441,10 @@ export interface ServiceExecution {
 export interface StartServiceExecutionRequest {
   service_id: string;
   client_context?: Record<string, unknown>;
+  /** Optional intended workflow input. The server only consumes this for
+   * first-party booking selections so a repeated selection restores the
+   * same purchase execution instead of duplicating it. */
+  input?: Record<string, unknown>;
 }
 
 export interface ServiceExecutionStarted {
@@ -449,6 +453,8 @@ export interface ServiceExecutionStarted {
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];
+  /** True when the server restored an existing execution (booking selection dedupe). */
+  restored?: boolean;
 }
 
 export interface InvokeServiceCapabilityRequest {
@@ -480,6 +486,15 @@ export interface ServiceCapabilityResultItem {
   display_title: string;
   safe_payload: Record<string, unknown>;
   created_at: string;
+}
+
+export interface ServiceResultItemPage {
+  service_capability_result_item_id: string;
+  service_execution_id: string;
+  capability_id?: string;
+  /** Projected page: candidates slice plus saved summary aggregates and
+   * catalog_page {offset, limit, total, count, next_offset}. */
+  page: Record<string, unknown>;
 }
 
 export interface ServiceCapabilityInvoked {
@@ -667,6 +682,16 @@ export interface ServiceExecutionReadModel {
   refunds: RefundRequest[];
   current_result_items?: ServiceCapabilityResultItem[];
   allowed_actions?: ServiceExecutionAllowedAction[];
+  quota?: ServiceExecutionQuotaView;
+}
+
+export interface ServiceExecutionQuotaView {
+  bucket: string;
+  subject_type: string;
+  limit: number;
+  remaining: number;
+  paused: boolean;
+  pause_code?: string;
 }
 
 export interface ServiceExecutionAllowedAction {
