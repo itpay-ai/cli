@@ -457,11 +457,79 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    const resultItemPageMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/result-items\/([^/]+)$/);
+    if (method === "GET" && resultItemPageMatch) {
+      const [serviceExecutionID, resultItemID] = [resultItemPageMatch[1]!, resultItemPageMatch[2]!];
+      if (serviceExecutionID !== "se_rail_paged" || resultItemID !== "sri_rail_paged") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "5");
+      const all = Array.from({ length: 12 }, (_, i) => ({
+        candidate_id: `rail_${i}`, title: `G${i + 1} 北京南 → 上海虹桥`,
+        recommended: i === 0, fare_minor: 3700 + i * 100, service_fee_minor: 200,
+        quoted_total_minor: 3900 + i * 100, estimated_ground_minor: 2300,
+        estimated_door_to_door_minor: 6200 + i * 100, currency: "CNY",
+      }));
+      const slice = all.slice(offset, offset + limit);
+      respond(res, 200, {
+        service_capability_result_item_id: resultItemID,
+        service_execution_id: serviceExecutionID,
+        capability_id: "rail_search",
+        page: {
+          result: {
+            candidates: slice,
+            catalog_total: 12,
+            catalog_page: { offset, limit, total: 12, count: slice.length, next_offset: offset + slice.length < 12 ? offset + slice.length : null },
+            journey_summary: { journey_count: 4, door_to_door_candidate_count: 12 },
+            recommendation: "rail_0",
+            cost_semantics: { quoted_total_minor: "amount collected at checkout (fare + service fee)", estimated_door_to_door_minor: "combined known estimate; never a collection amount" },
+          },
+        },
+      });
+      return;
+    }
+
     const serviceGetMatch = path.match(/^\/v1\/service-executions\/([^/]+)$/);
     if (method === "GET" && serviceGetMatch) {
       const serviceExecutionID = serviceGetMatch[1]!;
       if (serviceExecutionID === "se_missing") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      if (serviceExecutionID === "se_rail_paged") {
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        const item = {
+          service_capability_result_item_id: "sri_rail_paged",
+          service_execution_id: serviceExecutionID,
+          capability_id: "rail_search",
+          rank: 1,
+          display_title: "rail catalog",
+          safe_payload: {
+            result: {
+              candidates: [
+                { candidate_id: "rail_0", title: "G1 北京南 → 上海虹桥", recommended: true, quoted_total_minor: 3900, estimated_door_to_door_minor: 6200 },
+                { candidate_id: "rail_1", title: "G2 北京南 → 上海虹桥", recommended: false, quoted_total_minor: 4000, estimated_door_to_door_minor: 6300 },
+              ],
+              catalog_total: 12,
+              catalog_page: { offset: 0, limit: 5, total: 12, count: 5, next_offset: 5 },
+              journey_summary: { journey_count: 4 },
+              recommendation: "rail_0",
+            },
+          },
+          created_at: "2026-07-13T12:00:00Z",
+        };
+        (model as Record<string, unknown>).current_result_items = [item];
+        (model as Record<string, unknown>).delivery_bindings = [{
+          service_delivery_binding_id: "sdb_rail_paged",
+          service_execution_id: serviceExecutionID,
+          order_id: "ord_rail_paged",
+          status: "completed",
+          redacted_summary: { delivery_mode: "agent_visible_result" },
+        }];
+        serviceExecutions[serviceExecutionID] = model;
+        respond(res, 200, model);
         return;
       }
       respond(res, 200, serviceExecutions[serviceExecutionID] ?? mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability"));

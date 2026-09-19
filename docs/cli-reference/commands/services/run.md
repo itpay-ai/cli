@@ -60,6 +60,86 @@ itpay services run <service_id> --execution <execution_id> --json
 
 只恢复当前状态。交付、Vault 授权和退款继续使用 `services next`、`services read-result`、`vault` 与 `refund` 的既有合同。
 
+## 免费试用额度与 `login_required`
+
+铁路查询类服务对未登录设备提供按服务独立计数的免费试用（`itpay-rail-exact` 与 `itpay-rail-smart` 各 2 次，互不共享）。额度在查询产生供应商副作用前由服务端原子记账：地点确认、内部多阶段、轮询和已保存结果分页不重复扣次；参数校验失败且未执行查询时不扣次。
+
+试用耗尽时，查询在供应商调用**之前**被暂停，Execution 不失败，已提交的输入服务端保留：
+
+```json
+{
+  "status": "login_required",
+  "result": {
+    "service_execution_id": "<execution_id>",
+    "service_id": "itpay-rail-exact",
+    "admission": "login_required",
+    "query_quota": [
+      { "service_id": "itpay-rail-exact", "used": 2, "limit": 2, "remaining": 0 },
+      { "service_id": "itpay-rail-smart", "used": 0, "limit": 2, "remaining": 2 }
+    ]
+  },
+  "instruction": "该服务的免费查询次数已用完（exact 2/2，smart 仍剩 2/2）。请用户在官方页面完成登录后继续免费查询；本次查询输入已保留，登录后恢复同一执行即可，不要新建执行或让用户重述行程。smart 额度属于另一类服务，不能拿它顶替 exact 查询。",
+  "next": {
+    "command": "itpay auth login --json",
+    "reason": "完成官方登录绑定后继续免费查询"
+  },
+  "recovery": [
+    {
+      "command": "itpay services run itpay-rail-exact --execution <execution_id> --json",
+      "when": "auth_bound",
+      "reason": "登录绑定完成后恢复同一查询执行"
+    }
+  ]
+}
+```
+
+`query_quota` 如实报告两类额度各自用量，一类为零不得宣称"四次全部用完"。第四次查询的结果先正常交付，下一次新查询才需要授权。
+
+登录绑定完成后，再次运行同一条 `services run <service> --execution <id> --json`（不带输入文件）：服务端重新读取当前设备绑定身份，被暂停的 Execution 从额度节点继续，不重放已成功的供应商调用，不要求重新输入。`failed`、`recovery_required` 或已完成付款的 Execution 不能以这种方式恢复。
+
+## `rate_limited`
+
+已注册账号查询不设累计次数上限，但受正常每分钟限流：
+
+```json
+{
+  "status": "rate_limited",
+  "result": {
+    "service_execution_id": "<execution_id>",
+    "service_id": "<service_id>",
+    "admission": "rate_limited",
+    "retry_after_ms": 42000
+  },
+  "instruction": "触发正常限流；等待后恢复同一执行，不要新建查询。",
+  "next": {
+    "command": "itpay services run <service_id> --execution <execution_id> --json",
+    "after_ms": 42000,
+    "reason": "限流窗口过后继续同一查询"
+  },
+  "recovery": []
+}
+```
+
+限流不是收费、不是试用耗尽、不需要重新登录。等待中不得重复扣试用或发起新的供应商请求。
+
+## 已选车次的购票输入（selection）
+
+对 `itpay-rail-booking`，输入支持两种等价方式。优先使用查询结果里服务端签发的购买承接：
+
+```json
+{
+  "passengers": 1,
+  "selection": {
+    "token": "<查询结果项中的 booking_offer.selection_token>",
+    "seat_type": "O"
+  }
+}
+```
+
+`selection.token` 绑定一次具体查询结果快照与其中的班次/方案；服务端校验归属、快照版本、时效后推导权威 `legs` 并实时核价。Agent 只提交用户选定的承接、`seat_type`（必要时）与乘客人数，**绝不手工拼装 `legs`、站码、时刻或供应商形状**。显式 `legs` 输入仍然有效，字段即购票服务发布的 `input_schema`（`passengers` 为 1–5 整数人数，不是乘客身份数组）。
+
+相同 selection 重复提交恢复同一购票执行，不会重复核价或建单。
+
 ## 终态和异常
 
 - 成功、付款、交付、授权、退款锁等状态使用既有命令的标准信封，不额外包装 Seller 专用格式。

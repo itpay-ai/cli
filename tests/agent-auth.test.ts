@@ -27,7 +27,7 @@ test('Agent login binds the signed device after Web completion without storing a
     await agentAuth('login',base,backend,env,fetcher);
     const path=sellerAuthPath(base,env,'agent-login');
     assert.equal(statSync(path).mode&0o777,0o600);
-    assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'email_verification_required');
+    assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'auth_pending');
     assert.equal(binds,0);
     completed=true;
     assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'authenticated');

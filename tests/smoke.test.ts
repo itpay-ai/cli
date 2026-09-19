@@ -43,7 +43,7 @@ import { runCancelRefund, runGetRefund, runListRefunds, runRefund, runWatchRefun
 import { runCartAdd, runCartShow, runCartShowServer, runCartRemove, runCartClear, runCartRemoveServer, runCartAbandonServer, runCartAddServer, runCartAddQuoteServer, runCartNext } from "../src/commands/cart.js";
 import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
-import { runServicesRun, runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
+import { runServicesRun, runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesPage, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
 import { CLI_VERSION, SANDBOX_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
@@ -650,6 +650,66 @@ test("services next returns one compact current-state action", async () => {
   assert.equal(envelope.result.phase, "pre_purchase");
   assert.match(envelope.next.command, /fuzzy_disambiguation/);
   assert.doesNotMatch(stdoutCapture.join(""), /capabilities|agent_guidance|stable_hash/);
+});
+
+test("services page reads the saved result version without a provider call", async () => {
+	await runServicesPage(backend, "se_rail_paged", "sri_rail_paged", { offset: 5, limit: 5, jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { service_execution_id: string; offset: number; total: number; count: number; next_offset: number | null; page: Record<string, unknown> };
+		next: { command: string } | null;
+		recovery: Array<{ command: string }>;
+	};
+	assert.equal(envelope.status, "result_page");
+	assert.equal(envelope.result.service_execution_id, "se_rail_paged");
+	assert.equal(envelope.result.offset, 5);
+	assert.equal(envelope.result.total, 12);
+	assert.equal(envelope.result.count, 5);
+	assert.equal(envelope.result.next_offset, 10);
+	assert.equal(envelope.next?.command, "itpay services page se_rail_paged sri_rail_paged --offset 10 --json");
+	assert.equal(envelope.recovery[0]?.command, "itpay services page se_rail_paged sri_rail_paged --json");
+	const container = envelope.result.page.result as Record<string, unknown>;
+	const candidates = container.candidates as Array<Record<string, unknown>>;
+	assert.equal(candidates.length, 5);
+	assert.equal(candidates[0]?.candidate_id, "rail_5");
+	assert.equal(typeof container.journey_summary, "object");
+	assert.equal(typeof container.cost_semantics, "object");
+});
+
+test("services page reports the end of a saved catalog", async () => {
+	await runServicesPage(backend, "se_rail_paged", "sri_rail_paged", { offset: 10, limit: 5, jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { count: number; next_offset: number | null };
+		next: unknown;
+	};
+	assert.equal(envelope.status, "result_page");
+	assert.equal(envelope.result.count, 2);
+	assert.equal(envelope.result.next_offset, null);
+	assert.equal(envelope.next, null);
+});
+
+test("services page rejects invalid paging without a request", async () => {
+	await assert.rejects(
+		runServicesPage(backend, "se_rail_paged", "sri_rail_paged", { offset: -1, jsonOutput: true, output: silent }),
+		(error: unknown) => error instanceof CommandContractError && error.code === "offset_invalid",
+	);
+	await assert.rejects(
+		runServicesPage(backend, "se_rail_paged", "sri_rail_paged", { limit: 99, jsonOutput: true, output: silent }),
+		(error: unknown) => error instanceof CommandContractError && error.code === "limit_invalid",
+	);
+});
+
+test("services next offers a saved-result page continuation without new quota", async () => {
+	await runServicesNext(backend, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		recovery: Array<{ command: string; reason: string }>;
+	};
+	assert.equal(envelope.status, "result_ready");
+	const page = envelope.recovery.find((action) => action.command.includes("services page"));
+	assert.equal(page?.command, "itpay services page se_rail_paged sri_rail_paged --offset 5 --json");
+	assert.match(page?.reason ?? "", /不重新查询、不消耗额度/);
 });
 
 test("services next restores candidate items on the source execution", async () => {
@@ -4731,10 +4791,12 @@ test("rail phone handoff stops without collecting identity or retrying provider"
   await runServicesInvoke(backend, config, "se_rail_phone", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
   const result = JSON.parse(stdoutCapture.join(""));
   assert.equal(result.status, "human_action_required");
-  assert.equal(result.next, null);
-  assert.match(result.result.verification_url, /\/rail\/verify/);
+  assert.equal(result.result.error_code, "verified_phone_required");
+  assert.equal(result.next.command, "itpay auth login --json");
+  assert.match(result.instruction, /CLI 不接收手机号或验证码/);
+  assert.equal(result.result.verification_url, undefined);
   assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
-  assert.equal(mock.requests.filter(r => r.path === "/v1/rail/phone-links").length, 1);
+  assert.equal(mock.requests.filter(r => r.path === "/v1/rail/phone-links").length, 0);
   assert.match(result.recovery[0].command, /se_rail_phone/);
 });
 

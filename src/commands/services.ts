@@ -261,14 +261,13 @@ export async function runServicesInvoke(
     });
   } catch (error) {
     if (!(error instanceof HttpError) || error.code !== "verified_phone_required") throw error;
-    const link = await backend.createRailPhoneLink();
     writeCommandEnvelope({
       status: "human_action_required",
-      result: { service_execution_id: serviceExecutionID, ...link },
-      instruction: "请用户打开 verification_url，在 ItPay 网页验证手机号并确认连接当前 Agent。CLI 不接收手机号或验证码；等待用户完成后再重试查询。",
-      next: null,
-      recovery: [{ command: `itpay services invoke ${serviceExecutionID} --capability ${capabilityID}${formatInputOptions(input)} --json`, reason: "仅在用户完成网页验证后重试" }],
-    }, { ...options, plainResult: [`手机号验证：${link.verification_url}`] });
+      result: { service_execution_id: serviceExecutionID, error_code: "verified_phone_required" },
+      instruction: "需要在官方页面完成手机号验证后当前执行才能继续。运行 itpay auth login 打开官方登录页，完成手机号验证并绑定本设备后重试原命令；CLI 不接收手机号或验证码。",
+      next: { command: "itpay auth login --json", reason: "完成官方手机号验证并绑定当前设备" },
+      recovery: [{ command: `itpay services invoke ${serviceExecutionID} --capability ${capabilityID}${formatInputOptions(input)} --json`, reason: "仅在完成手机号验证与设备绑定后重试" }],
+    }, { ...options, plainResult: ["手机号验证：itpay auth login"] });
     return;
   }
   const envelope = invokedEnvelope(response, requestedCapability, readModel.capabilities, input);
@@ -991,6 +990,67 @@ export async function runServicesNext(
   });
 }
 
+export async function runServicesPage(
+  backend: BackendClient,
+  serviceExecutionID: string,
+  resultItemID: string,
+  options: ServicesCommandOptions & { offset?: number; limit?: number; jsonOutput?: boolean } = {},
+): Promise<void> {
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? 5;
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new CommandContractError(
+      "offset_invalid",
+      "--offset must be a non-negative integer",
+      "offset 必须是非负整数；本次未读取服务端分页。",
+      [{ command: `itpay services page ${serviceExecutionID} ${resultItemID} --json`, reason: "从第一页重新读取" }],
+    );
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+    throw new CommandContractError(
+      "limit_invalid",
+      "--limit must be an integer from 1 to 20",
+      "limit 必须是 1 到 20 的整数；本次未读取服务端分页。",
+      [{ command: `itpay services page ${serviceExecutionID} ${resultItemID} --offset ${offset} --json`, reason: "用默认页大小重试" }],
+    );
+  }
+  const response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, resultItemID, offset, limit);
+  const page = response.page;
+  const container = (page.result ?? page) as Record<string, unknown>;
+  const catalogPage = (container.catalog_page ?? {}) as { offset?: number; limit?: number; total?: number; count?: number; next_offset?: number | null };
+  const nextOffset = typeof catalogPage.next_offset === "number" ? catalogPage.next_offset : null;
+  const candidates = Array.isArray(container.candidates) ? container.candidates : [];
+  const envelope: CommandEnvelope = {
+    status: candidates.length > 0 ? "result_page" : "result_page_end",
+    result: {
+      service_execution_id: response.service_execution_id,
+      service_capability_result_item_id: response.service_capability_result_item_id,
+      offset: catalogPage.offset ?? offset,
+      limit: catalogPage.limit ?? limit,
+      total: catalogPage.total ?? candidates.length,
+      count: catalogPage.count ?? candidates.length,
+      next_offset: nextOffset,
+      page,
+    },
+    instruction: "读取的是已保存结果的同版本分页，不重新查询、不消耗额度。用普通语言向用户说明本页候选（车次、席别、时刻、费用口径），铁路应付与地面估算费用分开表述；不要提及 safe_payload、Execution 或内部 ID。",
+    next: nextOffset !== null
+      ? { command: `itpay services page ${serviceExecutionID} ${resultItemID} --offset ${nextOffset} --json`, reason: "读取同版本结果的下一页" }
+      : null,
+    recovery: offset > 0
+      ? [{ command: `itpay services page ${serviceExecutionID} ${resultItemID} --json`, reason: "回到第一页" }]
+      : [],
+  };
+  writeCommandEnvelope(envelope, {
+    ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+    ...(options.output ? { output: options.output } : {}),
+    plainResult: candidates.map((candidate) => {
+      const c = candidate as Record<string, unknown>;
+      const title = typeof c.title === "string" ? c.title : JSON.stringify(c);
+      return `${title}`;
+    }),
+  });
+}
+
 export async function runServicesList(
   backend: BackendClient,
   options: ServicesCommandOptions & { limit?: number; jsonOutput?: boolean } = {},
@@ -1242,6 +1302,18 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         recovery: [],
       };
     }
+    if (state === "quota_paused") {
+      const login = model.workflow?.error_code !== "rate_limited";
+      const resume = {command: `itpay services run ${execution.service_id} --execution ${id} --json`, reason: "登录或限流窗口后继续同一执行"};
+      const quota = model.quota ? {bucket: model.quota.bucket, subject_type: model.quota.subject_type, limit: model.quota.limit, remaining: model.quota.remaining} : undefined;
+      return {
+        status: login ? "login_required" : "rate_limited",
+        result: {service_execution_id: id, service_id: execution.service_id, ...(quota ? {quota} : {})},
+        instruction: login ? "匿名免费额度已用完。使用 itpay auth login 完成官方登录并绑定当前 Agent，然后继续同一执行；不要重新发起查询，不需要付款。" : "已达到登录账号每分钟查询上限。请等到下一分钟后继续同一执行，不要连续重试。",
+        next: login ? {command: "itpay auth login --json", reason: "登录后继续同一查询执行"} : resume,
+        recovery: [resume],
+      };
+    }
     if (state === "human_action" && model.workflow?.human_action) {
       const action = model.workflow.human_action;
       const requiredFields = requiredInputFields(action.input_schema);
@@ -1383,6 +1455,31 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       safe_payload: item.safe_payload,
     }));
 		const selection = model.allowed_actions?.find((action) => action.type === "select_candidate");
+		const railCatalog = currentItems.some((item) => {
+			const container = (item.safe_payload?.result ?? item.safe_payload) as Record<string, unknown> | undefined;
+			return container?.catalog_page !== undefined || container?.cost_semantics !== undefined;
+		});
+		const pageRecovery = currentItems.flatMap((item) => {
+      const container = (item.safe_payload?.result ?? item.safe_payload) as Record<string, unknown> | undefined;
+      const catalogPage = container?.catalog_page as { next_offset?: number } | undefined;
+      const nextOffset = catalogPage?.next_offset;
+      return typeof nextOffset === "number"
+        ? [{ command: `itpay services page ${execution.service_execution_id} ${item.service_capability_result_item_id} --offset ${nextOffset} --json`, reason: "读取已保存结果的同版本下一页，不重新查询、不消耗额度" }]
+        : [];
+    });
+		const railCostGuidance = "铁路应付只含票价加服务费（quoted_total_minor）；地面接驳是单独估算（estimated_ground_minor），两者相加是已知估算（estimated_door_to_door_minor），不是收款额。";
+		const instruction = (delivery?.order_id
+			? appendFeedbackPostmortemInstruction(items.length > 0
+				? selection
+					? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
+					: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
+				: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。", "delivered")
+			: items.length > 0
+			? selection
+				? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
+				: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
+			: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。")
+			+ (railCatalog && items.length > 0 ? ` ${railCostGuidance}` : "");
 		return {
       status: items.length > 0 ? "result_ready" : "no_result",
 			result: {
@@ -1392,22 +1489,12 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 				delivery_mode: deliveryMode,
 				items,
 			},
-			instruction: delivery?.order_id
-						? appendFeedbackPostmortemInstruction(items.length > 0
-					? selection
-						? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
-						: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
-					: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。", "delivered")
-				: items.length > 0
-				? selection
-					? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
-					: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
-				: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。",
+			instruction,
 			next: selection ? {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
 				reason: "仅在用户明确选择后锁定来源候选",
 			} : null,
-			recovery: [],
+			recovery: pageRecovery,
     };
   }
   if (deliveryMode === "vault_artifact") {
@@ -1797,6 +1884,7 @@ export async function runServicesRun(
       const started = await backend.startServiceExecution({
         service_id: serviceID,
         client_context: { host: options.host ?? "terminal", ...(options.target ? { target: options.target } : {}) },
+        ...(input !== undefined ? { input } : {}),
       });
       id = started.execution.service_execution_id;
       if (!started.workflow_entry) {
@@ -1812,6 +1900,8 @@ export async function runServicesRun(
     }
     if (input !== undefined) {
       model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`);
+    } else if (model.workflow?.status === "quota_paused") {
+      model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`);
     }
     const until = Date.now() + (options.timeoutSeconds ?? 120) * 1000;
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));

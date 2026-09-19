@@ -51,6 +51,7 @@ import {
   runServicesInvoke,
   runServicesList,
   runServicesNext,
+  runServicesPage,
   runServicesReadResult,
   runServicesQuote,
   runServicesStart,
@@ -1454,6 +1455,35 @@ services
       reportCLIError(error, {
         jsonOutput: Boolean(options.json), code: "workflow_run_failed",
         instruction: "按服务输入声明补齐参数；已有 execution 时继续该执行。", recovery: [],
+      });
+    }
+  });
+
+services
+  .command("page")
+  .description("Read one page of a saved service result set (same stored version, no re-query, no quota)")
+  .argument("<service_execution_id>")
+  .argument("<result_item_id>")
+  .option("--offset <offset>", "zero-based candidate offset", Number, 0)
+  .option("--limit <limit>", "page size (1-20)", Number, 5)
+  .option("--json", "output JSON")
+  .action(async (serviceExecutionID: string, resultItemID: string, options) => {
+    const config = loadConfig();
+    const backend = newBackendClient(config);
+    try {
+      await runServicesPage(backend, serviceExecutionID, resultItemID, {
+        offset: options.offset,
+        limit: options.limit,
+        jsonOutput: Boolean(options.json),
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "service_page_failed",
+        instruction: "分页读取的是已保存的同版本结果；不要重新发起查询或新建 execution。",
+        recovery: [
+          { command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前结果页与合法动作" },
+        ],
       });
     }
   });

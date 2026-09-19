@@ -39,6 +39,7 @@ import type {
   ServiceExecutionEvents,
   ServiceExecutionReadModel,
   ServiceExecutionStarted,
+  ServiceResultItemPage,
   ServiceQuotePrepared,
   SSEEvent,
   StartServiceExecutionRequest,
@@ -53,10 +54,10 @@ export class BackendClient {
     return this.http.request(request.path,{method:request.method,...(request.body!==undefined?{body:request.body}:{})});
   }
 
-  agentAccountStatus(): Promise<{status: string}> {
+  agentAccountStatus(): Promise<{status: string; phone_verified?: boolean}> {
     return this.http.get('/v1/agent-device-account-bindings');
   }
-  bindAgentAccount(input: {dashboard_auth_session_id: string; start_token: string}): Promise<{status: string}> {
+  bindAgentAccount(input: {dashboard_auth_session_id: string; start_token: string}): Promise<{status: string; phone_verified?: boolean}> {
     return this.http.post('/v1/agent-device-account-bindings', input);
   }
 
@@ -222,9 +223,11 @@ export class BackendClient {
     return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey });
   }
 
-  createRailPhoneLink(): Promise<{ verification_url: string; expires_at: string; verification_mode: string }> {
-    return this.http.post("/v1/rail/phone-links", {});
+  getServiceExecutionResultItemPage(serviceExecutionID: string, resultItemID: string, offset: number, limit: number): Promise<ServiceResultItemPage> {
+    const qs = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return this.http.get<ServiceResultItemPage>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/result-items/${encodeURIComponent(resultItemID)}?${qs}`);
   }
+
 
   invokeServiceCapability(
     serviceExecutionID: string,

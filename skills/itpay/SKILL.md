@@ -31,6 +31,25 @@ purchase. If a request such as "查京东" could mean either old content or a ne
 query, ask which one the human wants before calling ItPay. Do not spend quota,
 request authorization, or start a purchase while the intent is ambiguous.
 
+## Railway Services
+
+Three services, three different jobs — pick by the human's input, never merge them:
+
+| Human has | Service |
+| --- | --- |
+| Exact departure AND arrival station names | `itpay-rail-exact` (direct query) |
+| City/area/address, or wants transfer planning | `itpay-rail-smart` (location resolution + planning) |
+| Chose a train/seat and wants to buy | `itpay-rail-booking` (quote → protected checkout → issuance) |
+
+Query results carry a server-issued `booking_offer.selection_token` on bookable
+options; for a purchase submit that token plus passenger count — never
+reconstruct train legs by hand. Passenger names, ID numbers and phone numbers
+belong only on the protected checkout page, never in chat. Each query service
+has its own free trial count (2+2, not a shared pool); `login_required` pauses
+the query, it is not a failure — resume the same execution after `itpay auth
+login`. For the full input contract and states, load the rail-booking topic via
+`itpay docs search rail-booking --json`.
+
 ## Follow One Envelope
 
 For each JSON response:
