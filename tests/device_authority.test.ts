@@ -312,6 +312,7 @@ class DeviceServer {
   enrollmentCount = 0;
   requestCount = 0;
   revoked = false;
+  failEnrollmentVerify = false;
   readonly revokedAgentTypes = new Set<string>();
   readonly registrationAuthorizers: string[] = [];
   private publicKey: ReturnType<typeof createPublicKey> | undefined;
@@ -329,6 +330,9 @@ class DeviceServer {
     }
     if (path === "/v1/agent-device-enrollments/enr_1/verify") {
       this.assertSignature("itpay-device-enrollment/v1\nenr_1\nenroll_nonce", body.signature!);
+      if (this.failEnrollmentVerify) {
+        return json({ code: "internal_error", message: "request failed" }, 500);
+      }
       this.instances.set("codex-cli", "ain_codex_cli");
       return json({ agent_device_id: "adev_1", agent_device_key_id: "akey_1", quota_lineage_id: "qln_1", agent_instance_id: "ain_codex_cli", agent_type: "codex-cli" });
     }
@@ -365,6 +369,71 @@ class DeviceServer {
     assert.equal(verify(null, Buffer.from(message), this.publicKey, Buffer.from(signature, "base64")), true);
   }
 }
+
+test("device authority re-enrolls an orphaned private key after interrupted first registration", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-orphan-key-"));
+  const statePath = join(root, "identity.json");
+  const privateKeyPath = join(root, "private.pem");
+  const server = new DeviceServer();
+  const options = {
+    baseURL: "https://test.itpay.ai", requestedAgentType: "codex-cli", compatibilityHeaders: {},
+    statePath, privateKeyPath, fetchImpl: server.fetch,
+  };
+
+  const first = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  const firstInstance = first["X-ItPay-Agent-Instance-ID"];
+  const privateKey = readFileSync(privateKeyPath, "utf8");
+
+  // Simulate the crash window: the server committed the device but the local
+  // registration write never happened. Only identity.json is lost.
+  writeFileSync(statePath, JSON.stringify({ schemaVersion: "itpay.device.v2", registrations: {} }), { mode: 0o600 });
+
+  const second = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  assert.equal(second["X-ItPay-Agent-Instance-ID"], firstInstance, "re-enrollment with the same key re-attaches to the same instance");
+  assert.equal(server.enrollmentCount, 2);
+  assert.equal(readFileSync(privateKeyPath, "utf8"), privateKey, "the private key is preserved across re-attach");
+});
+
+test("device authority marks enrollment failures so guidance can offer key reset", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-enroll-fail-"));
+  const server = new DeviceServer();
+  server.failEnrollmentVerify = true;
+
+  await assert.rejects(
+    () => new DeviceAuthority({
+      baseURL: "https://test.itpay.ai", requestedAgentType: "codex-cli", compatibilityHeaders: {},
+      statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
+    }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" }),
+    (error: unknown) => error instanceof DeviceAuthorizationError &&
+      error.status === 500 && error.code === "internal_error" && error.enrollmentFailed === true,
+  );
+});
+
+test("device authority resetDeviceKey discards the key and every registration", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-reset-key-"));
+  const statePath = join(root, "identity.json");
+  const privateKeyPath = join(root, "private.pem");
+  const server = new DeviceServer();
+  const options = {
+    baseURL: "https://test.itpay.ai", requestedAgentType: "codex-cli", compatibilityHeaders: {},
+    statePath, privateKeyPath, fetchImpl: server.fetch,
+  };
+  const authority = new DeviceAuthority(options);
+  await authority.authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  const previousKey = readFileSync(privateKeyPath, "utf8");
+
+  const reset = await authority.resetDeviceKey();
+  assert.deepEqual(reset.removedBackends, ["https://test.itpay.ai"]);
+  assert.equal(existsSync(privateKeyPath), false);
+  const cleared = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, unknown> };
+  assert.deepEqual(cleared.registrations, {});
+
+  // The next authorization generates a brand-new key pair and enrolls fresh.
+  const headers = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  assert.equal(headers["X-ItPay-Agent-Instance-ID"], "ain_codex_cli");
+  assert.equal(server.enrollmentCount, 2);
+  assert.notEqual(readFileSync(privateKeyPath, "utf8"), previousKey);
+});
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });

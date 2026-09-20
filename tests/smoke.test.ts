@@ -2161,6 +2161,29 @@ test("device recover requires confirmation and remains Backend-scoped", async ()
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy services list --limit 1 --json");
 });
 
+test("device reset-key requires confirmation and discards the local device key", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-device-reset-key-cli-"));
+  await assert.rejects(
+    runCLI(["device", "reset-key", "--json"], { HOME: home }),
+    (error: unknown) => {
+      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "key_reset_confirmation_required");
+      return true;
+    },
+  );
+
+  const envelope = JSON.parse((await runCLI([
+    "device", "reset-key", "--confirm-key-reset", "--json",
+  ], { HOME: home })).stdout) as {
+    status: string;
+    result: { removed_backend_registrations: string[]; private_key_preserved: boolean; server_side_device: string };
+  };
+  assert.equal(envelope.status, "device_key_reset");
+  assert.deepEqual(envelope.result.removed_backend_registrations, []);
+  assert.equal(envelope.result.private_key_preserved, false);
+  assert.equal(envelope.result.server_side_device, "orphaned_under_previous_key");
+});
+
 test("skill show returns the complete packaged Skill and type-aware onboarding", async () => {
   const untyped = JSON.parse((await runCLI(["skill", "show", "itpay", "--json"], {})).stdout) as {
     status: string; result: { skill: string; content: string }; next: { command: string };
