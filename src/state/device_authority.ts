@@ -204,7 +204,19 @@ export class DeviceAuthority {
       registration = await this.enroll(agentType, privateKey);
     }
     state.registrations[this.backendKey] = registration;
-    const session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    let session: DeviceSessionState;
+    try {
+      session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    } catch (error) {
+      if (!isUnknownDeviceRegistration(error)) throw error;
+      // The backend lost this registration (e.g. its identity store was
+      // rebuilt). Drop the stale record and enroll once: the same key either
+      // re-attaches to the surviving device or creates a fresh one.
+      delete state.registrations[this.backendKey];
+      registration = await this.enroll(agentType, privateKey);
+      state.registrations[this.backendKey] = registration;
+      session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    }
     this.writeState(state);
     return { state: registration, agentType, session, privateKey };
   }
@@ -386,6 +398,9 @@ function emptyDeviceState(): DeviceState {
 
 function canMovePastLegacyRegistration(error: unknown): boolean {
   return error instanceof DeviceAuthorizationError && (error.code === "agent_device_revoked" || error.status === 404);
+}
+function isUnknownDeviceRegistration(error: unknown): boolean {
+  return error instanceof DeviceAuthorizationError && (error.code === "agent_device_not_found" || error.status === 404);
 }
 function normalizeBackendKey(value: string): string {
   const url = new URL(value);

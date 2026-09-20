@@ -317,6 +317,12 @@ class DeviceServer {
   readonly registrationAuthorizers: string[] = [];
   private publicKey: ReturnType<typeof createPublicKey> | undefined;
   private readonly instances = new Map<string, string>();
+  private readonly devices = new Set<string>();
+
+  forgetDevices(): void {
+    this.devices.clear();
+    this.instances.clear();
+  }
 
   readonly fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     this.requestCount += 1;
@@ -334,6 +340,7 @@ class DeviceServer {
         return json({ code: "internal_error", message: "request failed" }, 500);
       }
       this.instances.set("codex-cli", "ain_codex_cli");
+      this.devices.add("adev_1");
       return json({ agent_device_id: "adev_1", agent_device_key_id: "akey_1", quota_lineage_id: "qln_1", agent_instance_id: "ain_codex_cli", agent_type: "codex-cli" });
     }
     if (path === "/v1/agent-instances") {
@@ -350,6 +357,7 @@ class DeviceServer {
     }
     if (path === "/v1/agent-device-session-challenges") {
       if (this.revoked) return json({ code: "agent_device_revoked", message: "agent device is revoked" }, 403);
+      if (!this.devices.has(body.agent_device_id!)) return json({ code: "agent_device_not_found", message: "agent device registration is not present on this backend" }, 404);
       const agentType = [...this.instances].find(([, id]) => id === body.agent_instance_id)?.[0];
       if (!agentType) return json({ code: "agent_device_revoked", message: "agent device is not registered here" }, 403);
       if (this.revokedAgentTypes.has(agentType)) return json({ code: "agent_device_revoked", message: "agent instance is revoked" }, 403);
@@ -392,6 +400,31 @@ test("device authority re-enrolls an orphaned private key after interrupted firs
   assert.equal(second["X-ItPay-Agent-Instance-ID"], firstInstance, "re-enrollment with the same key re-attaches to the same instance");
   assert.equal(server.enrollmentCount, 2);
   assert.equal(readFileSync(privateKeyPath, "utf8"), privateKey, "the private key is preserved across re-attach");
+});
+
+test("device authority re-enrolls when the backend forgot the registration", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-forgotten-"));
+  const statePath = join(root, "identity.json");
+  const privateKeyPath = join(root, "private.pem");
+  const server = new DeviceServer();
+  const options = {
+    baseURL: "https://test.itpay.ai", requestedAgentType: "codex-cli", compatibilityHeaders: {},
+    statePath, privateKeyPath, fetchImpl: server.fetch,
+  };
+
+  await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  assert.equal(server.enrollmentCount, 1);
+
+  // Simulate a backend whose identity store was rebuilt: the registration rows
+  // are gone, so session establishment reports agent_device_not_found.
+  const state = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, { sessions: Record<string, unknown> }> };
+  state.registrations["https://test.itpay.ai"]!.sessions = {};
+  writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
+  server.forgetDevices();
+
+  const second = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  assert.equal(server.enrollmentCount, 2, "the stale registration is dropped and the device re-enrolls");
+  assert.equal(second["X-ItPay-Agent-Instance-ID"], "ain_codex_cli");
 });
 
 test("device authority marks enrollment failures so guidance can offer key reset", async () => {
