@@ -26,7 +26,11 @@
         "travel_date": "Travel date in YYYY-MM-DD. The field name must be exactly travel_date; aliases like date are rejected."
       },
       "optional": "None. additionalProperties is false — extra fields are rejected by the provider.",
-      "example": {"origin": "古镇", "destination": "广州南", "travel_date": "2026-09-19"}
+      "example": {
+        "origin": "古镇",
+        "destination": "广州南",
+        "travel_date": "2026-09-19"
+      }
     },
     "itpay-rail-smart": {
       "required": {
@@ -44,7 +48,12 @@
         "priority": "One of balanced | fastest | cheapest | safest | flexible.",
         "max_transfers": "Integer 0-2, allowed transfer count."
       },
-      "example": {"origin": "中山古镇", "destination": "广州南", "travel_date": "2026-09-19", "priority": "fastest"}
+      "example": {
+        "origin": "中山古镇",
+        "destination": "广州南",
+        "travel_date": "2026-09-19",
+        "priority": "fastest"
+      }
     },
     "itpay-rail-booking": {
       "preferred": {
@@ -78,7 +87,8 @@
     "services start <service> --json returns input_required plus the guidance block for rail services.",
     "Submit input with services run <service> --execution <id> --input-json <file> --json on the SAME execution.",
     "itpay-rail-smart may stop at a location confirmation step; show the candidate places to the buyer, then continue the same execution after the human confirms.",
-    "After the buyer explicitly picks a train/seat, run itpay-rail-booking with the selection token (preferred) or explicit legs.",
+    "After the buyer explicitly picks a train/seat, run itpay-rail-booking with the selection token (preferred) or explicit legs. The execution then pauses at the booking review (workflow:confirm_booking): services next returns booking_review_required with human_action.context.review carrying draft_revision, legs, seat_options and notice_version.",
+    "Collect the review input and submit it with services action <id> --action workflow:confirm_booking --actor-type human --status approved --input-json <file> --json. Required fields: draft_revision (exact server value), passengers, seat_type, seat_preferences (one entry per passenger_index 0..n-1, values limited to that leg's seat_options), party_preference, fallback=automatic_assignment, notice_version, accept_non_guaranteed=true. Only after an accepted review does the server quote and offer checkout.",
     "The booking execution reaches a protected checkout: passenger identity data is entered by the human on that page, never through the CLI. Account authentication may happen inside checkout — do not force a separate auth login first (Path B).",
     "Payment success does not mean the ticket is issued. Issuance is asynchronous; keep reading the same execution with services next.",
     "If seat details are still syncing after issuance, advise the buyer to verify the itinerary on 12306 instead of repeating the query."
@@ -89,25 +99,67 @@
     "search": "Supplier query failed: most commonly a wrong field name (must be travel_date) or a nonexistent station name; recheck input against this doc.",
     "catalog_or_recommend": "Location resolved but no feasible trains: change the date or stations.",
     "login_required_is_not_failure": "login_required / rate_limited pause the execution; they are NOT failures and never justify a replacement execution.",
-    "general_rule": "Never replay a failed execution and never guess different field names; correct the input and start a new execution of the same service."
+    "general_rule": "Never replay a failed execution and never guess different field names; correct the input and start a new execution of the same service.",
+    "booking_review_changed": "The submitted draft_revision is stale: re-read services next for the current review projection and resubmit the full input; do not bump the revision yourself."
   },
   "seat_preferences": {
     "meaning": "A buyer's seat-letter preference may be planned per leg before payment. The plan is submitted to the supplier when encodable; unsupported combinations fall back to automatic assignment.",
     "letters": "Evidence-backed letters only: O=ABCDF (second class), M=ACDF (first class), 9=ACF (business class). Other layouts auto-assign.",
-    "boundary": "Never claim a preference was fulfilled before supplier confirmation; check the issued seat in the order/status output."
+    "boundary": "Never claim a preference was fulfilled before supplier confirmation; check the issued seat in the order/status output.",
+    "review_contract": "Submitted inside the confirm_booking action via --input-json (nested JSON; --input key=value cannot express it and must not be combined with it). One preference per passenger slot, passenger_index 0-based. draft_revision must equal the server projection; a stale revision returns booking_review_changed — re-read services next and resubmit, never increment locally.",
+    "revision": "While payment has not started, the same execution accepts a revised review: resubmit confirm_booking with the new draft_revision; the old unpaid quote/checkout is retired and re-quoted. After a payment attempt the review is closed — never create a replacement purchase."
   },
   "agent_rules": [
     "Pick the service by the buyer's input precision: exact station names → itpay-rail-exact; anything fuzzier → itpay-rail-smart; explicit purchase intent after a selection → itpay-rail-booking.",
     "Never invent input field names. If the guidance block or this doc does not list a field, do not send it.",
     "Never ask the buyer for passenger names, ID numbers, or phone numbers in chat; those are collected only on the protected checkout page.",
     "Never reconstruct provider-shaped legs JSON when a booking_offer.selection_token is available; submit the token plus passengers.",
+    "Seat preferences are requests, not guarantees: always repeat the notice that automatic assignment remains possible, and never claim a specific seat before the issued order shows it.",
+    "Take draft_revision only from the current services next review projection; on booking_review_changed re-read instead of retrying the stale value.",
     "login_required and rate_limited are pauses, not failures: resume the same execution, never spawn a replacement.",
     "Do not repeat or replay a failed execution; correct the input and start a new one.",
     "Do not claim payment equals ticket issuance; issuance is asynchronous and confirmed only by the issued seat status."
   ],
   "human_language": {
-    "prefer": ["车次", "出发站", "到达站", "出行日期", "座位", "余票", "出票中", "已出票", "登录后继续免费查询"],
-    "avoid": ["workflow", "execution", "provider", "seat_source", "candidate_id", "token", "quota"]
+    "prefer": [
+      "车次",
+      "出发站",
+      "到达站",
+      "出行日期",
+      "座位",
+      "余票",
+      "出票中",
+      "已出票",
+      "登录后继续免费查询"
+    ],
+    "avoid": [
+      "workflow",
+      "execution",
+      "provider",
+      "seat_source",
+      "candidate_id",
+      "token",
+      "quota"
+    ]
   },
-  "search_terms": ["rail", "railway", "train", "ticket", "火车", "火车票", "高铁", "车票", "车次", "seat", "booking", "rail-booking"]
+  "search_terms": [
+    "rail",
+    "railway",
+    "train",
+    "ticket",
+    "火车",
+    "火车票",
+    "高铁",
+    "车票",
+    "车次",
+    "seat",
+    "booking",
+    "rail-booking"
+  ],
+  "notifications": {
+    "channels": "Delivery notices reach the checkout-confirmed contact: email always works; a verified mainland SMS recipient is optional and checkout-scoped. The passenger phone, the login phone and the notification recipient are independent facts.",
+    "status_read": "The order read exposes masked per-leg notification entries (keys: issued, details_pending, seat_ready) with channel, status and masked recipient — never raw numbers.",
+    "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
+    "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
+  }
 }

@@ -21,7 +21,7 @@ itpay services run <service_id>
 | 参数 | 说明 |
 | --- | --- |
 | `service_id` | Catalog 返回的服务 ID。恢复时必须与 Execution 所属服务一致。 |
-| `--input-json` | UTF-8 JSON 文件；顶层必须是 object，并符合服务发布的 input schema。 |
+| `--input-json` | UTF-8 JSON 文件；顶层必须是 object，并符合服务发布的 input schema；文件不超过 256 KiB。文件不可读、非合法 JSON 或顶层非 object 时在本地报 `workflow_input_invalid`，不发生网络写。 |
 | `--execution` | 恢复同一 Execution。不得用它切换服务或绕过原状态。 |
 | `--timeout` | 本次等待 workflow 状态变化的秒数，默认 120，范围 0–600；超时只返回当前状态。 |
 | `--host` / `--target` | Host 展示上下文，不是业务输入或 Buyer 身份。 |

@@ -1,6 +1,6 @@
 import { agentAuth } from "./state/account_auth.js";
 import {registerSell} from "./sell/commands.js";
-import { readFileSync as readWorkflowInputFile } from "node:fs";
+import { readFileSync as readWorkflowInputFile, statSync as statWorkflowInputFile } from "node:fs";
 import { runServicesRun } from "./commands/services.js";
 // V3 CLI entrypoint. Each command maps 1:1 to a route family in
 // services/backend/internal/httpapi/handlers/*.go. Commands only
@@ -206,10 +206,21 @@ function reportCLIError(
   const providerInputRejected = error instanceof HttpError && error.code === "provider_input_rejected";
   const providerContractMismatch = error instanceof HttpError && error.code === "provider_contract_mismatch";
   const capabilityInputInvalid = error instanceof HttpError && error.code === "capability_input_invalid";
-  const deviceRecovery: CommandAction[] = deviceError ? [{
-    command: "itpay skill show itpay --json",
-    reason: "读取 ItPay 身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
-  }] : [];
+  const deviceKeyResettable = Boolean(deviceError && (
+    deviceError.code === "agent_device_key_rotated" ||
+    deviceError.code === "agent_device_key_conflict" ||
+    (deviceError.enrollmentFailed && deviceError.status === 500)
+  ));
+  const deviceRecovery: CommandAction[] = deviceError ? [
+    {
+      command: "itpay skill show itpay --json",
+      reason: "读取 ItPay 身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
+    },
+    ...(deviceKeyResettable ? [{
+      command: "itpay device reset-key --confirm-key-reset --json",
+      reason: "服务端拒绝以当前私钥完成设备登记；生成全新 Ed25519 密钥并重新登记（旧设备身份在服务端保留为孤儿，不影响新身份和额度谱系）",
+    }] : []),
+  ] : [];
   const stateRecovery: CommandAction[] = stateError ? [{
     command: "itpay skill show itpay --json",
     reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
@@ -220,9 +231,13 @@ function reportCLIError(
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
       ? "Backend 已撤销当前 Device 登记；CLI 没有自动创建替代身份。停止重试并请用户或运营恢复登记。"
-      : deviceError
-        ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
-        : undefined;
+      : deviceKeyResettable && deviceError?.status === 500
+        ? "服务端未能完成设备登记。先原样重试一次原命令：服务端会把已登记的同一公钥幂等挂回原设备。若仍返回 internal_error（Backend 未含该修复），执行 itpay device reset-key --confirm-key-reset 生成全新密钥后重试。"
+        : deviceKeyResettable
+          ? "服务端记录显示当前设备私钥已不再有效（已轮换或与既有登记冲突）。执行 itpay device reset-key --confirm-key-reset 生成全新密钥并重新登记。"
+          : deviceError
+            ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
+            : undefined;
   if (contract || commandError || backendOverrideError) {
     writeCommandEnvelope({
       status: "error",
@@ -442,6 +457,58 @@ deviceCmd
         jsonOutput: Boolean(options.json),
         code: "device_recovery_failed",
         instruction: "仅恢复运营已确认重建的当前 Backend；不要删除整个 Device identity。",
+        recovery: [{ command: "itpay docs show identity-and-sessions --json", reason: "检查 Device 恢复边界" }],
+      });
+    }
+  });
+
+deviceCmd
+  .command("reset-key")
+  .description("Discard the local Ed25519 device key and all Backend registrations so the next command enrolls as a new device")
+  .option("--confirm-key-reset", "confirm that the current device key must be abandoned and a new identity created")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    const config = loadConfig();
+    try {
+      if (!options.confirmKeyReset) {
+        throw new CommandContractError(
+          "key_reset_confirmation_required",
+          "--confirm-key-reset is required",
+          "仅当服务端拒绝以当前私钥完成设备登记（internal_error、agent_device_key_rotated 或 agent_device_key_conflict）时使用；会放弃本地设备身份并重新登记，旧设备在服务端保留为孤儿。",
+          [{ command: "itpay docs show identity-and-sessions --json", reason: "检查适用边界" }],
+        );
+      }
+      const reset = await new DeviceAuthority({
+        baseURL: config.baseURL,
+        ...(config.agentType ? { requestedAgentType: config.agentType } : {}),
+        compatibilityHeaders: {},
+      }).resetDeviceKey();
+      writeCommandEnvelope({
+        status: "device_key_reset",
+        result: {
+          removed_backend_registrations: reset.removedBackends,
+          private_key_preserved: false,
+          server_side_device: "orphaned_under_previous_key",
+        },
+        instruction: "本地设备私钥已重置；下一次需要设备身份的命令会以全新 Ed25519 密钥重新登记并获得新的额度谱系。服务端旧设备记录保留为孤儿；如需清理请走运营流程。",
+        next: {
+          command: `itpay --agent-type ${config.agentType ?? "<agent_type>"} services list --limit 1 --json`,
+          reason: "用无业务写入的签名请求完成新密钥的重新登记",
+        },
+        recovery: [],
+      }, {
+        jsonOutput: Boolean(options.json),
+        plainResult: [
+          `removed_backend_registrations: ${reset.removedBackends.join(", ") || "none"}`,
+          "private_key: rotated (previous key discarded)",
+          "server_side_device: orphaned under previous key",
+        ],
+      });
+    } catch (error) {
+      reportCLIError(error, {
+        jsonOutput: Boolean(options.json),
+        code: "device_key_reset_failed",
+        instruction: "仅在确认要放弃当前设备私钥时使用；普通 session 失效或 revoked 不需要本命令。",
         recovery: [{ command: "itpay docs show identity-and-sessions --json", reason: "检查 Device 恢复边界" }],
       });
     }
@@ -1422,6 +1489,25 @@ vault
 
 // --- service execution ----------------------------------------------------
 
+const WORKFLOW_INPUT_JSON_MAX_BYTES = 256 * 1024;
+
+function readInputJsonObject(file: string, code: string, recovery: CommandAction[]): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    if (statWorkflowInputFile(file).size > WORKFLOW_INPUT_JSON_MAX_BYTES) {
+      throw new CommandContractError(code, `--input-json file exceeds ${WORKFLOW_INPUT_JSON_MAX_BYTES} bytes`, "输入文件过大；只提交服务端 input_schema 声明的字段。", recovery);
+    }
+    parsed = JSON.parse(readWorkflowInputFile(file, "utf8"));
+  } catch (error) {
+    if (error instanceof CommandContractError) throw error;
+    throw new CommandContractError(code, `--input-json is not readable valid JSON: ${error instanceof Error ? error.message : String(error)}`, "确认文件存在且为合法 JSON；按服务端 input_schema 字段填写。", recovery);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new CommandContractError(code, "--input-json must contain a JSON object", "确认输入必须是 JSON 对象；按服务端 input_schema 字段填写。", recovery);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 const services = program.command("services").description("Generic V3 Service Execution commands");
 
 services
@@ -1437,10 +1523,11 @@ services
   .action(async (serviceID: string, options) => {
     const config = loadConfig();
     try {
-      const input = options.inputJson ? JSON.parse(readWorkflowInputFile(options.inputJson, "utf8")) : undefined;
-      if (input !== undefined && (!input || typeof input !== "object" || Array.isArray(input))) {
-        throw new Error("input JSON must be an object");
-      }
+      const input = options.inputJson
+        ? readInputJsonObject(options.inputJson, "workflow_input_invalid", [
+            { command: `itpay services run ${serviceID} --json`, reason: "重新读取服务输入声明" },
+          ])
+        : undefined;
       if (!Number.isFinite(options.timeout) || options.timeout < 0 || options.timeout > 600) {
         throw new Error("timeout must be between 0 and 600 seconds");
       }
@@ -1561,16 +1648,22 @@ services
   .option("--result-item <service_capability_result_item_id>")
   .option("--required-before <step>")
   .option("--input <key=value>", "action input snapshot", collectOption, [])
+  .option("--input-json <file>", "JSON object containing the full action input snapshot")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
+      const recovery = [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前动作要求" }];
+      if (options.inputJson && options.input.length > 0) {
+        throw new CommandContractError("service_action_invalid", "--input and --input-json cannot be combined", "--input 与 --input-json 只能二选一：嵌套结构用 --input-json <file>，扁平键值用 --input key=value。", recovery);
+      }
+      const fileInput = options.inputJson ? readInputJsonObject(options.inputJson, "service_action_invalid", recovery) : {};
       await runServicesAction(
         backend,
         serviceExecutionID,
         options.action,
-        parseKeyValueList(options.input),
+        { ...fileInput, ...parseKeyValueList(options.input) },
         {
           ...(options.actorType ? { actorType: options.actorType } : {}),
           ...(options.actorId ? { actorID: options.actorId } : {}),

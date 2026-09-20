@@ -87,6 +87,7 @@ Terminal and error states:
 ## Rules
 
 - The human's phone number and SMS code are entered only on the official page — never through chat or CLI input. A `buyer_id`, a typed phone string, or a passenger phone is **not** proof of phone verification.
+- Verified email OR verified mainland phone both establish a valid login; the user picks on the page. Phone verification is not a prerequisite for registered free search — a verified email alone is sufficient.
 - Login never grants Vault content, passenger history, or another Agent's authority. Other devices/platforms enroll and authorize separately.
 - After `authenticated`, server-side identity is re-read; an anonymous execution blocked at the quota step resumes with `services run <service> --execution <id> --json` — no new execution, no re-asked itinerary.
 - Refusing or cancelling login deletes nothing: saved results and purchase options remain usable.

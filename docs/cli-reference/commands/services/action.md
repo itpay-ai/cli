@@ -16,8 +16,14 @@ itpay services action <service_execution_id> --action <action_type>
   [--actor-type <actor_type>] [--actor-id <actor_id>]
   [--status <pending|approved|rejected|expired|cancelled>]
   [--candidate <rank> | --result-item <result_item_id>]
-  [--required-before <step>] [--input <key=value> ...] [--json]
+  [--required-before <step>] [--input <key=value> ...]
+  [--input-json <file>] [--json]
 ```
+
+| 选项 | 说明 |
+|---|---|
+| `--input <key=value>` | 逐项提交 action input；值可为 JSON 字面量（对象/数组/布尔/数字），可重复。 |
+| `--input-json <file>` | UTF-8 JSON 文件；顶层必须是 object，整体作为 action input；文件不超过 256 KiB。适合嵌套结构（如订票确认的 `seat_preferences`）。**与 `--input` 互斥**：同时给出时在发起请求前返回 `service_action_invalid`。文件不存在、非合法 JSON 或顶层非 object 同样在本地报结构化错误，不发生网络写。 |
 
 普通 Agent 优先使用 `--candidate <rank>`。CLI 只从当前 Execution 的 `current_result_items` 解析 Result Item ID；Backend 再读取权威 Invocation 和 Stable Hash。Agent 不提交 Hash，也不能使用其他 Execution 或外部来源的候选。`--result-item` 只用于已持有当前 Execution 内部句柄的受控恢复，不应要求用户提供。
 
@@ -44,6 +50,8 @@ itpay services action <service_execution_id> --action <action_type>
 `next` 来自 action 写入后重新读取的类型化 `allowed_actions`，不是 CLI 根据服务名猜测。普通单 Execution 的付费 continuation 使用 `services checkout`；候选选择本身不代表用户已经同意购买。没有合法动作时返回 `next: null`。非候选 action 仍返回 `action_recorded` 并引导 `services next`。
 
 rank 不存在、属于旧结果集或其他 Execution、action 不允许、status 非法时均不写 action；返回结构化错误并且只引导同一 Execution 的 `services next`。不得新建 Execution、重新 invoke 或构造候选 ID。相同候选重试幂等；同一结果集改选另一个候选返回冲突，不覆盖已批准事实。
+
+订票类 `workflow:confirm_booking` 动作要求嵌套输入（`passengers`、`seat_type`、逐乘客 `seat_preferences`、`draft_revision`、`notice_version` 等），一律经 `--input-json <file>` 提交完整 JSON 对象。`draft_revision` 必须等于 `services next` 投影的 `context.review.draft_revision`；服务端拒绝 `booking_review_changed` 时重新读取后重试，不得自行递增。乘客姓名、证件号等身份信息不在此提交，仍由受保护 Checkout 页收集。
 
 ## Agent Type / Host
 

@@ -1353,6 +1353,17 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           recovery: [],
         };
       }
+      const review = action.context?.review as Record<string, unknown> | undefined;
+      if (review) {
+        return {
+          status: "booking_review_required",
+          result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
+            required_fields: requiredFields },
+          instruction: "向用户展示 context.review 中的行程（legs）与可选席别/座位偏好词表（seat_options），并明确告知：座位偏好仅为请求、不保证分配（对应 notice_version 文案须经用户同意）。收集乘客人数、席别与每位乘客偏好后，按 required_fields 组装完整 JSON 对象，经 --input-json <file> 提交——draft_revision 必须等于服务端当前值，被拒绝（booking_review_changed）时重新读取后重试。乘客姓名/证件等身份信息不在此提交，仍走受保护 Checkout 页。",
+          next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`, reason: "提交用户确认后的行程确认/修订" },
+          recovery: [{ command: `itpay services next ${id} --json`, reason: "重新读取当前 draft_revision 后重试" }],
+        };
+      }
       return {
         status: "confirmation_required",
         result: { service_execution_id: id, service_id: execution.service_id, human_action: action },
@@ -1395,7 +1406,9 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       },
       instruction: failedInstruction
         ?? (state === "payment"
-          ? "服务已到付款步骤，使用现有 Checkout 完成扫码付款。"
+          ? (model.workflow?.human_action?.context?.review
+            ? "服务已到付款步骤，可直接 Checkout 付款；如需调整席别/座位偏好，先用 confirm_booking 动作修订（会重新报价并锁定新价），完成后再付款。"
+            : "服务已到付款步骤，使用现有 Checkout 完成扫码付款。")
           : guidance
             ? "按 result.guidance 的字段契约填写输入后继续同一服务执行；不要臆造字段名。"
             : "继续读取同一执行；缺少输入时按服务声明补齐。"),
@@ -1405,7 +1418,9 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
             { command: `itpay services start ${execution.service_id} --json`, reason: "修正输入后重新发起（本执行已终止不能续用）" },
             ...(guidance ? [{ command: "itpay docs show rail-booking --json", reason: "查看本服务输入字段契约与示例" }] : []),
           ]
-        : [],
+        : state === "payment" && model.workflow?.human_action?.context?.review
+          ? [{ command: `itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input-json <file> --json`, reason: "付款前修订席别/座位偏好（draft_revision 以服务端为准）" }]
+          : [],
     };
   }
 

@@ -149,6 +149,27 @@ export class DeviceAuthority {
     });
   }
 
+  async resetDeviceKey(): Promise<{ removedBackends: string[] }> {
+    return withFileLock(`${this.statePath}.lock`, async () => {
+      const state = this.readState();
+      const removedBackends = state ? Object.keys(state.registrations).sort() : [];
+      // Delete the key first: if the process dies before the state write, the
+      // next run treats the missing key as a fresh install and completes the
+      // reset itself; it can never pair a new key with stale registrations.
+      if (existsSync(this.privateKeyPath)) {
+        try {
+          unlinkSync(this.privateKeyPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw asDeviceStateError(error, "remove_private_key") ?? error;
+          }
+        }
+      }
+      this.writeState(emptyDeviceState());
+      return { removedBackends };
+    });
+  }
+
   private async prepareAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
     let state = this.readState() ?? emptyDeviceState();
     const agentType = this.requestedAgentType;
@@ -159,8 +180,14 @@ export class DeviceAuthority {
     if (!privateKey) {
       const pair = generateKeyPairSync("ed25519");
       privateKey = pair.privateKey;
-      this.writePrivateKey(pair.privateKey.export({ format: "pem", type: "pkcs8" }).toString());
+      // Persist an empty state before the new key ever reaches disk so a crash
+      // can never pair the new key with registrations bound to the old one.
+      // A crash between the two writes leaves either no key (fresh retry) or a
+      // key with no registrations (the backend re-attaches to the existing
+      // device instead of creating a duplicate).
       state = emptyDeviceState();
+      this.writeState(state);
+      this.writePrivateKey(pair.privateKey.export({ format: "pem", type: "pkcs8" }).toString());
     }
 
     let registration = state.registrations[this.backendKey];
@@ -177,7 +204,19 @@ export class DeviceAuthority {
       registration = await this.enroll(agentType, privateKey);
     }
     state.registrations[this.backendKey] = registration;
-    const session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    let session: DeviceSessionState;
+    try {
+      session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    } catch (error) {
+      if (!isUnknownDeviceRegistration(error)) throw error;
+      // The backend lost this registration (e.g. its identity store was
+      // rebuilt). Drop the stale record and enroll once: the same key either
+      // re-attaches to the surviving device or creates a fresh one.
+      delete state.registrations[this.backendKey];
+      registration = await this.enroll(agentType, privateKey);
+      state.registrations[this.backendKey] = registration;
+      session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    }
     this.writeState(state);
     return { state: registration, agentType, session, privateKey };
   }
@@ -220,19 +259,24 @@ export class DeviceAuthority {
     const publicJWK = createPublicKey(privateKey).export({ format: "jwk" });
     if (!publicJWK.x) throw new Error("unable to export Ed25519 public key");
     const publicKey = Buffer.from(publicJWK.x, "base64url").toString("base64");
-    const started = await this.publicJSON<EnrollmentStarted>("/v1/agent-device-enrollments", { public_key: publicKey, agent_type: agentType });
-    const proof = enrollmentProofMessage(started.agent_device_enrollment_id, started.challenge);
-    const verified = await this.publicJSON<EnrollmentVerified>(
-      `/v1/agent-device-enrollments/${encodeURIComponent(started.agent_device_enrollment_id)}/verify`,
-      { challenge: started.challenge, signature: sign(null, Buffer.from(proof), privateKey).toString("base64") },
-    );
-    return {
-      deviceID: verified.agent_device_id,
-      deviceKeyID: verified.agent_device_key_id,
-      quotaLineageID: verified.quota_lineage_id,
-      agentInstances: { [verified.agent_type]: verified.agent_instance_id },
-      sessions: {},
-    };
+    try {
+      const started = await this.publicJSON<EnrollmentStarted>("/v1/agent-device-enrollments", { public_key: publicKey, agent_type: agentType });
+      const proof = enrollmentProofMessage(started.agent_device_enrollment_id, started.challenge);
+      const verified = await this.publicJSON<EnrollmentVerified>(
+        `/v1/agent-device-enrollments/${encodeURIComponent(started.agent_device_enrollment_id)}/verify`,
+        { challenge: started.challenge, signature: sign(null, Buffer.from(proof), privateKey).toString("base64") },
+      );
+      return {
+        deviceID: verified.agent_device_id,
+        deviceKeyID: verified.agent_device_key_id,
+        quotaLineageID: verified.quota_lineage_id,
+        agentInstances: { [verified.agent_type]: verified.agent_instance_id },
+        sessions: {},
+      };
+    } catch (error) {
+      if (error instanceof DeviceAuthorizationError) error.enrollmentFailed = true;
+      throw error;
+    }
   }
 
   private async ensureSession(state: DeviceRegistration, agentType: string, privateKey: KeyObject, force = false): Promise<DeviceSessionState> {
@@ -319,6 +363,8 @@ export class DeviceAuthority {
 }
 
 export class DeviceAuthorizationError extends Error {
+  enrollmentFailed = false;
+
   constructor(readonly status: number, readonly code: string | undefined, message: string) {
     super(message);
     this.name = "DeviceAuthorizationError";
@@ -339,6 +385,7 @@ type DeviceStateOperation =
   | "read_private_key"
   | "write_state"
   | "write_private_key"
+  | "remove_private_key"
   | "prepare_lock"
   | "acquire_lock"
   | "inspect_lock"
@@ -351,6 +398,9 @@ function emptyDeviceState(): DeviceState {
 
 function canMovePastLegacyRegistration(error: unknown): boolean {
   return error instanceof DeviceAuthorizationError && (error.code === "agent_device_revoked" || error.status === 404);
+}
+function isUnknownDeviceRegistration(error: unknown): boolean {
+  return error instanceof DeviceAuthorizationError && (error.code === "agent_device_not_found" || error.status === 404);
 }
 function normalizeBackendKey(value: string): string {
   const url = new URL(value);

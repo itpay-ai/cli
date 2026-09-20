@@ -249,6 +249,35 @@ itpay services run itpay-rail-booking --input-json booking.json --json
 
 `booking_offer` 只是受条件约束的可选承接：查询完成本身已满足查询目标，不自动购买；过期 token 返回明确错误，恢复方式是按 `services run` 输入合同重新查询或显式提供 `legs`。
 
+## 订票确认（booking review）
+
+`itpay-rail-booking` 在报价前停在 `workflow:confirm_booking` 人工确认节点。`services next` 返回 `booking_review_required`，`human_action.context.review` 携带服务端投影：`draft_revision`、`legs`（含可编码的 `seat_options`）、`notice_version` 等。乘客身份信息永不在此投影，也不经 CLI 提交。
+
+```json
+{
+  "status": "booking_review_required",
+  "result": {
+    "service_execution_id": "<id>",
+    "service_id": "itpay-rail-booking",
+    "human_action": {
+      "action_type": "workflow:confirm_booking",
+      "context": { "review": { "draft_revision": 1, "legs": [], "seat_options": {} } }
+    },
+    "required_fields": ["draft_revision", "passengers", "seat_type", "seat_preferences", "party_preference", "fallback", "notice_version", "accept_non_guaranteed"]
+  },
+  "instruction": "向用户展示行程与可选席别/座位偏好词表，并明确告知：座位偏好仅为请求、不保证分配。收集后经 --input-json 提交完整 JSON；draft_revision 以服务端当前值为准。",
+  "next": { "command": "itpay services action <id> --action workflow:confirm_booking --actor-type human --status approved --input-json <file> --json", "reason": "提交用户确认后的行程确认/修订" },
+  "recovery": [{ "command": "itpay services next <id> --json", "reason": "重新读取当前 draft_revision 后重试" }]
+}
+```
+
+规则：
+
+- `seat_preferences` 逐乘客一条，`passenger_index` 从 0 起、人数 1–5、取值限该席别 `seat_options`；`party_preference`、`fallback=automatic_assignment`、`notice_version`、`accept_non_guaranteed=true` 全部必填。
+- `draft_revision` 必须等于投影值；服务端返回 `booking_review_changed` 时重新 `services next` 读取后重试，不得自行递增或重放旧 revision。
+- 付款暂停且 review 仍开放时，`next` 指向 Checkout 恢复，`recovery` 附带修订命令（`services action … confirm_booking --input-json`）——修订回到同一执行重新报价，不产生第二笔订单或付款。
+- 支付已在途/完成后 review 关闭，修订被拒绝；按返回的同一订单状态继续，不得新建执行。
+
 ## 异常处理
 
 execution 不存在或不属于当前设备/账号时返回错误信封，并仅建议：
