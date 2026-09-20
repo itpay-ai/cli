@@ -3400,22 +3400,23 @@ test("services action accepts --input-json with nested review payload", async ()
   assert.equal(result.stderr, "");
 });
 
-test("services action --input overrides --input-json keys", async () => {
+test("services action rejects --input combined with --input-json", async () => {
   await runServicesInvoke(backend, config, "se_action_merge", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-action-merge-"));
   const inputFile = join(home, "review.json");
   writeFileSync(inputFile, JSON.stringify({ draft_revision: 1, passengers: 2, seat_type: "O" }));
   const before = mock.requests.length;
-  await runCLI([
-    "--agent-type", "codex-cli", "services", "action", "se_action_merge",
-    "--action", "workflow:confirm_booking", "--actor-type", "human", "--status", "approved",
-    "--input-json", inputFile, "--input", "passengers=1", "--json",
-  ], {
-    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
-    HOME: home,
-  });
-  const actionPost = mock.requests.slice(before).find((req) => req.method === "POST" && req.path.includes("/actions"));
-  assert.deepEqual((actionPost?.body as { input_snapshot?: unknown } | undefined)?.input_snapshot, { draft_revision: 1, passengers: 1, seat_type: "O" });
+  await assert.rejects(
+    runCLI([
+      "--agent-type", "codex-cli", "services", "action", "se_action_merge",
+      "--action", "workflow:confirm_booking", "--actor-type", "human", "--status", "approved",
+      "--input-json", inputFile, "--input", "passengers=1", "--json",
+    ], {
+      ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+      HOME: home,
+    }),
+  );
+  assert.ok(!mock.requests.slice(before).some((req) => req.method === "POST" && req.path.includes("/actions")));
 });
 
 test("services action rejects non-object --input-json", async () => {

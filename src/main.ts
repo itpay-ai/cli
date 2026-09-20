@@ -1,6 +1,6 @@
 import { agentAuth } from "./state/account_auth.js";
 import {registerSell} from "./sell/commands.js";
-import { readFileSync as readWorkflowInputFile } from "node:fs";
+import { readFileSync as readWorkflowInputFile, statSync as statWorkflowInputFile } from "node:fs";
 import { runServicesRun } from "./commands/services.js";
 // V3 CLI entrypoint. Each command maps 1:1 to a route family in
 // services/backend/internal/httpapi/handlers/*.go. Commands only
@@ -1422,6 +1422,25 @@ vault
 
 // --- service execution ----------------------------------------------------
 
+const WORKFLOW_INPUT_JSON_MAX_BYTES = 256 * 1024;
+
+function readInputJsonObject(file: string, code: string, recovery: CommandAction[]): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    if (statWorkflowInputFile(file).size > WORKFLOW_INPUT_JSON_MAX_BYTES) {
+      throw new CommandContractError(code, `--input-json file exceeds ${WORKFLOW_INPUT_JSON_MAX_BYTES} bytes`, "输入文件过大；只提交服务端 input_schema 声明的字段。", recovery);
+    }
+    parsed = JSON.parse(readWorkflowInputFile(file, "utf8"));
+  } catch (error) {
+    if (error instanceof CommandContractError) throw error;
+    throw new CommandContractError(code, `--input-json is not readable valid JSON: ${error instanceof Error ? error.message : String(error)}`, "确认文件存在且为合法 JSON；按服务端 input_schema 字段填写。", recovery);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new CommandContractError(code, "--input-json must contain a JSON object", "确认输入必须是 JSON 对象；按服务端 input_schema 字段填写。", recovery);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 const services = program.command("services").description("Generic V3 Service Execution commands");
 
 services
@@ -1437,10 +1456,11 @@ services
   .action(async (serviceID: string, options) => {
     const config = loadConfig();
     try {
-      const input = options.inputJson ? JSON.parse(readWorkflowInputFile(options.inputJson, "utf8")) : undefined;
-      if (input !== undefined && (!input || typeof input !== "object" || Array.isArray(input))) {
-        throw new Error("input JSON must be an object");
-      }
+      const input = options.inputJson
+        ? readInputJsonObject(options.inputJson, "workflow_input_invalid", [
+            { command: `itpay services run ${serviceID} --json`, reason: "重新读取服务输入声明" },
+          ])
+        : undefined;
       if (!Number.isFinite(options.timeout) || options.timeout < 0 || options.timeout > 600) {
         throw new Error("timeout must be between 0 and 600 seconds");
       }
@@ -1567,10 +1587,11 @@ services
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      const fileInput = options.inputJson ? JSON.parse(readWorkflowInputFile(options.inputJson, "utf8")) : {};
-      if (typeof fileInput !== "object" || fileInput === null || Array.isArray(fileInput)) {
-        throw new CommandContractError("service_action_invalid", "--input-json must contain a JSON object", "确认输入必须是 JSON 对象；按服务端 input_schema 字段填写。", [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前动作要求" }]);
+      const recovery = [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前动作要求" }];
+      if (options.inputJson && options.input.length > 0) {
+        throw new CommandContractError("service_action_invalid", "--input and --input-json cannot be combined", "--input 与 --input-json 只能二选一：嵌套结构用 --input-json <file>，扁平键值用 --input key=value。", recovery);
       }
+      const fileInput = options.inputJson ? readInputJsonObject(options.inputJson, "service_action_invalid", recovery) : {};
       await runServicesAction(
         backend,
         serviceExecutionID,

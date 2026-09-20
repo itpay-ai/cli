@@ -6,9 +6,11 @@
 
 为单个 Service Execution 快速创建或恢复 Checkout，并按 Host 向人交接付款入口。它是 `services quote -> cart add --quote -> buy --cart` 的单项快捷方式，必须复用相同的 Quote、Cart 和 Checkout Use Case。
 
-未注册/未登录用户不要求先执行 `itpay auth login`（Path B）：官方 checkout 页内完成必要的钱包认证、创建或复用账号并取得页面权限；人在页面上确认旅客、通知邮箱和最终报价后付款。支付确认沿用既有设备绑定机制，不再独立绑定。checkout 内完成账号认证不等于账号已通过手机号验证；钱包显示名、账号手机号与乘车人身份互相独立。
+未注册/未登录用户不要求先执行 `itpay auth login`（Path B）：官方 checkout 页内完成必要的钱包认证、创建或复用账号并取得页面权限；人在页面上确认旅客、通知联系方式和最终报价后付款。支付确认沿用既有设备绑定机制，不再独立绑定。checkout 内完成账号认证不等于账号已通过手机号验证；钱包显示名、账号手机号与乘车人身份互相独立。
 
-**上游：** `services next` 返回的 `prepare_quote` capability 和已验证输入。
+**通知联系方式（铁路单）：** 订单级联系策略要求至少一个可用通道——邮箱，或在 checkout 页内经验证的大陆手机号（order-contact 验证码只校验收件人，不创建/合并登录身份）。有效邮箱即可独立完成 checkout；SMS 不是必填项，SMS 能力未配置时不得阻塞邮箱通道。该策略仅适用于铁路订单，企知道等既有服务的联系策略不变。乘客证件手机号、账号登录手机号与通知收件人是三个独立事实，互不替代。
+
+**上游：** `services next` 返回的 `prepare_quote` capability 和已验证输入。铁路购票执行必须先通过 `workflow:confirm_booking` review（见 `services next` 的 `booking_review_required`），后端才生成可支付报价；review 开放期间不创建 Checkout。
 **下游：** 人完成 Checkout，随后 `checkout` 或 `services next`。
 
 ## 语法与参数
