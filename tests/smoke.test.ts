@@ -3362,6 +3362,115 @@ test("services action command accepts the documented --json form", async () => {
   assert.equal(result.stderr, "");
 });
 
+test("services action accepts --input-json with nested review payload", async () => {
+  await runServicesInvoke(backend, config, "se_action_json", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-action-json-"));
+  const inputFile = join(home, "review.json");
+  writeFileSync(inputFile, JSON.stringify({
+    draft_revision: 1,
+    notice_version: "rail-seat-request.v1",
+    passengers: 2,
+    seat_type: "O",
+    seat_preferences: ["window", "aisle"],
+    party_preference: "together_if_possible",
+    fallback: "automatic_assignment",
+    accept_non_guaranteed: true,
+  }));
+  const before = mock.requests.length;
+  const result = await runCLI([
+    "--agent-type", "codex-cli", "services", "action", "se_action_json",
+    "--action", "workflow:confirm_booking", "--actor-type", "human", "--status", "approved",
+    "--input-json", inputFile, "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  });
+  const actionPost = mock.requests.slice(before).find((req) => req.method === "POST" && req.path.includes("/actions"));
+  assert.deepEqual((actionPost?.body as { input_snapshot?: unknown } | undefined)?.input_snapshot, {
+    draft_revision: 1,
+    notice_version: "rail-seat-request.v1",
+    passengers: 2,
+    seat_type: "O",
+    seat_preferences: ["window", "aisle"],
+    party_preference: "together_if_possible",
+    fallback: "automatic_assignment",
+    accept_non_guaranteed: true,
+  });
+  assert.equal(JSON.parse(result.stdout).status, "action_recorded");
+  assert.equal(result.stderr, "");
+});
+
+test("services action --input overrides --input-json keys", async () => {
+  await runServicesInvoke(backend, config, "se_action_merge", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-action-merge-"));
+  const inputFile = join(home, "review.json");
+  writeFileSync(inputFile, JSON.stringify({ draft_revision: 1, passengers: 2, seat_type: "O" }));
+  const before = mock.requests.length;
+  await runCLI([
+    "--agent-type", "codex-cli", "services", "action", "se_action_merge",
+    "--action", "workflow:confirm_booking", "--actor-type", "human", "--status", "approved",
+    "--input-json", inputFile, "--input", "passengers=1", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  });
+  const actionPost = mock.requests.slice(before).find((req) => req.method === "POST" && req.path.includes("/actions"));
+  assert.deepEqual((actionPost?.body as { input_snapshot?: unknown } | undefined)?.input_snapshot, { draft_revision: 1, passengers: 1, seat_type: "O" });
+});
+
+test("services action rejects non-object --input-json", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-cli-action-badjson-"));
+  const inputFile = join(home, "bad.json");
+  writeFileSync(inputFile, "[1,2,3]");
+  const error = await runCLI([
+    "--agent-type", "codex-cli", "services", "action", "se_bad_json",
+    "--action", "workflow:confirm_booking", "--actor-type", "human", "--status", "approved",
+    "--input-json", inputFile, "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  }).then(() => assert.fail("expected non-zero exit"), (err) => err as { stderr: string });
+  const envelope = JSON.parse(error.stderr);
+  assert.equal(envelope.status, "error");
+  assert.equal(envelope.error.code, "service_action_invalid");
+  assert.match(envelope.instruction, /JSON 对象/);
+  assert.ok(envelope.recovery.some((item: { command: string }) => item.command.includes("services next")));
+  assert.equal(mock.requests.some((req) => req.path.includes("se_bad_json/actions")), false);
+});
+
+test("booking review human action guides --input-json submission", async () => {
+  const base = await backend.getServiceExecution("se_mock_next");
+  const model = { ...base, workflow_entry: { capability_id: "itpay_service", input_schema: {} },
+    workflow: { status: "human_action", current_step: "confirm_booking", revision: 5, steps: {},
+      human_action: { action_type: "workflow:confirm_booking",
+        input_schema: { type: "object", required: ["draft_revision", "seat_type"] },
+        context: { review: { draft_revision: 1, notice_version: "rail-seat-request.v1", legs: [], seat_options: { O: ["window", "aisle"] } } } } } } as ServiceExecutionReadModel;
+  const client = Object.create(backend) as BackendClient;
+  client.getServiceExecution = async () => model;
+  await runServicesNext(client, model.execution.service_execution_id, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status, "booking_review_required");
+  assert.match(result.next.command, /--input-json <file>/);
+  assert.match(result.instruction, /不保证分配/);
+  assert.match(result.instruction, /draft_revision/);
+  assert.doesNotMatch(result.next.command, /--input [a-z_]+=<值>/);
+});
+
+test("payment pause with open review offers revision alongside checkout", async () => {
+  const base = await backend.getServiceExecution("se_mock_next");
+  const model = { ...base, execution: { ...base.execution, status: "started" },
+    workflow_entry: { capability_id: "itpay_service", input_schema: {} },
+    workflow: { status: "payment", current_step: "payment", revision: 6, steps: {},
+      human_action: { action_type: "workflow:confirm_booking", input_schema: { type: "object" },
+        context: { review: { draft_revision: 2, notice_version: "rail-seat-request.v1" } } } } } as ServiceExecutionReadModel;
+  const client = Object.create(backend) as BackendClient;
+  client.getServiceExecution = async () => model;
+  await runServicesNext(client, model.execution.service_execution_id, { jsonOutput: true, output: stdoutSink });
+  const result = JSON.parse(stdoutCapture.join(""));
+  assert.match(result.instruction, /修订/);
+  assert.ok(result.recovery.some((item: { command: string }) => /--input-json <file>/.test(item.command)));
+});
+
 test("catalog list supports JSON output", async () => {
   const output: string[] = [];
   await runCatalogList(backend, { jsonOutput: true, output: (line) => output.push(line) });

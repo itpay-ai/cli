@@ -1561,16 +1561,21 @@ services
   .option("--result-item <service_capability_result_item_id>")
   .option("--required-before <step>")
   .option("--input <key=value>", "action input snapshot", collectOption, [])
+  .option("--input-json <file>", "JSON object containing the full action input snapshot")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
+      const fileInput = options.inputJson ? JSON.parse(readWorkflowInputFile(options.inputJson, "utf8")) : {};
+      if (typeof fileInput !== "object" || fileInput === null || Array.isArray(fileInput)) {
+        throw new CommandContractError("service_action_invalid", "--input-json must contain a JSON object", "确认输入必须是 JSON 对象；按服务端 input_schema 字段填写。", [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前动作要求" }]);
+      }
       await runServicesAction(
         backend,
         serviceExecutionID,
         options.action,
-        parseKeyValueList(options.input),
+        { ...fileInput, ...parseKeyValueList(options.input) },
         {
           ...(options.actorType ? { actorType: options.actorType } : {}),
           ...(options.actorId ? { actorID: options.actorId } : {}),
