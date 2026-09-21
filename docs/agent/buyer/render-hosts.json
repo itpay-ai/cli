@@ -38,7 +38,7 @@
     {
       "agent_type": "zcode",
       "default_host": "plain-chat",
-      "responsibility": "open handoff.url immediately in the ZCode built-in browser and stop; only show the same clickable URL plus handoff.mobile_url when the built-in browser is unavailable"
+      "responsibility": "open handoff.url immediately in the ZCode built-in browser, also send handoff.mobile_url as the phone-friendly entry, then stop; when the built-in browser is unavailable show both clickable links"
     },
     {
       "agent_type": "doubao-work",
@@ -74,10 +74,10 @@
     "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy never receives a local QR path.",
     "For workbuddy with plain-chat, execute handoff.agent_action exactly once; it calls present_files with handoff.url as the only files element and opens the rendered Card Link in the right-side browser, then send handoff.mobile_url so phone users can tap straight into Alipay or WeChat Pay.",
-    "For zcode with plain-chat, open handoff.url in the built-in browser. Do not only paste text, download or rebuild a QR, or invent a private browser-tool payload; use the same clickable URL plus handoff.mobile_url only as fallback.",
+    "For zcode with plain-chat, open handoff.url in the built-in browser and also send handoff.mobile_url as the phone entry; do not only paste text, download or rebuild a QR, or invent a private browser-tool payload; when the built-in browser is unavailable show both clickable links.",
     "For doubao-work with plain-chat, show two labeled official links: handoff.mobile_url for direct same-phone opening and handoff.qr_image_url for saving or scanning on another device; do not parse credentials, download or rebuild the QR, or create an alternative resource.",
     "If the WorkBuddy action fails, send the original handoff.url and handoff.mobile_url, report that it did not auto-open, and stop without creating another payment resource.",
-    "handoff.mobile_url is the phone-friendly Checkout URL; when the current client cannot open links in place (for example a mobile mini program), send it and tell the human to copy it into the phone browser where it can jump into Alipay or WeChat Pay.",
+    "handoff.mobile_url is the phone-friendly Checkout URL; when the current client cannot open links in place (for example a mobile mini program), send it and tell the human to copy it into the phone browser where it can jump into Alipay or WeChat Pay. It is only returned when the handoff carries the complete token pair; when absent, handoff.url remains the entry.",
     "Do not claim the handoff was shown until both a usable payment image or QR and the Checkout URL are visible.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
     "OpenClaw Telegram uses flat url/value buttons for deployed-version compatibility. A grant_confirmed callback carries only the Checkout ID, never a display token, and never proves payment or an active grant."

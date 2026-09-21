@@ -2494,7 +2494,7 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "human_checkout_required");
   assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
-  assert.deepEqual(Object.keys(parsed.handoff), ["url", "mobile_url", "qr_local_path", "markdown"]);
+  assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
   assert.match(parsed.handoff.markdown, /itpay checkout --id chk_pending --token cdt_pending --json/);
   assert.match(parsed.instruction, /停止等待/);
   assert.match(parsed.instruction, /不要创建新 Checkout、Payment Intent 或 Execution/);
@@ -2522,16 +2522,16 @@ test("workbuddy checkout JSON returns one executable action for the rendered Car
   };
   assert.equal(result.stderr, "");
   assert.equal(envelope.status, "human_checkout_required");
-  assert.deepEqual(Object.keys(envelope.handoff), ["url", "mobile_url", "agent_action"]);
+  assert.deepEqual(Object.keys(envelope.handoff), ["url", "agent_action"]);
   assert.equal(envelope.handoff.url, "https://app.itpay.ai/v1/checkouts/chk_pending/card?display_token=cdt_pending&locale=zh-CN");
-  assert.equal(envelope.handoff.mobile_url, "https://app.itpay.ai/checkout/chk_pending?display_token=cdt_pending");
+  assert.equal(envelope.handoff.mobile_url, undefined);
   assert.deepEqual(envelope.handoff.agent_action, {
     tool: "present_files",
     arguments: { files: [envelope.handoff.url] },
   });
   assert.match(envelope.instruction, /严格按 handoff\.agent_action\.tool 和 handoff\.agent_action\.arguments 原样执行一次/);
-  assert.match(envelope.instruction, /handoff\.mobile_url 作为可点击链接发给用户/);
-  assert.match(envelope.instruction, /若工具失败，只发送 handoff\.url 与 handoff\.mobile_url/);
+  assert.doesNotMatch(envelope.instruction, /mobile_url/);
+  assert.match(envelope.instruction, /若工具失败，只发送原始 handoff\.url/);
   assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.match(envelope.instruction, /不要调用 pay/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
@@ -2566,10 +2566,8 @@ test("checkout reuses the saved full checkout URL only when id and token match",
     ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: home,
   })).stdout) as { handoff: Record<string, unknown> };
-  assert.equal(
-    mismatchedToken.handoff.mobile_url,
-    "https://app.itpay.ai/checkout/chk_pending?display_token=cdt_other",
-  );
+  assert.equal(mismatchedToken.handoff.mobile_url, undefined);
+  assert.equal(mismatchedToken.handoff.url, "https://app.itpay.ai/v1/checkouts/chk_pending/card?display_token=cdt_other&locale=zh-CN");
 
   const mismatchedID = JSON.parse((await runCLI([
     "--agent-type", "workbuddy", "checkout", "--id", "chk_english", "--token", "cdt_english", "--json",
@@ -2577,10 +2575,7 @@ test("checkout reuses the saved full checkout URL only when id and token match",
     ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: home,
   })).stdout) as { handoff: Record<string, unknown> };
-  assert.equal(
-    mismatchedID.handoff.mobile_url,
-    "https://app.itpay.ai/checkout/chk_english?display_token=cdt_english",
-  );
+  assert.equal(mismatchedID.handoff.mobile_url, undefined);
 });
 
 test("checkout prepares the English card only when the model selects en", async () => {
@@ -2633,6 +2628,16 @@ test("workbuddy checkout action always opens the rendered Checkout URL", () => {
     amount: "1.00 CNY",
   });
   assert.equal(withoutMobile.handoff.mobile_url, undefined);
+
+  const displayOnlyMobile = buildCheckoutHandoff({
+    agentType: "workbuddy",
+    platform: "plain_chat",
+    url: "https://example.test/v1/checkouts/chk_no_qr/card?display_token=x",
+    mobileUrl: "https://example.test/checkout/chk_no_qr?display_token=x",
+    amount: "1.00 CNY",
+  });
+  assert.equal(displayOnlyMobile.handoff.mobile_url, undefined);
+  assert.doesNotMatch(displayOnlyMobile.instruction, /mobile_url/);
 });
 
 test("zcode checkout opens only the rendered URL in the built-in browser", async () => {
@@ -2648,11 +2653,10 @@ test("zcode checkout opens only the rendered URL in the built-in browser", async
     instruction: string;
     next: { command: string };
   };
-  assert.deepEqual(Object.keys(envelope.handoff), ["url", "mobile_url"]);
+  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
   assert.match(String(envelope.handoff.url), /\/card\?/);
-  assert.match(String(envelope.handoff.mobile_url), /\/checkout\/chk_pending\?display_token=/);
   assert.match(envelope.instruction, /ZCode 内置浏览器打开 handoff\.url/);
-  assert.match(envelope.instruction, /handoff\.mobile_url 发给用户备用/);
+  assert.doesNotMatch(envelope.instruction, /mobile_url/);
   assert.match(envelope.instruction, /不要只粘贴文字链接/);
   assert.match(envelope.instruction, /内置浏览器明确不可用/);
   assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
@@ -2671,9 +2675,8 @@ test("doubao-work checkout returns the documented direct and QR links", async ()
     instruction: string;
     next: { command: string };
   };
-  assert.deepEqual(Object.keys(envelope.handoff), ["url", "mobile_url", "qr_image_url"]);
+  assert.deepEqual(Object.keys(envelope.handoff), ["url", "qr_image_url"]);
   assert.match(String(envelope.handoff.url), /\/checkout\/chk_pending\?/);
-  assert.match(String(envelope.handoff.mobile_url), /\/checkout\/chk_pending\?display_token=/);
   assert.match(String(envelope.handoff.qr_image_url), /\/card\.png\?/);
   assert.match(envelope.instruction, /手机直接打开收银台/);
   assert.match(envelope.instruction, /二维码图片（保存或用另一台设备扫码）/);
@@ -2695,8 +2698,8 @@ test("explicit terminal Host overrides WorkBuddy presentation without changing A
     instruction: string;
     next: { command: string };
   };
-  assert.deepEqual(Object.keys(envelope.handoff), ["url", "mobile_url"]);
-  assert.doesNotMatch(envelope.instruction, /present_files/);
+  assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
+  assert.doesNotMatch(envelope.instruction, /present_files|mobile_url/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
 });
 
