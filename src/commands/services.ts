@@ -1788,6 +1788,7 @@ function buildServicesCheckoutEnvelope(
   const presentationHandoff = buildCheckoutHandoff({
     platform,
     url: plan.linkOnlyURL ?? checkoutURL,
+    mobileUrl: checkoutURL,
     amount,
     plan,
     ...(agentType ? { agentType } : {}),

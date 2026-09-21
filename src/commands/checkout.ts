@@ -18,6 +18,7 @@ import { type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "
 export interface CheckoutPresentationOptions {
   checkoutID: string;
   displayToken: string;
+  savedCheckoutURL?: string;
   output?: OutputSink;
   host?: ClientHost;
   baseURL?: string;
@@ -48,7 +49,12 @@ export async function runCheckoutPresentation(
     return;
   }
 
-  const checkoutURL = checkoutPageURL(options.baseURL, options.checkoutID, options.displayToken);
+  const checkoutURL = savedCheckoutURLOrFallback(
+    options.savedCheckoutURL,
+    options.checkoutID,
+    options.displayToken,
+    checkoutPageURL(options.baseURL, options.checkoutID, options.displayToken),
+  );
 	const cardURL = localizeCardURL(absolutePublicURL(
 		options.baseURL,
 		presentation.card_url ?? checkoutCardURL(options.baseURL, options.checkoutID, options.displayToken),
@@ -108,6 +114,7 @@ function pendingCheckoutEnvelope(
   const presentationHandoff = buildCheckoutHandoff({
     platform,
     url: plan.linkOnlyURL ?? checkoutURL,
+    mobileUrl: checkoutURL,
     amount,
     plan,
     ...(agentType ? { agentType } : {}),
@@ -207,6 +214,25 @@ function formatMoney(amountMinor: number, currency: string): string {
 function checkoutPageURL(baseURL: string | undefined, checkoutID: string, displayToken: string): string {
   const root = publicRoot(baseURL);
   return `${root}/checkout/${encodeURIComponent(checkoutID)}?display_token=${encodeURIComponent(displayToken)}`;
+}
+
+function savedCheckoutURLOrFallback(
+  savedURL: string | undefined,
+  checkoutID: string,
+  displayToken: string,
+  fallback: string,
+): string {
+  if (!savedURL) {
+    return fallback;
+  }
+  try {
+    const parsed = new URL(savedURL);
+    const belongsToCheckout = parsed.pathname === `/checkout/${checkoutID}`;
+    const sameToken = parsed.searchParams.get("display_token") === displayToken;
+    return belongsToCheckout && sameToken ? savedURL : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function checkoutCardURL(baseURL: string | undefined, checkoutID: string, displayToken: string): string {

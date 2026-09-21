@@ -2524,17 +2524,58 @@ test("workbuddy checkout JSON returns one executable action for the rendered Car
   assert.equal(envelope.status, "human_checkout_required");
   assert.deepEqual(Object.keys(envelope.handoff), ["url", "agent_action"]);
   assert.equal(envelope.handoff.url, "https://app.itpay.ai/v1/checkouts/chk_pending/card?display_token=cdt_pending&locale=zh-CN");
+  assert.equal(envelope.handoff.mobile_url, undefined);
   assert.deepEqual(envelope.handoff.agent_action, {
     tool: "present_files",
     arguments: { files: [envelope.handoff.url] },
   });
   assert.match(envelope.instruction, /严格按 handoff\.agent_action\.tool 和 handoff\.agent_action\.arguments 原样执行一次/);
+  assert.doesNotMatch(envelope.instruction, /mobile_url/);
   assert.match(envelope.instruction, /若工具失败，只发送原始 handoff\.url/);
   assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.match(envelope.instruction, /不要调用 pay/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
   assert.deepEqual(envelope.recovery, []);
   assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), false);
+});
+
+test("checkout reuses the saved full checkout URL only when id and token match", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-checkout-saved-url-"));
+  const session = new CartSession("CNY");
+  session.rememberCheckout({
+    checkoutID: "chk_pending",
+    displayToken: "cdt_pending",
+    checkoutURL: "https://app.itpay.ai/checkout/chk_pending?display_token=cdt_pending&complete_exchange_token=cdx_saved",
+  });
+  session.saveToFile(join(home, ".itpay-v3", "cart.json"));
+
+  const matched = JSON.parse((await runCLI([
+    "--agent-type", "workbuddy", "checkout", "--id", "chk_pending", "--token", "cdt_pending", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  })).stdout) as { handoff: Record<string, unknown> };
+  assert.equal(
+    matched.handoff.mobile_url,
+    "https://app.itpay.ai/checkout/chk_pending?display_token=cdt_pending&complete_exchange_token=cdx_saved",
+  );
+
+  const mismatchedToken = JSON.parse((await runCLI([
+    "--agent-type", "workbuddy", "checkout", "--id", "chk_pending", "--token", "cdt_other", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  })).stdout) as { handoff: Record<string, unknown> };
+  assert.equal(mismatchedToken.handoff.mobile_url, undefined);
+  assert.equal(mismatchedToken.handoff.url, "https://app.itpay.ai/v1/checkouts/chk_pending/card?display_token=cdt_other&locale=zh-CN");
+
+  const mismatchedID = JSON.parse((await runCLI([
+    "--agent-type", "workbuddy", "checkout", "--id", "chk_english", "--token", "cdt_english", "--json",
+  ], {
+    ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
+    HOME: home,
+  })).stdout) as { handoff: Record<string, unknown> };
+  assert.equal(mismatchedID.handoff.mobile_url, undefined);
 });
 
 test("checkout prepares the English card only when the model selects en", async () => {
@@ -2563,19 +2604,40 @@ test("workbuddy checkout action always opens the rendered Checkout URL", () => {
   const result = buildCheckoutHandoff({
     agentType: "workbuddy",
     platform: "plain_chat",
-    url: "https://example.test/checkout/chk_no_qr",
+    url: "https://example.test/v1/checkouts/chk_no_qr/card?display_token=x",
+    mobileUrl: "https://example.test/checkout/chk_no_qr?display_token=x&complete_exchange_token=y",
     amount: "1.00 CNY",
   });
   assert.deepEqual(result.handoff, {
-    url: "https://example.test/checkout/chk_no_qr",
+    url: "https://example.test/v1/checkouts/chk_no_qr/card?display_token=x",
+    mobile_url: "https://example.test/checkout/chk_no_qr?display_token=x&complete_exchange_token=y",
     agent_action: {
       tool: "present_files",
-      arguments: { files: ["https://example.test/checkout/chk_no_qr"] },
+      arguments: { files: ["https://example.test/v1/checkouts/chk_no_qr/card?display_token=x"] },
     },
   });
   assert.match(result.instruction, /原样执行一次/);
+  assert.match(result.instruction, /小程序内打不开时复制到手机浏览器打开/);
   assert.match(result.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.doesNotMatch(result.instruction, /读取 handoff\.qr_image_url/);
+
+  const withoutMobile = buildCheckoutHandoff({
+    agentType: "workbuddy",
+    platform: "plain_chat",
+    url: "https://example.test/checkout/chk_no_qr",
+    amount: "1.00 CNY",
+  });
+  assert.equal(withoutMobile.handoff.mobile_url, undefined);
+
+  const displayOnlyMobile = buildCheckoutHandoff({
+    agentType: "workbuddy",
+    platform: "plain_chat",
+    url: "https://example.test/v1/checkouts/chk_no_qr/card?display_token=x",
+    mobileUrl: "https://example.test/checkout/chk_no_qr?display_token=x",
+    amount: "1.00 CNY",
+  });
+  assert.equal(displayOnlyMobile.handoff.mobile_url, undefined);
+  assert.doesNotMatch(displayOnlyMobile.instruction, /mobile_url/);
 });
 
 test("zcode checkout opens only the rendered URL in the built-in browser", async () => {
@@ -2594,6 +2656,7 @@ test("zcode checkout opens only the rendered URL in the built-in browser", async
   assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
   assert.match(String(envelope.handoff.url), /\/card\?/);
   assert.match(envelope.instruction, /ZCode 内置浏览器打开 handoff\.url/);
+  assert.doesNotMatch(envelope.instruction, /mobile_url/);
   assert.match(envelope.instruction, /不要只粘贴文字链接/);
   assert.match(envelope.instruction, /内置浏览器明确不可用/);
   assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
@@ -2636,7 +2699,7 @@ test("explicit terminal Host overrides WorkBuddy presentation without changing A
     next: { command: string };
   };
   assert.deepEqual(Object.keys(envelope.handoff), ["url"]);
-  assert.doesNotMatch(envelope.instruction, /present_files/);
+  assert.doesNotMatch(envelope.instruction, /present_files|mobile_url/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
 });
 
@@ -2763,21 +2826,22 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     });
     const envelope = JSON.parse(result.stdout) as {
       status: string;
-      handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
+      handoff: { url: string; mobile_url?: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
       instruction: string;
     };
     assert.equal(envelope.status, "human_checkout_required");
     assert.match(envelope.handoff.url, /display_token=/);
     const desktop = expectedHost === "codex" || expectedHost === "claude-code";
     const expectedHandoffKeys = desktop
-      ? ["markdown", "qr_local_path", "url"]
+      ? ["markdown", "mobile_url", "qr_local_path", "url"]
       : agentType === "workbuddy"
-        ? ["agent_action", "url"]
+        ? ["agent_action", "mobile_url", "url"]
       : agentType === "zcode"
-        ? ["url"]
+        ? ["mobile_url", "url"]
       : expectedHost === "plain-chat" && agentType !== "workbuddy" && agentType !== "zcode"
-        ? ["qr_image_url", "url"]
-        : ["url"];
+        ? ["mobile_url", "qr_image_url", "url"]
+        : ["mobile_url", "url"];
+    assert.match(String(envelope.handoff.mobile_url), /\/checkout\/.*display_token=.*complete_exchange_token=/);
     assert.deepEqual(Object.keys(envelope.handoff).sort(), expectedHandoffKeys);
     assert.equal(Boolean(envelope.handoff.markdown), desktop);
     assert.equal(Boolean(envelope.handoff.qr_image_url), expectedHost === "plain-chat" && agentType !== "workbuddy" && agentType !== "zcode");
@@ -3070,7 +3134,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
     status: string;
     result: { checkout_id: string; capability_id: string; locked_input: Record<string, unknown>; amount: string };
-    handoff: { url: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
+    handoff: { url: string; mobile_url?: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
     instruction: string;
     next: { command: string };
     recovery: unknown[];
@@ -3079,7 +3143,8 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.match(json.handoff.url, /^http:\/\/127\.0\.0\.1:\d+\/v1\/checkouts\/chk_\d+\/card\?/);
   assert.match(json.handoff.url, /display_token=/);
   assert.equal(json.handoff.qr_image_url, undefined);
-  assert.deepEqual(Object.keys(json.handoff), ["url", "agent_action"]);
+  assert.deepEqual(Object.keys(json.handoff), ["url", "mobile_url", "agent_action"]);
+  assert.match(String(json.handoff.mobile_url), /\/checkout\/chk_\d+\?display_token=.*complete_exchange_token=/);
   assert.equal(json.result.capability_id, "precise_report");
   assert.deepEqual(json.result.locked_input, {});
   assert.equal(json.result.amount, "0.50 CNY");
@@ -3174,7 +3239,7 @@ test("OpenClaw non-Telegram checkout uses the standard image and link handoff", 
     output: (line) => output.push(line),
   });
   const envelope = JSON.parse(output.join("")) as { handoff: Record<string, unknown> };
-  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["qr_image_url", "url"]);
+  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["mobile_url", "qr_image_url", "url"]);
 });
 
 test("service checkout validates the Telegram target before creating Checkout", async () => {
@@ -4694,13 +4759,14 @@ test("runBuy JSON output exposes only the current Host handoff", async () => {
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
     status: string;
     result: { checkout_id: string; payment: string; amount: string; item_count: number };
-    handoff: { url: string; qr_local_path?: string; qr_image_url?: string; agent_action?: unknown };
+    handoff: { url: string; mobile_url?: string; qr_local_path?: string; qr_image_url?: string; agent_action?: unknown };
     next: { command: string };
   };
   assert.equal(json.status, "human_checkout_required");
   assert.deepEqual(json.result, { checkout_id: json.result.checkout_id, payment: "pending", amount: "1.00 CNY", item_count: 1 });
   assert.match(json.handoff.url, /display_token=/);
-  assert.deepEqual(Object.keys(json.handoff), ["url", "agent_action"]);
+  assert.deepEqual(Object.keys(json.handoff), ["url", "mobile_url", "agent_action"]);
+  assert.match(String(json.handoff.mobile_url), /\/checkout\/.*display_token=.*complete_exchange_token=/);
   assert.equal(json.handoff.qr_image_url, undefined);
   assert.deepEqual(json.handoff.agent_action, {
     tool: "present_files",

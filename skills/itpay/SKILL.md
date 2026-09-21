@@ -76,6 +76,13 @@ platform whenever possible. Only show the same clickable URL when no browser
 or native action is available; never ask the human to run a command or rebuild
 a QR code.
 
+Checkout handoffs also carry `handoff.mobile_url`: send it alongside the main
+link and tell the human that on a phone it opens the cashier and can jump
+straight into Alipay or WeChat Pay. When the current client cannot open links
+itself (for example a mobile mini program without a side panel), send
+`mobile_url` and tell the human to copy it into the phone's browser if it does
+not open in place.
+
 ## Serve The Human
 
 - Ask the human only to choose, authorize, pay, provide required contact
