@@ -1080,6 +1080,9 @@ program
       await runCheckoutPresentation(backend, {
         checkoutID,
         displayToken,
+        ...(snap.lastCheckoutID === checkoutID && snap.lastCheckoutURL
+          ? { savedCheckoutURL: snap.lastCheckoutURL }
+          : {}),
         host,
         ...(options.target ? { target: options.target } : {}),
         ...(config.agentType ? { agentType: config.agentType } : {}),

@@ -301,6 +301,7 @@ function buildBuyEnvelope(input: {
   const presentationHandoff = buildCheckoutHandoff({
     platform,
     url: input.plan.linkOnlyURL ?? input.checkoutURL,
+    mobileUrl: input.checkoutURL,
     amount,
     plan: input.plan,
     ...(input.agentType ? { agentType: input.agentType } : {}),
