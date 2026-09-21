@@ -8,6 +8,7 @@ import type {
   ServiceCapabilityInvoked,
   ServiceExecutionReadModel,
   ServiceExecutionAllowedAction,
+  RailJourneyCard,
 } from "../client/types.js";
 import { operationID, type CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
@@ -978,9 +979,9 @@ export async function runServicesGet(
 export async function runServicesNext(
   backend: BackendClient,
   serviceExecutionID: string,
-  options: ServicesCommandOptions & { jsonOutput?: boolean } = {},
+  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string } = {},
 ): Promise<void> {
-  const response = await backend.getServiceExecution(serviceExecutionID);
+  const response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
   const envelope = servicesNextEnvelope(response);
   if (response.rail_booking) envelope.result = { ...envelope.result, rail_booking: response.rail_booking };
   writeCommandEnvelope(envelope, {
@@ -1017,14 +1018,19 @@ export async function runServicesPage(
   const response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, resultItemID, offset, limit);
   const page = response.page;
   const container = (page.result ?? page) as Record<string, unknown>;
-  const catalogPage = (container.catalog_page ?? {}) as { offset?: number; limit?: number; total?: number; count?: number; next_offset?: number | null };
+  // rail.progressive.v2 saved pages key journeys/journey_page; legacy result
+  // items key candidates/catalog_page. Both are committed, read-only slices.
+  const v2Page = (container.journey_page ?? {}) as { offset?: number; limit?: number; total?: number; count?: number; next_offset?: number | null };
+  const catalogPage = (container.catalog_page ?? v2Page) as { offset?: number; limit?: number; total?: number; count?: number; next_offset?: number | null };
   const nextOffset = typeof catalogPage.next_offset === "number" ? catalogPage.next_offset : null;
-  const candidates = Array.isArray(container.candidates) ? container.candidates : [];
+  const journeys = Array.isArray(container.journeys) ? container.journeys : [];
+  const candidates = Array.isArray(container.candidates) ? container.candidates : journeys;
   const envelope: CommandEnvelope = {
     status: candidates.length > 0 ? "result_page" : "result_page_end",
     result: {
       service_execution_id: response.service_execution_id,
-      service_capability_result_item_id: response.service_capability_result_item_id,
+      ...(response.service_capability_result_item_id ? { service_capability_result_item_id: response.service_capability_result_item_id } : {}),
+      ...((response as { snapshot_id?: string }).snapshot_id ? { snapshot_id: (response as { snapshot_id?: string }).snapshot_id } : {}),
       offset: catalogPage.offset ?? offset,
       limit: catalogPage.limit ?? limit,
       total: catalogPage.total ?? candidates.length,
@@ -1034,7 +1040,10 @@ export async function runServicesPage(
     },
     instruction: "读取的是已保存结果的同版本分页，不重新查询、不消耗额度。用普通语言向用户说明本页候选（车次、席别、时刻、费用口径），铁路应付与地面估算费用分开表述；不要提及 safe_payload、Execution 或内部 ID。",
     next: nextOffset !== null
-      ? { command: `itpay services page ${serviceExecutionID} ${resultItemID} --offset ${nextOffset} --json`, reason: "读取同版本结果的下一页" }
+      ? { command: (response as { snapshot_id?: string }).snapshot_id
+          ? `itpay services page ${serviceExecutionID} ${resultItemID} --cursor rcur_${nextOffset} --json`
+          : `itpay services page ${serviceExecutionID} ${resultItemID} --offset ${nextOffset} --json`,
+        reason: "读取同版本结果的下一页" }
       : null,
     recovery: offset > 0
       ? [{ command: `itpay services page ${serviceExecutionID} ${resultItemID} --json`, reason: "回到第一页" }]
@@ -1100,8 +1109,35 @@ export async function runServicesList(
 export async function runServicesReadResult(
   backend: BackendClient,
   serviceExecutionID: string,
-  options: ServicesCommandOptions & { jsonOutput?: boolean } = {},
+  options: ServicesCommandOptions & { jsonOutput?: boolean; snapshot?: string; journey?: string } = {},
 ): Promise<void> {
+  // rail.progressive.v2 planning read: --journey/--snapshot select committed
+  // planning evidence — a free owner-validated read that never touches the
+  // grant/Vault path. Without the selectors the authorized-delivery flow is
+  // unchanged.
+  if (options.journey) {
+    const detail = await backend.getRailJourneyDetail(serviceExecutionID, options.journey, options.snapshot);
+    writeCommandEnvelope({
+      status: "ready",
+      result: {
+        service_execution_id: serviceExecutionID,
+        plan_id: detail.plan_id,
+        snapshot_id: detail.snapshot_id,
+        query_revision: detail.query_revision,
+        journey: detail.journey,
+      },
+      instruction: "展示该 journey 的完整明细（车次、分段、席别报价、接驳估计与风险标注）。rail_payable 只是该行程当前可购报价的参考价，不是锁价；下单前须走受保护 Checkout 收集乘车人。",
+      next: detail.journey?.booking_support === "single_leg"
+        ? { command: `itpay services action ${serviceExecutionID} --action select_journey --actor-type human --status approved --input journey_id=${detail.journey.journey_id} --json`, reason: "选定此行程" }
+        : { command: `itpay services next ${serviceExecutionID} --since-snapshot ${detail.snapshot_id} --json`, reason: "返回规划进展" },
+      recovery: [],
+    }, {
+      ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+      ...(options.output ? { output: options.output } : {}),
+      plainResult: servicesNextPlainResult(detail.journey as unknown as Record<string, unknown>),
+    });
+    return;
+  }
   const response = await backend.getGrantedServiceResult(serviceExecutionID);
   let orderID: string | undefined;
   try {
@@ -1195,6 +1231,104 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
   };
 }
 
+function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string): Record<string, unknown> {
+  const rides = Array.isArray(card.rides) ? card.rides : [];
+  const trains = rides.map((ride: Record<string, unknown>) => ride.train_code).filter(Boolean);
+  const first = rides[0] as Record<string, unknown> | undefined;
+  const last = rides.at(-1) as Record<string, unknown> | undefined;
+  const offer = card.representative_offer;
+  return {
+    journey_id: card.journey_id,
+    route: (card.route_names?.length ? card.route_names : card.route ?? []).join("→"),
+    ...(trains.length ? { trains } : {}),
+    ...(first?.departure || last?.arrival ? { time: `${first?.departure ?? ""}–${last?.arrival ?? ""}` } : {}),
+    ...(offer ? { price: formatMoney(offer.rail_payable_minor, offer.currency) } : { price: "unknown" }),
+    availability: card.availability,
+    booking_support: card.booking_support,
+    ...(card.observed_at ? { observed_at: card.observed_at } : {}),
+    ...(card.risk_notes?.length ? { risk_notes: card.risk_notes } : {}),
+    ...(card.booking_support === "single_leg"
+      ? { select: `itpay services action ${serviceExecutionID} --action select_journey --actor-type human --status approved --input journey_id=${card.journey_id} --json` }
+      : {}),
+    ...(card.booking_offer
+      ? {
+          booking_offer: card.booking_offer,
+          book: `itpay services run ${card.booking_offer.service_id} --input-json <file> --json  # file = {"selection":{"token":"${card.booking_offer.selection_token}","seat_type":"<席别>"},"passengers":<n>}`,
+        }
+      : {}),
+  };
+}
+
+// rail.progressive.v2 read projection: committed snapshots only; polling never
+// triggers supplier calls. Recommendation is absent until the decision stage
+// commits — alternatives still render so users can compare early.
+function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope {
+  const plan = model.rail_planning!;
+  const se = model.execution.service_execution_id;
+  const expansion = plan.search?.expansion_status ?? "running";
+  const journeys = [plan.recommendation, ...(plan.alternatives ?? [])].filter(Boolean) as RailJourneyCard[];
+  const cards = journeys.map((card) => railJourneySummary(card, se));
+  const result: Record<string, unknown> = {
+    service_execution_id: se,
+    rail_planning: {
+      readiness: plan.readiness,
+      query_revision: plan.query_revision,
+      snapshot_id: plan.snapshot_id,
+      expansion_status: expansion,
+      ...(plan.search?.reason ? { reason: plan.search.reason } : {}),
+      ...(plan.search?.poll_after_ms ? { poll_after_ms: plan.search.poll_after_ms } : {}),
+      ...(plan.result_not_updated ? { result_not_updated: true } : {}),
+      ...(plan.budgets ? { budgets: plan.budgets } : {}),
+      ...(plan.coverage ? { coverage: plan.coverage } : {}),
+    },
+    ...(plan.recommendation ? { recommendation: railJourneySummary(plan.recommendation, se) } : {}),
+    ...(cards.length ? { journeys: cards } : {}),
+    ...(plan.available_actions?.length ? { available_actions: plan.available_actions } : {}),
+  };
+  const nextPoll: CommandAction = {
+    command: `itpay services next ${se}${plan.snapshot_id ? ` --since-snapshot ${plan.snapshot_id}` : ""} --json`,
+    reason: "读取同一规划的增量进展（不触发供应商调用）",
+  };
+  switch (expansion) {
+    case "complete":
+      return {
+        status: "ready",
+        result,
+        instruction: "规划已收敛：向用户展示 recommendation 与 journeys 卡片（车次/时间/价格/余票状态），请用户选定 journey 后用其 select 命令提交；乘车人身份信息不在此收集，后续购买走受保护 Checkout。",
+        next: journeys[0]?.booking_support === "single_leg"
+          ? { command: railJourneySummary(journeys[0], se).select as string, reason: "选定推荐行程" }
+          : null,
+        recovery: [],
+      };
+    case "paused":
+      return {
+        status: "awaiting_input",
+        result,
+        instruction: "规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。",
+        next: null,
+        recovery: [],
+      };
+    case "failed":
+    case "cancelled":
+    case "expired":
+      return {
+        status: expansion,
+        result,
+        instruction: "本次规划已结束且不可续用；展示已有卡片后如需重查请用户确认后用同一服务新建执行。不要自动重新发起。",
+        next: null,
+        recovery: [{ command: `itpay services events ${se} --json`, reason: "读取同一任务的处理记录" }],
+      };
+    default:
+      return {
+        status: "planning",
+        result,
+        instruction: "规划进行中：已提交的卡片可先向用户展示比较；稍后按 next 增量轮询同一执行（since-snapshot 命中时负载会被压缩）。不要重新发起查询。",
+        next: nextPoll,
+        recovery: [],
+      };
+  }
+}
+
 function terminalExecutionEnvelope(model: ServiceExecutionReadModel): CommandEnvelope | null {
   const execution = model.execution;
   const currentDelivery = model.current_delivery ?? model.delivery_bindings.at(-1);
@@ -1279,6 +1413,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     if (terminal) return terminal;
   }
   if (model.rail_booking) return railBookingEnvelope(model);
+  if (model.rail_planning) return railPlanningEnvelope(model);
   if (latestRun && ["failed", "cancelled"].includes(latestRun.status) && !model.workflow_entry) {
     return {
       status: latestRun.status,

@@ -1555,14 +1555,21 @@ services
   .argument("<service_execution_id>")
   .argument("<result_item_id>")
   .option("--offset <offset>", "zero-based candidate offset", Number, 0)
+  .option("--cursor <cursor>", "opaque v2 page cursor (rcur_<offset>); takes precedence over --offset")
   .option("--limit <limit>", "page size (1-20)", Number, 5)
   .option("--json", "output JSON")
   .action(async (serviceExecutionID: string, resultItemID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
+      const cursorOffset = typeof options.cursor === "string" && /^rcur_\d+$/.test(options.cursor)
+        ? Number(options.cursor.slice(5))
+        : undefined;
+      if (options.cursor !== undefined && cursorOffset === undefined) {
+        throw new CommandContractError("cursor_invalid", "--cursor must be an opaque rcur_<offset> token from a previous page response", "--cursor 需为上一页返回的 rcur_<offset> 不透明游标。", []);
+      }
       await runServicesPage(backend, serviceExecutionID, resultItemID, {
-        offset: options.offset,
+        offset: cursorOffset ?? options.offset,
         limit: options.limit,
         jsonOutput: Boolean(options.json),
       });
@@ -1819,12 +1826,13 @@ services
   .command("next")
   .description("Show the next recommended agent action for a Service Execution")
   .argument("<service_execution_id>")
+  .option("--since-snapshot <snapshot_id>", "delta read: suppress the journey payload when unchanged")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesNext(backend, serviceExecutionID, { jsonOutput: Boolean(options.json) });
+      await runServicesNext(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), sinceSnapshot: options.sinceSnapshot });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
@@ -1839,12 +1847,14 @@ services
   .command("read-result")
   .description("Read a human-granted service result for this agent")
   .argument("<service_execution_id>")
+  .option("--snapshot <snapshot_id>", "rail.progressive.v2: read one journey from a committed planning snapshot")
+  .option("--journey <journey_id>", "rail.progressive.v2: journey id to read")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesReadResult(backend, serviceExecutionID, { jsonOutput: Boolean(options.json) });
+      await runServicesReadResult(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), snapshot: options.snapshot, journey: options.journey });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),

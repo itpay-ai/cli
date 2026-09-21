@@ -18,7 +18,11 @@ itpay services read-result <service_execution_id> [--json]
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `service_execution_id` | 是 | Vault 交付对应的 execution ID。 |
+| `--journey <journey_id>` | 否 | rail.progressive.v2 规划明细：读取指定 journey 的完整卡片（分段、席别报价、接驳估计、风险标注）。免费、属主校验、不触发供应商调用。 |
+| `--snapshot <snapshot_id>` | 否 | 与 `--journey` 配合，钉住某个已提交快照（`rps_…`）；缺省时读最新 catalog 快照。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
+
+带 `--journey` 时走规划读取分支：不经过 grant/Vault、不受 `access_locked` 影响，因为规划明细本就是免付费证据。未带选择器时原授权路径完全不变。
 
 CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer token、`agent_device_id` 参数或开发者凭证。
 
