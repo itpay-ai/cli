@@ -21,6 +21,11 @@ import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../render
 import { buildAgentChatHandoff } from "../render/markdown.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
+
+// Declared at execution creation: the client understands the rail.progressive.v2
+// response format (rail_planning projection, snapshot paging, rsel_ handles).
+// The server alone decides service version, quota and provider credentials.
+const RAIL_PROGRESSIVE_FEATURES = ["rail.progressive.v2"] as const;
 import { buildCheckoutQRPlan } from "./buy.js";
 import {
   appendFeedbackPostmortemInstruction,
@@ -130,6 +135,7 @@ export async function runServicesStart(
     service_id: serviceID,
     client_context: {
       host,
+      features: [...RAIL_PROGRESSIVE_FEATURES],
       ...(options.target ? { target: options.target } : {}),
       ...(options.clientContext ?? {}),
     },
@@ -2034,7 +2040,7 @@ export async function runServicesRun(
     if (!id) {
       const started = await backend.startServiceExecution({
         service_id: serviceID,
-        client_context: { host: options.host ?? "terminal", ...(options.target ? { target: options.target } : {}) },
+        client_context: { host: options.host ?? "terminal", features: [...RAIL_PROGRESSIVE_FEATURES], ...(options.target ? { target: options.target } : {}) },
         ...(input !== undefined ? { input } : {}),
       });
       id = started.execution.service_execution_id;
