@@ -51,6 +51,9 @@ function orderEnvelope(
     instruction = "先告诉用户这笔订单已经退款，原交付不可继续读取；不要再次付款或尝试恢复旧授权。";
   } else if (order.status === "cancelled") {
     instruction = "先告诉用户这笔订单已经取消，没有可继续的付款或交付；不要创建替代订单，除非用户另行提出新的购买。";
+  } else if (order.status === "pending_payment") {
+    instruction = "先告诉用户订单正在等待付款，超时未支付会被自动取消；不要创建替代订单，也不要重复发起支付授权。";
+    next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单支付状态" };
   } else if (!["delivered", "refunded", "failed", "cancelled"].includes(order.status)) {
     instruction = "先告诉用户订单仍在处理，已记录的付款和订单不需要重复创建；稍后查询同一订单，不要创建替代订单。";
     next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单状态" };
@@ -62,6 +65,7 @@ function orderEnvelope(
       order_id: order.order_id,
       ...(order.order_code ? { order_code: order.order_code } : {}),
       amount: formatMoney(order.amount_minor, order.currency),
+      ...(order.payment_deadline_at ? { payment_deadline_at: order.payment_deadline_at } : {}),
       ...(delivery ? { delivery_mode: delivery.delivery_mode } : {}),
       access_locked: Boolean(lockedRefund),
       ...(delivery?.service_execution_id ? { service_execution_id: delivery.service_execution_id } : {}),

@@ -159,6 +159,7 @@ export interface Order {
   currency: string;
   created_at: string;
   paid_at?: string;
+  payment_deadline_at?: string;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
 }
