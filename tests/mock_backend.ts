@@ -101,6 +101,13 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       items: [{ order_item_id: "oi_failed", title: "Failed delivery", quantity: 1, amount_minor: 20, currency: "CNY" }],
       delivery_artifacts: [],
     },
+    ord_pending: {
+      order_id: "ord_pending", order_code: "IP-PENDING", checkout_id: "chk_pending", status: "pending_payment",
+      amount_minor: 30, currency: "CNY", created_at: "2026-07-13T12:00:00Z",
+      payment_deadline_at: "2026-07-13T12:15:00Z",
+      items: [{ order_item_id: "oi_pending", title: "Awaiting payment", quantity: 1, amount_minor: 30, currency: "CNY" }],
+      delivery_artifacts: [],
+    },
     ord_multi: {
       order_id: "ord_multi", order_code: "IP-MULTI", checkout_id: "chk_multi", status: "delivered",
       amount_minor: 220, currency: "CNY", created_at: "2026-07-13T12:00:00Z", paid_at: "2026-07-13T12:00:00Z",
@@ -457,9 +464,59 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    const railJourneyDetailMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/journeys\/([^/]+)$/);
+    if (method === "GET" && railJourneyDetailMatch) {
+      const [serviceExecutionID, journeyID] = [railJourneyDetailMatch[1]!, railJourneyDetailMatch[2]!];
+      if (serviceExecutionID !== "se_rail_plan_complete" || journeyID !== "journey_rec") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      respond(res, 200, {
+        plan_id: "rplan_1",
+        service_execution_id: serviceExecutionID,
+        snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_1",
+        query_revision: 3,
+        journey: {
+          journey_id: journeyID,
+          route_family_id: "rf_gd",
+          route_names: ["北京南", "上海虹桥"],
+          rides: [{ train_code: "G1", departure: "09:00", arrival: "13:30" }],
+          availability: "available",
+          booking_support: "single_leg",
+          representative_offer: { offer_id: "off_rec", fare_minor: 55300, service_fee_minor: 500, rail_payable_minor: 55800, currency: "CNY" },
+        },
+      });
+      return;
+    }
+
     const resultItemPageMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/result-items\/([^/]+)$/);
     if (method === "GET" && resultItemPageMatch) {
       const [serviceExecutionID, resultItemID] = [resultItemPageMatch[1]!, resultItemPageMatch[2]!];
+      if (serviceExecutionID === "se_rail_plan_page" && resultItemID === "rsnap_1") {
+        const offset = Number(url.searchParams.get("offset") ?? "0");
+        const limit = Number(url.searchParams.get("limit") ?? "5");
+        const all = Array.from({ length: 8 }, (_, i) => ({
+          journey_id: `journey_${i}`, route_family_id: "rf_gd",
+          route_names: ["北京南", "上海虹桥"], availability: "available",
+          rides: [{ train_code: `G${i + 1}` }],
+          representative_offer: { offer_id: `off_${i}`, fare_minor: 55300, service_fee_minor: 500, rail_payable_minor: 55800, currency: "CNY" },
+          booking_support: "single_leg",
+        }));
+        const slice = all.slice(offset, offset + limit);
+        respond(res, 200, {
+          service_execution_id: serviceExecutionID,
+          snapshot_id: "rsnap_1",
+          plan_id: "rplan_1",
+          query_revision: 3,
+          page: {
+            result: {
+              journeys: slice,
+              journey_page: { offset, limit, total: 8, count: slice.length, next_offset: offset + slice.length < 8 ? offset + slice.length : null },
+            },
+          },
+        });
+        return;
+      }
       if (serviceExecutionID !== "se_rail_paged" || resultItemID !== "sri_rail_paged") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
         return;
@@ -528,6 +585,51 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           status: "completed",
           redacted_summary: { delivery_mode: "agent_visible_result" },
         }];
+        serviceExecutions[serviceExecutionID] = model;
+        respond(res, 200, model);
+        return;
+      }
+      const railPlanMatch = serviceExecutionID.match(/^se_rail_plan_(running|paused|complete|failed)$/);
+      if (railPlanMatch) {
+        const expansion = railPlanMatch[1]!;
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        const recommended = {
+          journey_id: "journey_rec", route_family_id: "rf_gd", route_names: ["北京南", "上海虹桥"],
+          rides: [{ train_code: "G1", departure: "09:00", arrival: "13:30" }],
+          availability: "available", passengers: 1,
+          representative_offer: { offer_id: "off_rec", fare_minor: 55300, service_fee_minor: 500, rail_payable_minor: 55800, currency: "CNY" },
+          booking_support: "single_leg",
+          booking_offer: { service_id: "svc_rail_booking", selection_token: "rsel_rec" },
+          observed_at: "2026-07-20T08:00:00Z",
+          risk_notes: ["余票紧张"],
+        };
+        const alternative = {
+          journey_id: "journey_alt", route_family_id: "rf_gd", route: ["北京南", "南京南", "上海虹桥"],
+          rides: [{ train_code: "G9" }, { train_code: "D711" }],
+          availability: "limited", passengers: 1,
+          booking_support: "separate_legs_only",
+        };
+        (model as Record<string, unknown>).rail_planning = {
+          schema_version: "rail.progressive.v2",
+          plan_id: "rplan_1",
+          service_execution_id: serviceExecutionID,
+          query_revision: 3,
+          snapshot_id: "rsnap_1",
+          snapshot_version: 2,
+          readiness: expansion === "complete" ? "ready" : "pending",
+          search: {
+            expansion_status: expansion,
+            ...(expansion === "paused" ? { reason: "budget_pause" } : {}),
+            ...(expansion === "running" ? { poll_after_ms: 4000 } : {}),
+            ...(expansion === "failed" ? { reason: "provider_error" } : {}),
+          },
+          coverage: { route_count: 1 },
+          budgets: { provider_calls: 12 },
+          ...(expansion === "paused" ? { result_not_updated: true } : {}),
+          ...(expansion === "complete" || expansion === "paused" ? { recommendation: recommended } : {}),
+          alternatives: [alternative],
+          available_actions: [{ type: "expand_search", command: "itpay services run svc --json", provider_effect: "calls supplier" }],
+        };
         serviceExecutions[serviceExecutionID] = model;
         respond(res, 200, model);
         return;

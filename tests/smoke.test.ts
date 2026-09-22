@@ -712,6 +712,105 @@ test("services next offers a saved-result page continuation without new quota", 
 	assert.match(page?.reason ?? "", /不重新查询、不消耗额度/);
 });
 
+test("rail progressive planning keeps polling the same execution while expanding", async () => {
+	await runServicesNext(backend, "se_rail_plan_running", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { rail_planning: { expansion_status: string; poll_after_ms: number }; journeys?: Array<{ journey_id: string; price: string }> };
+		next: { command: string };
+		instruction: string;
+	};
+	assert.equal(envelope.status, "planning");
+	assert.equal(envelope.result.rail_planning.expansion_status, "running");
+	assert.equal(envelope.result.rail_planning.poll_after_ms, 4000);
+	assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --since-snapshot rsnap_1 --json");
+	assert.equal(envelope.result.journeys?.[0]?.journey_id, "journey_alt");
+	assert.equal(envelope.result.journeys?.[0]?.price, "unknown");
+	assert.match(envelope.instruction, /不要重新发起查询/);
+});
+
+test("rail progressive paused planning waits for user intent without new supplier calls", async () => {
+	await runServicesNext(backend, "se_rail_plan_paused", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { rail_planning: { reason: string; result_not_updated?: boolean }; recommendation?: { journey_id: string } };
+		next: null;
+	};
+	assert.equal(envelope.status, "awaiting_input");
+	assert.equal(envelope.next, null);
+	assert.equal(envelope.result.rail_planning.reason, "budget_pause");
+	assert.equal(envelope.result.rail_planning.result_not_updated, true);
+	assert.equal(envelope.result.recommendation?.journey_id, "journey_rec");
+});
+
+test("rail progressive complete planning emits the journey select command", async () => {
+	await runServicesNext(backend, "se_rail_plan_complete", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: {
+			rail_planning: { readiness: string };
+			recommendation: { journey_id: string; select: string; book?: string; risk_notes?: string[]; time?: string };
+		};
+		next: { command: string };
+		instruction: string;
+	};
+	assert.equal(envelope.status, "ready");
+	assert.equal(envelope.result.rail_planning.readiness, "ready");
+	assert.equal(envelope.result.recommendation.journey_id, "journey_rec");
+	assert.match(envelope.result.recommendation.select, /services action se_rail_plan_complete --action select_journey/);
+	assert.match(envelope.result.recommendation.select, /journey_id=journey_rec/);
+	assert.match(envelope.result.recommendation.book ?? "", /selection.*token.*rsel_rec/);
+	assert.equal(envelope.result.recommendation.time, "09:00–13:30");
+	assert.deepEqual(envelope.result.recommendation.risk_notes, ["余票紧张"]);
+	assert.equal(envelope.next.command, envelope.result.recommendation.select);
+	assert.match(envelope.instruction, /受保护 Checkout/);
+});
+
+test("rail progressive failed planning is terminal and never auto-retries", async () => {
+	await runServicesNext(backend, "se_rail_plan_failed", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		next: null;
+		recovery: Array<{ command: string }>;
+		instruction: string;
+	};
+	assert.equal(envelope.status, "failed");
+	assert.equal(envelope.next, null);
+	assert.equal(envelope.recovery[0]?.command, "itpay services events se_rail_plan_failed --json");
+	assert.match(envelope.instruction, /不要自动重新发起/);
+});
+
+test("rail progressive snapshot page returns journeys with an opaque cursor", async () => {
+	await runServicesPage(backend, "se_rail_plan_page", "rsnap_1", { offset: 0, limit: 5, jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { snapshot_id?: string; service_capability_result_item_id?: string; total: number; count: number };
+		next: { command: string };
+	};
+	assert.equal(envelope.status, "result_page");
+	assert.equal(envelope.result.snapshot_id, "rsnap_1");
+	assert.equal(envelope.result.service_capability_result_item_id, undefined);
+	assert.equal(envelope.result.total, 8);
+	assert.equal(envelope.result.count, 5);
+	assert.equal(envelope.next.command, "itpay services page se_rail_plan_page rsnap_1 --cursor rcur_5 --json");
+});
+
+test("rail progressive journey detail reads committed evidence without the vault path", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_complete", { journey: "journey_rec", snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { plan_id: string; snapshot_id: string; journey: { journey_id: string; booking_support: string } };
+		next: { command: string };
+		instruction: string;
+	};
+	assert.equal(envelope.status, "ready");
+	assert.equal(envelope.result.plan_id, "rplan_1");
+	assert.equal(envelope.result.snapshot_id, "rsnap_1");
+	assert.equal(envelope.result.journey.journey_id, "journey_rec");
+	assert.match(envelope.next.command, /select_journey.*journey_id=journey_rec/);
+	assert.match(envelope.instruction, /受保护 Checkout/);
+});
+
 test("services next restores candidate items on the source execution", async () => {
 	await runServicesInvoke(backend, config, "se_candidate_recovery", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
 	await runServicesNext(backend, "se_candidate_recovery", { jsonOutput: true, output: stdoutSink });
@@ -3958,6 +4057,22 @@ test("failed paid order checks its refund state without creating a replacement",
   assert.match(envelope.instruction, /不需要重复付款或重新下单/);
   assert.match(envelope.instruction, /安全服务复盘/);
   assert.doesNotMatch(envelope.next.command, /checkout|services start|services invoke/);
+});
+
+test("pending payment order reports waiting for payment with its deadline", async () => {
+  await runOrder(backend, "ord_pending", { jsonOutput: true, output: stdoutSink });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    instruction: string;
+    result: { payment_deadline_at?: string };
+    next: { command: string };
+  };
+  assert.equal(envelope.status, "pending_payment");
+  assert.equal(envelope.result.payment_deadline_at, "2026-07-13T12:15:00Z");
+  assert.equal(envelope.next.command, "itpay order ord_pending --json");
+  assert.match(envelope.instruction, /等待付款/);
+  assert.match(envelope.instruction, /自动取消/);
+  assert.doesNotMatch(envelope.instruction, /已支付|付款成功/);
 });
 
 test("order keeps business output identical across all supported Agent Types", async () => {
