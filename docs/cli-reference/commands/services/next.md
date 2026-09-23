@@ -22,6 +22,7 @@ itpay services next <service_execution_id> [--json]
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `service_execution_id` | 是 | `services start` 或后续命令返回的 execution ID。 |
+| `--since-snapshot <snapshot_id>` | 否 | rail.progressive.v2 增量读：传上次看到的 `snapshot_id`，未变化时只回扩展状态与 `result_not_updated`，不重复下发 journey 负载；永远不触发供应商调用。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
 
 需要有效 Agent Device session。命令不接受 Buyer token、capability 或服务输入。
@@ -291,3 +292,12 @@ itpay services get <service_execution_id> --json
 ## Agent Type / Host
 
 所有正式支持的 Local Agent Type 返回完全相同的状态、safe payload、instruction 和 next。本命令不渲染二维码，也不包含 Host handoff。
+
+## 渐进规划（rail.progressive.v2）
+
+智能铁路规划服务在执行读模型上附带 `rail_planning` 投影：`readiness`（pending/ready/expired）、`search.expansion_status`（queued/running/paused/complete/cancelled/failed/expired）、`recommendation` 与 `alternatives` 行程卡片、以及服务端给出的完整 `available_actions` 命令。
+
+- `running`/`queued`：稍后按 `next.command` 增量轮询同一执行；不要重新发起查询。
+- `paused`：首批结果已就绪、扩展暂停等待用户意图；`expand_search` 是唯一会再消耗供应商配额的动作。
+- `complete`：扩展收敛；展示推荐并等待用户选票。
+- 选票走 `select_journey` 动作（命令在 `available_actions` 或卡片的 `select` 字段里，原样执行）；乘车人身份信息永远只在受保护 Checkout 页面填写。

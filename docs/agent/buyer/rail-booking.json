@@ -46,7 +46,9 @@
         "depart_after": "Do not depart before this time.",
         "arrive_before": "Do not arrive after this time.",
         "priority": "One of balanced | fastest | cheapest | safest | flexible.",
-        "max_transfers": "Integer 0-2, allowed transfer count."
+        "max_transfers": "Integer 0-2, allowed transfer count.",
+        "passengers": "Integer 1-5, default 1: adult passenger count reflected in per-leg inventory and amounts. NOT identity records.",
+        "preference_context": "Bounded object, max 4 string-valued keys (<=200 chars each) of soft ranking preferences, e.g. {\"no_taxi\":\"true\"}. Validated allowlist; never carry passenger identity."
       },
       "example": {
         "origin": "中山古镇",
@@ -74,7 +76,9 @@
     "Exact results carry per-train candidates; smart results carry journeys. Bookable options carry booking_offer with a server-signed selection_token.",
     "The token binds the stored result snapshot and the chosen option. Submit it with passengers (and seat_type when the user picked a class); the server derives the authoritative legs and re-quotes live. Do NOT hand-build legs JSON from the visible result.",
     "An expired or foreign token returns a clear error; recover by running a fresh query or by explicit legs — never by guessing token contents.",
-    "Repeating the same selection restores the same booking execution instead of creating a second one."
+    "Repeating the same selection restores the same booking execution instead of creating a second one.",
+    "v2 single-leg cards carry an opaque rsel_ selection_token bound to owner, execution, query revision, snapshot, journey/offer, policy and expiry; a stale or foreign token returns selection_stale — re-read the snapshot for a fresh offer instead of retrying.",
+    "v2 separate_legs_only journeys never carry a whole-journey token: open the journey detail, pick one leg, and use that leg's owner-issued booking_offer; each leg is quoted and confirmed independently with no joint guarantee."
   ],
   "trial_and_login": {
     "policy": "itpay-rail-exact and itpay-rail-smart each allow 2 anonymous queries per enrolled device lineage — independent counters, not a shared pool of 4.",
@@ -100,7 +104,14 @@
     "catalog_or_recommend": "Location resolved but no feasible trains: change the date or stations.",
     "login_required_is_not_failure": "login_required / rate_limited pause the execution; they are NOT failures and never justify a replacement execution.",
     "general_rule": "Never replay a failed execution and never guess different field names; correct the input and start a new execution of the same service.",
-    "booking_review_changed": "The submitted draft_revision is stale: re-read services next for the current review projection and resubmit the full input; do not bump the revision yourself."
+    "booking_review_changed": "The submitted draft_revision is stale: re-read services next for the current review projection and resubmit the full input; do not bump the revision yourself.",
+    "plan_conflict": "409: the action_request_id/expected_query_revision/snapshot_id no longer matches owner state. Re-read services next and reuse the fresh action handle; an identical replay of an accepted action still returns its original acceptance.",
+    "stale_cursor": "The paging cursor was minted against an older snapshot; restart paging from the current snapshot_id.",
+    "snapshot_not_found": "Unknown or superseded snapshot id; read the current projection for the latest snapshot.",
+    "journey_not_in_snapshot": "The rj_ reference is not inside the saved snapshot; pick a journey from the current page/projection.",
+    "plan_expired": "The 15-minute plan lifecycle ended: expansion stopped and the snapshot is read-only evidence; start a new execution for a fresh search. In-flight checkout/payment is unaffected.",
+    "action_request_invalid": "The action payload failed validation (unknown patch fields, malformed handle); copy the command from available_actions instead of composing it.",
+    "selection_stale": "The rsel_ token no longer matches the current snapshot/policy; re-read the journey and take the fresh booking_offer."
   },
   "seat_preferences": {
     "meaning": "A buyer's seat-letter preference may be planned per leg before payment. The plan is submitted to the supplier when encodable; unsupported combinations fall back to automatic assignment.",
@@ -118,7 +129,12 @@
     "Take draft_revision only from the current services next review projection; on booking_review_changed re-read instead of retrying the stale value.",
     "login_required and rate_limited are pauses, not failures: resume the same execution, never spawn a replacement.",
     "Do not repeat or replay a failed execution; correct the input and start a new one.",
-    "Do not claim payment equals ticket issuance; issuance is asynchronous and confirmed only by the issued seat status."
+    "Do not claim payment equals ticket issuance; issuance is asynchronous and confirmed only by the issued seat status.",
+    "For v2 plans, act only on available_actions[] from the current projection: run the exact command the backend returned, then re-read; never invent action types, request ids, revisions or fields.",
+    "expand_search is the only intent that may spend provider budget; refine_preferences re-ranks saved data first and does not by itself expand.",
+    "A paused/expired/complete plan is still readable and selectable from its saved snapshot; never start a replacement execution to keep polling.",
+    "stop_search pauses scheduling but keeps saved data and existing selections; booking stays reachable only through the allowed actions the owner reports.",
+    "When since_snapshot returns result_not_updated, keep the previous snapshot and still surface the latest expansion status/end reason to the user."
   ],
   "human_language": {
     "prefer": [
@@ -161,5 +177,15 @@
     "status_read": "The order read exposes masked per-leg notification entries (keys: issued, details_pending, seat_ready) with channel, status and masked recipient — never raw numbers.",
     "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
     "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
+  },
+  "progressive_v2": {
+    "capability": "New CLI declares client_context.features=[\"rail.progressive.v2\"] at service start. It is a response-format declaration only; quota, service version and provider credentials stay server-decided. Old clients keep the legacy projection; never create a second execution to probe.",
+    "read_model": "While the plan workflow is active, services next carries rail_planning: schema_version, plan_id (jp_), query_revision, snapshot_id (rps_), readiness, expansion {status, reason, poll_after_ms, new_results_guaranteed}, coverage, budgets, recommendation + up to 4 alternatives (journey cards rj_), available_actions with concrete commands, result_item_id.",
+    "expansion_states": "queued/running: automatic work remains; paused: batch sufficient or auto window ended, expand only on explicit intent; complete/cancelled: budget or frontier exhausted — snapshot stays read-only, expand action absent; failed: reason visible after a published snapshot, readiness stays ready; expired: 15-minute lifecycle end — evidence read-only, in-flight purchase unaffected.",
+    "reads": "services next --since-snapshot <rps_…> suppresses the journey payload but always returns the latest expansion status. read-result gains --snapshot, --journey <rj_…> and an opaque --cursor bound to snapshot+filter+sort (stale -> stale_cursor). Reads never call the provider, never extend lifecycle, never invoke the model.",
+    "actions": "Three allowlisted planning actions ride POST actions with action_type workflow:expand_search | workflow:refine_preferences | workflow:stop_search. input_snapshot carries server-issued action_request_id plus expected_query_revision and snapshot_id; refine adds a validated preference_patch. Always copy the concrete command from available_actions[]; never assemble fields. Same id + same payload returns the stored acceptance; same id + different payload -> plan_conflict.",
+    "journey_card": "Cards carry station names, train codes, dated times, transfer/same-run notes, observed_at price time and handles. representative_offer.ticket_offers[] lists one purchasable segment per entry (leg_index, offer_id, service_ref, station codes, travel_date, seat_type, passengers, integer-minor amounts); per-item amounts sum to the total. rides[] (ridden legs) and ticket_offers[] (purchasable segments) are different lists — never infer transfers or fees from array lengths.",
+    "selection": "booking_support=single_leg cards carry booking_offer {service_id: itpay-rail-booking, selection_token: rsel_…}; submit it to itpay-rail-booking with passengers as today. separate_legs_only cards expose no whole-journey token — each leg is quoted and confirmed separately via its protected detail; never assemble legs JSON yourself. booking_support=none has no selection action.",
+    "honesty": "Coverage is bounded: repeat searched_scope/notices verbatim, never claim national-exhaustive search, and surface missing prices as unknown — never 0."
   }
 }

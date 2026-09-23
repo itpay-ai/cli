@@ -159,6 +159,7 @@ export interface Order {
   currency: string;
   created_at: string;
   paid_at?: string;
+  payment_deadline_at?: string;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
 }
@@ -489,8 +490,13 @@ export interface ServiceCapabilityResultItem {
 }
 
 export interface ServiceResultItemPage {
-  service_capability_result_item_id: string;
+  service_capability_result_item_id?: string;
   service_execution_id: string;
+  /** rail.progressive.v2 snapshot pages key the snapshot id instead of a
+   * materialized result item. */
+  snapshot_id?: string;
+  plan_id?: string;
+  query_revision?: number;
   capability_id?: string;
   /** Projected page: candidates slice plus saved summary aggregates and
    * catalog_page {offset, limit, total, count, next_offset}. */
@@ -663,8 +669,67 @@ export interface RailBookingStatus {
   legs: RailBookingLegStatus[];
 }
 
+export interface RailPlanningProjection {
+  schema_version?: string;
+  plan_id?: string;
+  service_execution_id?: string;
+  query_revision?: number;
+  snapshot_id?: string;
+  snapshot_version?: number;
+  readiness?: "pending" | "ready" | "expired" | string;
+  first_ready_at?: string;
+  result_item_id?: string;
+  search?: {
+    expansion_status?: "queued" | "running" | "paused" | "complete" | "cancelled" | "failed" | "expired" | string;
+    reason?: string;
+    poll_after_ms?: number;
+    new_results_guaranteed?: boolean;
+  };
+  coverage?: Record<string, unknown>;
+  budgets?: Record<string, number>;
+  recommendation?: RailJourneyCard;
+  alternatives?: RailJourneyCard[];
+  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string }>;
+  result_not_updated?: boolean;
+}
+
+export interface RailJourneyCard {
+  journey_id: string;
+  route_family_id: string;
+  route?: string[];
+  route_names?: string[];
+  rides?: Array<Record<string, unknown>>;
+  availability?: string;
+  passengers?: number;
+  representative_offer?: {
+    offer_id: string;
+    fare_minor: number;
+    service_fee_minor: number;
+    rail_payable_minor: number;
+    currency: string;
+    ticket_offers?: Array<Record<string, unknown>>;
+  } | null;
+  ground_summary?: Record<string, unknown>;
+  risk_notes?: string[];
+  observed_at?: string;
+  booking_support?: "single_leg" | "separate_legs_only" | "none" | string;
+  // Server-issued purchase handle: present only on single_leg cards. The token
+  // is opaque — submit it verbatim to itpay-rail-booking, never decode it.
+  booking_offer?: { service_id: string; selection_token: string };
+  candidate_ids?: string[];
+}
+
+export interface RailJourneyDetail {
+  service_execution_id: string;
+  plan_id: string;
+  snapshot_id: string;
+  query_revision: number;
+  journey: RailJourneyCard;
+}
+
 export interface ServiceExecutionReadModel {
   rail_booking?: RailBookingStatus;
+  rail_planning?: RailPlanningProjection;
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
   workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 

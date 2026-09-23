@@ -18,6 +18,7 @@ import type {
   BuyerOrderSummaryList,
 	ListRefundsResponse,
   ListServiceExecutionsResponse,
+  RailJourneyDetail,
   Order,
   OrderDeliveryAccess,
   SubmitServiceFeedbackRequest,
@@ -273,8 +274,9 @@ export class BackendClient {
     );
   }
 
-  getServiceExecution(serviceExecutionID: string): Promise<ServiceExecutionReadModel> {
-    return this.http.get<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}`);
+  getServiceExecution(serviceExecutionID: string, opts: { sinceSnapshot?: string } = {}): Promise<ServiceExecutionReadModel> {
+    const query = opts.sinceSnapshot ? `?since_snapshot=${encodeURIComponent(opts.sinceSnapshot)}` : "";
+    return this.http.get<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}${query}`);
   }
 
   listServiceExecutions(limit = 50): Promise<ListServiceExecutionsResponse> {
@@ -293,6 +295,13 @@ export class BackendClient {
 
   getGrantedServiceResult(serviceExecutionID: string): Promise<GrantedServiceResult> {
     return this.http.get<GrantedServiceResult>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/granted-result`);
+  }
+
+  getRailJourneyDetail(serviceExecutionID: string, journeyID: string, snapshotID?: string): Promise<RailJourneyDetail> {
+    const query = snapshotID ? `?snapshot=${encodeURIComponent(snapshotID)}` : "";
+    return this.http.get<RailJourneyDetail>(
+      `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/rail-planning/journeys/${encodeURIComponent(journeyID)}${query}`,
+    );
   }
 }
 

@@ -27,6 +27,19 @@ itpay services action <service_execution_id> --action <action_type>
 
 普通 Agent 优先使用 `--candidate <rank>`。CLI 只从当前 Execution 的 `current_result_items` 解析 Result Item ID；Backend 再读取权威 Invocation 和 Stable Hash。Agent 不提交 Hash，也不能使用其他 Execution 或外部来源的候选。`--result-item` 只用于已持有当前 Execution 内部句柄的受控恢复，不应要求用户提供。
 
+## 规划动作（rail.progressive.v2）
+
+`services next` 的 `rail_planning.available_actions` 会给出可直接执行的完整命令。规划动作只允许以下类型，由 planning owner 校验执行归属、plan 状态与幂等键，不影响 Arazzo `human_action` 状态机或公共执行状态：
+
+| action_type | 供应商消耗 | 说明 |
+| --- | --- | --- |
+| `workflow:expand_search` | 有界新增查询 | 仅在扩展暂停（`expansion_status=paused`）时可用；必须带服务端下发的 `action_request_id`（`pa_…`）与 `expected_query_revision`，一轮一柄、用完作废。 |
+| `workflow:refine_preferences` | 无（本地重排） | 用 `--input-json` 提交偏好补丁，对已保存证据重排序。 |
+| `workflow:stop_search` | 无 | 停止未发送的扩展任务；不影响已开始或已完成的出票。 |
+| `select_journey` | 无 | 记录用户选定：`--input journey_id=<rj_…>`；仅记录选择、不改排名，后续购买仍走既有报价与受保护 Checkout。 |
+
+同一 `action_request_id` 相同内容重放返回原受理结果；相同 ID 不同内容会被判冲突。过期 `expected_query_revision` 的新动作被拒绝。
+
 ## 标准输出
 
 ```json

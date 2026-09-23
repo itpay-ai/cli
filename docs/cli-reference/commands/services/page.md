@@ -14,7 +14,9 @@
 ## 语法与参数
 
 ```bash
-itpay services page <service_execution_id> <result_item_id> [--offset <offset>] [--limit <limit>] [--json]
+itpay services page <service_execution_id> <result_item_id> [--offset <offset>] [--limit <limit>] [--cursor <rcur_n>] [--json]
+
+rail.progressive.v2 中 `<result_item_id>` 也可以是规划快照 ID（`rps_…`，见 `services next` 返回的 `snapshot_id`）：分页读取该不可变快照内的 journey 卡片，`--cursor` 使用上一页返回的 `rcur_<offset>` 不透明游标。
 ```
 
 | 参数 | 必填 | 说明 |
