@@ -1323,6 +1323,16 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   const pairProgress = counts && (counts.pairs_total ?? 0) > 0
     ? `已检查${counts.pairs_checked ?? 0}/${counts.pairs_total}个附近站对`
     : "";
+  // §S5: failed pairs are named honestly — never implied by "checked" and
+  // never rephrased as "no direct exists".
+  // §S5: a rules-only recommendation after a failed model attempt is honest —
+  // "rules finished, AI didn't", never silently dressed as a model pick.
+  const modelDegradedHint = plan.search?.model_outcome === "fallback"
+    ? "规则推荐已完成，AI模型未完成；推荐有效，但置信度说明以规则结果为准。"
+    : "";
+  const failedPairsHint = counts && (counts.pairs_failed ?? 0) > 0
+    ? `有${counts.pairs_failed}个站对暂未查明，不能确认没有直达；已有结果仍可查看。`
+    : "";
   const result: Record<string, unknown> = {
     service_execution_id: se,
     rail_planning: {
@@ -1333,6 +1343,9 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       ...(plan.search?.phase ? { phase: plan.search.phase } : {}),
       ...(plan.search?.transfer_status ? { transfer_status: plan.search.transfer_status } : {}),
       ...(plan.search?.transition_reason ? { transition_reason: plan.search.transition_reason } : {}),
+      ...(plan.search?.authorization ? { authorization: plan.search.authorization } : {}),
+      ...(plan.search?.decision_source ? { decision_source: plan.search.decision_source } : {}),
+      ...(plan.search?.model_outcome ? { model_outcome: plan.search.model_outcome } : {}),
       ...(plan.search?.reason ? { reason: plan.search.reason } : {}),
       ...(plan.search?.poll_after_ms ? { poll_after_ms: plan.search.poll_after_ms } : {}),
       ...(plan.result_not_updated ? { result_not_updated: true } : {}),
@@ -1373,10 +1386,23 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       const partialPause = !directHint && counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
         ? `目前找到${counts.journeys_total ?? 0}个可选组合；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
         : "";
+      // §S5: a dispatch whose outcome is unknown pauses for reconciliation —
+      // the message names the state, never rephrases it as a normal pause or
+      // a no-directs result, and never offers a blind retry (expand_search is
+      // withheld by the projection too).
+      if (plan.search?.reason === "dispatch_outcome_unknown") {
+        return {
+          status: "awaiting_input",
+          result,
+          instruction: `${counts?.journeys_total ? `已保存${counts.journeys_total}个已核验组合仍可查看。` : ""}上一次查询发送结果未确认（可能已部分查询），系统已暂停并等待对账，不会自动重复发送，也不能据此断定没有车次。展示已有卡片，稍后可重新读取最新状态。`,
+          next: null,
+          recovery: [{ command: `itpay services next ${se} --json`, reason: "稍后读取对账后的最新状态" }],
+        };
+      }
       return {
         status: "awaiting_input",
         result,
-        instruction: `${directHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。`,
+        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。`,
         next: null,
         recovery: [],
       };
@@ -1390,10 +1416,16 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       const partial = counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
         ? `目前找到${counts.journeys_total ?? 0}个可选组合；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
         : "";
+      // §S5: a processing failure with a committed catalog is "saved N
+      // verified combinations, later expansion/recommend incomplete" — the
+      // existing catalog stays readable and nothing implies no other routes.
+      const savedCatalog = expansion === "failed" && (counts?.journeys_total ?? 0) > 0
+        ? `已保存${counts?.journeys_total}个已核验组合；后续扩展/推荐未完成，原因是本次处理异常。已有方案仍可查看，不代表没有其它路线，也不需要重复提交订单或付款。`
+        : "";
       return {
         status: expansion,
         result,
-        instruction: `${partial}本次规划已结束且不可续用；展示已有卡片后如需重查请用户确认后用同一服务新建执行。不要自动重新发起。`,
+        instruction: `${modelDegradedHint}${failedPairsHint}${savedCatalog}${partial}本次规划已结束且不可续用；展示已有卡片后如需重查请用户确认后用同一服务新建执行。不要自动重新发起。`,
         next: null,
         recovery: [{ command: `itpay services events ${se} --json`, reason: "读取同一任务的处理记录" }],
       };
@@ -1405,13 +1437,18 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       const transferSearching = plan.search?.phase === "transfer"
         || plan.search?.transition_reason === "no_usable_direct"
         || plan.search?.transfer_status === "in_progress" || plan.search?.transfer_status === "pending";
-      const transferHint = transferSearching
+      // §S5: an expansion the user authorized keeps earlier directs and says
+      // so — it must not reuse the automatic "no usable direct" wording.
+      const manualExpansion = plan.search?.authorization === "manual"
+        ? `已保留之前的直达结果，正在按你的要求比较更多直达/中转及分段购票方案，需要多一点时间。`
+        : "";
+      const transferHint = !manualExpansion && transferSearching
         ? `已检查本次附近站范围，暂未找到符合条件且有票的直达，正在继续搜索中转组合，需要多一点时间；不需要重新提交。`
         : "";
       return {
         status: "planning",
         result,
-        instruction: `${transferHint}规划进行中：已提交的卡片可先向用户展示比较；稍后按 next 增量轮询同一执行（since-snapshot 命中时负载会被压缩，但阶段与计数仍返回最新值）。不要重新发起查询。`,
+        instruction: `${modelDegradedHint}${manualExpansion}${transferHint}${failedPairsHint}规划进行中：已提交的卡片可先向用户展示比较；稍后按 next 增量轮询同一执行（since-snapshot 命中时负载会被压缩，但阶段与计数仍返回最新值）。不要重新发起查询。`,
         next: nextPoll,
         recovery: [],
       };

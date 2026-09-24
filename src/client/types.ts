@@ -684,12 +684,16 @@ export interface RailPlanningProjection {
     phase?: string;
     transfer_status?: "disabled" | "not_needed" | "pending" | "in_progress" | "complete" | string;
     transition_reason?: string;
+    authorization?: "auto" | "manual" | string;
+    decision_source?: string;
+    model_outcome?: string;
     reason?: string;
     poll_after_ms?: number;
     new_results_guaranteed?: boolean;
     counts?: {
       pairs_checked?: number;
       pairs_total?: number;
+      pairs_failed?: number;
       journeys_total?: number;
       journeys_direct?: number;
       journeys_one_transfer?: number;
