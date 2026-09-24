@@ -869,6 +869,26 @@ test("rail progressive journey detail reads committed evidence without the vault
 	assert.match(envelope.instruction, /受保护 Checkout/);
 });
 
+test("rail progressive read-result --snapshot returns the full catalog once", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_complete", { snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: {
+			plan_id: string; snapshot_id: string; query_revision: number;
+			catalog: { schema_version: string; field_legend: unknown; journeys: Array<{ ref: string }> };
+			candidates?: unknown; journeys?: unknown;
+		};
+	};
+	assert.equal(envelope.status, "ready");
+	assert.equal(envelope.result.snapshot_id, "rsnap_1");
+	assert.equal(envelope.result.catalog.schema_version, "rail.catalog.v3");
+	assert.equal(envelope.result.catalog.journeys.length, 2);
+	// The catalog ships once: never duplicated into legacy candidates/journeys.
+	assert.equal(envelope.result.candidates, undefined);
+	assert.equal(envelope.result.journeys, undefined);
+	assert.ok(envelope.result.catalog.field_legend);
+});
+
 test("services next restores candidate items on the source execution", async () => {
 	await runServicesInvoke(backend, config, "se_candidate_recovery", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
 	await runServicesNext(backend, "se_candidate_recovery", { jsonOutput: true, output: stdoutSink });

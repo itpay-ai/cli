@@ -464,6 +464,32 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    const railCatalogMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/catalog$/);
+    if (method === "GET" && railCatalogMatch) {
+      const serviceExecutionID = railCatalogMatch[1]!;
+      if (serviceExecutionID !== "se_rail_plan_complete") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      respond(res, 200, {
+        plan_id: "rplan_1",
+        service_execution_id: serviceExecutionID,
+        snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_1",
+        query_revision: 3,
+        catalog: {
+          schema_version: "rail.catalog.v3",
+          field_legend: { journeys: "ref,route,rides,plans" },
+          stations: [["ZGQ", "中山北"], ["WZE", "万州北"]],
+          counts: { combinations: 2 },
+          journeys: [
+            { ref: "jny_a", route: "中山北 C7606 → 广州南换乘114分 → D1820 万州北", plans: [["tpn_a", ["srv_1"], 1, { def: 99000 }, true, 600, "separate_legs_only"]] },
+            { ref: "jny_b", route: "中山北 G68 → 广州南换乘90分 → G1312 万州北", plans: [["tpn_b", ["srv_2"], 1, { def: 88000 }, true, 600, "separate_legs_only"]] },
+          ],
+        },
+      });
+      return;
+    }
+
     const railJourneyDetailMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/journeys\/([^/]+)$/);
     if (method === "GET" && railJourneyDetailMatch) {
       const [serviceExecutionID, journeyID] = [railJourneyDetailMatch[1]!, railJourneyDetailMatch[2]!];

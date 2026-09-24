@@ -19,6 +19,7 @@ import type {
 	ListRefundsResponse,
   ListServiceExecutionsResponse,
   RailJourneyDetail,
+  RailPlanningCatalog,
   Order,
   OrderDeliveryAccess,
   SubmitServiceFeedbackRequest,
@@ -295,6 +296,13 @@ export class BackendClient {
 
   getGrantedServiceResult(serviceExecutionID: string): Promise<GrantedServiceResult> {
     return this.http.get<GrantedServiceResult>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/granted-result`);
+  }
+
+  getRailPlanningCatalog(serviceExecutionID: string, snapshotID?: string): Promise<RailPlanningCatalog> {
+    const query = snapshotID ? `?snapshot=${encodeURIComponent(snapshotID)}` : "";
+    return this.http.get<RailPlanningCatalog>(
+      `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/rail-planning/catalog${query}`,
+    );
   }
 
   getRailJourneyDetail(serviceExecutionID: string, journeyID: string, snapshotID?: string): Promise<RailJourneyDetail> {

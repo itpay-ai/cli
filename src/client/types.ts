@@ -683,6 +683,7 @@ export interface RailPlanningProjection {
     expansion_status?: "queued" | "running" | "paused" | "complete" | "cancelled" | "failed" | "expired" | string;
     phase?: string;
     transfer_status?: "disabled" | "not_needed" | "pending" | "in_progress" | "complete" | string;
+    transition_reason?: string;
     reason?: string;
     poll_after_ms?: number;
     new_results_guaranteed?: boolean;
@@ -735,6 +736,14 @@ export interface RailJourneyDetail {
   snapshot_id: string;
   query_revision: number;
   journey: RailJourneyCard;
+}
+
+export interface RailPlanningCatalog {
+  service_execution_id: string;
+  plan_id: string;
+  snapshot_id: string;
+  query_revision: number;
+  catalog: Record<string, unknown>;
 }
 
 export interface ServiceExecutionReadModel {

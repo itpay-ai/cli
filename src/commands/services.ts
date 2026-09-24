@@ -1121,6 +1121,46 @@ export async function runServicesReadResult(
   // planning evidence — a free owner-validated read that never touches the
   // grant/Vault path. Without the selectors the authorized-delivery flow is
   // unchanged.
+  // rail.planning full catalog read: --snapshot alone returns the complete
+  // committed rail.catalog.v3 — shared dictionaries and field_legend are
+  // preserved verbatim; one catalog, never split into candidates+journeys.
+  if (options.snapshot && !options.journey) {
+    const committed = await backend.getRailPlanningCatalog(serviceExecutionID, options.snapshot);
+    const catalog = committed.catalog;
+    const journeys = Array.isArray(catalog?.journeys) ? catalog.journeys : [];
+    const counts = (catalog?.counts ?? {}) as Record<string, unknown>;
+    const journeyCount = journeys.length || Number(counts?.combinations ?? 0);
+    writeCommandEnvelope({
+      status: "ready",
+      result: {
+        service_execution_id: serviceExecutionID,
+        plan_id: committed.plan_id,
+        snapshot_id: committed.snapshot_id,
+        query_revision: committed.query_revision,
+        catalog,
+      },
+      instruction: "catalog 是本次查询的完整无损目录：journeys 为全部可行组合（含超出预览分页的组合），plans 是每个组合下的购票方案，stations/services/offers/ground_options 为共享字典，field_legend 解释紧凑字段。逐组合向用户说明车次、换乘与接驳取舍；席别与价格以 plans 内报价为准、下单前仍需核验；姓名身份证手机号只在 ItPay 网页填写。",
+      next: journeys.length > 0
+        ? { command: `itpay services read-result ${serviceExecutionID} --snapshot ${committed.snapshot_id} --journey ${(journeys[0] as Record<string, unknown>).ref ?? (journeys[0] as Record<string, unknown>).journey_id} --json`, reason: "查看单个行程明细" }
+        : { command: `itpay services next ${serviceExecutionID} --since-snapshot ${committed.snapshot_id} --json`, reason: "返回规划进展" },
+      recovery: [],
+    }, {
+      ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+      ...(options.output ? { output: options.output } : {}),
+      plainResult: journeys.length > 0
+        ? [
+            `${journeyCount} combinations:`,
+            ...journeys.map((j) => {
+              const card = j as Record<string, unknown>;
+              const ref = card.ref ?? card.journey_id ?? "?";
+              const route = card.route ?? card.summary ?? "";
+              return `${ref}  ${route}`;
+            }),
+          ]
+        : [`catalog: ${committed.snapshot_id} (no combinations)`],
+    });
+    return;
+  }
   if (options.journey) {
     const detail = await backend.getRailJourneyDetail(serviceExecutionID, options.journey, options.snapshot);
     writeCommandEnvelope({
@@ -1292,6 +1332,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       expansion_status: expansion,
       ...(plan.search?.phase ? { phase: plan.search.phase } : {}),
       ...(plan.search?.transfer_status ? { transfer_status: plan.search.transfer_status } : {}),
+      ...(plan.search?.transition_reason ? { transition_reason: plan.search.transition_reason } : {}),
       ...(plan.search?.reason ? { reason: plan.search.reason } : {}),
       ...(plan.search?.poll_after_ms ? { poll_after_ms: plan.search.poll_after_ms } : {}),
       ...(plan.result_not_updated ? { result_not_updated: true } : {}),
@@ -1362,6 +1403,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       // stage is transfer the user must hear "direct scope found nothing
       // usable, transfer search continues" — never re-submit.
       const transferSearching = plan.search?.phase === "transfer"
+        || plan.search?.transition_reason === "no_usable_direct"
         || plan.search?.transfer_status === "in_progress" || plan.search?.transfer_status === "pending";
       const transferHint = transferSearching
         ? `已检查本次附近站范围，暂未找到符合条件且有票的直达，正在继续搜索中转组合，需要多一点时间；不需要重新提交。`
