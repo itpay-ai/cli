@@ -681,9 +681,19 @@ export interface RailPlanningProjection {
   result_item_id?: string;
   search?: {
     expansion_status?: "queued" | "running" | "paused" | "complete" | "cancelled" | "failed" | "expired" | string;
+    phase?: string;
+    transfer_status?: "disabled" | "not_needed" | "pending" | "in_progress" | "complete" | string;
     reason?: string;
     poll_after_ms?: number;
     new_results_guaranteed?: boolean;
+    counts?: {
+      pairs_checked?: number;
+      pairs_total?: number;
+      journeys_total?: number;
+      journeys_direct?: number;
+      journeys_one_transfer?: number;
+      journeys_multi_transfer?: number;
+    };
   };
   coverage?: Record<string, unknown>;
   budgets?: Record<string, number>;

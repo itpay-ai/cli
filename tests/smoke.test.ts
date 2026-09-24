@@ -729,6 +729,64 @@ test("rail progressive planning keeps polling the same execution while expanding
 	assert.match(envelope.instruction, /不要重新发起查询/);
 });
 
+test("services run returns the rail planning envelope as soon as the projection commits", async () => {
+  // §7.2: run must not hide progressive stages behind the 120s workflow poll —
+  // once rail_planning exists the same railPlanningEnvelope comes back while
+  // the owner keeps advancing in the background.
+  const base = await backend.getServiceExecution("se_rail_plan_running");
+  let gets = 0;
+  const withPlan: ServiceExecutionReadModel = {
+    ...base,
+    workflow_entry: { capability_id: "itpay_rail_smart", input_schema: { type: "object" } },
+    workflow: { status: "running", current_step: "catalog", revision: 1, steps: {} },
+    rail_planning: {
+      schema_version: "rail.progressive.v2",
+      plan_id: "rplan_1",
+      service_execution_id: "se_rail_plan_running",
+      readiness: "pending",
+      search: {
+        expansion_status: "running",
+        phase: "transfer",
+        poll_after_ms: 1500,
+        counts: { pairs_checked: 16, pairs_total: 16, journeys_total: 0, journeys_direct: 0, journeys_one_transfer: 0, journeys_multi_transfer: 0 },
+      },
+    },
+  };
+  const withoutPlan: ServiceExecutionReadModel = { ...withPlan };
+  delete withoutPlan.rail_planning;
+  let model = withoutPlan;
+  const client = Object.create(backend) as BackendClient;
+  client.getServiceExecution = async () => {
+    gets++;
+    if (gets === 2) model = withPlan;
+    return model;
+  };
+  client.advanceServiceExecution = async () => model;
+  const sleeps: number[] = [];
+  await runServicesRun(client, config, base.execution.service_id, undefined, {
+    executionID: "se_rail_plan_running",
+    jsonOutput: true,
+    output: stdoutSink,
+    sleep: async (ms) => { sleeps.push(ms); },
+    timeoutSeconds: 120,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { rail_planning: { expansion_status: string; phase?: string; counts?: { pairs_checked: number } } };
+    next: { command: string };
+    instruction: string;
+  };
+  assert.equal(envelope.status, "planning");
+  assert.equal(envelope.result.rail_planning.expansion_status, "running");
+  assert.equal(envelope.result.rail_planning.phase, "transfer");
+  assert.equal(envelope.result.rail_planning.counts?.pairs_checked, 16);
+  assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --json");
+  assert.match(envelope.instruction, /中转/);
+  // The projection committed on the second read — run must not keep polling
+  // for a terminal workflow status.
+  assert.equal(gets <= 3, true, `expected early return, polled ${gets} times`);
+});
+
 test("rail progressive paused planning waits for user intent without new supplier calls", async () => {
 	await runServicesNext(backend, "se_rail_plan_paused", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {

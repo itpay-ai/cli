@@ -1272,8 +1272,17 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   const plan = model.rail_planning!;
   const se = model.execution.service_execution_id;
   const expansion = plan.search?.expansion_status ?? "running";
+  const counts = plan.search?.counts;
   const journeys = [plan.recommendation, ...(plan.alternatives ?? [])].filter(Boolean) as RailJourneyCard[];
   const cards = journeys.map((card) => railJourneySummary(card, se));
+  // Journey counts come from the committed catalog — real combination counts,
+  // never seat-row counts. Transfer buckets follow the verified transfer_count.
+  const journeyMix = counts && (counts.journeys_total ?? 0) > 0
+    ? `${counts.journeys_total}个铁路组合（直达${counts.journeys_direct ?? 0}/1中转${counts.journeys_one_transfer ?? 0}/2中转${counts.journeys_multi_transfer ?? 0}）`
+    : "";
+  const pairProgress = counts && (counts.pairs_total ?? 0) > 0
+    ? `已检查${counts.pairs_checked ?? 0}/${counts.pairs_total}个附近站对`
+    : "";
   const result: Record<string, unknown> = {
     service_execution_id: se,
     rail_planning: {
@@ -1281,9 +1290,12 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       query_revision: plan.query_revision,
       snapshot_id: plan.snapshot_id,
       expansion_status: expansion,
+      ...(plan.search?.phase ? { phase: plan.search.phase } : {}),
+      ...(plan.search?.transfer_status ? { transfer_status: plan.search.transfer_status } : {}),
       ...(plan.search?.reason ? { reason: plan.search.reason } : {}),
       ...(plan.search?.poll_after_ms ? { poll_after_ms: plan.search.poll_after_ms } : {}),
       ...(plan.result_not_updated ? { result_not_updated: true } : {}),
+      ...(counts ? { counts } : {}),
       ...(plan.budgets ? { budgets: plan.budgets } : {}),
       ...(plan.coverage ? { coverage: plan.coverage } : {}),
     },
@@ -1300,38 +1312,68 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       return {
         status: "ready",
         result,
-        instruction: "规划已收敛：向用户展示 recommendation 与 journeys 卡片（车次/时间/价格/余票状态），请用户选定 journey 后用其 select 命令提交；乘车人身份信息不在此收集，后续购买走受保护 Checkout。",
+        // §7.3: the lead line carries real combination counts bucketed by
+        // verified transfer count — seat rows never inflate the journey count.
+        instruction: `${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}规划已收敛：向用户展示 recommendation 与 journeys 卡片（车次/时间/价格/余票状态），请用户选定 journey 后用其 select 命令提交；乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
         next: journeys[0]?.booking_support === "single_leg"
           ? { command: railJourneySummary(journeys[0], se).select as string, reason: "选定推荐行程" }
           : null,
         recovery: [],
       };
-    case "paused":
+    case "paused": {
+      // §7.1 case 1: usable directs committed while ranked scope remains. The
+      // message must carry real counts, and expansion is a user choice — the
+      // Agent must not treat "expandable" as consent already given.
+      const directHint = plan.search?.reason === "direct_options_ready" && journeyMix
+        ? `本次找到${counts?.journeys_direct ?? 0}趟可选直达（${journeyMix}），${pairProgress || "部分站对已核验"}，中转尚未展开。可以直接选一趟；时间或价格不合适时可继续搜索其它直达及中转，等待会更久。`
+        : "";
+      // §7.1 case 3 on a recoverable pause: unverified scope is named with real
+      // counts, and the phrasing never implies the whole nearby range ran.
+      const partialPause = !directHint && counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
+        ? `目前找到${counts.journeys_total ?? 0}个可选组合；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
+        : "";
       return {
         status: "awaiting_input",
         result,
-        instruction: "规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。",
+        instruction: `${directHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。`,
         next: null,
         recovery: [],
       };
+    }
     case "failed":
     case "cancelled":
-    case "expired":
+    case "expired": {
+      // §7.1 case 3: when scope was only partially verified the honest wording
+      // is "N confirmed + X pairs unverified" — never the case-2 phrasing that
+      // implies the whole nearby range was checked.
+      const partial = counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
+        ? `目前找到${counts.journeys_total ?? 0}个可选组合；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
+        : "";
       return {
         status: expansion,
         result,
-        instruction: "本次规划已结束且不可续用；展示已有卡片后如需重查请用户确认后用同一服务新建执行。不要自动重新发起。",
+        instruction: `${partial}本次规划已结束且不可续用；展示已有卡片后如需重查请用户确认后用同一服务新建执行。不要自动重新发起。`,
         next: null,
         recovery: [{ command: `itpay services events ${se} --json`, reason: "读取同一任务的处理记录" }],
       };
-    default:
+    }
+    default: {
+      // §7.1 case 2: the automatic phase is still running. When the verified
+      // stage is transfer the user must hear "direct scope found nothing
+      // usable, transfer search continues" — never re-submit.
+      const transferSearching = plan.search?.phase === "transfer"
+        || plan.search?.transfer_status === "in_progress" || plan.search?.transfer_status === "pending";
+      const transferHint = transferSearching
+        ? `已检查本次附近站范围，暂未找到符合条件且有票的直达，正在继续搜索中转组合，需要多一点时间；不需要重新提交。`
+        : "";
       return {
         status: "planning",
         result,
-        instruction: "规划进行中：已提交的卡片可先向用户展示比较；稍后按 next 增量轮询同一执行（since-snapshot 命中时负载会被压缩）。不要重新发起查询。",
+        instruction: `${transferHint}规划进行中：已提交的卡片可先向用户展示比较；稍后按 next 增量轮询同一执行（since-snapshot 命中时负载会被压缩，但阶段与计数仍返回最新值）。不要重新发起查询。`,
         next: nextPoll,
         recovery: [],
       };
+    }
   }
 }
 
@@ -2063,7 +2105,12 @@ export async function runServicesRun(
     const until = Date.now() + (options.timeoutSeconds ?? 120) * 1000;
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
-    while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && !model.current_delivery && Date.now() < until) {
+    // §7.2: for progressive services the committed rail_planning projection is
+    // itself a deliverable — return the same railPlanningEnvelope as soon as it
+    // exists instead of hiding every stage behind the 120s workflow poll. The
+    // owner keeps advancing in the background; the CLI returning early never
+    // cancels it.
+    while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && !model.current_delivery && !model.rail_planning && Date.now() < until) {
       await sleep(options.pollIntervalMS ?? 1500);
       model = await backend.getServiceExecution(id);
     }
