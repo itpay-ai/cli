@@ -489,6 +489,46 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         });
         return;
       }
+      if (serviceExecutionID === "se_rail_plan_packed") {
+        respond(res, 200, {
+          plan_id: "rplan_packed",
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_packed",
+          query_revision: 1,
+          catalog: {
+            schema_version: "rail.catalog.v3",
+            encoding: "shared_rows.v1",
+            journey_columns: ["ref", "route", "rides", "plans", "gc", "pr", "profiles", "tc", "ev", "rep", "tw", "risk"],
+            field_legend: { journeys: "ref,route,rides,plans" },
+            stations: { ZGQ: "中山北", GZN: "广州南", WZE: "万州北" },
+            services: { srv_1: { tc: "C7606" }, srv_2: { tc: "D1820" } },
+            ride_table: [
+              ["2026-10-01", "run_1", "ZGQ", "GZN", ["srv_1"], null, false, []],
+              ["2026-10-01", "run_2", "GZN", "WZE", ["srv_2"], null, false, []],
+            ],
+            choice_layers: {
+              journey_layer: { jny_pack_a: "main", jny_pack_b: "backup" },
+              journey_reasons: { jny_pack_b: "同到达站更晚到" },
+            },
+            counts: { combinations: 2 },
+            journeys: [
+              ["jny_pack_a", null, [[0, null], [1, 114]], [], 0, null, [], 1, null, null, [114], null],
+              ["jny_pack_b", "中山北 G68 → 广州南换乘90分 → G1312 万州北", [[0, null], [1, 90]], [], 0, null, [], 1, null, null, [90], null],
+            ],
+          },
+        });
+        return;
+      }
+      if (serviceExecutionID === "se_rail_plan_future") {
+        respond(res, 200, {
+          plan_id: "rplan_future",
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_future",
+          query_revision: 1,
+          catalog: { schema_version: "rail.catalog.v3", encoding: "shared_rows.v9", journeys: [] },
+        });
+        return;
+      }
       if (serviceExecutionID !== "se_rail_plan_complete") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
         return;

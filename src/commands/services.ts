@@ -19,6 +19,7 @@ import { ensureIdeImageAttach } from "../render/ide.js";
 import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../render/locale.js";
 import { buildAgentChatHandoff } from "../render/markdown.js";
+import { decodeRailCatalogJourneys } from "./rail_catalog.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
 
@@ -1127,7 +1128,13 @@ export async function runServicesReadResult(
   if (options.snapshot && !options.journey) {
     const committed = await backend.getRailPlanningCatalog(serviceExecutionID, options.snapshot);
     const catalog = committed.catalog;
-    const journeys = Array.isArray(catalog?.journeys) ? catalog.journeys : [];
+    // The committed catalog may ship shared_rows.v1 positional rows — decode
+    // the summary through the column legend; an unknown encoding is an
+    // explicit upgrade error, never an empty catalog.
+    const decoded = catalog
+      ? decodeRailCatalogJourneys(catalog as Record<string, unknown>)
+      : { journeys: [], packed: false };
+    const journeys = decoded.journeys;
     const counts = (catalog?.counts ?? {}) as Record<string, unknown>;
     const journeyCount = journeys.length || Number(counts?.combinations ?? 0);
     writeCommandEnvelope({
@@ -1141,7 +1148,7 @@ export async function runServicesReadResult(
       },
       instruction: "catalog 是本次查询的完整无损目录：journeys 为全部可行组合（含超出预览分页的组合），plans 是每个组合下的购票方案，stations/services/offers/ground_options 为共享字典，field_legend 解释紧凑字段。逐组合向用户说明车次、换乘与接驳取舍；席别与价格以 plans 内报价为准、下单前仍需核验；姓名身份证手机号只在 ItPay 网页填写。",
       next: journeys.length > 0
-        ? { command: `itpay services read-result ${serviceExecutionID} --snapshot ${committed.snapshot_id} --journey ${(journeys[0] as Record<string, unknown>).ref ?? (journeys[0] as Record<string, unknown>).journey_id} --json`, reason: "查看单个行程明细" }
+        ? { command: `itpay services read-result ${serviceExecutionID} --snapshot ${committed.snapshot_id} --journey ${journeys[0]?.ref ?? '?'} --json`, reason: "查看单个行程明细" }
         : { command: `itpay services next ${serviceExecutionID} --since-snapshot ${committed.snapshot_id} --json`, reason: "返回规划进展" },
       recovery: [],
     }, {
@@ -1150,12 +1157,9 @@ export async function runServicesReadResult(
       plainResult: journeys.length > 0
         ? [
             `${journeyCount} combinations:`,
-            ...journeys.map((j) => {
-              const card = j as Record<string, unknown>;
-              const ref = card.ref ?? card.journey_id ?? "?";
-              const route = card.route ?? card.summary ?? "";
-              return `${ref}  ${route}`;
-            }),
+            ...journeys.map((j) =>
+              `${j.defaultLayer === "backup" ? "[备选] " : "[主选择] "}${j.ref}  ${j.route}`,
+            ),
           ]
         : [`catalog: ${committed.snapshot_id} (no combinations)`],
     });
@@ -1344,6 +1348,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       ...(plan.search?.transfer_status ? { transfer_status: plan.search.transfer_status } : {}),
       ...(plan.search?.transition_reason ? { transition_reason: plan.search.transition_reason } : {}),
       ...(plan.search?.authorization ? { authorization: plan.search.authorization } : {}),
+      ...(plan.search?.expansion_target ? { expansion_target: plan.search.expansion_target } : {}),
       ...(plan.search?.decision_source ? { decision_source: plan.search.decision_source } : {}),
       ...(plan.search?.model_outcome ? { model_outcome: plan.search.model_outcome } : {}),
       ...(plan.search?.reason ? { reason: plan.search.reason } : {}),
@@ -1381,6 +1386,19 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       const directHint = plan.search?.reason === "direct_options_ready" && journeyMix
         ? `本次找到${counts?.journeys_direct ?? 0}趟可选直达（${journeyMix}），${pairProgress || "部分站对已核验"}，中转尚未展开。可以直接选一趟；时间或价格不合适时可继续搜索其它直达及中转，等待会更久。`
         : "";
+      // §2.1: a delivered-pause at the authorized transfer depth names what a
+      // consented expand buys next — verified-empty is "nothing at this
+      // depth", never "no routes exist".
+      const transferHint = plan.search?.reason === "transfer_options_ready" && journeyMix
+        ? `一次中转范围已核验完毕并交付（${journeyMix}）。可以直接选用；也可以继续比较两次中转方案，查询会明显更久。`
+        : plan.search?.reason === "no_options_verified"
+          ? `当前授权深度内的范围已核验完、未找到可用方案——这不等于没有其它路线。可授权继续更深的两次中转搜索（耗时显著增加），或停止。`
+          : "";
+      const expandHint = plan.search?.expansion_target === "two_transfer"
+        ? "expand_search 将授权一次更深的两次中转搜索（等待更久）"
+        : plan.search?.expansion_target === "more_direct_and_one_transfer"
+          ? "expand_search 将补齐剩余直达并展开一次中转"
+          : "expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取";
       // §7.1 case 3 on a recoverable pause: unverified scope is named with real
       // counts, and the phrasing never implies the whole nearby range ran.
       const partialPause = !directHint && counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
@@ -1402,7 +1420,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       return {
         status: "awaiting_input",
         result,
-        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（expand_search 是唯一会再消耗供应商配额的命令，其余均为本地读取）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。`,
+        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${transferHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（${expandHint}）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。`,
         next: null,
         recovery: [],
       };

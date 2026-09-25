@@ -944,6 +944,35 @@ test("rail progressive read-result --snapshot returns the full catalog once", as
 	assert.ok(envelope.result.catalog.field_legend);
 });
 
+test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { snapshot_id: string; catalog: { encoding: string; journeys: unknown[] } };
+		next: { command: string };
+	};
+	assert.equal(envelope.status, "ready");
+	// The packed document passes through verbatim — the full catalog is the
+	// lossless payload; decoding is only for the human summary/selectors.
+	assert.equal(envelope.result.catalog.encoding, "shared_rows.v1");
+	assert.equal(envelope.result.catalog.journeys.length, 2);
+	assert.match(envelope.next.command, /--journey jny_pack_a/);
+});
+
+test("rail read-result --snapshot plain output marks default layers and regenerates packed routes", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", output: stdoutSink });
+	const out = stdoutCapture.join("");
+	assert.match(out, /\[主选择\] jny_pack_a\s+中山北 C7606 → 广州南换乘114分 → D1820 万州北/);
+	assert.match(out, /\[备选\] jny_pack_b\s+中山北 G68 → 广州南换乘90分 → G1312 万州北/);
+});
+
+test("rail read-result --snapshot rejects unknown catalog encodings with an upgrade hint", async () => {
+	await assert.rejects(
+		() => runServicesReadResult(backend, "se_rail_plan_future", { snapshot: "rsnap_future", output: silent }),
+		/shared_rows\.v9.*not supported by this CLI.*upgrade/s,
+	);
+});
+
 test("services next restores candidate items on the source execution", async () => {
 	await runServicesInvoke(backend, config, "se_candidate_recovery", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
 	await runServicesNext(backend, "se_candidate_recovery", { jsonOutput: true, output: stdoutSink });

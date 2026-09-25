@@ -688,6 +688,7 @@ export interface RailPlanningProjection {
     transfer_status?: "disabled" | "not_needed" | "pending" | "in_progress" | "complete" | string;
     transition_reason?: string;
     authorization?: "auto" | "manual" | string;
+    expansion_target?: "resume_current" | "more_direct_and_one_transfer" | "two_transfer" | "auto" | string;
     decision_source?: string;
     model_outcome?: string;
     reason?: string;
@@ -716,9 +717,20 @@ export interface RailJourneyCard {
   route_family_id: string;
   route?: string[];
   route_names?: string[];
+  route_text?: string;
   rides?: Array<Record<string, unknown>>;
   availability?: string;
   passengers?: number;
+  transfer_count?: number;
+  transfer_wait_minutes?: number[];
+  seat_offers?: Array<Record<string, unknown>[]>;
+  ticket_plans?: Array<Record<string, unknown>>;
+  // §2.4 default-recommendation layer: "main" cards are the planner's primary
+  // choice; "backup" cards carry backup_reason explaining why they were
+  // demoted (longer wait, worse connection, duplicate group member).
+  default_layer?: "main" | "backup" | string;
+  backup_reason?: string;
+  choice_group_representative?: string | null;
   representative_offer?: {
     offer_id: string;
     fare_minor: number;
