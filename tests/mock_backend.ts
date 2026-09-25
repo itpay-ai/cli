@@ -8,7 +8,19 @@
 
 import http from "node:http";
 import { AddressInfo } from "node:net";
+import { readFileSync } from "node:fs";
 import { API_CONTRACT_REVISION, CLI_VERSION } from "../src/state/config.js";
+
+// Real B-run (中山→万州 2026-09-25) committed recommend snapshot, replayed
+// offline and captured verbatim — the rail planning read-path fixture.
+const RAIL_RECOMMEND_B = JSON.parse(
+  readFileSync(new URL("./fixtures/rail_recommend_b.json", import.meta.url), "utf8"),
+) as {
+  plan_id: string; service_execution_id: string; snapshot_id: string;
+  query_revision: number; catalog: Record<string, unknown>;
+  journey_id: string; journey: Record<string, unknown>;
+  recommendation_candidate_id: string; decision_source: string; model_outcome: string;
+};
 
 // Minimal 16x16 brand PNG. Smaller than the real V3 asset but enough
 // for the IDE image viewer smoke tests to assert downloaded bytes.
@@ -467,6 +479,16 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const railCatalogMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/catalog$/);
     if (method === "GET" && railCatalogMatch) {
       const serviceExecutionID = railCatalogMatch[1]!;
+      if (serviceExecutionID === "se_rail_plan_real") {
+        respond(res, 200, {
+          plan_id: RAIL_RECOMMEND_B.plan_id,
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? RAIL_RECOMMEND_B.snapshot_id,
+          query_revision: RAIL_RECOMMEND_B.query_revision,
+          catalog: RAIL_RECOMMEND_B.catalog,
+        });
+        return;
+      }
       if (serviceExecutionID !== "se_rail_plan_complete") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
         return;
@@ -493,6 +515,16 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const railJourneyDetailMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/journeys\/([^/]+)$/);
     if (method === "GET" && railJourneyDetailMatch) {
       const [serviceExecutionID, journeyID] = [railJourneyDetailMatch[1]!, railJourneyDetailMatch[2]!];
+      if (serviceExecutionID === "se_rail_plan_real" && journeyID === RAIL_RECOMMEND_B.journey_id) {
+        respond(res, 200, {
+          plan_id: RAIL_RECOMMEND_B.plan_id,
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? RAIL_RECOMMEND_B.snapshot_id,
+          query_revision: RAIL_RECOMMEND_B.query_revision,
+          journey: RAIL_RECOMMEND_B.journey,
+        });
+        return;
+      }
       if (serviceExecutionID !== "se_rail_plan_complete" || journeyID !== "journey_rec") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
         return;
@@ -611,6 +643,40 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           status: "completed",
           redacted_summary: { delivery_mode: "agent_visible_result" },
         }];
+        serviceExecutions[serviceExecutionID] = model;
+        respond(res, 200, model);
+        return;
+      }
+      if (serviceExecutionID === "se_rail_plan_real") {
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        (model as Record<string, unknown>).rail_planning = {
+          schema_version: "rail.progressive.v2",
+          plan_id: RAIL_RECOMMEND_B.plan_id,
+          service_execution_id: serviceExecutionID,
+          query_revision: RAIL_RECOMMEND_B.query_revision,
+          snapshot_id: RAIL_RECOMMEND_B.snapshot_id,
+          catalog_snapshot_id: RAIL_RECOMMEND_B.snapshot_id,
+          snapshot_version: 3,
+          readiness: "ready",
+          search: {
+            expansion_status: "complete",
+            decision_source: RAIL_RECOMMEND_B.decision_source,
+            model_outcome: RAIL_RECOMMEND_B.model_outcome,
+          },
+          coverage: { route_count: 19 },
+          budgets: { provider_calls: 17 },
+          recommendation: {
+            journey_id: RAIL_RECOMMEND_B.journey_id,
+            candidate_id: RAIL_RECOMMEND_B.recommendation_candidate_id,
+            route_names: RAIL_RECOMMEND_B.journey.route_names,
+            rides: RAIL_RECOMMEND_B.journey.rides,
+            representative_offer: RAIL_RECOMMEND_B.journey.representative_offer,
+            booking_support: RAIL_RECOMMEND_B.journey.booking_support,
+            availability: RAIL_RECOMMEND_B.journey.availability,
+          },
+          alternatives: [],
+          available_actions: [{ type: "read_result", command: `itpay services read-result ${serviceExecutionID} --snapshot ${RAIL_RECOMMEND_B.snapshot_id} --json`, provider_effect: "none" }],
+        };
         serviceExecutions[serviceExecutionID] = model;
         respond(res, 200, model);
         return;

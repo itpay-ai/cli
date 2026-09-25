@@ -675,6 +675,9 @@ export interface RailPlanningProjection {
   service_execution_id?: string;
   query_revision?: number;
   snapshot_id?: string;
+  /** The committed catalog snapshot detail/catalog reads resolve against —
+   * distinct from snapshot_id, which tracks the newest committed snapshot. */
+  catalog_snapshot_id?: string;
   snapshot_version?: number;
   readiness?: "pending" | "ready" | "expired" | string;
   first_ready_at?: string;
