@@ -807,7 +807,10 @@ test("rail progressive complete planning emits the journey select command", asyn
 		status: string;
 		result: {
 			rail_planning: { readiness: string };
-			recommendation: { journey_id: string; select: string; book?: string; risk_notes?: string[]; time?: string };
+			recommendation: {
+				journey_id: string; select: string; risk_notes?: string[]; time?: string;
+				booking_template?: { command: string; executable: boolean; input_example: { selection: { token: string } } };
+			};
 		};
 		next: { command: string };
 		instruction: string;
@@ -817,7 +820,12 @@ test("rail progressive complete planning emits the journey select command", asyn
 	assert.equal(envelope.result.recommendation.journey_id, "journey_rec");
 	assert.match(envelope.result.recommendation.select, /services action se_rail_plan_complete --action select_journey/);
 	assert.match(envelope.result.recommendation.select, /journey_id=journey_rec/);
-	assert.match(envelope.result.recommendation.book ?? "", /selection.*token.*rsel_rec/);
+	// The booking continuation is a non-executable template carrying the real
+	// server-issued selection token — never a fake placeholder command.
+	const bookingTemplate = envelope.result.recommendation.booking_template;
+	assert.equal(bookingTemplate?.executable, false);
+	assert.equal(bookingTemplate?.input_example.selection.token, "rsel_rec");
+	assert.match(bookingTemplate?.command ?? "", /services run .*--input-json <file> --json/);
 	assert.equal(envelope.result.recommendation.time, "09:00–13:30");
 	assert.deepEqual(envelope.result.recommendation.risk_notes, ["余票紧张"]);
 	assert.equal(envelope.next.command, envelope.result.recommendation.select);
@@ -1293,7 +1301,10 @@ test("services invoke returns only safe result items and one next action", async
 	const parsed = JSON.parse(stdoutCapture.join(""));
 	assert.equal(parsed.status, "result_ready");
 	assert.equal(parsed.result.items[0].title, "小米汽车科技有限公司");
-	assert.match(parsed.next.command, /^itpay services action se_result /);
+	// Candidate selection needs a human pick — the template is not executable.
+	assert.equal(parsed.next, null);
+	assert.match(parsed.interaction?.input_template?.command ?? "", /^itpay services action se_result --action select_candidate/);
+	assert.equal(parsed.interaction?.input_template?.executable, false);
 	assert.equal("execution" in parsed, false);
 	assert.equal("invocation" in parsed, false);
 	assert.equal("agent_guidance" in parsed, false);
@@ -2761,7 +2772,10 @@ test("checkout pending JSON returns one compact human handoff", async () => {
   });
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "human_checkout_required");
-  assert.deepEqual(parsed.result, { checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY" });
+  assert.deepEqual(parsed.result, {
+    checkout_id: "chk_pending", payment: "pending", amount: "1.00 CNY",
+    presentation: { recommended: "show_link", alternatives: ["show_copyable_entry"] },
+  });
   assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
   assert.match(parsed.handoff.markdown, /itpay checkout --id chk_pending --token cdt_pending --json/);
   assert.match(parsed.instruction, /停止等待/);
@@ -3807,10 +3821,14 @@ test("booking review human action guides --input-json submission", async () => {
   await runServicesNext(client, model.execution.service_execution_id, { jsonOutput: true, output: stdoutSink });
   const result = JSON.parse(stdoutCapture.join(""));
   assert.equal(result.status, "booking_review_required");
-  assert.match(result.next.command, /--input-json <file>/);
+  // The review submission needs a real input file — it lives in the
+  // interaction template, not as an executable next command.
+  assert.equal(result.next, null);
+  assert.match(result.interaction.input_template.command, /--input-json <file>/);
+  assert.equal(result.interaction.input_template.executable, false);
   assert.match(result.instruction, /不保证分配/);
   assert.match(result.instruction, /draft_revision/);
-  assert.doesNotMatch(result.next.command, /--input [a-z_]+=<值>/);
+  assert.doesNotMatch(result.interaction.input_template.command, /--input [a-z_]+=<值>/);
 });
 
 test("payment pause with open review offers revision alongside checkout", async () => {
@@ -3825,7 +3843,8 @@ test("payment pause with open review offers revision alongside checkout", async 
   await runServicesNext(client, model.execution.service_execution_id, { jsonOutput: true, output: stdoutSink });
   const result = JSON.parse(stdoutCapture.join(""));
   assert.match(result.instruction, /修订/);
-  assert.ok(result.recovery.some((item: { command: string }) => /--input-json <file>/.test(item.command)));
+  assert.match(result.interaction.revise_template.command, /--input-json <file>/);
+  assert.equal(result.interaction.revise_template.executable, false);
 });
 
 test("catalog list supports JSON output", async () => {
@@ -3883,7 +3902,10 @@ test("services start returns only the documented capability entrypoint", async (
   assert.equal(parsed.result.service_id, "svc_qizhidao_company_lookup");
   assert.equal(parsed.result.capability.capability_id, "company_name_suggestion");
   assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
-  assert.match(parsed.next.command, /--input keyword=<value> --json$/);
+  // Input-bearing commands are templates; the executable next is a safe re-read.
+  assert.equal(parsed.next.command, `itpay services next ${parsed.result.service_execution_id} --json`);
+  assert.match(parsed.interaction.input_template.command, /--input keyword=<value> --json$/);
+  assert.equal(parsed.interaction.input_template.executable, false);
   assert.equal("execution" in parsed, false);
   assert.equal("capabilities" in parsed, false);
   assert.equal("agent_guidance" in parsed, false);
@@ -5135,7 +5157,9 @@ test("services run reports published input schema without guessing or advancing"
  assert.equal(starts,1);
  assert.equal(result.status,"input_required");
  assert.deepEqual(result.result.input_schema,model.workflow_entry.input_schema);
- assert.match(result.next.command,/--execution/);
+ assert.match(result.interaction.input_template.command,/--execution .*--input-json <file>/);
+ assert.equal(result.interaction.input_template.executable,false);
+ assert.equal(result.next.command,`itpay services next ${model.execution.service_execution_id} --json`);
 });
 
 test("services run resumes same execution and never retries uncertain provider", async () => {
@@ -5241,8 +5265,8 @@ test("location confirmation retains the execution and does not invite checkout",
   const result=JSON.parse(stdoutCapture.join(""));
   assert.equal(result.status,"confirmation_required");
   assert.deepEqual(result.result.human_action.context,{candidate:"POI"});
-  assert.match(result.next.command,/--action workflow:confirm --actor-type human --status approved/);
-  assert.doesNotMatch(result.next.command,/checkout|services run/);
+  assert.match(result.interaction.input_template.command,/--action workflow:confirm --actor-type human --status approved/);
+  assert.doesNotMatch(result.interaction.input_template.command,/checkout|services run/);
 });
 
 test("rail invocation preserves the entire catalog and recommendation metadata", async () => {
@@ -5316,14 +5340,14 @@ test("rail location guidance precedes invocation and confirmation survives next"
   await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
-  assert.match(envelope.recovery[0].command,/location_confirmation=.*plan_id/);
-  assert.doesNotMatch(envelope.recovery[0].command,/\[object Object\]/);
+  assert.match(envelope.interaction.input_template.command,/location_confirmation=.*plan_id/);
+  assert.doesNotMatch(envelope.interaction.input_template.command,/\[object Object\]/);
   assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
   output.length=0;
   await runServicesNext(fake,base.execution.service_execution_id,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required");
-  assert.match(envelope.recovery[0].command,/origin=金尊府/);
+  assert.match(envelope.interaction.input_template.command,/origin=金尊府/);
 });
 
 

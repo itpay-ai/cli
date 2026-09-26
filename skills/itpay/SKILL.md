@@ -41,13 +41,53 @@ Three services, three different jobs — pick by the human's input, never merge 
 | City/area/address, or wants transfer planning | `itpay-rail-smart` (location resolution + planning) |
 | Chose a train/seat and wants to buy | `itpay-rail-booking` (quote → protected checkout → issuance) |
 
+### Choose The Goal First
+
+From the full context — negations, conditions, references, the latest
+withdrawal — decide locally between two goals. Never use keyword lists,
+regular expressions, or field-completeness as a classifier, and never ask the
+human to name a mode. There is no `--mode` flag.
+
+- `compare` — the human wants to see options and keeps the final choice.
+  Present one preferred option plus at most two meaningful alternatives, then
+  stop and wait. All fields being present does not authorize a purchase.
+- `prepare_checkout` — the human named the product, or delegated selection
+  under explicit rules and asked for the purchase entry. Select a valid option
+  under those rules, then continue to the official confirmation/payment entry
+  without asking "要不要买" again. If the delegation is clear but one required
+  fact (e.g. the date) is missing, ask only for that fact — not whether to buy.
+
+Default to `compare` when delegation is unclear. A pending, login, or error
+state is never new user intent; withdrawal updates the goal immediately but
+never rewrites a completed payment.
+
+Explicit user rules outrank default recommendations: "13:00之后最早够两张二等座，
+没有就往后找" means same date, same station pair, seat-class + quantity filter,
+departure-time order — not per-train re-queries, date changes, station swaps,
+upgrades, waitlists, or endless retries. Missing facts are `unknown`, never
+assumed satisfied. "08:00出门" includes ground transfer and station buffer;
+"当天到" checks the calendar date, not just the clock time.
+
+`itpay-rail-exact` is one station-pair + date query — filter the returned list
+locally rather than re-querying per remembered train number. Model memory
+supports route hypotheses only, never same-day schedule/price/inventory facts.
+A saved snapshot's pages, journey detail and rerank are free reads; a new live
+observation needs the owner's authorization.
+
+After a valid selection under `prepare_checkout`, the short
+`rail-fast-checkout` recipe covers query→booking→review→checkout continuity:
+`itpay docs show rail-fast-checkout --json`. It reuses existing
+`services run`/`action`/`checkout` — no fast-buy command, no payment bypass,
+no fabricated human approval.
+
 Query results carry a server-issued `booking_offer.selection_token` on bookable
 options; for a purchase submit that token plus passenger count — never
 reconstruct train legs by hand. Passenger names, ID numbers and phone numbers
 belong only on the protected checkout page, never in chat. Each query service
-has its own free trial count (2+2, not a shared pool); `login_required` pauses
-the query, it is not a failure — resume the same execution after `itpay auth
-login`. For the full input contract and states, load the rail-booking topic via
+has its own free trial count
+(2+2, not a shared pool); `login_required` pauses the query, it is not a
+failure — resume the same execution after `itpay auth login`. For the full
+input contract and states, load the rail-booking topic via
 `itpay docs search rail-booking --json`.
 
 ## Follow One Envelope
@@ -60,6 +100,18 @@ For each JSON response:
 4. Run `next.command` only when the current result has not satisfied the goal
    and any required human action is complete.
 5. Use `recovery` only when the normal continuation cannot proceed.
+
+Newer envelopes may also carry an `interaction` block (`stage`, `by_goal`,
+`input_template`, `recipe`) and a `communication` block (`status_line`,
+`recommended_reason`, `human_steps`, `next_expectation`, `must_convey`). These
+are the same meaning in three languages: the schema for machines, `instruction`
+for you, `communication` for what the human hears. They never disagree; if a
+host renders only one lane, `instruction` still tells you what to do.
+
+Two `input_template` details matter: entries whose `placeholders` field lists
+unresolved values are NOT executable — fill them and submit via `--input-json
+<file>`; and when `next` is `null`, the honest `input_template`/`recipe` path
+in `interaction` is the continuation — do not invent a direct command.
 
 Never print raw envelopes, commands, internal IDs, error classes, or technical
 diagnostics to the human. Explain the service result and the next human choice

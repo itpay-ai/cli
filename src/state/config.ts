@@ -41,6 +41,7 @@ export const API_CONTRACT_REVISION = "sha256:c6125896053540d1b56f9d106df499ac901
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
+const TASK_JOURNAL_FILENAME = "tasks.json";
 
 export type CLIDistribution = "npm" | "openclaw-skill-bundle" | "kimi-plugin-bundle";
 
@@ -95,6 +96,17 @@ export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {
   const dir = stateDir(env);
   mkdirSync(dir, { recursive: true });
   return resolve(dir, stateFilename(CART_SESSION_FILENAME, resolveBackendURL(env)));
+}
+
+// Task journal (AUTH04): paused Service Executions per backend, so a login
+// completion can resume the SAME task instead of guessing from the latest order.
+export function taskJournalPath(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ITPAY_TASK_JOURNAL_PATH) {
+    return resolve(env.ITPAY_TASK_JOURNAL_PATH);
+  }
+  const dir = stateDir(env);
+  mkdirSync(dir, { recursive: true });
+  return resolve(dir, stateFilename(TASK_JOURNAL_FILENAME, resolveBackendURL(env)));
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {

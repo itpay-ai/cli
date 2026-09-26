@@ -10,7 +10,8 @@ import type {
   ServiceExecutionAllowedAction,
   RailJourneyCard,
 } from "../client/types.js";
-import { operationID, type CLIConfig } from "../state/config.js";
+import { operationID, taskJournalPath, type CLIConfig } from "../state/config.js";
+import { TaskJournal } from "../state/task_journal.js";
 import type { ClientHost } from "../state/client_context.js";
 import { validateContext } from "../state/client_context.js";
 import type { OutputSink } from "../render/sink.js";
@@ -39,6 +40,25 @@ import {
 
 export interface ServicesCommandOptions {
   output?: OutputSink;
+  env?: NodeJS.ProcessEnv;
+}
+
+// AUTH04: record the pause point of each Service Execution so a later
+// `itpay auth login` can resume the SAME task. Ids/stage/resume command only —
+// no chat content, PII or credentials. Best-effort: journaling never breaks
+// a command.
+function journalTaskState(serviceExecutionID: string, envelope: CommandEnvelope, env: NodeJS.ProcessEnv): void {
+  try {
+    const journal = new TaskJournal(taskJournalPath(env));
+    const serviceID = typeof envelope.result?.service_id === "string" ? envelope.result.service_id : undefined;
+    journal.observe(
+      serviceExecutionID,
+      envelope.status,
+      serviceID ? `itpay services run ${serviceID} --execution ${serviceExecutionID} --json` : undefined,
+    );
+  } catch {
+    /* local journal is advisory; never fail the envelope */
+  }
 }
 
 const serviceActionStatuses = new Set(["pending", "approved", "rejected", "expired", "cancelled"]);
@@ -143,15 +163,30 @@ export async function runServicesStart(
   });
   if (response.workflow_entry) {
     const guidance = railServiceGuidance(serviceID);
-    writeCommandEnvelope({ status: "input_required", result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema, ...(guidance ? { guidance } : {}) }, instruction: guidance ? "按 result.guidance 逐项填写输入（when_to_use 说明本服务适用场景、input_fields 是必填契约、input_example 可直接照抄），然后继续同一服务执行。不要臆造字段名。" : "根据服务声明填写输入，然后继续同一服务执行。", next: {command: `itpay services run ${serviceID} --execution ${response.execution.service_execution_id} --input-json <file> --json`,reason:"提交买家输入"}, recovery: [] }, {...options});
+    writeCommandEnvelope({
+      status: "input_required",
+      result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema, ...(guidance ? { guidance } : {}) },
+      instruction: guidance ? "按 result.guidance 逐项填写输入（when_to_use 说明本服务适用场景、input_fields 是必填契约、input_example 可直接照抄），然后继续同一服务执行。不要臆造字段名。" : "根据服务声明填写输入，然后继续同一服务执行。",
+      next: null,
+      interaction: {
+        schema_version: "itpay.interaction.v1",
+        stage: "input_required",
+        input_template: {
+          command: `itpay services run ${serviceID} --execution ${response.execution.service_execution_id} --input-json <file> --json`,
+          required_input: ["file"],
+          executable: false,
+        },
+      },
+      recovery: [] }, {...options});
     return;
   }
   const capability = response.capabilities.find((item) =>
     item.phase === response.execution.phase && !item.requires_payment,
   );
   const requiredInput = requiredInputFields(capability?.input_schema);
-  const command = capability
-    ? `itpay services invoke ${response.execution.service_execution_id} --capability ${capability.capability_id}${requiredInput.map((field) => ` --input ${field}=<value>`).join("")} --json`
+  const needsInput = requiredInput.length > 0;
+  const command = capability && !needsInput
+    ? `itpay services invoke ${response.execution.service_execution_id} --capability ${capability.capability_id} --json`
     : `itpay services next ${response.execution.service_execution_id} --json`;
   const capabilitySummary = capability ? {
     capability_id: capability.capability_id,
@@ -172,8 +207,19 @@ export async function runServicesStart(
       : "当前没有可直接调用的 capability；读取服务端下一步，不要猜测 capability。",
     next: {
       command,
-      reason: capability ? "执行当前允许的能力" : "读取服务端计算的下一步",
+      reason: capability && !needsInput ? "执行当前允许的能力" : "读取服务端计算的下一步",
     },
+    ...(capability && needsInput ? {
+      interaction: {
+        schema_version: "itpay.interaction.v1" as const,
+        stage: "input_required",
+        input_template: {
+          command: `itpay services invoke ${response.execution.service_execution_id} --capability ${capability.capability_id}${requiredInput.map((field) => ` --input ${field}=<value>`).join("")} --json`,
+          required_input: requiredInput,
+          executable: false as const,
+        },
+      },
+    } : {}),
     recovery: [],
   }, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -200,11 +246,19 @@ function locationConfirmationEnvelope(executionID: string, capabilityID: string,
     result: { service_execution_id: executionID, query: input, location_confirmation: confirmation },
     instruction: "尚未查票。仅向用户确认 endpoints 中有歧义的地点，展示真实候选名称、地址和高德链接。不要自行选择候选、把区域改成车站或重复调用原查询。用户选择后保留原输入，带 location_confirmation 回到同一服务。没有候选时请用户补充已知城市或准确地名，再使用修正输入查询。",
     next: null,
-    recovery: confirmation.can_resume ? [{
-      command: `itpay services invoke ${executionID} --capability ${capabilityID}${formatInputOptions({...input,
-        location_confirmation: { plan_id: confirmation.plan_id, token: confirmation.token, choices }})} --json`,
-      reason: "仅在用户明确选择后替换 choices 并执行；30 分钟有效",
-    }] : [],
+    ...(confirmation.can_resume ? {
+      interaction: {
+        schema_version: "itpay.interaction.v1" as const,
+        stage: "location_confirmation_required",
+        input_template: {
+          command: `itpay services invoke ${executionID} --capability ${capabilityID}${formatInputOptions({...input,
+            location_confirmation: { plan_id: confirmation.plan_id, token: confirmation.token, choices }})} --json`,
+          required_input: ["choices"],
+          executable: false as const,
+        },
+      },
+    } : {}),
+    recovery: [],
   };
 }
 
@@ -390,17 +444,32 @@ function invokedEnvelope(
       };
     }
   } else if (items.length > 0 && requestedCapability.requires_human_action) {
-    next = {
-			command: `itpay services action ${response.execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
-			reason: "在当前 Execution 记录用户选择",
-    };
+    next = null;
   } else if (items.length === 0) {
     next = null;
   }
+  const interaction = items.length > 0 && requestedCapability.requires_human_action
+    ? {
+        schema_version: "itpay.interaction.v1" as const,
+        stage: "query_results_ready",
+        by_goal: {
+          compare: { action: "present_options", max_options: 3, stop_after_presentation: true },
+          prepare_checkout: {
+            action: "select_under_user_rules_then_prepare",
+            requires: ["current_delegation", "eligible_current_selection", "owner_permits_next_step"],
+          },
+        },
+        input_template: {
+          command: `itpay services action ${response.execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
+          required_input: ["rank"],
+          executable: false as const,
+        },
+      }
+    : undefined;
   if (preview?.resolved_locations) instruction += " 按 resolved_locations 说明实际解析地点；区域级位置仅是范围代表点，接驳时间不是从用户精确位置计算的。";
 
   return {
-    value: { status, result: baseResult, instruction, next, recovery: [] },
+    value: { status, result: baseResult, instruction, next, recovery: [], ...(interaction ? { interaction } : {}) },
     plainResult: serviceResultPlainLines(baseResult),
   };
 }
@@ -990,6 +1059,7 @@ export async function runServicesNext(
 ): Promise<void> {
   const response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
   const envelope = servicesNextEnvelope(response);
+  journalTaskState(serviceExecutionID, envelope, options.env ?? process.env);
   if (response.rail_booking) envelope.result = { ...envelope.result, rail_booking: response.rail_booking };
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -1147,8 +1217,8 @@ export async function runServicesReadResult(
         catalog,
       },
       instruction: "catalog 是本次查询的完整无损目录：journeys 为全部可行组合（含超出预览分页的组合），plans 是每个组合下的购票方案，stations/services/offers/ground_options 为共享字典，field_legend 解释紧凑字段。逐组合向用户说明车次、换乘与接驳取舍；席别与价格以 plans 内报价为准、下单前仍需核验；姓名身份证手机号只在 ItPay 网页填写。",
-      next: journeys.length > 0
-        ? { command: `itpay services read-result ${serviceExecutionID} --snapshot ${committed.snapshot_id} --journey ${journeys[0]?.ref ?? '?'} --json`, reason: "查看单个行程明细" }
+      next: journeys.length > 0 && journeys[0]?.ref && journeys[0].ref !== "?"
+        ? { command: `itpay services read-result ${serviceExecutionID} --snapshot ${committed.snapshot_id} --journey ${journeys[0].ref} --json`, reason: "查看单个行程明细" }
         : { command: `itpay services next ${serviceExecutionID} --since-snapshot ${committed.snapshot_id} --json`, reason: "返回规划进展" },
       recovery: [],
     }, {
@@ -1304,12 +1374,22 @@ function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string): 
     ...(card.observed_at ? { observed_at: card.observed_at } : {}),
     ...(card.risk_notes?.length ? { risk_notes: card.risk_notes } : {}),
     ...(card.booking_support === "single_leg"
-      ? { select: `itpay services action ${serviceExecutionID} --action select_journey --actor-type human --status approved --input journey_id=${card.journey_id} --json` }
+      ? {
+          select: `itpay services action ${serviceExecutionID} --action select_journey --actor-type human --status approved --input journey_id=${card.journey_id} --json`,
+          // Delegated selection under explicit user rules is an agent action —
+          // never record it as a human pick.
+          select_delegated: `itpay services action ${serviceExecutionID} --action select_journey --actor-type agent --status approved --input journey_id=${card.journey_id} --input selection_mode=delegated --json`,
+        }
       : {}),
     ...(card.booking_offer
       ? {
           booking_offer: card.booking_offer,
-          book: `itpay services run ${card.booking_offer.service_id} --input-json <file> --json  # file = {"selection":{"token":"${card.booking_offer.selection_token}","seat_type":"<席别>"},"passengers":<n>}`,
+          booking_template: {
+            command: `itpay services run ${card.booking_offer.service_id} --input-json <file> --json`,
+            required_input: ["file"],
+            executable: false,
+            input_example: { selection: { token: card.booking_offer.selection_token, seat_type: "<席别>" }, passengers: "<n>" },
+          },
         }
       : {}),
   };
@@ -1373,6 +1453,54 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     command: `itpay services next ${se}${plan.snapshot_id ? ` --since-snapshot ${plan.snapshot_id}` : ""} --json`,
     reason: "读取同一规划的增量进展（不触发供应商调用）",
   };
+  // Two-goal interaction contract (spec 03 §2): the local Agent picks compare
+  // or prepare_checkout from full context — the envelope teaches both branches
+  // so a delegated purchase keeps moving and a comparison never buys.
+  const bookable = journeys.find((card) => card.booking_support === "single_leg" && card.booking_offer);
+  const queryResultsInteraction = journeys.length > 0
+    ? {
+        schema_version: "itpay.interaction.v1" as const,
+        stage: "query_results_ready",
+        by_goal: {
+          compare: { action: "present_options", max_options: 3, stop_after_presentation: true },
+          prepare_checkout: {
+            action: "select_under_user_rules_then_prepare",
+            recipe: "rail.selected-to-checkout.v1",
+            requires: ["current_delegation", "eligible_current_selection", "owner_permits_next_step"],
+            ...(bookable
+              ? {
+                  steps: [
+                    "按用户明确规则在 journeys 中选择合格者（卡片 select_delegated 提交 agent 委托选择；人类亲自选择用 select）",
+                    `用所选卡片的 booking_template 写 owner-only 临时输入（selection token + 席别 + 人数，不含身份信息），运行 itpay services run itpay-rail-booking --input-json <file> --json`,
+                    "owner 要求聊天 review 时一次合并补齐必要字段，真实确认后提交原 workflow:confirm_booking；不得伪造 accept",
+                    `确认后恢复同一购买执行：itpay services run itpay-rail-booking --execution <实际ID> --json，沿用有界等待与受保护 Checkout`,
+                  ],
+                }
+              : { unavailable: "当前结果无可整段购买映射；分别说明各段风险，不得合成原子联程。" }),
+          },
+        },
+      }
+    : undefined;
+  const queryResultsCommunication = journeys.length > 0
+    ? {
+        schema_version: "itpay.communication.v1" as const,
+        status_line: expansion === "paused"
+          ? "首批结果已就绪，扩展搜索已暂停等待用户决定"
+          : "查询结果就绪",
+        recommended_reason: (plan.recommendation?.explanation as string[] | undefined)?.[0],
+        human_steps: [
+          "compare：比较首选与最多两个备选后告知取舍",
+          "prepare_checkout：委托仍在时确认所选，继续官方确认页",
+          "姓名、证件、手机号只在受保护 Checkout 页填写",
+        ],
+        next_expectation: "compare：用户选定其一；prepare_checkout：委托仍在时继续到官方确认入口，人完成review与付款",
+        must_convey: [
+          "推荐与备选的时间/费用/便利性取舍",
+          "金额为查询时参考价，下单前须核验",
+          "姓名、证件、手机号只在受保护网页填写",
+        ],
+      }
+    : undefined;
   switch (expansion) {
     case "complete":
       return {
@@ -1380,10 +1508,12 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         result,
         // §7.3: the lead line carries real combination counts bucketed by
         // verified transfer count — seat rows never inflate the journey count.
-        instruction: `${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}${plan.search?.reason === "budget_exhausted" ? "本次查询已达到上限，以下是已查到的方案，搜索范围尚未全部核验。" : "本轮规划已完成。"}向用户展示 recommendation 与 journeys 卡片（车次/时间/价格/余票状态），请用户选定 journey 后用其 select 命令提交；乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
+        instruction: `${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}${plan.search?.reason === "budget_exhausted" ? "本次查询已达到上限，以下是已查到的方案，搜索范围尚未全部核验。" : "本轮规划已完成。"}compare：解释首选及最多两个有意义备选的时间/费用/便利性取舍后等待用户选择。prepare_checkout：用户已明确委托按规则选择时，按 interaction.recipe 选合格者并继续到官方确认页，不再次问是否下单；身份、review和最终付款边界仍然生效。乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
         next: journeys[0]?.booking_support === "single_leg"
-          ? { command: railJourneySummary(journeys[0], se).select as string, reason: "选定推荐行程" }
+          ? { command: railJourneySummary(journeys[0], se).select as string, reason: "用户在 compare 后选定推荐行程时执行；prepare_checkout 且规则命中时用 select_delegated" }
           : null,
+        ...(queryResultsInteraction ? { interaction: queryResultsInteraction } : {}),
+        ...(queryResultsCommunication ? { communication: queryResultsCommunication } : {}),
         recovery: [],
       };
     case "paused": {
@@ -1427,8 +1557,10 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       return {
         status: "awaiting_input",
         result,
-        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${transferHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（${expandHint}）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。`,
+        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${transferHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（${expandHint}）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。compare：解释首选及最多两个备选后等待；prepare_checkout：委托仍在且选项合格时按 interaction.recipe 继续到官方确认入口，不再次问是否下单。`,
         next: null,
+        ...(queryResultsInteraction ? { interaction: queryResultsInteraction } : {}),
+        ...(queryResultsCommunication ? { communication: queryResultsCommunication } : {}),
         recovery: [],
       };
     }
@@ -1475,6 +1607,17 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         result,
         instruction: `${modelDegradedHint}${manualExpansion}${transferHint}${failedPairsHint}规划进行中：已提交的卡片可先向用户展示比较；稍后按 next 增量轮询同一执行（since-snapshot 命中时负载会被压缩，但阶段与计数仍返回最新值）。不要重新发起查询。`,
         next: nextPoll,
+        communication: {
+          schema_version: "itpay.communication.v1" as const,
+          status_line: transferSearching && !manualExpansion
+            ? "直达范围暂未找到可用方案，中转组合仍在搜索"
+            : "规划进行中，已确认的方案可先向用户展示",
+          next_expectation: "按 next 增量轮询同一执行；不重新发起查询",
+          must_convey: [
+            "当前是进行中的部分结果，不代表最终答复",
+            ...(failedPairsHint ? ["部分站对尚未查明，不能说'没有车'"] : []),
+          ],
+        },
         recovery: [],
       };
     }
@@ -1636,18 +1779,48 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
             required_fields: requiredFields, sides },
           instruction: "向用户展示 sides 中 status=needs_confirmation 一端的候选（名称+坐标），请用户选定后按 required_fields 逐项各传一个 --input：名称取候选 name，坐标取候选 location 的 [lng,lat]；已 resolved 的一端把其 resolved_place 原样填入。继续同一执行，不重新查询；这一步不是购买确认。",
-          next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`, reason: "用户确认后继续当前查询" },
+          next: null,
+          interaction: {
+            schema_version: "itpay.interaction.v1",
+            stage: "location_confirmation_required",
+            input_template: {
+              command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`,
+              required_input: requiredFields,
+              executable: false,
+            },
+          },
           recovery: [],
         };
       }
       const review = action.context?.review as Record<string, unknown> | undefined;
       if (review) {
+        // W4: when the owner projects an official web review entry, present it
+        // and wait for the human there; otherwise keep the one consolidated
+        // chat review — never fabricate an accepted review.
+        const reviewURL = [review.web_review_url, review.entry_url, review.review_url]
+          .find((value): value is string => typeof value === "string" && /^https:\/\//.test(value));
+        const requirementsRemaining = Array.isArray(review.requirements_remaining)
+          ? review.requirements_remaining
+          : undefined;
         return {
           status: "booking_review_required",
           result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
-            required_fields: requiredFields },
-          instruction: "向用户展示 context.review 中的行程（legs）与可选席别/座位偏好词表（seat_options），并明确告知：座位偏好仅为请求、不保证分配（对应 notice_version 文案须经用户同意）。收集乘客人数、席别与每位乘客偏好后，按 required_fields 组装完整 JSON 对象，经 --input-json <file> 提交——draft_revision 必须等于服务端当前值，被拒绝（booking_review_changed）时重新读取后重试。乘客姓名/证件等身份信息不在此提交，仍走受保护 Checkout 页。",
-          next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`, reason: "提交用户确认后的行程确认/修订" },
+            required_fields: requiredFields,
+            ...(requirementsRemaining ? { requirements_remaining: requirementsRemaining } : {}) },
+          ...(reviewURL ? { handoff: { url: reviewURL, kind: "booking_review" } } : {}),
+          instruction: reviewURL
+            ? "已在 handoff.url 提供官方行程确认页，请用户在该页核对行程、席别与座位偏好并确认；页面打开请求不代表用户已确认。该页失效或用户更愿在对话中确认时，仍可按下述 input_template 一次合并提交。乘客姓名/证件等身份信息不在此提交，仍走受保护 Checkout 页。"
+            : "向用户展示 context.review 中的行程（legs）与可选席别/座位偏好词表（seat_options），并明确告知：座位偏好仅为请求、不保证分配（对应 notice_version 文案须经用户同意）。这是购买前的合并确认：把乘客人数、席别与每位乘客的座位偏好一次问清，然后按 required_fields 组装完整 JSON 对象，经 --input-json <file> 提交——draft_revision 必须等于服务端当前值，被拒绝（booking_review_changed）时重新读取后重试。未得真实确认不得提交，不能暗设 accept_non_guaranteed。乘客姓名/证件等身份信息不在此提交，仍走受保护 Checkout 页。",
+          next: null,
+          interaction: {
+            schema_version: "itpay.interaction.v1",
+            stage: "booking_review_required",
+            input_template: {
+              command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`,
+              required_input: requiredFields.length > 0 ? requiredFields : ["file"],
+              executable: false,
+            },
+          },
           recovery: [{ command: `itpay services next ${id} --json`, reason: "重新读取当前 draft_revision 后重试" }],
         };
       }
@@ -1655,14 +1828,31 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         status: "confirmation_required",
         result: { service_execution_id: id, service_id: execution.service_id, human_action: action },
         instruction: "请展示待确认的内容，请用户明确确认后，按 input_schema 填写 --input 字段。继续同一执行，不重新查询；这一步不是购买确认。",
-        next: { command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`, reason: "用户确认后继续当前查询" },
+        next: null,
+        interaction: {
+          schema_version: "itpay.interaction.v1",
+          stage: "confirmation_required",
+          input_template: {
+            command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`,
+            required_input: requiredFields,
+            executable: false,
+          },
+        },
         recovery: [],
       };
     }
     const recovery = state === "recovery_required" || state === "failed";
     let command = `itpay services next ${id} --json`;
     if (state === "payment") command = `itpay services checkout ${id} --json`;
-    if (state === "input_required") command = `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`;
+    // input_required: the resume command needs a real file path — expose it as
+    // a non-executable input_template, not a fake `next.command`.
+    const inputTemplate = state === "input_required"
+      ? {
+          command: `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`,
+          required_input: ["file"],
+          executable: false as const,
+        }
+      : undefined;
     const guidance = railServiceGuidance(execution.service_id);
     const failedStep = recovery ? failedWorkflowStep(model.workflow?.steps, model.workflow?.error_code) : undefined;
     const failedStepGuidance = failedStep ? WORKFLOW_STEP_GUIDANCE[failedStep] : undefined;
@@ -1700,14 +1890,26 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
             ? "按 result.guidance 的字段契约填写输入后继续同一服务执行；不要臆造字段名。"
             : "继续读取同一执行；缺少输入时按服务声明补齐。"),
       next: recovery ? null : { command, reason: "继续当前流程" },
+      ...(inputTemplate || (state === "payment" && model.workflow?.human_action?.context?.review) ? {
+        interaction: {
+          schema_version: "itpay.interaction.v1" as const,
+          stage: inputTemplate ? "input_required" : "payment",
+          ...(inputTemplate ? { input_template: inputTemplate } : {}),
+          ...(state === "payment" && model.workflow?.human_action?.context?.review ? {
+            revise_template: {
+              command: `itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input-json <file> --json`,
+              required_input: ["file"],
+              executable: false,
+            },
+          } : {}),
+        },
+      } : {}),
       recovery: recovery && state === "failed"
         ? [
             { command: `itpay services start ${execution.service_id} --json`, reason: "修正输入后重新发起（本执行已终止不能续用）" },
             ...(guidance ? [{ command: "itpay docs show rail-booking --json", reason: "查看本服务输入字段契约与示例" }] : []),
           ]
-        : state === "payment" && model.workflow?.human_action?.context?.review
-          ? [{ command: `itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input-json <file> --json`, reason: "付款前修订席别/座位偏好（draft_revision 以服务端为准）" }]
-          : [],
+        : [],
     };
   }
 

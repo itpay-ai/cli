@@ -390,8 +390,19 @@ for (const action of ["login", "status"] as const) {
   authCmd.command(action).option("--json", "output JSON").action(async (options) => {
     const config = loadConfig();
     try {
-      const result = await agentAuth(action, config.baseURL, newBackendClient(config));
-      process.stdout.write(JSON.stringify(result) + "\n");
+      const result = await agentAuth(action, config.baseURL, newBackendClient(config)) as Record<string, unknown>;
+      // AUTH06: auth output goes through the same envelope renderer as every
+      // other command — next/recovery keep Agent Type + Backend qualification
+      // and non-JSON output is human-readable instead of a raw JSON dump.
+      const envelope = {
+        status: String(result.status ?? "error"),
+        result: (result.result ?? result) as Record<string, unknown>,
+        ...(result.handoff ? { handoff: result.handoff as Record<string, unknown> } : {}),
+        instruction: typeof result.instruction === "string" ? result.instruction : "按返回状态继续。",
+        next: (result.next ?? null) as { command: string; reason: string } | null,
+        recovery: (result.recovery ?? []) as Array<{ command: string; reason: string }>,
+      };
+      writeCommandEnvelope(envelope, { jsonOutput: Boolean(options.json) });
     } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", instruction: "完成官方网页登录后重试 itpay auth status；不要清除设备登记。"}); }
   });
 }
@@ -1063,6 +1074,13 @@ program
   .option("--id <checkout_id>")
   .option("--token <display_token>")
   .option("--locale <locale>", "payment card language: zh-CN|en", "zh-CN")
+  .option("--present <method>", "display once: auto|browser|image|link|none (JSON default plans only)")
+  .option("--no-open", "never open a browser window")
+  .option("--viewer <viewer>", "device the human is looking at: desktop|mobile|unknown")
+  .option("--relay-option <ref>", "server-issued contact option reference for message relay")
+  .option("--confirm-relay", "confirm the human explicitly consented to this relay send")
+  .option("--request-key <key>", "stable idempotency key for a relay request")
+  .option("--relay-status <relay_id>", "read a prior relay result; never resends")
   .option("--json", "output compact JSON")
   .action(async (options) => {
     const config = loadConfig();
@@ -1089,6 +1107,13 @@ program
         baseURL: config.baseURL,
         locale: options.locale,
         jsonOutput: Boolean(options.json),
+        ...(options.present ? { present: options.present } : {}),
+        ...(options.noOpen ? { noOpen: true } : {}),
+        ...(options.viewer ? { viewer: options.viewer } : {}),
+        ...(options.relayOption ? { relayOption: options.relayOption } : {}),
+        ...(options.confirmRelay ? { confirmRelay: true } : {}),
+        ...(options.requestKey ? { requestKey: options.requestKey } : {}),
+        ...(options.relayStatus ? { relayStatus: options.relayStatus } : {}),
       });
     } catch (error) {
       const canResumeSavedService = Boolean(
