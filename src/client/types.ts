@@ -706,13 +706,20 @@ export interface RailPlanningProjection {
   };
   coverage?: Record<string, unknown>;
   budgets?: Record<string, number>;
+  notices?: Array<Record<string, unknown>>;
   recommendation?: RailJourneyCard;
   alternatives?: RailJourneyCard[];
-  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string }>;
+  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string; input_example?: Record<string, unknown> }>;
   result_not_updated?: boolean;
 }
 
 export interface RailJourneyCard {
+  decision_role?: string;
+  explanation?: string[];
+  reason_codes?: string[];
+  tradeoff_codes?: string[];
+  profile_ref?: string;
+  recommended_profile?: Record<string, unknown>;
   journey_id: string;
   route_family_id: string;
   route?: string[];

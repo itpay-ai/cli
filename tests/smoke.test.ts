@@ -841,6 +841,13 @@ test("real recommend snapshot drives every CLI read command", async () => {
 			recommendation?: { journey_id: string; select?: string; booking_support?: string };
 		};
 	};
+    const disclosed = JSON.parse(stdoutCapture.join(""));
+    assert.match(disclosed.instruction, /达到上限/);
+    assert.doesNotMatch(disclosed.instruction, /规划已收敛/);
+    assert.equal(disclosed.result.notices[0].code, "STANDING_LEG_PRESENT");
+    assert.equal(disclosed.result.recommendation.decision_role, "CHEAPEST");
+    assert.ok(disclosed.result.recommendation.explanation.length);
+    assert.equal(disclosed.result.recommendation.recommended_profile.profile_ref, "profile_test");
 	assert.equal(next.result.rail_planning.readiness, "ready");
 	assert.equal(next.result.rail_planning.snapshot_id, "rsnap_b_rec");
 	assert.equal(next.result.rail_planning.decision_source, "jev");

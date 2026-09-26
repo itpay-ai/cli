@@ -1293,6 +1293,12 @@ function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string): 
     ...(trains.length ? { trains } : {}),
     ...(first?.departure || last?.arrival ? { time: `${first?.departure ?? ""}–${last?.arrival ?? ""}` } : {}),
     ...(offer ? { price: formatMoney(offer.rail_payable_minor, offer.currency) } : { price: "unknown" }),
+    ...(card.decision_role ? { decision_role: card.decision_role } : {}),
+    ...(card.explanation?.length ? { explanation: card.explanation } : {}),
+    ...(card.reason_codes?.length ? { reason_codes: card.reason_codes } : {}),
+    ...(card.tradeoff_codes?.length ? { tradeoff_codes: card.tradeoff_codes } : {}),
+    ...(card.recommended_profile ? { recommended_profile: card.recommended_profile,
+      price_basis: "price为默认购票方案参考价；推荐对应的席别、接驳及总价以recommended_profile为准，按其中ticket_plan_ref/offer_refs查看并确认后下单。" } : {}),
     availability: card.availability,
     booking_support: card.booking_support,
     ...(card.observed_at ? { observed_at: card.observed_at } : {}),
@@ -1358,6 +1364,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       ...(plan.budgets ? { budgets: plan.budgets } : {}),
       ...(plan.coverage ? { coverage: plan.coverage } : {}),
     },
+    ...(plan.notices?.length ? { notices: plan.notices } : {}),
     ...(plan.recommendation ? { recommendation: railJourneySummary(plan.recommendation, se) } : {}),
     ...(cards.length ? { journeys: cards } : {}),
     ...(plan.available_actions?.length ? { available_actions: plan.available_actions } : {}),
@@ -1373,7 +1380,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         result,
         // §7.3: the lead line carries real combination counts bucketed by
         // verified transfer count — seat rows never inflate the journey count.
-        instruction: `${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}规划已收敛：向用户展示 recommendation 与 journeys 卡片（车次/时间/价格/余票状态），请用户选定 journey 后用其 select 命令提交；乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
+        instruction: `${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}${plan.search?.reason === "budget_exhausted" ? "本次查询已达到上限，以下是已查到的方案，搜索范围尚未全部核验。" : "本轮规划已完成。"}向用户展示 recommendation 与 journeys 卡片（车次/时间/价格/余票状态），请用户选定 journey 后用其 select 命令提交；乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
         next: journeys[0]?.booking_support === "single_leg"
           ? { command: railJourneySummary(journeys[0], se).select as string, reason: "选定推荐行程" }
           : null,
@@ -1383,13 +1390,13 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       // §7.1 case 1: usable directs committed while ranked scope remains. The
       // message must carry real counts, and expansion is a user choice — the
       // Agent must not treat "expandable" as consent already given.
-      const directHint = plan.search?.reason === "direct_options_ready" && journeyMix
+      const directHint = (plan.search?.reason === "direct_options_ready" || plan.search?.phase === "direct_ready") && journeyMix
         ? `本次找到${counts?.journeys_direct ?? 0}趟可选直达（${journeyMix}），${pairProgress || "部分站对已核验"}，中转尚未展开。可以直接选一趟；时间或价格不合适时可继续搜索其它直达及中转，等待会更久。`
         : "";
       // §2.1: a delivered-pause at the authorized transfer depth names what a
       // consented expand buys next — verified-empty is "nothing at this
       // depth", never "no routes exist".
-      const transferHint = plan.search?.reason === "transfer_options_ready" && journeyMix
+      const transferHint = (plan.search?.reason === "transfer_options_ready" || plan.search?.phase === "transfer_ready") && journeyMix
         ? `一次中转范围已核验完毕并交付（${journeyMix}）。可以直接选用；也可以继续比较两次中转方案，查询会明显更久。`
         : plan.search?.reason === "no_options_verified"
           ? `当前授权深度内的范围已核验完、未找到可用方案——这不等于没有其它路线。可授权继续更深的两次中转搜索（耗时显著增加），或停止。`
