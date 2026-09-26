@@ -8,7 +8,19 @@
 
 import http from "node:http";
 import { AddressInfo } from "node:net";
+import { readFileSync } from "node:fs";
 import { API_CONTRACT_REVISION, CLI_VERSION } from "../src/state/config.js";
+
+// Real B-run (中山→万州 2026-09-25) committed recommend snapshot, replayed
+// offline and captured verbatim — the rail planning read-path fixture.
+const RAIL_RECOMMEND_B = JSON.parse(
+  readFileSync(new URL("./fixtures/rail_recommend_b.json", import.meta.url), "utf8"),
+) as {
+  plan_id: string; service_execution_id: string; snapshot_id: string;
+  query_revision: number; catalog: Record<string, unknown>;
+  journey_id: string; journey: Record<string, unknown>;
+  recommendation_candidate_id: string; decision_source: string; model_outcome: string;
+};
 
 // Minimal 16x16 brand PNG. Smaller than the real V3 asset but enough
 // for the IDE image viewer smoke tests to assert downloaded bytes.
@@ -464,9 +476,95 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       return;
     }
 
+    const railCatalogMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/catalog$/);
+    if (method === "GET" && railCatalogMatch) {
+      const serviceExecutionID = railCatalogMatch[1]!;
+      if (serviceExecutionID === "se_rail_plan_real") {
+        respond(res, 200, {
+          plan_id: RAIL_RECOMMEND_B.plan_id,
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? RAIL_RECOMMEND_B.snapshot_id,
+          query_revision: RAIL_RECOMMEND_B.query_revision,
+          catalog: RAIL_RECOMMEND_B.catalog,
+        });
+        return;
+      }
+      if (serviceExecutionID === "se_rail_plan_packed") {
+        respond(res, 200, {
+          plan_id: "rplan_packed",
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_packed",
+          query_revision: 1,
+          catalog: {
+            schema_version: "rail.catalog.v3",
+            encoding: "shared_rows.v1",
+            journey_columns: ["ref", "route", "rides", "plans", "gc", "pr", "profiles", "tc", "ev", "rep", "tw", "risk"],
+            field_legend: { journeys: "ref,route,rides,plans" },
+            stations: { ZGQ: "中山北", GZN: "广州南", WZE: "万州北" },
+            services: { srv_1: { tc: "C7606" }, srv_2: { tc: "D1820" } },
+            ride_table: [
+              ["2026-10-01", "run_1", "ZGQ", "GZN", ["srv_1"], null, false, []],
+              ["2026-10-01", "run_2", "GZN", "WZE", ["srv_2"], null, false, []],
+            ],
+            choice_layers: {
+              journey_layer: { jny_pack_a: "main", jny_pack_b: "backup" },
+              journey_reasons: { jny_pack_b: "同到达站更晚到" },
+            },
+            counts: { combinations: 2 },
+            journeys: [
+              ["jny_pack_a", null, [[0, null], [1, 114]], [], 0, null, [], 1, null, null, [114], null],
+              ["jny_pack_b", "中山北 G68 → 广州南换乘90分 → G1312 万州北", [[0, null], [1, 90]], [], 0, null, [], 1, null, null, [90], null],
+            ],
+          },
+        });
+        return;
+      }
+      if (serviceExecutionID === "se_rail_plan_future") {
+        respond(res, 200, {
+          plan_id: "rplan_future",
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_future",
+          query_revision: 1,
+          catalog: { schema_version: "rail.catalog.v3", encoding: "shared_rows.v9", journeys: [] },
+        });
+        return;
+      }
+      if (serviceExecutionID !== "se_rail_plan_complete") {
+        respond(res, 404, { code: "not_found", message: "resource not found" });
+        return;
+      }
+      respond(res, 200, {
+        plan_id: "rplan_1",
+        service_execution_id: serviceExecutionID,
+        snapshot_id: url.searchParams.get("snapshot") ?? "rsnap_1",
+        query_revision: 3,
+        catalog: {
+          schema_version: "rail.catalog.v3",
+          field_legend: { journeys: "ref,route,rides,plans" },
+          stations: [["ZGQ", "中山北"], ["WZE", "万州北"]],
+          counts: { combinations: 2 },
+          journeys: [
+            { ref: "jny_a", route: "中山北 C7606 → 广州南换乘114分 → D1820 万州北", plans: [["tpn_a", ["srv_1"], 1, { def: 99000 }, true, 600, "separate_legs_only"]] },
+            { ref: "jny_b", route: "中山北 G68 → 广州南换乘90分 → G1312 万州北", plans: [["tpn_b", ["srv_2"], 1, { def: 88000 }, true, 600, "separate_legs_only"]] },
+          ],
+        },
+      });
+      return;
+    }
+
     const railJourneyDetailMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/rail-planning\/journeys\/([^/]+)$/);
     if (method === "GET" && railJourneyDetailMatch) {
       const [serviceExecutionID, journeyID] = [railJourneyDetailMatch[1]!, railJourneyDetailMatch[2]!];
+      if (serviceExecutionID === "se_rail_plan_real" && journeyID === RAIL_RECOMMEND_B.journey_id) {
+        respond(res, 200, {
+          plan_id: RAIL_RECOMMEND_B.plan_id,
+          service_execution_id: serviceExecutionID,
+          snapshot_id: url.searchParams.get("snapshot") ?? RAIL_RECOMMEND_B.snapshot_id,
+          query_revision: RAIL_RECOMMEND_B.query_revision,
+          journey: RAIL_RECOMMEND_B.journey,
+        });
+        return;
+      }
       if (serviceExecutionID !== "se_rail_plan_complete" || journeyID !== "journey_rec") {
         respond(res, 404, { code: "not_found", message: "resource not found" });
         return;
@@ -585,6 +683,45 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
           status: "completed",
           redacted_summary: { delivery_mode: "agent_visible_result" },
         }];
+        serviceExecutions[serviceExecutionID] = model;
+        respond(res, 200, model);
+        return;
+      }
+      if (serviceExecutionID === "se_rail_plan_real") {
+        const model = mockServiceExecutionReadModel(serviceExecutionID, "invoke_capability");
+        (model as Record<string, unknown>).rail_planning = {
+          schema_version: "rail.progressive.v2",
+          plan_id: RAIL_RECOMMEND_B.plan_id,
+          service_execution_id: serviceExecutionID,
+          query_revision: RAIL_RECOMMEND_B.query_revision,
+          snapshot_id: RAIL_RECOMMEND_B.snapshot_id,
+          catalog_snapshot_id: RAIL_RECOMMEND_B.snapshot_id,
+          snapshot_version: 3,
+          readiness: "ready",
+          search: {
+            expansion_status: "complete",
+            reason: "budget_exhausted",
+            decision_source: RAIL_RECOMMEND_B.decision_source,
+            model_outcome: RAIL_RECOMMEND_B.model_outcome,
+          },
+          notices: [{ code: "STANDING_LEG_PRESENT", message: "部分推荐含无座，请核对" }],
+          coverage: { route_count: 19 },
+          budgets: { provider_calls: 17 },
+          recommendation: {
+            journey_id: RAIL_RECOMMEND_B.journey_id,
+            candidate_id: RAIL_RECOMMEND_B.recommendation_candidate_id,
+            decision_role: "CHEAPEST",
+            explanation: ["票价较低，但需核对无座票段"],
+            recommended_profile: { profile_ref: "profile_test", offer_refs: ["offer_test"] },
+            route_names: RAIL_RECOMMEND_B.journey.route_names,
+            rides: RAIL_RECOMMEND_B.journey.rides,
+            representative_offer: RAIL_RECOMMEND_B.journey.representative_offer,
+            booking_support: RAIL_RECOMMEND_B.journey.booking_support,
+            availability: RAIL_RECOMMEND_B.journey.availability,
+          },
+          alternatives: [],
+          available_actions: [{ type: "read_result", command: `itpay services read-result ${serviceExecutionID} --snapshot ${RAIL_RECOMMEND_B.snapshot_id} --json`, provider_effect: "none" }],
+        };
         serviceExecutions[serviceExecutionID] = model;
         respond(res, 200, model);
         return;

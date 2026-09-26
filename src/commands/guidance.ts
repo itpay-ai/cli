@@ -60,6 +60,11 @@ export class CommandContractError extends Error {
   }
 }
 
+// stdoutEnvelopeLimit is the hard byte budget for one emitted JSON envelope:
+// public rail pages/projections must fit 32 KiB end-to-end, so oversized
+// pretty output falls back to a compact line rather than spilling.
+const stdoutEnvelopeLimit = 32 * 1024;
+
 export function writeCommandEnvelope(
   value: CommandEnvelope | CommandNullResultEnvelope | CommandErrorEnvelope,
   options: { jsonOutput?: boolean; output?: OutputSink; plainResult?: string[]; agentType?: string } = {},
@@ -68,7 +73,8 @@ export function writeCommandEnvelope(
   const agentType = options.agentType ?? declaredAgentType();
   const qualified = qualifyEnvelope(value, agentType);
   if (options.jsonOutput) {
-    out(JSON.stringify(qualified, null, 2) + "\n");
+    const pretty = JSON.stringify(qualified, null, 2) + "\n";
+    out(pretty.length <= stdoutEnvelopeLimit ? pretty : JSON.stringify(qualified) + "\n");
     return;
   }
   out(`${qualified.status}\n`);

@@ -675,32 +675,69 @@ export interface RailPlanningProjection {
   service_execution_id?: string;
   query_revision?: number;
   snapshot_id?: string;
+  /** The committed catalog snapshot detail/catalog reads resolve against —
+   * distinct from snapshot_id, which tracks the newest committed snapshot. */
+  catalog_snapshot_id?: string;
   snapshot_version?: number;
   readiness?: "pending" | "ready" | "expired" | string;
   first_ready_at?: string;
   result_item_id?: string;
   search?: {
     expansion_status?: "queued" | "running" | "paused" | "complete" | "cancelled" | "failed" | "expired" | string;
+    phase?: string;
+    transfer_status?: "disabled" | "not_needed" | "pending" | "in_progress" | "complete" | string;
+    transition_reason?: string;
+    authorization?: "auto" | "manual" | string;
+    expansion_target?: "resume_current" | "more_direct_and_one_transfer" | "two_transfer" | "auto" | string;
+    decision_source?: string;
+    model_outcome?: string;
     reason?: string;
     poll_after_ms?: number;
     new_results_guaranteed?: boolean;
+    counts?: {
+      pairs_checked?: number;
+      pairs_total?: number;
+      pairs_failed?: number;
+      journeys_total?: number;
+      journeys_direct?: number;
+      journeys_one_transfer?: number;
+      journeys_multi_transfer?: number;
+    };
   };
   coverage?: Record<string, unknown>;
   budgets?: Record<string, number>;
+  notices?: Array<Record<string, unknown>>;
   recommendation?: RailJourneyCard;
   alternatives?: RailJourneyCard[];
-  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string }>;
+  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string; input_example?: Record<string, unknown> }>;
   result_not_updated?: boolean;
 }
 
 export interface RailJourneyCard {
+  decision_role?: string;
+  explanation?: string[];
+  reason_codes?: string[];
+  tradeoff_codes?: string[];
+  profile_ref?: string;
+  recommended_profile?: Record<string, unknown>;
   journey_id: string;
   route_family_id: string;
   route?: string[];
   route_names?: string[];
+  route_text?: string;
   rides?: Array<Record<string, unknown>>;
   availability?: string;
   passengers?: number;
+  transfer_count?: number;
+  transfer_wait_minutes?: number[];
+  seat_offers?: Array<Record<string, unknown>[]>;
+  ticket_plans?: Array<Record<string, unknown>>;
+  // §2.4 default-recommendation layer: "main" cards are the planner's primary
+  // choice; "backup" cards carry backup_reason explaining why they were
+  // demoted (longer wait, worse connection, duplicate group member).
+  default_layer?: "main" | "backup" | string;
+  backup_reason?: string;
+  choice_group_representative?: string | null;
   representative_offer?: {
     offer_id: string;
     fare_minor: number;
@@ -725,6 +762,14 @@ export interface RailJourneyDetail {
   snapshot_id: string;
   query_revision: number;
   journey: RailJourneyCard;
+}
+
+export interface RailPlanningCatalog {
+  service_execution_id: string;
+  plan_id: string;
+  snapshot_id: string;
+  query_revision: number;
+  catalog: Record<string, unknown>;
 }
 
 export interface ServiceExecutionReadModel {

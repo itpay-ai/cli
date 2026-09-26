@@ -729,6 +729,64 @@ test("rail progressive planning keeps polling the same execution while expanding
 	assert.match(envelope.instruction, /不要重新发起查询/);
 });
 
+test("services run returns the rail planning envelope as soon as the projection commits", async () => {
+  // §7.2: run must not hide progressive stages behind the 120s workflow poll —
+  // once rail_planning exists the same railPlanningEnvelope comes back while
+  // the owner keeps advancing in the background.
+  const base = await backend.getServiceExecution("se_rail_plan_running");
+  let gets = 0;
+  const withPlan: ServiceExecutionReadModel = {
+    ...base,
+    workflow_entry: { capability_id: "itpay_rail_smart", input_schema: { type: "object" } },
+    workflow: { status: "running", current_step: "catalog", revision: 1, steps: {} },
+    rail_planning: {
+      schema_version: "rail.progressive.v2",
+      plan_id: "rplan_1",
+      service_execution_id: "se_rail_plan_running",
+      readiness: "pending",
+      search: {
+        expansion_status: "running",
+        phase: "transfer",
+        poll_after_ms: 1500,
+        counts: { pairs_checked: 16, pairs_total: 16, journeys_total: 0, journeys_direct: 0, journeys_one_transfer: 0, journeys_multi_transfer: 0 },
+      },
+    },
+  };
+  const withoutPlan: ServiceExecutionReadModel = { ...withPlan };
+  delete withoutPlan.rail_planning;
+  let model = withoutPlan;
+  const client = Object.create(backend) as BackendClient;
+  client.getServiceExecution = async () => {
+    gets++;
+    if (gets === 2) model = withPlan;
+    return model;
+  };
+  client.advanceServiceExecution = async () => model;
+  const sleeps: number[] = [];
+  await runServicesRun(client, config, base.execution.service_id, undefined, {
+    executionID: "se_rail_plan_running",
+    jsonOutput: true,
+    output: stdoutSink,
+    sleep: async (ms) => { sleeps.push(ms); },
+    timeoutSeconds: 120,
+  });
+  const envelope = JSON.parse(stdoutCapture.join("")) as {
+    status: string;
+    result: { rail_planning: { expansion_status: string; phase?: string; counts?: { pairs_checked: number } } };
+    next: { command: string };
+    instruction: string;
+  };
+  assert.equal(envelope.status, "planning");
+  assert.equal(envelope.result.rail_planning.expansion_status, "running");
+  assert.equal(envelope.result.rail_planning.phase, "transfer");
+  assert.equal(envelope.result.rail_planning.counts?.pairs_checked, 16);
+  assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --json");
+  assert.match(envelope.instruction, /中转/);
+  // The projection committed on the second read — run must not keep polling
+  // for a terminal workflow status.
+  assert.equal(gets <= 3, true, `expected early return, polled ${gets} times`);
+});
+
 test("rail progressive paused planning waits for user intent without new supplier calls", async () => {
 	await runServicesNext(backend, "se_rail_plan_paused", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
@@ -764,6 +822,68 @@ test("rail progressive complete planning emits the journey select command", asyn
 	assert.deepEqual(envelope.result.recommendation.risk_notes, ["余票紧张"]);
 	assert.equal(envelope.next.command, envelope.result.recommendation.select);
 	assert.match(envelope.instruction, /受保护 Checkout/);
+});
+
+// §6.3.5: the real recorded B recommend snapshot (中山→万州) drives every
+// read-only command the CLI emits — projection → full catalog → pinned
+// journey detail — with no 404 and the Jev-pinned journey resolvable.
+test("real recommend snapshot drives every CLI read command", async () => {
+	// 1) The projection advertises the Jev-pinned journey on a committed
+	// snapshot identity.
+	await runServicesNext(backend, "se_rail_plan_real", { jsonOutput: true, output: stdoutSink });
+	const next = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: {
+			rail_planning: {
+				snapshot_id: string; catalog_snapshot_id?: string; readiness: string;
+				decision_source?: string; model_outcome?: string;
+			};
+			recommendation?: { journey_id: string; select?: string; booking_support?: string };
+		};
+	};
+    const disclosed = JSON.parse(stdoutCapture.join(""));
+    assert.match(disclosed.instruction, /达到上限/);
+    assert.doesNotMatch(disclosed.instruction, /规划已收敛/);
+    assert.equal(disclosed.result.notices[0].code, "STANDING_LEG_PRESENT");
+    assert.equal(disclosed.result.recommendation.decision_role, "CHEAPEST");
+    assert.ok(disclosed.result.recommendation.explanation.length);
+    assert.equal(disclosed.result.recommendation.recommended_profile.profile_ref, "profile_test");
+	assert.equal(next.result.rail_planning.readiness, "ready");
+	assert.equal(next.result.rail_planning.snapshot_id, "rsnap_b_rec");
+	assert.equal(next.result.rail_planning.decision_source, "jev");
+	assert.equal(next.result.recommendation?.journey_id, "jny_01db23eedc");
+	// The real winner is a same-train split (separate_legs_only): the select
+	// shortcut is only emitted for single_leg — read commands still resolve.
+	assert.equal(next.result.recommendation?.booking_support, "separate_legs_only");
+
+	// 2) Full committed catalog read — the real rail.catalog.v3 verbatim.
+	stdoutCapture = [];
+	await runServicesReadResult(backend, "se_rail_plan_real", { snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
+	const catalogEnv = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { snapshot_id: string; catalog: { schema_version: string; journeys: unknown[]; field_legend: unknown } };
+		next?: { command: string };
+	};
+	assert.equal(catalogEnv.status, "ready");
+	assert.equal(catalogEnv.result.snapshot_id, "rsnap_b_rec");
+	assert.equal(catalogEnv.result.catalog.schema_version, "rail.catalog.v3");
+	assert.equal(catalogEnv.result.catalog.journeys.length, 19);
+	assert.ok(catalogEnv.result.catalog.field_legend);
+
+	// 3) The pinned journey detail resolves through the same snapshot — the
+	// audit's --journey 404 regression stays dead.
+	stdoutCapture = [];
+	await runServicesReadResult(backend, "se_rail_plan_real", { journey: "jny_01db23eedc", snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
+	const detail = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { journey: { journey_id: string; ticket_plans?: unknown[]; representative_offer?: unknown } };
+		next: { command: string };
+	};
+	assert.equal(detail.status, "ready");
+	assert.equal(detail.result.journey.journey_id, "jny_01db23eedc");
+	assert.ok(Array.isArray(detail.result.journey.ticket_plans));
+	assert.ok(detail.result.journey.representative_offer);
+	assert.match(detail.next.command, /select_journey|services next/);
 });
 
 test("rail progressive failed planning is terminal and never auto-retries", async () => {
@@ -809,6 +929,55 @@ test("rail progressive journey detail reads committed evidence without the vault
 	assert.equal(envelope.result.journey.journey_id, "journey_rec");
 	assert.match(envelope.next.command, /select_journey.*journey_id=journey_rec/);
 	assert.match(envelope.instruction, /受保护 Checkout/);
+});
+
+test("rail progressive read-result --snapshot returns the full catalog once", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_complete", { snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: {
+			plan_id: string; snapshot_id: string; query_revision: number;
+			catalog: { schema_version: string; field_legend: unknown; journeys: Array<{ ref: string }> };
+			candidates?: unknown; journeys?: unknown;
+		};
+	};
+	assert.equal(envelope.status, "ready");
+	assert.equal(envelope.result.snapshot_id, "rsnap_1");
+	assert.equal(envelope.result.catalog.schema_version, "rail.catalog.v3");
+	assert.equal(envelope.result.catalog.journeys.length, 2);
+	// The catalog ships once: never duplicated into legacy candidates/journeys.
+	assert.equal(envelope.result.candidates, undefined);
+	assert.equal(envelope.result.journeys, undefined);
+	assert.ok(envelope.result.catalog.field_legend);
+});
+
+test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as {
+		status: string;
+		result: { snapshot_id: string; catalog: { encoding: string; journeys: unknown[] } };
+		next: { command: string };
+	};
+	assert.equal(envelope.status, "ready");
+	// The packed document passes through verbatim — the full catalog is the
+	// lossless payload; decoding is only for the human summary/selectors.
+	assert.equal(envelope.result.catalog.encoding, "shared_rows.v1");
+	assert.equal(envelope.result.catalog.journeys.length, 2);
+	assert.match(envelope.next.command, /--journey jny_pack_a/);
+});
+
+test("rail read-result --snapshot plain output marks default layers and regenerates packed routes", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", output: stdoutSink });
+	const out = stdoutCapture.join("");
+	assert.match(out, /\[主选择\] jny_pack_a\s+中山北 C7606 → 广州南换乘114分 → D1820 万州北/);
+	assert.match(out, /\[备选\] jny_pack_b\s+中山北 G68 → 广州南换乘90分 → G1312 万州北/);
+});
+
+test("rail read-result --snapshot rejects unknown catalog encodings with an upgrade hint", async () => {
+	await assert.rejects(
+		() => runServicesReadResult(backend, "se_rail_plan_future", { snapshot: "rsnap_future", output: silent }),
+		/shared_rows\.v9.*not supported by this CLI.*upgrade/s,
+	);
 });
 
 test("services next restores candidate items on the source execution", async () => {
