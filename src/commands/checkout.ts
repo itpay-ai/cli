@@ -272,13 +272,25 @@ function pendingCheckoutEnvelope(
         })),
       } } : {}),
       ...(railPassengersPending ? { rail_passengers_confirmed: false } : {}),
+      ...(presentation.payment_deadline_at ? { payment_deadline_at: presentation.payment_deadline_at } : {}),
+      ...(typeof presentation.payment_remaining_seconds === "number"
+        ? { payment_remaining_seconds: presentation.payment_remaining_seconds }
+        : {}),
+      ...(presentation.server_now ? { server_now: presentation.server_now } : {}),
+      ...(presentation.verified_sms_contact ? { verified_sms_contact: presentation.verified_sms_contact } : {}),
+      ...(presentation.account_phone_option?.masked_recipient
+        ? { account_phone_option: { masked_recipient: presentation.account_phone_option.masked_recipient } }
+        : {}),
     },
     handoff: presentationHandoff.handoff,
     instruction: railPassengersPending
       ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好仅为购票请求、购票时才提交给供应商且不保证满足；无法逐人提交的偏好将自动分配座位，以实际出票为准。`
       : presentationHandoff.instruction,
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
-    recovery: [],
+    recovery: [{
+      command: nextCommand,
+      reason: "付款时限由服务端统一确定，刷新不会延长；到期未支付自动取消后须重新核价下单，不要重发旧付款动作",
+    }],
   };
 }
 

@@ -124,6 +124,11 @@ export interface CheckoutPresentation {
   checkout_details?: string;
   rail_passengers_confirmed?: boolean;
   rail_quote?: RailQuoteSummary;
+  verified_sms_contact?: string;
+  account_phone_option?: { source?: string; masked_recipient?: string };
+  payment_deadline_at?: string;
+  server_now?: string;
+  payment_remaining_seconds?: number;
   qr_png_url?: string;
   card_url?: string;
   card_png_url?: string;
@@ -160,6 +165,8 @@ export interface Order {
   created_at: string;
   paid_at?: string;
   payment_deadline_at?: string;
+  server_now?: string;
+  payment_remaining_seconds?: number;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
 }

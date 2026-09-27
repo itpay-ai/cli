@@ -2817,7 +2817,10 @@ test("workbuddy checkout JSON returns one executable action for the rendered Car
   assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.match(envelope.instruction, /不要调用 pay/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
-  assert.deepEqual(envelope.recovery, []);
+  assert.deepEqual(envelope.recovery, [{
+    command: "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json",
+    reason: "付款时限由服务端统一确定，刷新不会延长；到期未支付自动取消后须重新核价下单，不要重发旧付款动作",
+  }]);
   assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), false);
 });
 

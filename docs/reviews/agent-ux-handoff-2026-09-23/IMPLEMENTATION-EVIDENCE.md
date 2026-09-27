@@ -89,3 +89,86 @@ payment path; protected Checkout remains the only identity/payment surface.
 - The 72-check matrix from `VALIDATION.json` maps to implementation status
   here; actual model/host acceptance rows stay "not executed" — this document
   does not claim them.
+
+---
+
+## Addendum — 09 Checkout Lifecycle & UX Repair (compose `codex/checkout-lifecycle-ux`, base `59f95a1`)
+
+Spec: `09-CHECKOUT-LIFECYCLE-AND-UX-REPAIR-20260927.md`. Implemented the
+server-owned payment deadline, checkout-scoped phone reuse, in-page desktop QR,
+and shared deadline projection; CLI consumes the same fields.
+
+### Single payable deadline D (backend)
+
+| Requirement | Implementation | Test |
+|---|---|---|
+| One deadline everywhere | `checkouts.expires_at` = `min(created_at + PaymentTTL(15m), earliest bound quote-lock expiry)` set in `CreateCheckout`; copied verbatim to `orders.payment_deadline_at` by `EnsurePendingOrderForAuthorizedCheckout`; legacy rows fall back to `PaymentDeadline(created_at, ttl, quote expiry)`, never re-anchored | `TestLifecycleSingleDeadlineRealPG`, `TestLifecycleEarlyQuoteWinsDeadlineRealPG` (real PG) |
+| Refresh never extends | persisted `expires_at` wins; reused intents keep their expiry | same test: second intent call returns identical `expires_at`, zero extra provider calls |
+| Expiry truly cancels | `ExpireStalePendingOrders` single-tx cascade: order→cancelled, checkout→expired, intents→expired, quote locks→expired, bindings→expired, executions→cancelled+event, display tokens→expired, auth sessions→expired; `FOR UPDATE SKIP LOCKED`; orphan executions swept only when no live payment path remains | `TestLifecycleExpirySweepCascadeRealPG`: pre-D no-op, post-D full cascade, repeat sweep idempotent |
+| Paid protected | candidate scan requires `status='pending_payment'`; conditional UPDATE loses the race to a verified payment | `TestLifecyclePaidSurvivesAndLateCallbackReconcilesRealPG` |
+| Late provider funds | `CompleteProviderPayment` returns `Reconciled:true`, persists funds evidence, never resurrects cancelled order | same test: late TRADE_SUCCESS after sweep → reconciled, order stays `cancelled` |
+| New actions refused at D | `ErrPaymentWindowClosed` → HTTP 410 `payment_window_closed`; `<1min` remaining refuses new QR/wallet actions; `paymentActionExpiry = min(now+actionTTL, D)` clamped into provider `TimeoutExpress`/`time_expire` | unit tests in `internal/app/payment`, `internal/httpapi/handlers`; PG test asserts intent `expires_at = D` |
+
+### Phone (checkout-scoped, privacy-preserving)
+
+- `ports.BuyerProfile` exposes `LoginPhone`/`PhoneVerified`; presentation projects
+  `account_phone_option` = `{source, masked_recipient}` only — the raw number
+  never leaves the server.
+- `order_contacts` rows are checkout-scoped: `InsertAccountOrderContact` copies
+  the verified account phone under a row lock (refused on expired/terminal
+  checkout, `ErrOrderContactLocked` once a payment action exists);
+  `GetVerifiedOrderContact` feeds `RequireDeliveryContact` and the masked
+  `verified_sms_contact` projection.
+- Replacement phone = OTP-verified `order_contact` challenge; it never writes
+  the account login phone. `UpdateDeliveryContact` gates `phone_source:
+  account_phone` on a live buyer session and reads the account-side verified
+  number server-side — client-submitted digits are not trusted.
+- Real-PG tests: `TestLifecycleOrderContactScopeRealPG` covers reuse
+  roundtrip, cross-checkout isolation, upsert versioning, post-payment lock,
+  expired-checkout refusal.
+
+### Shared projection & clients
+
+- `CheckoutPresentation`/`Order`/buyer summaries emit `payment_deadline_at`,
+  `server_now`, `payment_remaining_seconds`; expired pending orders project
+  `cancelled` and drop the deadline field.
+- Web: `paymentCountdown.ts` ticks from server values only (never extends);
+  `PaymentDeadlineBadge` shared by OrdersPage/OrderDetailPage; CheckoutPage
+  disables payment at zero and re-reads the backend; desktop Alipay QR renders
+  in-page via `qrcode` with the copy "展示付款码不会直接扣款".
+- CLI: `itpay checkout`/`itpay order` envelopes carry the same deadline fields;
+  pending instructions state the exact deadline and that refresh does not
+  extend it; expiry guidance routes to re-quote rather than replaying stale
+  payment actions. `Order`/`CheckoutPresentation` types extended in
+  `src/client/types.ts`.
+
+### Harness fix (per §6)
+
+- `ux_harness.py` interventions now classify `human_product_step` (login/OTP/
+  passenger confirmation/QR scan — requires step+operator+scope+a same-order
+  backend_observation in `verification_event_ids`) vs `engineering_rescue`
+  (still fail); unclassified legacy entries stay conservative.
+- `relative_file` no longer rejects runs under symlinked tempdirs (macOS
+  `/var`→`/private/var`); symlink checks now apply inside the run dir only.
+- Prompts updated (UI-OPERATOR/USER-SIMULATOR/ASTRA-REVIEWER/README).
+- `test_harness.py` 25/25, including 6 new classification cases.
+
+### Actually executed (this round)
+
+- Backend unit: `go test ./internal/app/{checkout,payment,order,railbooking,identity} ./internal/presenter ./internal/httpapi/handlers` — all green.
+- Real PG (`ITPAY_V3_TEST_DATABASE_URL`, isolated per-test DB): 6 new
+  lifecycle tests + golden regression suite (`SearchSelectCheckoutGoldenFlow`,
+  receipt aggregation, provider-failure, quota transition) — all green.
+- Web: `npm run typecheck` clean; `npm test` 73/73.
+- CLI: 309/309 tests (240 smoke + 69 unit), tarball package smoke previously
+  green; contract/package `tsc` clean.
+- Harness: `python3 -m unittest test_harness` 25/25.
+
+### NOT executed (unchanged honesty)
+
+- No real Alipay/WeChat channel call — fake `AlipayPaymentClient` records
+  requests only; provider sandbox validation remains open.
+- No real browser e2e of the QR modal / countdown; no real-device OTP.
+- No deployed dev-environment verification of the new checkout path.
+- Harness changes are structural (classifier + fixtures); no real triadic run
+  was executed.
