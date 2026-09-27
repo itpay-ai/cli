@@ -64,6 +64,8 @@ export interface Checkout {
   next_action: string;
   amount_minor: number;
   currency: string;
+  /** The shared server-owned payable deadline D for this checkout. */
+  expires_at?: string;
   delivery_contact?: Record<string, unknown>;
 }
 

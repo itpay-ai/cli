@@ -2296,6 +2296,12 @@ function buildServicesCheckoutEnvelope(
       capability_id: checkoutCapabilityID(response),
       locked_input: response.locked_input,
       amount,
+      ...(checkout.checkout.expires_at ? {
+        // The shared server-owned payable deadline D: refreshing the page or
+        // re-creating a checkout can never extend it; past it the checkout
+        // and pending order are terminally cancelled.
+        payment_deadline_at: checkout.checkout.expires_at,
+      } : {}),
     },
     handoff: presentationHandoff.handoff,
     instruction: presentationHandoff.instruction,
