@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.20",
+  "version": "2.1.22",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -15,7 +15,9 @@
   "files": [
     "bin/",
     "dist/src/",
-    "docs/",
+    "docs/agent/buyer/",
+    "docs/cli-reference/",
+    "docs/sell.md",
     "skills/",
     "README.md",
     "LICENSE",

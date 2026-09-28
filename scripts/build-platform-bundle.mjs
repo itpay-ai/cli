@@ -6,12 +6,13 @@ import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 
 const [version, outputArg, ...options] = process.argv.slice(2);
 if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !outputArg) {
-  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--single-file] [--omit-licenses] [--bundle-directory <relative-path>]");
+  throw new Error("usage: node scripts/build-platform-bundle.mjs <exact-version> <output-directory> [--tarball <local-candidate.tgz>] [--single-file] [--omit-licenses] [--bundle-directory <relative-path>]");
 }
 
 let singleFile = false;
 let includeLicenses = true;
 let bundleDirectory = "vendor/itpay-cli";
+let candidateTarball;
 for (let index = 0; index < options.length; index += 1) {
   if (options[index] === "--single-file") {
     singleFile = true;
@@ -19,6 +20,8 @@ for (let index = 0; index < options.length; index += 1) {
     includeLicenses = false;
   } else if (options[index] === "--bundle-directory" && options[index + 1]) {
     bundleDirectory = validateBundleDirectory(options[++index]);
+  } else if (options[index] === "--tarball" && options[index + 1]) {
+    candidateTarball = resolve(options[++index]);
   } else {
     throw new Error(`unknown option: ${options[index]}`);
   }
@@ -29,17 +32,20 @@ const vendor = join(output, bundleDirectory);
 const scratch = mkdtempSync(join(tmpdir(), "itpay-platform-bundle-"));
 
 try {
-  const metadata = JSON.parse(execFileSync("npm", [
+  const metadata = candidateTarball ? {
+    version,
+    "dist.integrity": `sha512-${createHash("sha512").update(readFileSync(candidateTarball)).digest("base64")}`,
+  } : JSON.parse(execFileSync("npm", [
     "view", `@itpay/cli@${version}`, "version", "dist.integrity", "gitHead", "engines", "--json",
   ], { encoding: "utf8" }));
-  if (metadata.version !== version || !metadata["dist.integrity"] || !metadata.gitHead) {
+  if (metadata.version !== version || !metadata["dist.integrity"] || (!candidateTarball && !metadata.gitHead)) {
     throw new Error(`incomplete npm metadata for @itpay/cli@${version}`);
   }
 
   writeFileSync(join(scratch, "package.json"), JSON.stringify({
     name: "itpay-platform-bundle",
     private: true,
-    dependencies: { "@itpay/cli": version },
+    dependencies: { "@itpay/cli": candidateTarball ?? version },
   }, null, 2) + "\n");
   execFileSync("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
     cwd: scratch,
@@ -83,7 +89,8 @@ try {
     version,
     format: singleFile ? "single-file-esm" : "npm-tree",
     npmIntegrity: metadata["dist.integrity"],
-    sourceGitSha: metadata.gitHead,
+    ...(metadata.gitHead ? { sourceGitSha: metadata.gitHead } : {}),
+    ...(candidateTarball ? { candidateTarballSha256: createHash("sha256").update(readFileSync(candidateTarball)).digest("hex") } : {}),
     generatedAt: new Date().toISOString(),
     node: metadata.engines?.node ?? ">=18",
     bundleDirectory,
@@ -104,7 +111,7 @@ function copyLicenseFiles(source, destination) {
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const child = join(source, entry.name);
     if (entry.isDirectory()) {
-      copyLicenseFiles(child, join(destination, entry.name));
+      copyLicenseFiles(child, join(destination, entry.name === "node_modules" ? "nested" : entry.name));
     } else if (/^licen[cs]e(?:[._-].*)?$/i.test(entry.name)) {
       mkdirSync(destination, { recursive: true });
       cpSync(child, join(destination, entry.name));

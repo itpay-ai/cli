@@ -6,8 +6,8 @@
 
 同一命令读取三种已保存结果：铁路 Exact 车次页自动合并成紧凑业务行、铁路 Smart 快照完整紧凑车次目录，或持有效 grant 读取 Vault 保护内容。铁路读取免费、只读且不重新调用供应商。
 
-**上游：** `services next` 返回 `vault_artifact`，且用户已在订单页面授权。  
-**下游：** Agent 仅在 grant scope 和 TTL 内使用返回字段；没有自动后续命令。
+**上游：** 铁路查询的已保存结果入口，或 `services next` 返回 `vault_artifact` 且用户已在订单页面授权。
+**下游：** 铁路紧凑行中使用逐行 `detail.command` 读取购买条件；Vault 仅在 grant scope 和 TTL 内使用返回字段。
 
 ## 语法与参数
 
@@ -17,7 +17,7 @@ itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `service_execution_id` | 是 | Vault 交付对应的 execution ID。 |
+| `service_execution_id` | 是 | 铁路查询或 Vault 交付对应的 execution ID。 |
 | `--journey <journey_id>` | 否 | rail.progressive.v2 规划明细：读取指定 journey 的完整卡片（分段、席别报价、接驳估计、风险标注）。免费、属主校验、不触发供应商调用。 |
 | `--snapshot <snapshot_id>` | 否 | 单独使用时读取该 Smart 已提交快照的完整紧凑目录；与 `--journey` 配合时读取一条完整卡片。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |

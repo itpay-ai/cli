@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the single public CLI entry point for Buyer services and the existing itpay sell Seller workflow; $itpay is its user-facing Skill invocation.",
   "topic": "quickstart",
   "title": "Route One Human Intent Through ItPay",
   "purpose": "Choose the correct first action from the human's words and continue through one authoritative CLI envelope at a time.",
@@ -12,7 +12,7 @@
   "required_state": {
     "needs": [
       "the real supported Agent Type",
-      "one official Backend: production https://app.itpay.ai by default, or explicit test https://sandbox.itpay.ai"
+      "one allowed Backend: production https://app.itpay.ai by default; explicit https://sandbox.itpay.ai or https://dev.itpay.ai for the corresponding test environment"
     ],
     "must_not_need": [
       "Admin access",

@@ -93,7 +93,7 @@ itpay services run <service_id> --execution <execution_id> --json
 }
 ```
 
-`query_quota` 如实报告两类额度各自用量，一类为零不得宣称"四次全部用完"。第四次查询的结果先正常交付，下一次新查询才需要授权。
+`query_quota` 如实报告各查询服务自己的 `used`、`limit`、`remaining`。是否暂停只以本次服务端 `admission` 为准；已有结果先正常交付，不把另一服务的额度当作本次授权。
 
 登录绑定完成后，再次运行同一条 `services run <service> --execution <id> --json`（不带输入文件）：服务端重新读取当前设备绑定身份，被暂停的 Execution 从额度节点继续，不重放已成功的供应商调用，不要求重新输入。`failed`、`recovery_required` 或已完成付款的 Execution 不能以这种方式恢复。
 
