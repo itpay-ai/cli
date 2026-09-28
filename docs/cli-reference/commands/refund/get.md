@@ -1,6 +1,6 @@
 # `itpay refund get`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围与意义
 
@@ -48,7 +48,7 @@ itpay refund get <refund_request_id> [--json]
 ## 终态
 
 - `succeeded`：先告诉用户退款已由 ItPay 确认成功，交付永久关闭，`next=null`。
-- `cancelled/rejected`：说明退款没有执行，交付资格可恢复，但旧 grant 不复活，需要用户重新授权，`next=null`。
+- `cancelled/rejected`：说明退款没有执行，交付资格依当前订单和 owner 状态判断；旧 grant 不复活，按返回动作决定是否需要新的授权，`next=null` 时不自行创建。
 - `failed + known_no_effect`：说明退款请求确认未发送；Agent 不重试，由平台管理员决定是否重新执行，`next=null`。
 - `failed + retryable`：说明渠道明确返回可重试失败但 Agent 不会自行重试；等待平台管理员处理，`next=null`。
 - `failed + outcome_unknown`：说明渠道结果未知、交付继续锁定且必须先对账；禁止重试或重复申请，`next=null`。

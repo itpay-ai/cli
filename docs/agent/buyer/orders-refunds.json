@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the single public CLI entry point for Buyer services and the existing itpay sell Seller workflow; $itpay is its user-facing Skill invocation.",
   "topic": "orders-refunds",
   "title": "Order, Delivery, Customer Care And Refund Recovery",
   "purpose": "Explain paid-order and delivery problems to the human, then read or manage the same owned Order without guessing payment, consumption, or refund state.",
@@ -34,16 +34,16 @@
     {
       "intent": "cancel before provider submission",
       "command": "itpay --agent-type <agent_type> refund cancel <refund_request_id> --json",
-      "success_signal": "the Refund Owner cancels the request and requires a new delivery authorization"
+      "success_signal": "the Refund Owner returns the current cancellation and access state; old grants do not revive"
     }
   ],
   "agent_rules": [
     "Act as the human's ItPay service representative: explain payment, delivery, access, and refund facts in plain language before giving the next action.",
     "After verified payment, say the Order is recorded and the human must not pay again. Recover that same Order or Service Execution if delivery is delayed or fails.",
     "ItPay derives payment, amount, currency, account ownership, and refund policy from the owned order; explain only their user-facing meaning.",
-    "Unconsumed delivery normally follows the automatic policy; consumed delivery normally requires manual review. These are policy routes, not promises of a successful or instant refund.",
+    "Read this order’s current refund policy. Railway return depends on supplier ticket facts and may require manual review; platform refund status alone does not prove a train ticket was returned.",
     "A refund request freezes all delivery paths and revokes existing grants immediately.",
-    "Cancellation or rejection restores eligibility but never reactivates an old grant.",
+    "Cancellation or rejection follows the returned order policy and never reactivates an old grant automatically.",
     "Use get or watch after interruption; do not infer success from elapsed time.",
     "Never switch CLI/MCP lanes or identities to recover an order or refund error.",
     "A read-only MCP Agent may explain policy and order facts, but directs refund actions to the ItPay Dashboard or a full Local CLI Agent."

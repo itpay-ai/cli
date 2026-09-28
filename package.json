@@ -1,12 +1,12 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.19",
+  "version": "2.1.22",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
-    "itp": "bin/itp",
-    "itpay": "bin/itp",
-    "itpay_cli": "bin/itp"
+    "itp": "bin/itp.mjs",
+    "itpay": "bin/itp.mjs",
+    "itpay_cli": "bin/itp.mjs"
   },
   "main": "./dist/src/main.js",
   "exports": {
@@ -15,7 +15,9 @@
   "files": [
     "bin/",
     "dist/src/",
-    "docs/",
+    "docs/agent/buyer/",
+    "docs/cli-reference/",
+    "docs/sell.md",
     "skills/",
     "README.md",
     "LICENSE",

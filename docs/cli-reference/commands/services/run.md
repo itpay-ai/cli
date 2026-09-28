@@ -4,7 +4,7 @@
 
 运行 Catalog 中已发布的通用 Buyer workflow。CLI 只提交服务声明要求的输入，并复用现有 Service Execution、Checkout、交付和退款命令；它不解释或执行 Seller 提供的任意命令文本。
 
-没有提供输入时，本命令创建一次 Execution，返回已发布的 JSON input schema，并要求 Agent 继续同一 Execution。已有 Execution 必须通过 `--execution` 恢复，不能创建替代 Execution。
+没有提供输入且未指定现有 execution 时，本命令创建一次 Execution，返回已发布的 JSON input schema，并要求 Agent 继续同一 Execution。已有 Execution 必须通过 `--execution` 恢复，不能创建替代 Execution。
 
 ## 语法与参数
 
@@ -93,7 +93,7 @@ itpay services run <service_id> --execution <execution_id> --json
 }
 ```
 
-`query_quota` 如实报告两类额度各自用量，一类为零不得宣称"四次全部用完"。第四次查询的结果先正常交付，下一次新查询才需要授权。
+`query_quota` 如实报告各查询服务自己的 `used`、`limit`、`remaining`。是否暂停只以本次服务端 `admission` 为准；已有结果先正常交付，不把另一服务的额度当作本次授权。
 
 登录绑定完成后，再次运行同一条 `services run <service> --execution <id> --json`（不带输入文件）：服务端重新读取当前设备绑定身份，被暂停的 Execution 从额度节点继续，不重放已成功的供应商调用，不要求重新输入。`failed`、`recovery_required` 或已完成付款的 Execution 不能以这种方式恢复。
 

@@ -556,10 +556,16 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             journey_columns: ["ref", "route", "rides", "plans", "gc", "pr", "profiles", "tc", "ev", "rep", "tw", "risk"],
             field_legend: { journeys: "ref,route,rides,plans" },
             stations: { ZGQ: "中山北", GZN: "广州南", WZE: "万州北" },
-            services: { srv_1: { tc: "C7606" }, srv_2: { tc: "D1820" } },
+            services: {
+              srv_1: { tc: "C7606", f: "ZGQ", t: "GZN", d: "2026-10-01", dep: "08:00", arr: "09:00",
+                of: [["off_1", "O", "available", 8, 2500, true, true]] },
+              srv_2: { tc: "D1820", f: "GZN", t: "WZE", d: "2026-10-01", dep: "10:54", arr: "15:00",
+                of: [["off_2", "O", "available", 8, 2500, true, true]] },
+            },
+            seat_names: { O: "二等座" }, service_index: ["srv_1", "srv_2"],
             ride_table: [
-              ["2026-10-01", "run_1", "ZGQ", "GZN", ["srv_1"], null, false, []],
-              ["2026-10-01", "run_2", "GZN", "WZE", ["srv_2"], null, false, []],
+              ["2026-10-01", "run_1", "ZGQ", "GZN", ["srv_1"], null, false, [], { dep: "08:00", arr: "09:00" }],
+              ["2026-10-01", "run_2", "GZN", "WZE", ["srv_2"], null, false, [], { dep: "10:54", arr: "15:00" }],
             ],
             choice_layers: {
               journey_layer: { jny_pack_a: "main", jny_pack_b: "backup" },
@@ -567,7 +573,10 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
             },
             counts: { combinations: 2 },
             journeys: [
-              ["jny_pack_a", null, [[0, null], [1, 114]], [], 0, null, [], 1, null, null, [114], null],
+              ["jny_pack_a", null, [[0, null], [1, 114]], [["plan_1", [0, 1], 1, { def: 5000 }, true, 200, "separate_legs_only"]], 0, null,
+                [["pr_1", ["balanced"], 0, [0, 0], 0, 0, "08:00", "10:00", 120, 2700,
+                  { os: "administrative_area", ds: "administrative_area", db: "rail", ab: "arrival_station", cb: "rail_fare" }]],
+                1, null, null, [114], null],
               ["jny_pack_b", "中山北 G68 → 广州南换乘90分 → G1312 万州北", [[0, null], [1, 90]], [], 0, null, [], 1, null, null, [90], null],
             ],
           },

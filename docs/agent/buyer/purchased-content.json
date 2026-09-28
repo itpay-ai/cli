@@ -29,7 +29,7 @@
   "intent_routing": {
     "previous_content": "Use vault list, optionally with the subject as --query.",
     "purchase_history": "Use orders.",
-    "new_service": "Use catalog only when the human asks for a new query or purchase.",
+    "new_service": "For a new railway request, read rail-booking; for other new services, use catalog. No previous-content match does not block a separately requested new railway query.",
     "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay."
   },
   "authorization_flow": [
@@ -41,8 +41,22 @@
     "Never rerun vault access as a status check."
   ],
   "human_language": {
-    "prefer": ["previously purchased content", "past report", "purchase history", "已购内容", "以前购买的报告", "购买记录"],
-    "avoid": ["Vault", "artifact", "Device", "Buyer", "grant", "start token"]
+    "prefer": [
+      "previously purchased content",
+      "past report",
+      "purchase history",
+      "已购内容",
+      "以前购买的报告",
+      "购买记录"
+    ],
+    "avoid": [
+      "Vault",
+      "artifact",
+      "Device",
+      "Buyer",
+      "grant",
+      "start token"
+    ]
   },
   "partial_results": {
     "available": "Explain the returned section normally.",

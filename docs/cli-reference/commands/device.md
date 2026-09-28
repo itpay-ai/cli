@@ -1,10 +1,12 @@
 # `itpay device` / `itpay device recover`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围
 
-`itpay device` 只显示该命令组的帮助并退出，不访问 Backend、不读取或修改身份。当前子命令是 `recover`（运营确认 Backend 重置后删除本地登记）和 `reset-key`（服务端拒绝当前私钥登记时放弃本地密钥）。
+`itpay device` 只显示该命令组的帮助并退出，不访问 Backend、不读取或修改身份。当前子命令是 `repair-lock`（检查并修复已退出进程留下的本地锁）、`recover`（运营确认 Backend 重置后删除本地登记）和 `reset-key`（服务端拒绝当前私钥登记时放弃本地密钥）。
+
+`itpay device repair-lock --json` 只检查本地锁，保留 Device identity；活跃锁返回 `device_lock_active`，过期锁修复后返回 `device_lock_recovered`，无锁返回 `device_lock_absent`。
 
 仅在运营明确确认当前 Backend 的 Device 登记数据库已重建或清空后，删除本地该 Backend 的 v2 registration：
 

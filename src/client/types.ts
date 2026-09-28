@@ -738,6 +738,7 @@ export interface RailJourneyCard {
   tradeoff_codes?: string[];
   profile_ref?: string;
   recommended_profile?: Record<string, unknown>;
+  representative_metrics?: Record<string, unknown>;
   journey_id: string;
   route_family_id: string;
   route?: string[];

@@ -1,6 +1,6 @@
 # `itpay services page`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围与意义
 
@@ -9,7 +9,7 @@
 **上游：** `services run`、`services next` 返回的分页提示（`catalog_page.next_offset`）。  
 **下游：** 继续翻下一页，或在用户明确选择后用 `booking_offer` 承接购票。
 
-本命令不接受 Buyer token、capability 或服务输入，不返回原始 Backend DTO 之外的额外事实；Agent 不向用户暴露 `safe_payload`、Execution 或内部 ID。
+本命令不接受 Buyer token、capability 或服务输入；CLI 可把已有保存车次投影成便于比较的业务行和购买模板，不增加供应商事实。Agent 不向用户暴露 `safe_payload`、Execution 或内部 ID。
 
 ## 语法与参数
 
@@ -24,7 +24,7 @@ rail.progressive.v2 中 `<result_item_id>` 也可以是规划快照 ID（`rps_�
 | `service_execution_id` | 是 | 产生该结果集的 Execution ID。 |
 | `result_item_id` | 是 | `services next` 或分页响应中的 `service_capability_result_item_id`。 |
 | `--offset` | 否 | 从零开始的候选偏移；默认 `0`，必须是非负整数。 |
-| `--limit` | 否 | 页大小，`1` 到 `20` 的整数；默认 `5`。 |
+| `--limit` | 否 | 页大小，`1` 到 `20` 的整数；默认 `20`。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出本页候选标题的简洁文本。 |
 
 需要有效 Agent Device session。
@@ -40,19 +40,21 @@ rail.progressive.v2 中 `<result_item_id>` 也可以是规划快照 ID（`rps_�
     "service_execution_id": "<id>",
     "service_capability_result_item_id": "<item_id>",
     "offset": 0,
-    "limit": 5,
+    "limit": 20,
     "total": 63,
-    "count": 5,
-    "next_offset": 5,
+    "count": 20,
+    "next_offset": 20,
     "page": { "catalog_page": { "...": "..." }, "candidates": [ { "title": "<title>" } ] }
   },
   "instruction": "读取的是已保存结果的同版本分页，不重新查询、不消耗额度。用普通语言向用户说明本页候选；铁路应付与地面估算费用分开表述；不要提及 safe_payload、Execution 或内部 ID。",
-  "next": { "command": "itpay services page <id> <item_id> --offset 5 --json", "reason": "读取同版本结果的下一页" },
+  "next": { "command": "itpay services page <id> <item_id> --offset 20 --json", "reason": "读取同版本结果的下一页" },
   "recovery": []
 }
 ```
 
 `next_offset` 为 `null` 时 `next` 为 `null`；`offset > 0` 时 `recovery` 提供回到第一页的命令。页内候选可携带 `booking_offer`，承接方式与 `services next` 结果一致。
+
+铁路 Exact 对已保存的单条车次使用 `--offset <result_offset> --limit 1 --json`，返回 `exact_train_detail`、当前席别代码与名称、库存/报价事实和 `booking_template`。模板中的 `selection.token` 来自服务端，`seat_type` 只能选当前返回的可购代码；人数按用户需求填写。查询价格不等于锁价。
 
 ## 异常处理
 

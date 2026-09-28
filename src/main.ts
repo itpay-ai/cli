@@ -297,7 +297,7 @@ function reportCLIError(
             ? "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。"
             : "网络在完整响应前中断；当前写操作没有安全重放合同，因此 CLI 未自动重试。按 recovery 查询权威状态；不要原样重放或创建替代 Checkout、Execution、Payment 或 Refund。"
 		: backendOverrideError
-			? "移除 ITPAY_BACKEND_URL 使用正式环境，或准确设置为 https://sandbox.itpay.ai。"
+			? "移除 ITPAY_BACKEND_URL 使用正式环境，或按当前测试目标准确设置为 https://sandbox.itpay.ai 或 https://dev.itpay.ai。不要通过切换环境规避当前错误。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
       recovery: incompatible
@@ -1612,7 +1612,7 @@ services
   .argument("<result_item_id>")
   .option("--offset <offset>", "zero-based candidate offset", Number, 0)
   .option("--cursor <cursor>", "opaque v2 page cursor (rcur_<offset>); takes precedence over --offset")
-  .option("--limit <limit>", "page size (1-20)", Number, 5)
+  .option("--limit <limit>", "page size (1-20)", Number, 20)
   .option("--json", "output JSON")
   .action(async (serviceExecutionID: string, resultItemID: string, options) => {
     const config = loadConfig();
@@ -1883,12 +1883,16 @@ services
   .description("Show the next recommended agent action for a Service Execution")
   .argument("<service_execution_id>")
   .option("--since-snapshot <snapshot_id>", "delta read: suppress the journey payload when unchanged")
+  .option("--timeout <seconds>", "wait up to 120 seconds for a useful result on this execution", (value) => Number(value))
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesNext(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), sinceSnapshot: options.sinceSnapshot });
+      if (options.timeout !== undefined && (!Number.isInteger(options.timeout) || options.timeout < 0 || options.timeout > 120)) {
+        throw new Error("--timeout must be an integer from 0 to 120");
+      }
+      await runServicesNext(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), sinceSnapshot: options.sinceSnapshot, timeoutSeconds: options.timeout });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),

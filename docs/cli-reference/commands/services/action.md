@@ -1,6 +1,6 @@
 # `itpay services action`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围与意义
 
@@ -36,7 +36,7 @@ itpay services action <service_execution_id> --action <action_type>
 | `workflow:expand_search` | 有界新增查询 | 仅在扩展暂停（`expansion_status=paused`）时可用；必须带服务端下发的 `action_request_id`（`pa_…`）与 `expected_query_revision`，一轮一柄、用完作废。 |
 | `workflow:refine_preferences` | 无（本地重排） | 用 `--input-json` 提交偏好补丁，对已保存证据重排序。 |
 | `workflow:stop_search` | 无 | 停止未发送的扩展任务；不影响已开始或已完成的出票。 |
-| `select_journey` | 无 | 记录用户选定：`--input journey_id=<rj_…>`；仅记录选择、不改排名，后续购买仍走既有报价与受保护 Checkout。 |
+| `select_journey` | 无 | 用户亲自选定用 `--actor-type human`；用户已明确委托按规则代选用 `--actor-type agent --input selection_mode=delegated`。两者都带服务端返回的 `journey_id`，仅记录选择，后续购买仍走既有报价与受保护 Checkout。 |
 
 同一 `action_request_id` 相同内容重放返回原受理结果；相同 ID 不同内容会被判冲突。过期 `expected_query_revision` 的新动作被拒绝。
 
@@ -68,4 +68,4 @@ rank 不存在、属于旧结果集或其他 Execution、action 不允许、stat
 
 ## Agent Type / Host
 
-所有正式支持的 Local Agent Type 行为相同。需要人确认时 instruction 必须明确“先询问用户”，不能因 Desktop Host 自动代替用户选择。
+所有正式支持的 Local Agent Type 行为相同。真实条款同意仍需人确认；在用户已明确委托选择且规则未变时，Agent 可执行返回的委托选择动作，不得冒充 human。

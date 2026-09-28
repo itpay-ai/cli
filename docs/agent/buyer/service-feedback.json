@@ -30,7 +30,8 @@
     "Submit one baseline Agent postmortem after the outcome. Do not pressure the human for a score; an empty repeat is a no-op, while a later explicit rating or comment updates the same feedback.",
     "Use only the human's own words plus safe order context. Never upload the conversation, prompt, diagnostics, contact details, tokens, internal identities, provider responses, or purchased payload.",
     "A successful feedback submission does not promise a reply, resolution, refund, or order change.",
-    "If submission outcome is unknown, stop and explain that recording could not be confirmed; never retry automatically."
+    "If submission outcome is unknown, stop and explain that recording could not be confirmed; never retry automatically.",
+    "Feedback follows a real outcome within the user’s authorization; never submit private raw logs, credentials, tokens or traveler identity."
   ],
   "human_language": {
     "success": "Your feedback has been recorded. Thank you.",

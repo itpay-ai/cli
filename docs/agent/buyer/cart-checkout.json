@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the single public CLI entry point for Buyer services and the existing itpay sell Seller workflow; $itpay is its user-facing Skill invocation.",
   "topic": "cart-checkout",
   "title": "Canonical Cart And Checkout Routing",
   "purpose": "Use the canonical server Cart and route service-backed lines through Service Execution without hardcoded service logic.",
@@ -32,11 +32,12 @@
     }
   ],
   "agent_rules": [
-    "The Backend Cart is business truth; ~/.itpay-v3/cart.json only stores local recovery handles and explicit drafts.",
+    "The Backend Cart is business truth; the current backend-isolated local cart state file only stores local recovery handles and explicit drafts.",
     "Run the exact next.command returned by the CLI. Do not extract or invent a capability from a raw list.",
-    "One service intent uses one Service Execution. Start another execution for another independent intent.",
+    "Railway query and booking use distinct Service Executions for one purchase journey. Start another execution for an independent intent.",
     "Ask for email only when the selected capability requires protected delivery; never invent contact data.",
-    "A lost Checkout response is retried with the same Cart and persisted idempotency operation."
+    "A lost Checkout response is retried with the same Cart and persisted idempotency operation.",
+    "A single railway service checkout normally follows its booking execution; Cart is used only when the returned flow calls for it."
   ],
   "forbidden": [
     "Do not call ordinary buy for a service-backed Cart line.",

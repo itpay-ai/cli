@@ -1,28 +1,28 @@
 # `itpay services read-result`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围与意义
 
-使用当前 Agent Device Authority，在用户创建的有效、未过期且范围匹配的 grant 内读取 Vault 保护结果。它不适用于 `agent_visible_result`。
+同一命令读取三种已保存结果：铁路 Exact 车次页自动合并成紧凑业务行、铁路 Smart 快照完整紧凑车次目录，或持有效 grant 读取 Vault 保护内容。铁路读取免费、只读且不重新调用供应商。
 
-**上游：** `services next` 返回 `vault_artifact`，且用户已在订单页面授权。  
-**下游：** Agent 仅在 grant scope 和 TTL 内使用返回字段；没有自动后续命令。
+**上游：** 铁路查询的已保存结果入口，或 `services next` 返回 `vault_artifact` 且用户已在订单页面授权。
+**下游：** 铁路紧凑行中使用逐行 `detail.command` 读取购买条件；Vault 仅在 grant scope 和 TTL 内使用返回字段。
 
 ## 语法与参数
 
 ```bash
-itpay services read-result <service_execution_id> [--json]
+itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--journey <journey_id>] [--json]
 ```
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `service_execution_id` | 是 | Vault 交付对应的 execution ID。 |
+| `service_execution_id` | 是 | 铁路查询或 Vault 交付对应的 execution ID。 |
 | `--journey <journey_id>` | 否 | rail.progressive.v2 规划明细：读取指定 journey 的完整卡片（分段、席别报价、接驳估计、风险标注）。免费、属主校验、不触发供应商调用。 |
-| `--snapshot <snapshot_id>` | 否 | 与 `--journey` 配合，钉住某个已提交快照（`rps_…`）；缺省时读最新 catalog 快照。 |
+| `--snapshot <snapshot_id>` | 否 | 单独使用时读取该 Smart 已提交快照的完整紧凑目录；与 `--journey` 配合时读取一条完整卡片。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
 
-带 `--journey` 时走规划读取分支：不经过 grant/Vault、不受 `access_locked` 影响，因为规划明细本就是免付费证据。未带选择器时原授权路径完全不变。
+Exact 执行不带选择器时读取已保存全部车次，单次最多合并 100 条并给出明确续读位置。Smart 使用 `--snapshot` 读取固定快照，或用 `--journey` 读单程明细；这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
 
 CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer token、`agent_device_id` 参数或开发者凭证。
 
