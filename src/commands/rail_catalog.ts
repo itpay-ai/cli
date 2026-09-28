@@ -1,3 +1,5 @@
+import { CLI_VERSION, cliDistribution } from "../state/config.js";
+
 // shared_rows.v1 catalog decode for the rail planning full-catalog read.
 // The committed rail.catalog.v3 may ship positional rows (journeys, plans,
 // profiles keyed by journey_columns plus shared ride_table / *_index tables)
@@ -9,19 +11,40 @@ export interface RailCatalogJourneySummary {
   route: string;
   defaultLayer: "main" | "backup";
   rides?: Record<string, unknown>[];
+  calculation_scope?: Record<string, unknown>;
+  ticket_plans?: Record<string, unknown>[];
+  selected_plan?: Record<string, unknown>;
+  detail?: { command: string; reason: string };
 }
 
 export class RailCatalogEncodingError extends Error {
   constructor(encoding: unknown) {
     super(
-      `catalog encoding ${JSON.stringify(encoding)} is not supported by this CLI — ` +
-        `run npm install -g @itpay/cli to upgrade; the committed catalog is intact`,
+      `catalog encoding ${JSON.stringify(encoding)} is not supported by CLI ${CLI_VERSION} ` +
+        `(${cliDistribution()}); obtain a compatible exact version through this installation channel. ` +
+        `The committed catalog is intact`,
     );
     this.name = "rail_catalog_encoding";
   }
 }
 
 type Row = unknown[];
+
+function scopeFromProfiles(value: unknown): Record<string, unknown> | undefined {
+  const profiles = Array.isArray(value) ? value : [];
+  const selected = profiles.find((p) => Array.isArray(p) && Array.isArray(p[1]) && p[1].includes("balanced")) ?? profiles[0];
+  if (!Array.isArray(selected)) return { origin: "legacy_unknown", destination: "legacy_unknown",
+    duration_basis: "legacy_unknown", arrival_basis: "legacy_unknown", cost_basis: "legacy_unknown",
+    duration_minutes: null, estimated_total_cost: null, cost_incomplete: true };
+  const extras = selected[10] && typeof selected[10] === "object" ? selected[10] as Record<string, unknown> : {};
+  const total = typeof selected[9] === "number" && extras.ci !== true ? selected[9] / 100 : null;
+  return {
+    origin: extras.os ?? "legacy_unknown", destination: extras.ds ?? "legacy_unknown",
+    duration_basis: extras.db ?? "legacy_unknown", arrival_basis: extras.ab ?? "legacy_unknown",
+    cost_basis: extras.cb ?? "legacy_unknown", duration_minutes: selected[8] ?? null,
+    estimated_total_cost: total, cost_incomplete: extras.ci === true,
+  };
+}
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
@@ -32,6 +55,127 @@ function asIndex(v: unknown, bound: number): number {
     throw new Error("shared_rows: index out of bounds");
   }
   return v;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function datedTime(date: unknown, value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)) return raw.replace("T", " ").slice(0, 16);
+  const short = raw.match(/^(\d{2}:\d{2})(?:\+(\d+))?$/);
+  const day = asString(date);
+  if (!short || !day) return null;
+  if (!short[2]) return `${day} ${short[1]}`;
+  const shifted = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(shifted.getTime())) return null;
+  shifted.setUTCDate(shifted.getUTCDate() + Number(short[2]));
+  return `${shifted.toISOString().slice(0, 10)} ${short[1]}`;
+}
+
+function elapsedMinutes(departure: string | null, arrival: string | null): number | null {
+  if (!departure || !arrival) return null;
+  const start = Date.parse(departure.replace(" ", "T") + "Z");
+  const end = Date.parse(arrival.replace(" ", "T") + "Z");
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? (end - start) / 60_000 : null;
+}
+
+function seatOffer(row: unknown, names: Record<string, unknown>): Record<string, unknown> | null {
+  if (!Array.isArray(row)) return null;
+  const extras = asObject(row[7]);
+  const code = asString(row[1]);
+  return {
+    offer_ref: row[0], seat_type: code ?? null, seat_name: code ? names[code] ?? code : null,
+    inventory_status: row[2] ?? null, quantity: row[3] ?? null, unit_price_fen: row[4] ?? null,
+    eligible: row[5] === true, requires_quote: row[6] === true,
+    price_source: extras.s ?? "sale_price", quote_price_unverified: extras.u === true,
+    conflicted: extras.c === true,
+    ...(Array.isArray(extras.o) ? { price_observations_fen: extras.o } : {}),
+  };
+}
+
+function decodeRide(row: unknown, wait: unknown, stations: Record<string, unknown>,
+  services: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(row)) {
+    const ride = asObject(row);
+    if (!Object.keys(ride).length) throw new Error("rail catalog: malformed ride row");
+    const refs = Array.isArray(ride.service_refs) ? ride.service_refs : [];
+    const codes = [...new Set(refs.map((ref) => asObject(services[asString(ref) ?? ""]).tc)
+      .filter((code): code is string => typeof code === "string" && code.length > 0))];
+    const departure = datedTime(ride.boarding_date, ride.departure_at ?? ride.departure);
+    const arrival = datedTime(ride.boarding_date, ride.arrival_at ?? ride.arrival);
+    return { train_codes: codes, train_code: codes.join("/"),
+      from_station: stations[asString(ride.from_station_code) ?? ""] ?? ride.from_station ?? null,
+      to_station: stations[asString(ride.to_station_code) ?? ""] ?? ride.to_station ?? null,
+      boarding_date: ride.boarding_date ?? null,
+      departure, arrival, duration_minutes: elapsedMinutes(departure, arrival),
+      wait_minutes: typeof wait === "number" ? wait : ride.wait_minutes ?? null,
+      same_run: ride.same_run === true, onboard_stops: Array.isArray(ride.onboard_stops) ? ride.onboard_stops : [],
+    };
+  }
+  const extras = asObject(row[8]);
+  const refs = Array.isArray(row[4]) ? row[4] : [];
+  const codes = [...new Set(refs.map((ref) => asObject(services[asString(ref) ?? ""]).tc)
+    .filter((code): code is string => typeof code === "string" && code.length > 0))];
+  const base = row[0];
+  const departure = datedTime(base, extras.dep);
+  const arrival = datedTime(base, extras.arr);
+  return {
+    train_codes: codes, train_code: codes.join("/"),
+    from_station: stations[asString(row[2]) ?? ""] ?? row[2] ?? null,
+    to_station: stations[asString(row[3]) ?? ""] ?? row[3] ?? null,
+    boarding_date: base ?? null,
+    departure, arrival, duration_minutes: elapsedMinutes(departure, arrival),
+    wait_minutes: typeof wait === "number" ? wait : typeof row[5] === "number" ? row[5] : null,
+    same_run: row[6] === true, onboard_stops: Array.isArray(row[7]) ? row[7] : [],
+  };
+}
+
+function decodePlans(rawPlans: unknown, rawProfiles: unknown, packed: boolean,
+  catalog: Record<string, unknown>, services: Record<string, unknown>,
+  names: Record<string, unknown>, stations: Record<string, unknown>): {
+    plans: Record<string, unknown>[]; selected?: Record<string, unknown> } {
+  const plans = Array.isArray(rawPlans) ? rawPlans : [];
+  const profiles = Array.isArray(rawProfiles) ? rawProfiles : [];
+  const preferred = profiles.find((profile) => Array.isArray(profile) && Array.isArray(profile[1]) && profile[1].includes("balanced")) ?? profiles[0];
+  const profile = Array.isArray(preferred) ? preferred : [];
+  const serviceIndex = Array.isArray(catalog.service_index) ? catalog.service_index : [];
+  const selectedPlan = packed && typeof profile[2] === "number" ? plans[asIndex(profile[2], plans.length)] :
+    plans.find((plan) => Array.isArray(plan) && plan[0] === profile[2]);
+  const selectedRef = Array.isArray(selectedPlan) ? selectedPlan[0] : null;
+  const decoded = plans.map((plan) => {
+    if (!Array.isArray(plan)) throw new Error("rail catalog: malformed ticket plan");
+    const refs = (Array.isArray(plan[1]) ? plan[1] : []).map((ref) =>
+      packed && typeof ref === "number" ? serviceIndex[asIndex(ref, serviceIndex.length)] : ref);
+    const extras = asObject(plan[7]);
+    const legs = refs.map((ref, index) => {
+      const service = asObject(services[asString(ref) ?? ""]);
+      const offers = Array.isArray(service.of) ? service.of : [];
+      const selectedOffer = plan[0] === selectedRef && Array.isArray(profile[3]) ? profile[3][index] : undefined;
+      const chosen = packed && typeof selectedOffer === "number" ? offers[asIndex(selectedOffer, offers.length)] :
+        offers.find((offer) => Array.isArray(offer) && offer[0] === selectedOffer);
+      return {
+        service_ref: ref ?? null, train_code: service.tc ?? null,
+        from_station: stations[asString(service.f) ?? ""] ?? service.f ?? null,
+        to_station: stations[asString(service.t) ?? ""] ?? service.t ?? null,
+        departure: datedTime(service.d, service.dep), arrival: datedTime(service.d, service.arr),
+        seat_options: offers.map((offer) => seatOffer(offer, names)).filter((offer) => offer !== null),
+        ...(chosen ? { selected_seat: seatOffer(chosen, names) } : {}),
+      };
+    });
+    const amount = asObject(plan[3]);
+    return {
+      ticket_plan_ref: plan[0], passenger_count: plan[2] ?? null,
+      purchase_support: plan[6] ?? "none", rail_amount_verified: plan[4] === true,
+      rail_amount_fen: { default: amount.def ?? null, minimum: amount.min ?? null, maximum: amount.max ?? null },
+      service_fee_fen: plan[5] ?? null, quote_price_unverified: extras.qu === true,
+      legs,
+    };
+  });
+  const selected = decoded.find((plan) => plan.ticket_plan_ref === selectedRef);
+  return { plans: decoded, ...(selected ? { selected } : {}) };
 }
 
 // _cn_route_text port: "南头 C7608 → 广州南换乘71分 → G2944 重庆西" — kept
@@ -99,6 +243,9 @@ export function decodeRailCatalogJourneys(
       Record<string, unknown> | undefined) ?? {};
   const layerOf = (ref: string): "main" | "backup" =>
     layerMap[ref] === "backup" ? "backup" : "main";
+  const stations = asObject(catalog.stations);
+  const services = asObject(catalog.services);
+  const seatNames = asObject(catalog.seat_names);
 
   if (encoding === undefined || encoding === null) {
     const rows = Array.isArray(catalog["journeys"]) ? (catalog["journeys"] as Row) : [];
@@ -107,11 +254,17 @@ export function decodeRailCatalogJourneys(
       journeys: rows.map((j) => {
         const rec = (j ?? {}) as Record<string, unknown>;
         const ref = asString(rec["ref"]) ?? asString(rec["journey_id"]) ?? "?";
+        const calculationScope = scopeFromProfiles(rec["profiles"]);
+        const rides = (Array.isArray(rec.rides) ? rec.rides : []).map((ride) => decodeRide(ride, null, stations, services));
+        const ticketPlans = decodePlans(rec.plans, rec.profiles, false, catalog, services, seatNames, stations);
         return {
           ref,
           route: asString(rec["route"]) ?? asString(rec["route_text"]) ?? asString(rec["summary"]) ?? "",
           defaultLayer: layerOf(ref),
-          rides: Array.isArray(rec["rides"]) ? rec["rides"] as Record<string, unknown>[] : [],
+          rides,
+          ...(calculationScope ? { calculation_scope: calculationScope } : {}),
+          ticket_plans: ticketPlans.plans,
+          ...(ticketPlans.selected ? { selected_plan: ticketPlans.selected } : {}),
         };
       }),
     };
@@ -124,9 +277,6 @@ export function decodeRailCatalogJourneys(
     throw new RailCatalogEncodingError(`${String(encoding)} (unexpected journey_columns)`);
   }
   const rideTable = (Array.isArray(catalog["ride_table"]) ? catalog["ride_table"] : []) as Row[];
-  const stations = (catalog["stations"] ?? {}) as Record<string, unknown>;
-  const services = (catalog["services"] ?? {}) as Record<string, unknown>;
-  const seatNames = (catalog["seat_names"] ?? {}) as Record<string, unknown>;
   const journeys = (Array.isArray(catalog["journeys"]) ? catalog["journeys"] : []) as Row[];
   return {
     packed: true,
@@ -137,21 +287,15 @@ export function decodeRailCatalogJourneys(
         asString(row[1]) ??
         (Array.isArray(row[2]) ? regenerateRoute(row[2] as Row[], rideTable, stations, services) : "");
       const rides = (Array.isArray(row[2]) ? row[2] as Row[] : []).map((pair) => {
-        const ride = rideTable[asIndex(pair[0], rideTable.length)] as Row;
-        const serviceRef = Array.isArray(ride[4]) ? ride[4][0] : undefined;
-        const service = (services[asString(serviceRef) ?? ""] ?? {}) as Record<string, unknown>;
-        const offers = Array.isArray(service.of) ? service.of as Row[] : [];
-        return {
-          train_code: service.tc,
-          from_station: stations[asString(ride[2]) ?? ""] ?? ride[2],
-          to_station: stations[asString(ride[3]) ?? ""] ?? ride[3],
-          boarding_date: ride[0], departure: service.dep, arrival: service.arr,
-          wait_minutes: pair[1],
-          seats: offers.map((offer) => ({ seat_type: offer[1], seat_name: seatNames[asString(offer[1]) ?? ""] ?? offer[1],
-            inventory_status: offer[2], quantity: offer[3], unit_price_fen: offer[4] })),
-        };
+        if (!Array.isArray(pair) || pair.length !== 2) throw new Error("shared_rows: malformed ride pair");
+        return decodeRide(rideTable[asIndex(pair[0], rideTable.length)], pair[1], stations, services);
       });
-      return { ref, route, defaultLayer: layerOf(ref), rides };
+      const calculationScope = scopeFromProfiles(row[6]);
+      const ticketPlans = decodePlans(row[3], row[6], true, catalog, services, seatNames, stations);
+      return { ref, route, defaultLayer: layerOf(ref), rides,
+        ...(calculationScope ? { calculation_scope: calculationScope } : {}),
+        ticket_plans: ticketPlans.plans,
+        ...(ticketPlans.selected ? { selected_plan: ticketPlans.selected } : {}) };
     }),
   };
 }

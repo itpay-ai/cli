@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the single public CLI entry point for Buyer services and the existing itpay sell Seller workflow; $itpay is its user-facing Skill invocation.",
   "topic": "catalog-list",
   "title": "Browse ItPay V3 Service Catalog",
   "purpose": "Explain available services, outcomes, conditions, and prices in human language without exposing catalog identifiers.",
@@ -54,7 +54,7 @@
       "topic": "rail-booking"
     },
     {
-      "condition": "Buyer selected a service and wants to purchase",
+      "condition": "Non-rail Buyer selected a service and wants to purchase",
       "topic": "cart-checkout",
       "file": "docs/agent/buyer/cart-checkout.json"
     }

@@ -83,6 +83,8 @@ Terminal and error states:
 | `auth_expired` | Session expired before completion | Offer to start `itpay auth login` again; prior query input is still preserved server-side |
 | `login_required` | No open request, not bound | Run `itpay auth login` |
 | `auth_cancelled` / `auth_denied` | User declined or closed the page | Respect the refusal; do not silently re-open; the pending query stays resumable |
+| `auth_session_missing` | Saved authorization session no longer exists (404/410) | `auth status` stays read-only; an explicit `auth login` may create one new official session |
+| `auth_status_unknown` | Transport or temporary server failure while reading status | Keep the same saved session and reread later; do not open a second login |
 
 ## Rules
 

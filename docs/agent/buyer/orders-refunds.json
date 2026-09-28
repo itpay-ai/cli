@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the single public CLI entry point for Buyer services and the existing itpay sell Seller workflow; $itpay is its user-facing Skill invocation.",
   "topic": "orders-refunds",
   "title": "Order, Delivery, Customer Care And Refund Recovery",
   "purpose": "Explain paid-order and delivery problems to the human, then read or manage the same owned Order without guessing payment, consumption, or refund state.",
@@ -34,7 +34,7 @@
     {
       "intent": "cancel before provider submission",
       "command": "itpay --agent-type <agent_type> refund cancel <refund_request_id> --json",
-      "success_signal": "the Refund Owner cancels the request and requires a new delivery authorization"
+      "success_signal": "the Refund Owner returns the current cancellation and access state; old grants do not revive"
     }
   ],
   "agent_rules": [

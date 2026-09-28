@@ -7,7 +7,7 @@
 调用当前 phase 允许的非付费 Agent-visible capability。输入先按 capability schema 校验，校验失败不得迁移 execution 或记录 Provider 已调用。
 
 **上游：** `services start/next` 明确返回 invoke。
-**下游：** 候选结果、人工 action 或付费 Quote。一次 invoke 没有结果或返回 Provider 错误时必须停止；只有用户之后明确提供新输入，才启动新的 execution。
+**下游：** 候选结果、人工 action 或付费 Quote。此页的候选人工选择示例适用于相应的非铁路服务；铁路按 `rail-booking` 的已保存结果和委托选择合同。Provider 错误先按实际错误码和当前 execution 状态恢复，不猜新输入或自动新建。
 
 ## 语法与参数
 
@@ -20,13 +20,7 @@ itpay services invoke <service_execution_id> --capability <capability_id>
 
 ## 有结果输出
 
-火车票目录：`items` 保留服务端返回的全部合格方案，不按推荐数量截断。
-`result.catalog` 带搜索覆盖范围、模型来源和推荐引用；`recommended=true` 的方案排在首位。
-本地 Agent 应先解释首推及不同取舍，用户不满意时可继续查看同一次返回的完整列表。
-智能规划返回 `verified_phone_required` 时，先完成 ItPay 网页手机号验证，不在 CLI 收集手机号、身份证或姓名。
-该错误发生在供应商调用和额度预占之前。
-本地验证环境中 CLI 会返回 `verification_url`，用户在该网页验证手机号并确认连接 Agent。
-完成后重试同一条 invoke；不在终端输入或回传手机验证码。
+以下是非铁路候选服务的示例。铁路使用 `services run` 和 `services read-result` 返回的范围、完整紧凑目录与当前动作；不要把这里的 `select_candidate` 人工动作套用到已授权委托的铁路选择。
 
 ```json
 {
@@ -161,5 +155,3 @@ Provider 已收到请求时，Backend 返回同一 Execution 的权威调用和�
 ## Agent Type / Host
 
 所有正式支持的 Local Agent Type 的 safe result 一致。instruction 可以适配对话表述，但不得隐藏 quota、价格或 schema 错误。
-
-本地模拟购票阶段：用户选定候选后才提交选择，并使用 `services quote --capability book_ticket` 获取实时票款加每张 2 元服务费的锁定报价。精确查询需在报价输入中指定候选里可售的 `seat_type`；智能方案沿用所选席别。`pricing_method=rail_fare_plus_fee` 不代表总价 2 元。乘客资料仅在 Checkout 网页填写。本地出票结果明确标记 `simulation=true`，不表示真实出票。

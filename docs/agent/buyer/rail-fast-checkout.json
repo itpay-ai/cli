@@ -3,7 +3,7 @@
   "role": "buyer_agent",
   "product_scope": "itpay_rail",
   "topic": "rail-fast-checkout",
-  "title": "Rail Fast Checkout — One Human Question, Owners Do The Rest",
+  "title": "Rail Fast Checkout — Delegated Purchase Supplement",
   "purpose": "Short delegated-purchase supplement to rail-booking; host presentation differences only.",
   "when_to_use": [
     "The buyer delegated railway selection and a current bookable result is available. Read rail-booking first."
@@ -11,7 +11,7 @@
   "steps": [
     {
       "step": "read_full_flow",
-      "command": "itpay docs show rail-booking --json",
+      "command": "Use the rail-booking guide already read for this request",
       "notes": [
         "Use the current query result and booking_template; this topic does not replace the railway guide."
       ]

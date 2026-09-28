@@ -9,7 +9,7 @@
 **上游：** `services run`、`services next` 返回的分页提示（`catalog_page.next_offset`）。  
 **下游：** 继续翻下一页，或在用户明确选择后用 `booking_offer` 承接购票。
 
-本命令不接受 Buyer token、capability 或服务输入，不返回原始 Backend DTO 之外的额外事实；Agent 不向用户暴露 `safe_payload`、Execution 或内部 ID。
+本命令不接受 Buyer token、capability 或服务输入；CLI 可把已有保存车次投影成便于比较的业务行和购买模板，不增加供应商事实。Agent 不向用户暴露 `safe_payload`、Execution 或内部 ID。
 
 ## 语法与参数
 
@@ -53,6 +53,8 @@ rail.progressive.v2 中 `<result_item_id>` 也可以是规划快照 ID（`rps_�
 ```
 
 `next_offset` 为 `null` 时 `next` 为 `null`；`offset > 0` 时 `recovery` 提供回到第一页的命令。页内候选可携带 `booking_offer`，承接方式与 `services next` 结果一致。
+
+铁路 Exact 对已保存的单条车次使用 `--offset <result_offset> --limit 1 --json`，返回 `exact_train_detail`、当前席别代码与名称、库存/报价事实和 `booking_template`。模板中的 `selection.token` 来自服务端，`seat_type` 只能选当前返回的可购代码；人数按用户需求填写。查询价格不等于锁价。
 
 ## 异常处理
 

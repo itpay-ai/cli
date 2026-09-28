@@ -28,7 +28,7 @@ itpay services next <service_execution_id> [--timeout <seconds>] [--since-snapsh
 
 需要有效 Agent Device session。命令不接受 Buyer token、capability 或服务输入。
 
-## 候选选择
+## 非铁路服务的候选选择
 
 免费或付费候选已经产生、Arazzo workflow 允许继续选择时，恢复输出必须包含当前 Result Set 的安全候选：
 
@@ -50,9 +50,9 @@ itpay services next <service_execution_id> [--timeout <seconds>] [--since-snapsh
 }
 ```
 
-该列表来自 Backend 的 `current_result_items`，CLI 不缓存或合并其他 Execution 的候选。
+该列表来自 Backend 的 `current_result_items`，CLI 不缓存或合并其他 Execution 的候选。铁路 Exact 的正常返回改走 `read-result` 已保存车次行及逐行 `detail.command`；Smart 的委托选票用 `select_delegated`（actor-type agent），只有用户亲自选定才用 `select_user_chosen`（actor-type human）。
 
-## Agent-visible 结果
+## 非铁路服务的 Agent-visible 结果
 
 ```json
 {
@@ -197,7 +197,7 @@ itpay services next <service_execution_id> [--timeout <seconds>] [--since-snapsh
 }
 ```
 
-`succeeded` 退款改为“交付永久关闭”，并返回 `next: null`。取消、拒绝或确定未产生资金影响的失败退款不再阻塞，但旧 grant 不会复活；用户必须重新授权。
+`succeeded` 退款改为“交付永久关闭”，并返回 `next: null`。取消、拒绝或确定未产生资金影响的失败退款不再阻塞，但旧 grant 不会复活；是否需要新的交付授权由当前 owner 状态与返回动作决定。
 
 ## 额度暂停（试用/限流）
 
@@ -249,7 +249,7 @@ itpay services run itpay-rail-booking --input-json booking.json --json
 # booking.json: {"passengers": 1, "selection": {"token": "<selection_token>", "seat_type": "O"}}
 ```
 
-`booking_offer` 只是受条件约束的可选承接：查询完成本身已满足查询目标，不自动购买；过期 token 返回明确错误，恢复方式是按 `services run` 输入合同重新查询或显式提供 `legs`。
+`booking_offer` 只是受条件约束的可选承接：查询完成本身已满足查询目标，不自动购买。过期 token 不会因重读保存结果而恢复；按当前 owner 错误与用户原请求取得新的实时选择证据，不手工拼装 `legs` 绕过失效凭据。
 
 ## 订票确认（booking review）
 
@@ -268,7 +268,8 @@ itpay services run itpay-rail-booking --input-json booking.json --json
     "required_fields": ["draft_revision", "passengers", "seat_type", "seat_preferences", "party_preference", "fallback", "notice_version", "accept_non_guaranteed"]
   },
   "instruction": "向用户展示行程与可选席别/座位偏好词表，并明确告知：座位偏好仅为请求、不保证分配。收集后经 --input-json 提交完整 JSON；draft_revision 以服务端当前值为准。",
-  "next": { "command": "itpay services action <id> --action workflow:confirm_booking --actor-type human --status approved --input-json <file> --json", "reason": "提交用户确认后的行程确认/修订" },
+  "next": null,
+  "interaction": { "input_template": { "command": "itpay services action <id> --action workflow:confirm_booking --actor-type human --status approved --input-json <file> --json", "executable": false } },
   "recovery": [{ "command": "itpay services next <id> --json", "reason": "重新读取当前 draft_revision 后重试" }]
 }
 ```
@@ -300,5 +301,5 @@ itpay services get <service_execution_id> --json
 
 - `running`/`queued`：稍后按 `next.command` 增量轮询同一执行；不要重新发起查询。
 - `paused`：首批结果已就绪、扩展暂停等待用户意图；`expand_search` 是唯一会再消耗供应商配额的动作。
-- `complete`：扩展收敛；展示推荐并等待用户选票。
-- 选票走 `select_journey` 动作（命令在 `available_actions` 或卡片的 `select` 字段里，原样执行）；乘车人身份信息永远只在受保护 Checkout 页面填写。
+- `complete`：扩展收敛；比较任务已满足就展示推荐并停止，购买委托则按明确规则选择。
+- 选票走 `select_journey` 动作：卡片的 `select_delegated` 供已授权委托的 Agent 选择，`select_user_chosen` 仅用于用户亲自选定；乘车人身份信息永远只在受保护 Checkout 页面填写。

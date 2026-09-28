@@ -11,7 +11,7 @@
 
 ## 核心不变量
 
-- 一个 Execution 表示一个独立服务意图；多个意图分别执行、分别交付，但各自的 Quote 可以进入同一 Cart。
+- Execution 的边界由服务合同决定；铁路查询和购票使用不同 Execution，已有执行的等待与恢复保持原 ID。其他独立服务分别执行，其 Quote 可进入同一 Cart。
 - 任何 capability 输入都必须在状态写入、锁价、订单创建和 Provider 调用前通过 schema 校验。
 - `invoke` 只运行当前阶段允许且不需付款的 Agent-visible capability。
 - 依赖候选的付费 capability 必须继续来源 Execution；`action --candidate` 不能跨 Execution 搬运候选。
