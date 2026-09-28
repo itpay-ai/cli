@@ -1,6 +1,6 @@
 # `itpay services next`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围与意义
 
@@ -16,12 +16,13 @@ Backend 会根据当前 capability 选择 `current_delivery`；完整 `delivery_
 ## 语法与参数
 
 ```bash
-itpay services next <service_execution_id> [--json]
+itpay services next <service_execution_id> [--timeout <seconds>] [--since-snapshot <snapshot_id>] [--json]
 ```
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `service_execution_id` | 是 | `services start` 或后续命令返回的 execution ID。 |
+| `--timeout <seconds>` | 否 | 同一执行上的有界只读等待，0–120 秒，默认 0；查询等待中的推荐命令使用 120。已有业务结果、真实用户动作或终态会提前返回。 |
 | `--since-snapshot <snapshot_id>` | 否 | rail.progressive.v2 增量读：传上次看到的 `snapshot_id`，未变化时只回扩展状态与 `result_not_updated`，不重复下发 journey 负载；永远不触发供应商调用。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
 

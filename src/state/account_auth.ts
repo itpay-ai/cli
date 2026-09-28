@@ -198,9 +198,12 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
           }
         } catch (error) {
           if (error instanceof AuthRequestError && (error.httpStatus === 404 || error.httpStatus === 410)) {
-            return sessionGone(env, purpose, baseURL, open.sessionID);
+            rmSync(sellerAuthPath(baseURL, env, purpose), { force: true });
+            // The explicit login call may open one fresh session now. Status
+            // remains read-only and still reports the missing old session.
+          } else {
+            return authStatusUnknown(open.sessionID);
           }
-          return authStatusUnknown(open.sessionID);
         }
       }
     }

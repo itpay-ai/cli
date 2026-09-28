@@ -32,11 +32,12 @@
     }
   ],
   "agent_rules": [
-    "The Backend Cart is business truth; ~/.itpay-v3/cart.json only stores local recovery handles and explicit drafts.",
+    "The Backend Cart is business truth; the current backend-isolated local cart state file only stores local recovery handles and explicit drafts.",
     "Run the exact next.command returned by the CLI. Do not extract or invent a capability from a raw list.",
-    "One service intent uses one Service Execution. Start another execution for another independent intent.",
+    "Railway query and booking use distinct Service Executions for one purchase journey. Start another execution for an independent intent.",
     "Ask for email only when the selected capability requires protected delivery; never invent contact data.",
-    "A lost Checkout response is retried with the same Cart and persisted idempotency operation."
+    "A lost Checkout response is retried with the same Cart and persisted idempotency operation.",
+    "A single railway service checkout normally follows its booking execution; Cart is used only when the returned flow calls for it."
   ],
   "forbidden": [
     "Do not call ordinary buy for a service-backed Cart line.",

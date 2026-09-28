@@ -1612,7 +1612,7 @@ services
   .argument("<result_item_id>")
   .option("--offset <offset>", "zero-based candidate offset", Number, 0)
   .option("--cursor <cursor>", "opaque v2 page cursor (rcur_<offset>); takes precedence over --offset")
-  .option("--limit <limit>", "page size (1-20)", Number, 5)
+  .option("--limit <limit>", "page size (1-20)", Number, 20)
   .option("--json", "output JSON")
   .action(async (serviceExecutionID: string, resultItemID: string, options) => {
     const config = loadConfig();
@@ -1883,12 +1883,16 @@ services
   .description("Show the next recommended agent action for a Service Execution")
   .argument("<service_execution_id>")
   .option("--since-snapshot <snapshot_id>", "delta read: suppress the journey payload when unchanged")
+  .option("--timeout <seconds>", "wait up to 120 seconds for a useful result on this execution", (value) => Number(value))
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesNext(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), sinceSnapshot: options.sinceSnapshot });
+      if (options.timeout !== undefined && (!Number.isInteger(options.timeout) || options.timeout < 0 || options.timeout > 120)) {
+        throw new Error("--timeout must be an integer from 0 to 120");
+      }
+      await runServicesNext(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), sinceSnapshot: options.sinceSnapshot, timeoutSeconds: options.timeout });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),

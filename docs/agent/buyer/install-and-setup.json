@@ -35,7 +35,7 @@
     "For first setup or a runtime change, identify the real Agent Type once, run itpay install <agent_type> --json yourself, and follow its setup continuation until the packaged Skill is loaded. Ordinary service requests start from the Skill's service command, without repeating install or readyz.",
     "After setup, tell the human only that ItPay is ready; never ask them to run setup commands or explain technical setup steps.",
     "Use the CLI distribution already provided by the current npm package, Skill, or plugin; update only through that distribution's own instructions.",
-    "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL https://sandbox.itpay.ai; no other Backend is allowed.",
+    "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL the configured official test Backend only when explicitly requested; follow the CLI allowlist.",
     "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and use only the exact distribution-specific update recovery returned by the CLI; never replace its version with latest.",
     "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, zcode, doubao-work, kimi-code, or openclaw.",
@@ -44,7 +44,8 @@
     "Within each official Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
     "Agent Type identifies the runtime. Host and target only select a presentation destination; load render-hosts only when a handoff cannot be shown.",
     "Keep the exact Agent Type in every next or recovery command; do not fall back to a type previously used by another runtime.",
-    "Do not change Agent Type or rotate local identity to reset quota or recover a failed command."
+    "Do not change Agent Type or rotate local identity to reset quota or recover a failed command.",
+    "Skillhub and local host bundles are separate installed artifacts; verify their version and packaged Skill/docs instead of assuming an npm update changed them."
   ],
   "forbidden": [
     "Do not use terminal, claude-code, or plain-chat as Agent Types. Do not generate codex as an Agent Type; it is accepted only as a legacy global declaration and becomes codex-desktop before any request.",

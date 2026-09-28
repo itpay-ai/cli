@@ -60,6 +60,7 @@ export class TaskJournal {
   observe(serviceExecutionID: string, stage: string, resumeCommand?: string): void {
     const file = this.readFile();
     const existing = file.tasks[serviceExecutionID];
+    if (existing && existing.stage === stage && (resumeCommand === undefined || existing.resume_command === resumeCommand)) return;
     file.tasks[serviceExecutionID] = {
       service_execution_id: serviceExecutionID,
       ...(existing?.service_id ? { service_id: existing.service_id } : {}),
@@ -102,5 +103,4 @@ export class TaskJournal {
     renameSync(tmp, this.path);
   }
 }
-
 

@@ -55,7 +55,7 @@ try {
   if (singleFile) {
     const { buildSync } = await import("esbuild");
     buildSync({
-      entryPoints: [join(installed, "bin", "itp")],
+      entryPoints: [join(installed, "bin", "itp.mjs")],
       bundle: true,
       platform: "node",
       format: "esm",
@@ -92,7 +92,7 @@ try {
   mkdirSync(output, { recursive: true });
   writeFileSync(join(output, "bundle.lock.json"), JSON.stringify(lock, null, 2) + "\n");
 
-  const entry = singleFile ? join(vendor, "itpay-cli.bundle.mjs") : join(vendor, "package", "bin", "itp");
+  const entry = singleFile ? join(vendor, "itpay-cli.bundle.mjs") : join(vendor, "package", "bin", "itp.mjs");
   const actual = execFileSync(process.execPath, [entry, "--version"], { encoding: "utf8" }).trim();
   if (actual !== version) throw new Error(`bundle reported ${actual}, expected ${version}`);
   process.stdout.write(`built @itpay/cli@${version} in ${output}\n`);

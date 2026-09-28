@@ -20,7 +20,8 @@
     "item_format": "Explain the title, what the human receives, any auxiliary discovery step, and the published price.",
     "service_flow": "Explain discovery as an auxiliary identity-confirmation step, including free quota and paid continuation. Present primary_service as the actual paid outcome. Read all values from the manifest.",
     "variant_selection": "Internal IDs are for the Agent's next command only and are never shown or requested from the human.",
-    "price_note": "amount_minor is in minor units (e.g., 10000 = 100.00 CNY). The CLI formats prices as XX.YY currency automatically."
+    "price_note": "amount_minor is in minor units (e.g., 10000 = 100.00 CNY). The CLI formats prices as XX.YY currency automatically.",
+    "railway": "Railway entries point to itpay docs show rail-booking --json; use its query and booking contracts instead of a generic start→invoke→cart sequence."
   },
   "agent_rules": [
     "Use catalog list only when the human asks for a new service, not when they want an earlier purchase.",
@@ -28,13 +29,30 @@
     "Explain the customer journey from service_flow instead of presenting every variant as an unrelated service.",
     "State free quota, paid continuation price, email requirement, and claim purpose exactly as published; do not exaggerate or omit conditions.",
     "Ask the human to choose only when multiple services could satisfy the goal; never make them choose an internal variant or offer ID.",
-    "After services start, submit service keywords only through the returned capability command's --input key=value options; --target is never a search keyword."
+    "Use each service’s returned input contract; railway planning and booking follow rail-booking, not a universal Cart route."
   ],
   "human_language": {
-    "prefer": ["服务", "查询", "报告", "免费次数", "价格", "你会得到什么"],
-    "avoid": ["service_id", "variant_id", "offer_id", "capability", "manifest"]
+    "prefer": [
+      "服务",
+      "查询",
+      "报告",
+      "免费次数",
+      "价格",
+      "你会得到什么"
+    ],
+    "avoid": [
+      "service_id",
+      "variant_id",
+      "offer_id",
+      "capability",
+      "manifest"
+    ]
   },
   "next_docs": [
+    {
+      "condition": "Railway service selected",
+      "topic": "rail-booking"
+    },
     {
       "condition": "Buyer selected a service and wants to purchase",
       "topic": "cart-checkout",

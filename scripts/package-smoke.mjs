@@ -30,7 +30,7 @@ try {
     env: { ...process.env, npm_config_cache: join(scratch, "npm-cache") },
     stdio: "pipe"
   });
-  const entry = join(packageRoot, "bin", "itp");
+  const entry = join(packageRoot, "bin", "itp.mjs");
   const env = {
     ...process.env,
     HOME: home,
@@ -40,7 +40,7 @@ try {
     ["", "index.md"],
     ["readyz", "commands/readyz.md"],
     ...["auth", "auth login", "auth status"].map(command => [command, "commands/auth.md"]),
-    ["device", "commands/device.md"], ["device recover", "commands/device.md"], ["device reset-key", "commands/device.md"],
+    ["device", "commands/device.md"], ["device recover", "commands/device.md"], ["device repair-lock", "commands/device.md"], ["device reset-key", "commands/device.md"],
     ["skill", "commands/skill.md"], ["skill show", "commands/skill.md"],
     ["next", "commands/next.md"],
     ["catalog", "commands/catalog/index.md"], ["catalog list", "commands/catalog/list.md"],
@@ -195,13 +195,13 @@ try {
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
   assert.equal(skillHelp.result.skill, "itpay");
-  assert.match(skillHelp.result.content, /Route The Human's Intent/);
-  assert.match(skillHelp.result.content, /Serve The Human/);
-  assert.match(skillHelp.result.content, /Explain refund eligibility as a policy route, not a promise/);
-  assert.match(skillHelp.result.content, /View previously purchased content/);
-  assert.match(skillHelp.result.content, /Keep the same Agent Type, official Backend, access lane/);
+  assert.match(skillHelp.result.content, /Choose one entry/);
+  assert.match(skillHelp.result.content, /Show the human/);
+  assert.match(skillHelp.result.content, /rail-booking --json/);
+  assert.match(skillHelp.result.content, /Refund/);
+  assert.match(skillHelp.result.content, /Keep internal/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
-  assert.match(skillHelp.result.content, /Present one official authorization handoff/);
+  assert.match(skillHelp.result.content, /official/);
   assert.equal(skillHelp.next, null);
   const refundDocs = JSON.parse(execFileSync(process.execPath, [
     entry, "docs", "search", "钱扣了没结果", "--json",

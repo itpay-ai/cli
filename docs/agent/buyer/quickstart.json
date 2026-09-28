@@ -21,18 +21,21 @@
     ]
   },
   "intent_routing": {
-    "new_service": "Use catalog list only for a new service or query.",
+    "new_service": "For other new services, use itpay catalog list --json and the selected input contract.",
     "previous_content": "Use vault list, optionally with the subject as --query.",
     "purchase_history": "Use orders.",
     "refund_or_paid_problem": "Resume the known Order or Refund before creating anything new.",
     "service_feedback": "Finish the original order outcome first, then submit one safe Agent postmortem; include a rating or comment only when the human explicitly gives it.",
-    "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay."
+    "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay.",
+    "railway": "Known railway intent: itpay docs show rail-booking --json. Read once, then follow its Exact/Smart route."
   },
-  "commands": [{
-    "intent": "continue the selected flow",
-    "command": "<execute the exact next.command returned by the previous CLI envelope>",
-    "success_signal": "the next envelope reports one current state and at most one preferred action"
-  }],
+  "commands": [
+    {
+      "intent": "continue the selected flow",
+      "command": "<execute the exact next.command returned by the previous CLI envelope>",
+      "success_signal": "the next envelope reports one current state and at most one preferred action"
+    }
+  ],
   "agent_rules": [
     "Use the CLI as the control surface; infer the human's intent before the first command and never hardcode a service workflow.",
     "Treat result as current facts, instruction as how to use those facts, next as the preferred executable action, and recovery as exceptional paths.",
@@ -40,10 +43,10 @@
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
     "When testing sandbox, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://sandbox.itpay.ai prefix is preserved.",
     "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
-    "Start a separate Service Execution for each independent service intent; quota remains shared according to Backend identity policy.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",
     "Explain useful service facts in ordinary language; never ask the human to run commands or learn internal IDs.",
-    "Normal payment uses the returned ItPay Checkout handoff."
+    "Normal payment uses the returned ItPay Checkout handoff.",
+    "A railway query execution and its separate booking execution may serve one purchase intent; keep both references."
   ],
   "forbidden": [
     "Do not invent catalog, variant, offer, capability, result item, order or refund IDs.",
@@ -51,6 +54,10 @@
     "Do not bypass a grant, refund lock, ownership error or compatibility gate."
   ],
   "next_docs": [
+    {
+      "condition": "Known railway request",
+      "topic": "rail-booking"
+    },
     {
       "condition": "Need service catalog language",
       "topic": "catalog-list"

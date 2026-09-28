@@ -1,6 +1,6 @@
 # `itpay install`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are `buy` and `sell`: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
 ## 范围与意义
 
@@ -121,7 +121,7 @@ OpenClaw 额外明确没有默认入口：
 | `codex-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
 | `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
 | `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
-| `workbuddy` | `plain-chat` | 会持久化 `~/.itpay-v3` 的 Bash 调用先设 Shell 工具参数 `dangerouslyDisableSandbox=true`；拒绝权限时停止。Checkout 原样执行返回的 `present_files` action，打开渲染后的 Card Link。 |
+| `workbuddy` | `plain-chat` | 为 `~/.itpay-v3` 申请正常持久化权限；拒绝时报告受阻操作。Checkout 原样执行返回的 `present_files` action，打开渲染后的 Card Link。 |
 | `zcode` | `plain-chat` | Checkout 或授权返回后立即用 ZCode 内置浏览器打开 `handoff.url`；只有浏览器不可用时才展示同一个可点击链接。 |
 | `doubao-work` | `plain-chat` | Checkout 或授权时同时展示 `handoff.url` 和 `handoff.qr_image_url` 两个有标签的官方入口；优先让手机直接打开链接，二维码供保存或另一台设备扫码。 |
 | `kimi-code` | `terminal` | 使用标准 CLI 流程和终端展示，不增加 Kimi 专属命令。 |
