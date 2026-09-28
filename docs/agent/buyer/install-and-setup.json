@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows will use the same entry point and are not implemented yet.",
+  "product_scope": "itpay is the public CLI entry point for Buyer services and existing itpay sell Seller workflows.",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
   "purpose": "Select the real Agent Type, verify one official Backend, and load the packaged Skill through one linear setup path.",
@@ -32,7 +32,7 @@
     }
   ],
   "agent_rules": [
-    "Start with install, identify the current real runtime from result.agent_types, run itpay install <agent_type> --json yourself, and then execute each returned next.command unchanged until the Skill is loaded.",
+    "For first setup or a runtime change, identify the real Agent Type once, run itpay install <agent_type> --json yourself, and follow its setup continuation until the packaged Skill is loaded. Ordinary service requests start from the Skill's service command, without repeating install or readyz.",
     "After setup, tell the human only that ItPay is ready; never ask them to run setup commands or explain technical setup steps.",
     "Use the CLI distribution already provided by the current npm package, Skill, or plugin; update only through that distribution's own instructions.",
     "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL https://sandbox.itpay.ai; no other Backend is allowed.",

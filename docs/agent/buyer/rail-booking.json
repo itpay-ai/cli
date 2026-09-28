@@ -13,9 +13,9 @@
     "A query returned login_required or rate_limited."
   ],
   "service_selection": {
-    "itpay-rail-exact": "Use when the buyer knows BOTH the exact departure and arrival railway station names (e.g. 古镇 → 广州南). It is one station-pair + one travel_date query: filter the returned list locally for remembered train numbers or time windows — do NOT re-query per train. Do NOT use it with only a city or fuzzy location.",
+    "itpay-rail-exact": "Use when both exact railway station names are known, or when a few credible station-pair hypotheses can be checked with exact (e.g. 古镇 → 广州南). It is one station-pair + one travel_date query: filter the returned list locally for remembered train numbers or time windows — do NOT re-query per train. Do not silently treat a city name as its station.",
     "itpay-rail-smart": "Use when the buyer has a city name, an area, an address, or wants transfer planning and recommendations. The platform resolves locations to stations itself; never silently convert a city into its namesake station.",
-    "itpay-rail-booking": "Purchase service — use ONLY after the buyer explicitly chose a train and seat from a query result. Starts quote → protected checkout → payment → asynchronous issuance on one execution. Never queried for schedules.",
+    "itpay-rail-booking": "Purchase service — use after the buyer chooses a train/seat or delegates selection under clear rules. Starts draft/review → live quote → protected checkout → asynchronous issuance on one execution. Never queried for schedules.",
     "svc_qizhidao_company_lookup": "Not a railway service; do not mix intents."
   },
   "input_contract": {
@@ -62,7 +62,7 @@
         "passengers": "Integer 1-5: number of passengers, NOT passenger identity records.",
         "selection": {
           "token": "The booking_offer.selection_token carried on the chosen result item.",
-          "seat_type": "Seat code when the user picked a specific class, e.g. O."
+          "seat_type": "Use the seat_type code shown with seat_name in the returned booking_template.seat_choices (e.g. O = 二等座); never submit the display name as the code. Omit this optional field when the returned offer has no code; never guess."
         }
       },
       "explicit_legs": {
@@ -74,10 +74,10 @@
   },
   "selection_flow": [
     "Exact results carry per-train candidates; smart results carry journeys. Bookable options carry booking_offer with a server-signed selection_token.",
-    "The token binds the stored result snapshot and the chosen option. Submit it with passengers (and seat_type when the user picked a class); the server derives the authoritative legs and re-quotes live. Do NOT hand-build legs JSON from the visible result.",
-    "An expired or foreign token returns a clear error; recover by running a fresh query or by explicit legs — never by guessing token contents.",
+    "The token binds the stored result snapshot and the chosen option. Submit it with passengers (and the exact seat_type code from booking_template.seat_choices when the user picked a class); the server derives the authoritative legs and re-quotes live. Do NOT hand-build legs JSON from the visible result. If only the code spelling is corrected and the confirmed train, actual seat class, passenger count, price, and terms remain identical, reuse the buyer's explicit approval. Material draft changes or missing approval require confirmation.",
+    "A historical selection identifies the original choice; booking refreshes current fare and inventory. A foreign buyer is rejected. Never guess token contents or hand-build legs as recovery.",
     "Repeating the same selection restores the same booking execution instead of creating a second one.",
-    "v2 single-leg cards carry an opaque rsel_ selection_token bound to owner, execution, query revision, snapshot, journey/offer, policy and expiry; a stale or foreign token returns selection_stale — re-read the snapshot for a fresh offer instead of retrying.",
+    "v2 single-leg cards carry an opaque rsel_ selection_token bound to the buyer and saved journey/offer. The original selection can enter booking after its search window expires; live quote determines whether that exact train and seat remain purchasable.",
     "v2 separate_legs_only journeys never carry a whole-journey token: open the journey detail, pick one leg, and use that leg's owner-issued booking_offer; each leg is quoted and confirmed independently with no joint guarantee."
   ],
   "trial_and_login": {
@@ -88,8 +88,7 @@
     "purchase_after_trial": "Selecting a saved option and buying it does not consume search quota and works even when trial is exhausted."
   },
   "flow": [
-    "services start <service> --json returns input_required plus the guidance block for rail services.",
-    "Submit input with services run <service> --execution <id> --input-json <file> --json on the SAME execution.",
+    "For a known railway service, submit input directly with services run <service> --input-json <file> --json; keep the returned execution for follow-ups.",
     "itpay-rail-smart may stop at a location confirmation step; show the candidate places to the buyer, then continue the same execution after the human confirms.",
     "After the buyer explicitly picks a train/seat, run itpay-rail-booking with the selection token (preferred) or explicit legs. The execution then pauses at the booking review (workflow:confirm_booking): services next returns booking_review_required with human_action.context.review carrying draft_revision, legs, seat_options and notice_version.",
     "Whether or not the query was free, the answer is the same shape under compare: one preferred option, at most two meaningful alternatives, the key trade-offs — then stop and wait for the buyer. Do not stack more options or chain into purchase.",
@@ -122,7 +121,7 @@
     "revision": "While payment has not started, the same execution accepts a revised review: resubmit confirm_booking with the new draft_revision; the old unpaid quote/checkout is retired and re-quoted. After a payment attempt the review is closed — never create a replacement purchase."
   },
   "agent_rules": [
-    "Pick the service by the buyer's input precision: exact station names → itpay-rail-exact; anything fuzzier → itpay-rail-smart; explicit purchase intent after a selection → itpay-rail-booking.",
+    "Pick the service by the buyer's input precision: known stations or a few credible station-pair hypotheses → itpay-rail-exact; broader fuzzy locations → itpay-rail-smart; explicit purchase intent after a selection → itpay-rail-booking.",
     "Choose the goal first (see goals): compare presents one preferred option plus at most two meaningful alternatives then waits; prepare_checkout selects under the buyer's rules and continues to the official confirmation entry without re-asking.",
     "Never invent input field names. If the guidance block or this doc does not list a field, do not send it.",
     "Never ask the buyer for passenger names, ID numbers, or phone numbers in chat; those are collected only on the protected checkout page.",
@@ -200,6 +199,6 @@
       "A pending/login/error state is never new intent; withdrawal updates the goal but never rewrites a completed payment.",
       "Neither goal authorizes payment or skips confirmation: payment, terms and passenger identity stay behind their own gates."
     ],
-    "recipe": "For the query→booking→review→checkout continuity after a valid selection, load the rail-fast-checkout topic (itpay docs show rail-fast-checkout --json)."
+    "recipe": "The Skill first screen describes query→booking→review→checkout. Load rail-fast-checkout only when the current response leaves a stage detail unclear."
   }
 }

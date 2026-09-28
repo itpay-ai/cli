@@ -130,6 +130,22 @@ test("device identity lock lifecycle does not depend on sandbox delete operation
   assert.match(lockLifecycle, /renameSync/);
 });
 
+test("device repair-lock preserves live owners and recovers exited owners", () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-repair-lock-"));
+  const statePath = join(root, "identity.json");
+  const lockPath = `${statePath}.lock`;
+  const authority = new DeviceAuthority({
+    baseURL: "https://test.itpay.ai", compatibilityHeaders: {}, statePath,
+    privateKeyPath: join(root, "private.pem"),
+  });
+  writeFileSync(lockPath, `${process.pid}:live`);
+  assert.equal(authority.repairLock(), "active");
+  assert.equal(readFileSync(lockPath, "utf8"), `${process.pid}:live`);
+  writeFileSync(lockPath, "99999999:deadbeef");
+  assert.equal(authority.repairLock(), "recovered");
+  assert.equal(existsSync(lockPath), false);
+});
+
 test("device authority returns a stable error when its state path is not writable", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-unwritable-"));
   await assert.rejects(

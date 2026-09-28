@@ -8,7 +8,7 @@ import { runServicesRun } from "./commands/services.js";
 
 import { Command } from "commander";
 import { BackendOverrideError, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
-import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
+import { DeviceAuthority, DeviceAuthorizationError, DeviceLockBusyError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
 import { HttpError } from "./client/http.js";
@@ -183,6 +183,7 @@ function reportCLIError(
   const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
   const deviceError = error instanceof DeviceAuthorizationError ? error : undefined;
   const stateError = error instanceof DeviceStateError ? error : undefined;
+  const lockError = error instanceof DeviceLockBusyError ? error : undefined;
   const transportError = error instanceof HttpTransportError ? error : undefined;
   const httpRecovery = errorRecoveryActions(error).map((action) => ({
     command: action.command,
@@ -225,8 +226,14 @@ function reportCLIError(
     command: "itpay skill show itpay --json",
     reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
   }] : [];
+  const lockRecovery: CommandAction[] = lockError ? [{
+    command: "itpay device repair-lock --json",
+    reason: "检查锁持有者；只回收已退出进程留下的锁，不改变设备身份",
+  }] : [];
   const authorizationInstruction = stateError
     ? "当前运行环境无法写入 owner-only Device 状态；请保持同一 Node、CLI 和 Agent Type，在允许持久写入 ~/.itpay-v3 的执行环境中重试。不要手工创建 lock、删除 identity 或换运行时碰运气。"
+    : lockError
+    ? "另一个进程仍在更新本地身份。执行 recovery 检查；若持有者仍活跃，等待后继续原任务，不要删除锁或重建身份。"
     : error instanceof HttpError && error.code === "agent_device_session_required"
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
@@ -238,11 +245,11 @@ function reportCLIError(
           : deviceError
             ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
             : undefined;
-  if (contract || commandError || backendOverrideError) {
+  if (contract || commandError || backendOverrideError || lockError || stateError) {
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
+        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
       ...(requiredCLIVersion ? {
@@ -299,9 +306,9 @@ function reportCLIError(
           : []
         : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
           ? []
-          : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+          : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : lockError ? lockRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
-      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError ? { jsonOutput: process.argv.includes("--json") } : {}),
+      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError || lockError || stateError ? { jsonOutput: process.argv.includes("--json") } : {}),
       output: (text) => { process.stderr.write(text); },
     });
     process.exitCode = 1;
@@ -410,6 +417,30 @@ for (const action of ["login", "status"] as const) {
 // --- device ---------------------------------------------------------------
 
 const deviceCmd = program.command("device").description("Recover the current official Backend registration after an operator-confirmed reset");
+
+deviceCmd
+  .command("repair-lock")
+  .description("Safely inspect and recover a local Device identity lock left by an exited process")
+  .option("--json", "output JSON instead of terminal text")
+  .action((options) => {
+    try {
+      const config = loadConfig();
+      const status = new DeviceAuthority({
+        baseURL: config.baseURL,
+        ...(config.agentType ? { requestedAgentType: config.agentType } : {}),
+        compatibilityHeaders: {},
+      }).repairLock();
+      writeCommandEnvelope({
+        status: status === "recovered" ? "device_lock_recovered" : status === "active" ? "device_lock_active" : "device_lock_absent",
+        result: { lock_status: status, device_identity_preserved: true },
+        instruction: status === "active" ? "本地身份正由存活进程更新；稍后继续原任务。" : "本地锁无需进一步处理；继续原任务。",
+        next: null,
+        recovery: [],
+      }, { jsonOutput: Boolean(options.json), plainResult: [`lock: ${status}`, "device_identity: preserved"] });
+    } catch (error) {
+      reportCLIError(error, { jsonOutput: Boolean(options.json), code: "device_lock_repair_failed", instruction: "本地锁无法安全检查；保留设备身份并联系维护者。" });
+    }
+  });
 
 deviceCmd
   .command("recover")

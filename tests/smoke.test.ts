@@ -666,7 +666,7 @@ test("services page reads the saved result version without a provider call", asy
 	assert.equal(envelope.result.total, 12);
 	assert.equal(envelope.result.count, 5);
 	assert.equal(envelope.result.next_offset, 10);
-	assert.equal(envelope.next?.command, "itpay services page se_rail_paged sri_rail_paged --offset 10 --json");
+	assert.equal(envelope.next?.command, "itpay services page se_rail_paged sri_rail_paged --offset 10 --limit 5 --json");
 	assert.equal(envelope.recovery[0]?.command, "itpay services page se_rail_paged sri_rail_paged --json");
 	const container = envelope.result.page.result as Record<string, unknown>;
 	const candidates = container.candidates as Array<Record<string, unknown>>;
@@ -729,10 +729,7 @@ test("rail progressive planning keeps polling the same execution while expanding
 	assert.match(envelope.instruction, /不要重新发起查询/);
 });
 
-test("services run returns the rail planning envelope as soon as the projection commits", async () => {
-  // §7.2: run must not hide progressive stages behind the 120s workflow poll —
-  // once rail_planning exists the same railPlanningEnvelope comes back while
-  // the owner keeps advancing in the background.
+test("services run waits for a usable rail planning result", async () => {
   const base = await backend.getServiceExecution("se_rail_plan_running");
   let gets = 0;
   const withPlan: ServiceExecutionReadModel = {
@@ -750,15 +747,21 @@ test("services run returns the rail planning envelope as soon as the projection 
         poll_after_ms: 1500,
         counts: { pairs_checked: 16, pairs_total: 16, journeys_total: 0, journeys_direct: 0, journeys_one_transfer: 0, journeys_multi_transfer: 0 },
       },
+      available_actions: [
+        { type: "read_updates", command: "itpay services next se_rail_plan_running --json", provider_effect: "none" },
+        { type: "stop_search", command: "itpay services action se_rail_plan_running --action workflow:stop_search --json", provider_effect: "none" },
+      ],
     },
   };
   const withoutPlan: ServiceExecutionReadModel = { ...withPlan };
   delete withoutPlan.rail_planning;
+  const withResult: ServiceExecutionReadModel = { ...base, workflow_entry: { capability_id: "itpay_rail_smart", input_schema: { type: "object" } }, workflow: { status: "running", current_step: "catalog", revision: 1, steps: {} } };
   let model = withoutPlan;
   const client = Object.create(backend) as BackendClient;
   client.getServiceExecution = async () => {
     gets++;
     if (gets === 2) model = withPlan;
+    if (gets === 3) model = withResult;
     return model;
   };
   client.advanceServiceExecution = async () => model;
@@ -772,19 +775,16 @@ test("services run returns the rail planning envelope as soon as the projection 
   });
   const envelope = JSON.parse(stdoutCapture.join("")) as {
     status: string;
-    result: { rail_planning: { expansion_status: string; phase?: string; counts?: { pairs_checked: number } } };
+    result: { rail_planning: { expansion_status: string; phase?: string; counts?: { pairs_checked: number } }; journeys?: unknown[] };
     next: { command: string };
     instruction: string;
   };
   assert.equal(envelope.status, "planning");
+  assert.equal(gets, 4);
   assert.equal(envelope.result.rail_planning.expansion_status, "running");
-  assert.equal(envelope.result.rail_planning.phase, "transfer");
-  assert.equal(envelope.result.rail_planning.counts?.pairs_checked, 16);
-  assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --json");
-  assert.match(envelope.instruction, /中转/);
-  // The projection committed on the second read — run must not keep polling
-  // for a terminal workflow status.
-  assert.equal(gets <= 3, true, `expected early return, polled ${gets} times`);
+  assert.ok(envelope.result.journeys?.length);
+  assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --since-snapshot rsnap_1 --json");
+  assert.match(envelope.instruction, /查询|规划/);
 });
 
 test("rail progressive paused planning waits for user intent without new supplier calls", async () => {
@@ -904,8 +904,8 @@ test("rail progressive failed planning is terminal and never auto-retries", asyn
 	};
 	assert.equal(envelope.status, "failed");
 	assert.equal(envelope.next, null);
-	assert.equal(envelope.recovery[0]?.command, "itpay services events se_rail_plan_failed --json");
-	assert.match(envelope.instruction, /不要自动重新发起/);
+	assert.equal(envelope.recovery[0]?.command, "itpay services read-result se_rail_plan_failed --snapshot rsnap_1 --json");
+	assert.match(envelope.instruction, /已有结果/);
 });
 
 test("rail progressive snapshot page returns journeys with an opaque cursor", async () => {
@@ -920,7 +920,7 @@ test("rail progressive snapshot page returns journeys with an opaque cursor", as
 	assert.equal(envelope.result.service_capability_result_item_id, undefined);
 	assert.equal(envelope.result.total, 8);
 	assert.equal(envelope.result.count, 5);
-	assert.equal(envelope.next.command, "itpay services page se_rail_plan_page rsnap_1 --cursor rcur_5 --json");
+	assert.equal(envelope.next.command, "itpay services page se_rail_plan_page rsnap_1 --cursor rcur_5 --limit 5 --json");
 });
 
 test("rail progressive journey detail reads committed evidence without the vault path", async () => {
@@ -964,14 +964,14 @@ test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", a
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
 		result: { snapshot_id: string; catalog: { encoding: string; journeys: unknown[] } };
-		next: { command: string };
+		next: null;
 	};
 	assert.equal(envelope.status, "ready");
 	// The packed document passes through verbatim — the full catalog is the
 	// lossless payload; decoding is only for the human summary/selectors.
 	assert.equal(envelope.result.catalog.encoding, "shared_rows.v1");
 	assert.equal(envelope.result.catalog.journeys.length, 2);
-	assert.match(envelope.next.command, /--journey jny_pack_a/);
+	assert.equal(envelope.next, null);
 });
 
 test("rail read-result --snapshot plain output marks default layers and regenerates packed routes", async () => {
@@ -1383,13 +1383,13 @@ test("services get returns a bounded public timeline", async () => {
     next: { command: string };
     recovery: Array<{ command: string }>;
   };
-  assert.equal(envelope.status, "shown");
+  assert.equal(envelope.status, "running");
   assert.equal(envelope.result.timeline.length, 20);
   assert.equal(envelope.result.timeline[0]?.sequence, 6);
   assert.equal(envelope.result.timeline.at(-1)?.step, "delivery.issued");
   assert.equal(envelope.result.timeline_truncated, true);
   assert.match(envelope.next.command, /services invoke se_timeline/);
-  assert.equal(envelope.recovery[0]?.command, "itpay services events se_timeline --json");
+  assert.equal(envelope.recovery[0]?.command, "itpay services get se_timeline --json");
   assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|capabilities/);
 });
 
@@ -3773,6 +3773,35 @@ test("services action accepts --input-json with nested review payload", async ()
   assert.equal(result.stderr, "");
 });
 
+test("planning action returns the original execution and a usable continuation", async () => {
+  const model = await backend.getServiceExecution("se_rail_plan_running");
+  const client = Object.create(backend) as BackendClient;
+  client.recordServiceExecutionAction = async () => ({
+    action_id: "rpa_1", plan_id: "rplan_1", action_type: "workflow:expand_search",
+    state: "accepted", replayed: false, plan_status: "running",
+  });
+  client.getServiceExecution = async () => model;
+  await runServicesAction(client, "se_rail_plan_running", "workflow:expand_search", {}, { jsonOutput: true, output: stdoutSink });
+  const response = JSON.parse(stdoutCapture.join(""));
+  assert.equal(response.result.service_execution_id, "se_rail_plan_running");
+  assert.equal(response.result.planning_action.state, "accepted");
+  assert.notEqual(response.next?.command, undefined);
+  assert.doesNotMatch(stdoutCapture.join(""), /undefined/);
+});
+
+test("booking review invalid seat label recovers the same execution", async () => {
+  const client = Object.create(backend) as BackendClient;
+  client.recordServiceExecutionAction = async () => {
+    throw new HttpError(400, { code: "booking_review_invalid", message: "booking review values must match offered codes" }, "HTTP 400");
+  };
+  await assert.rejects(
+    runServicesAction(client, "se_booking", "workflow:confirm_booking", { seat_type: "二等座" }),
+    (error: unknown) => error instanceof CommandContractError && error.code === "booking_review_invalid" &&
+      error.recovery[0]?.command === "itpay services next se_booking --json" &&
+      error.instruction.includes("可沿用用户已有明确确认") && error.instruction.includes("草稿实质变化"),
+  );
+});
+
 test("services action rejects --input combined with --input-json", async () => {
   await runServicesInvoke(backend, config, "se_action_merge", "fuzzy_disambiguation", { keyword: "小米" }, { output: silent });
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-action-merge-"));
@@ -5489,10 +5518,9 @@ test("failed rail workflow reports the failed step, its meaning, and retry guida
   assert.equal(result.result.failed_step_meaning,"位置解析");
   assert.equal(result.result.retryable,true);
   assert.equal(result.result.provider_error_code,"invalid_location");
-  assert.equal(result.result.error_detail,"无法解析目的地：广州南南站");
+  assert.equal(result.result.diagnostic_code,"invalid_location");
   assert.match(result.instruction,/位置解析/);
-  assert.match(result.instruction,/供应商返回：无法解析目的地：广州南南站/);
-  assert.match(result.instruction,/新建执行/);
+  assert.doesNotMatch(result.instruction,/广州南南站/);
   assert.equal(result.next,null);
   assert.equal(result.recovery[0].command,"itpay services start itpay-rail-smart --json");
   assert.equal(result.recovery[1].command,"itpay docs show rail-booking --json");

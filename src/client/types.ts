@@ -550,6 +550,15 @@ export interface ServiceExecutionAction {
   required_before?: string;
 }
 
+export interface RailPlanningActionResponse {
+  action_id: string;
+  plan_id: string;
+  action_type: string;
+  state: string;
+  replayed: boolean;
+  plan_status: string;
+}
+
 export interface CreateServiceExecutionCheckoutRequest {
   capability_id?: string;
   delivery_contact?: Record<string, unknown>;

@@ -21,7 +21,7 @@
     {
       "step": "start_booking",
       "command": "itpay services run itpay-rail-booking --input-json /tmp/itpay-booking-input.json --json",
-      "then": "itpay services next <execution_id> --json",
+      "then": "Use the booking run response directly; call its next only if it is still waiting for progress.",
       "expected_status": "booking_review_required"
     },
     {
@@ -33,13 +33,14 @@
       "notes": [
         "draft_revision must equal the current server value; booking_review_changed means re-read services next and resubmit, never bump locally.",
         "accept_non_guaranteed is true only when the buyer actually agreed; never fabricate a human approval.",
+        "On booking_review_invalid, re-read this booking. A seat-code spelling correction may reuse the buyer's explicit approval only if train, actual seat class, passenger count, price, and terms are unchanged; confirm material changes or missing approval.",
         "Passenger names, ID numbers and phones are NOT in this input — they belong to the protected checkout page."
       ]
     },
     {
       "step": "checkout_handoff",
-      "read": "services next returns checkout_required/payment_pending with handoff.url (the protected checkout page).",
-      "command": "itpay checkout --id <checkout_id> --token <display_token> --present auto --json",
+      "read": "The current booking response may already contain handoff.url (the protected checkout page).",
+      "command": "Only if the current handoff was not presented, use the exact checkout command returned by the CLI.",
       "notes": [
         "Show or open the checkout exactly once; pass --viewer mobile when the buyer is on a phone.",
         "The buyer completes identity and payment on that page (Path B — no forced separate login). Payment handoff is not payment success; wallet return is not confirmation."

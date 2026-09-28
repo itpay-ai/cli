@@ -13,12 +13,62 @@ Use the `itpay` CLI as the only ItPay control surface. Infer the human's goal,
 choose one first command, then follow each returned envelope. Run technology
 for the human; never ask them to run commands or learn internal concepts.
 
+## The Whole Trip
+
+ItPay finds services, runs them and delivers results. A known railway request
+starts with the railway commands below; use catalog only to discover an unknown
+service. Existing purchases resume from their original execution or order.
+Seller work uses `itpay sell`.
+
+Railway: understand date, places, time limits, passengers and purchase intent →
+query one station pair with exact, or plan uncertain places/routes with smart →
+select a matching offer → create booking draft → obtain genuine human review
+when required → refresh quote and hand over the official page → human pays →
+check issuance. A comparison stops at the query result. A delegated purchase
+continues until a required human step or the official handoff. Login and review
+are pause points; a draft, payment entry, paid order and issued ticket are
+different states.
+
+| Stage | Command shape | What comes back |
+| --- | --- | --- |
+| Query | `itpay services run itpay-rail-exact --input-json <query-file> --json` or `itpay-rail-smart` | Query execution, effective request, recommendation, saved snapshot and bookable selection |
+| Follow-up | `itpay services read-result <query-execution> --snapshot <snapshot> --json` | Full saved catalog; filter it for the new question before making another supplier query |
+| Booking | `itpay services run itpay-rail-booking --input-json <booking-file> --json` | Separate booking execution, draft and current review requirement |
+| Human review, if requested | `itpay services action <booking-execution> --action workflow:confirm_booking --actor-type human --status approved --input-json <review-file> --json` | Recorded confirmation and actual next step; approve only after real human consent, using the returned template |
+| Continue, if requested | `itpay services run itpay-rail-booking --execution <booking-execution> --json` | Fresh quote and official page, or the next required action |
+| After human payment | `itpay services next <booking-execution> --json` | Payment and issuance facts; report issuance only when confirmed |
+
+Create the JSON files yourself. Exact query needs `origin`, `destination`,
+`travel_date`; filter time limits against returned rows. Smart accepts those
+fields plus actual constraints such as `arrive_before`, `priority`, and
+`passengers`. Booking input uses the returned `selection.token`, selected
+`seat_type`, and passenger count; never assemble legs from prose. Copy the
+complete review template and revision from the current booking response.
+For `booking_review_invalid`, re-read that same booking. If only a seat code
+was written incorrectly and the confirmed train, actual seat class, passenger
+count, price, and terms are unchanged, reuse the buyer's explicit approval.
+Ask for confirmation if the draft materially changed or approval is missing.
+Keep the query execution/snapshot for follow-ups, selection for booking, and
+booking execution/order for review and payment. Do not substitute one ID for
+another. `result` is the current fact, `instruction` its meaning, `next` the
+current continuation, `handoff` the human entry, and `recovery` an exceptional
+path. `next: null` can mean comparison complete or a human/template pause.
+
+One exact comparison normally takes one query run. Chat review of a typical
+booking targets query run, booking run, review action, and sometimes one
+booking continuation before the official page; extra detail reads, login and
+location ambiguity add calls. This is a guide, never a reason to skip consent.
+You may test a few credible station-pair hypotheses with exact, reuse saved
+results, continue under an existing delegation, and combine missing facts in
+one question. Do not change date, relax a hard constraint, expand paid search
+or pay without authorization.
+
 ## Route The Human's Intent
 
 | Human intent | First action |
 | --- | --- |
 | Create, sell or publish a service | `itpay sell guide --json`, then `itpay sell status --json` |
-| Discover services or make a new query | `itpay catalog list --json` |
+| Discover an unknown service | `itpay catalog list --json` |
 | View previously purchased content | `itpay vault list --json` |
 | Find a previous result by subject | `itpay vault list --query <subject> --json` |
 | Inspect purchase history | `itpay orders --json` |
@@ -38,7 +88,7 @@ Three services, three different jobs — pick by the human's input, never merge 
 | Human has | Service |
 | --- | --- |
 | Exact departure AND arrival station names | `itpay-rail-exact` (direct query) |
-| City/area/address, or wants transfer planning | `itpay-rail-smart` (location resolution + planning) |
+| Station pair or route is uncertain after a few credible hypotheses, or needs broad transfer planning | `itpay-rail-smart` (location resolution + planning) |
 | Chose a train/seat and wants to buy | `itpay-rail-booking` (quote → protected checkout → issuance) |
 
 ### Choose The Goal First
@@ -74,11 +124,8 @@ supports route hypotheses only, never same-day schedule/price/inventory facts.
 A saved snapshot's pages, journey detail and rerank are free reads; a new live
 observation needs the owner's authorization.
 
-After a valid selection under `prepare_checkout`, the short
-`rail-fast-checkout` recipe covers query→booking→review→checkout continuity:
-`itpay docs show rail-fast-checkout --json`. It reuses existing
-`services run`/`action`/`checkout` — no fast-buy command, no payment bypass,
-no fabricated human approval.
+Read the `rail-fast-checkout` topic only for a stage detail the current return
+does not explain. Continue from the original execution and current return.
 
 Query results carry a server-issued `booking_offer.selection_token` on bookable
 options; for a purchase submit that token plus passenger count — never
@@ -89,6 +136,11 @@ has its own free trial count
 failure — resume the same execution after `itpay auth login`. For the full
 input contract and states, load the rail-booking topic via
 `itpay docs search rail-booking --json`.
+
+At checkout, an official login page can be the normal entry to traveler
+confirmation and then payment. Tell the human what the page currently asks
+them to do; do not call a draft a reserved ticket or a payment link a paid
+order. A seat preference may be requested but is not a seat guarantee.
 
 ## Follow One Envelope
 
