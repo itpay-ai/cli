@@ -1,14 +1,14 @@
 // shared_rows.v1 catalog decode for the rail planning full-catalog read.
 // The committed rail.catalog.v3 may ship positional rows (journeys, plans,
 // profiles keyed by journey_columns plus shared ride_table / *_index tables)
-// instead of per-journey objects. The summary path needs only ref + route
-// text + default layer; the full packed document is passed through verbatim
-// for JSON output — decoding is for the human-readable summary and selectors.
+// instead of per-journey objects. Decode a compact row for both JSON and
+// human-readable output while the full evidence remains available by journey.
 
 export interface RailCatalogJourneySummary {
   ref: string;
   route: string;
   defaultLayer: "main" | "backup";
+  rides?: Record<string, unknown>[];
 }
 
 export class RailCatalogEncodingError extends Error {
@@ -111,6 +111,7 @@ export function decodeRailCatalogJourneys(
           ref,
           route: asString(rec["route"]) ?? asString(rec["route_text"]) ?? asString(rec["summary"]) ?? "",
           defaultLayer: layerOf(ref),
+          rides: Array.isArray(rec["rides"]) ? rec["rides"] as Record<string, unknown>[] : [],
         };
       }),
     };
@@ -125,6 +126,7 @@ export function decodeRailCatalogJourneys(
   const rideTable = (Array.isArray(catalog["ride_table"]) ? catalog["ride_table"] : []) as Row[];
   const stations = (catalog["stations"] ?? {}) as Record<string, unknown>;
   const services = (catalog["services"] ?? {}) as Record<string, unknown>;
+  const seatNames = (catalog["seat_names"] ?? {}) as Record<string, unknown>;
   const journeys = (Array.isArray(catalog["journeys"]) ? catalog["journeys"] : []) as Row[];
   return {
     packed: true,
@@ -134,7 +136,22 @@ export function decodeRailCatalogJourneys(
       const route =
         asString(row[1]) ??
         (Array.isArray(row[2]) ? regenerateRoute(row[2] as Row[], rideTable, stations, services) : "");
-      return { ref, route, defaultLayer: layerOf(ref) };
+      const rides = (Array.isArray(row[2]) ? row[2] as Row[] : []).map((pair) => {
+        const ride = rideTable[asIndex(pair[0], rideTable.length)] as Row;
+        const serviceRef = Array.isArray(ride[4]) ? ride[4][0] : undefined;
+        const service = (services[asString(serviceRef) ?? ""] ?? {}) as Record<string, unknown>;
+        const offers = Array.isArray(service.of) ? service.of as Row[] : [];
+        return {
+          train_code: service.tc,
+          from_station: stations[asString(ride[2]) ?? ""] ?? ride[2],
+          to_station: stations[asString(ride[3]) ?? ""] ?? ride[3],
+          boarding_date: ride[0], departure: service.dep, arrival: service.arr,
+          wait_minutes: pair[1],
+          seats: offers.map((offer) => ({ seat_type: offer[1], seat_name: seatNames[asString(offer[1]) ?? ""] ?? offer[1],
+            inventory_status: offer[2], quantity: offer[3], unit_price_fen: offer[4] })),
+        };
+      });
+      return { ref, route, defaultLayer: layerOf(ref), rides };
     }),
   };
 }

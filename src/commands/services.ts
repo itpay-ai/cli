@@ -79,7 +79,7 @@ interface RailServiceGuidance {
 
 const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
   "itpay-rail-exact": {
-    when_to_use: "出发和到达都是明确的火车站名时使用本服务（直达查询，最快）。只有城市、模糊位置或想要方案推荐时改用 itpay-rail-smart。",
+    when_to_use: "已知可信站对时先用本服务核验直达；城市需求可先形成有依据的站对假设。只覆盖这一站对，不代表全城市最优。完整流程：itpay docs show rail-booking --json。",
     input_fields: [
       { name: "origin", required: true, description: "出发火车站名（如'古镇'），不能是城市或地址", example: "古镇" },
       { name: "destination", required: true, description: "到达火车站名（如'广州南'）", example: "广州南" },
@@ -88,11 +88,11 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
     input_example: { origin: "古镇", destination: "广州南", travel_date: "2026-09-19" },
     notes: [
       "本服务只接受这三个字段，多传字段会被供应商拒绝",
-      "站名不确定就改用 itpay-rail-smart 先解析位置，不要在两个服务之间反复试错",
+      "查询为空只说明这一已解析站对；如原意仍需更多覆盖，可验证另一可信站对或使用 Smart",
     ],
   },
   "itpay-rail-smart": {
-    when_to_use: "只有城市名、模糊位置或需要中转规划与方案推荐时使用本服务；平台负责把位置解析到车站。",
+    when_to_use: "需要广泛站点比较、中转或具体地址接驳时使用；有可信站对且只需先核验直达可用 Exact。完整流程：itpay docs show rail-booking --json。",
     input_fields: [
       { name: "origin", required: true, description: "出发地：已知最完整的位置名或区域（城市/区县/地址均可）", example: "中山古镇" },
       { name: "destination", required: true, description: "目的地：与 origin 同样的位置规则", example: "广州南" },
@@ -107,8 +107,9 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
       { name: "arrive_before", description: "不晚于该时间到达" },
       { name: "priority", enum: "balanced|fastest|cheapest|safest|flexible", description: "方案偏好" },
       { name: "max_transfers", description: "允许中转次数，0-2" },
+      { name: "passengers", description: "成人乘客整数 1-5；不填写身份资料" },
     ],
-    input_example: { origin: "中山古镇", destination: "广州南", travel_date: "2026-09-19", priority: "fastest" },
+    input_example: { origin: "上海", destination: "长沙", travel_date: "2026-10-06", arrive_before: "15:00", priority: "fastest", passengers: 1 },
     notes: [
       "位置有歧义时会进入位置确认步骤，请用户选定后继续同一执行",
       "推荐结果含每趟车的席别与余票；购票在后续受保护流程完成",
@@ -892,6 +893,21 @@ export async function runServicesCheckout(
     config.baseURL,
     checkout.card_png_url ?? checkout.qr_png_url ?? fallbackCardPNGURL(config.baseURL, checkoutID, displayToken),
   ), locale);
+  let itineraryTitle: string | undefined;
+  const booking = await backend.getServiceExecution(serviceExecutionID);
+  if (booking.execution.service_id === "itpay-rail-booking") {
+    const leg = booking.rail_booking?.legs?.[0];
+    const review = booking.workflow?.human_action?.context?.review as Record<string, unknown> | undefined;
+    const reviewLeg = Array.isArray(review?.legs) ? review.legs[0] as Record<string, unknown> | undefined : undefined;
+    const facts = leg ?? reviewLeg;
+    if (facts) {
+      itineraryTitle = [facts.travel_date, facts.train_code,
+        facts.from ?? (facts as Record<string, unknown>).from_station,
+        "→", facts.to ?? (facts as Record<string, unknown>).to_station,
+        facts.seat_name ?? (facts as Record<string, unknown>).seat_type_name]
+        .filter((value) => typeof value === "string" && value.length > 0).join(" ");
+    }
+  }
   const plan = buildCheckoutQRPlan({
     host,
     checkoutID,
@@ -902,7 +918,7 @@ export async function runServicesCheckout(
     qrPNGURL: cardPNGURL,
     nextAction: checkout.checkout.next_action,
     orderItems: response.cart.items.map((item) => ({
-      title: item.title,
+      title: itineraryTitle || item.title,
       quantity: item.quantity,
       amountMinor: item.amount_minor,
       currency: item.currency,
@@ -1066,7 +1082,10 @@ export async function runServicesGet(
     status: nextState.status,
     result,
     instruction: nextState.instruction,
-    next: nextState.next ? { command: nextState.next.command, reason: "继续当前首选动作" } : null,
+    next: nextState.next,
+    ...(nextState.interaction ? { interaction: nextState.interaction } : {}),
+    ...(nextState.communication ? { communication: nextState.communication } : {}),
+    ...(nextState.handoff ? { handoff: nextState.handoff } : {}),
     recovery: nextState.recovery,
   };
   writeCommandEnvelope(envelope, {
@@ -1082,13 +1101,35 @@ export async function runServicesGet(
   });
 }
 
+function shouldWaitForServiceResult(model: ServiceExecutionReadModel): boolean {
+  if (model.current_delivery || model.rail_booking || isTerminalServiceExecutionStatus(model.execution.status)) return false;
+  if (model.rail_planning) {
+    const plan = model.rail_planning;
+    return !plan.recommendation && !(plan.alternatives?.length) &&
+      !["complete", "paused", "failed", "cancelled", "expired"].includes(plan.search?.expansion_status ?? "") &&
+      !plan.available_actions?.some((action) => ["select_journey", "confirm_location", "expand_search"].includes(action.type));
+  }
+  return ["queued", "running", "delivery"].includes(model.workflow?.status ?? "");
+}
+
 export async function runServicesNext(
   backend: BackendClient,
   serviceExecutionID: string,
-  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string } = {},
+  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void> } = {},
 ): Promise<void> {
-  const response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
+  const started = Date.now();
+  const until = started + (options.timeoutSeconds ?? 0) * 1000;
+  const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
+  let response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
+  while (shouldWaitForServiceResult(response) && Date.now() < until) {
+    await sleep(options.pollIntervalMS ?? Math.max(1500, response.rail_planning?.search?.poll_after_ms ?? 0));
+    response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
+  }
   const envelope = servicesNextEnvelope(response);
+  if (shouldWaitForServiceResult(response) && options.timeoutSeconds) {
+    envelope.result = { ...envelope.result, waited_seconds: Math.round((Date.now() - started) / 1000), wait_timed_out: true };
+    envelope.next = { command: `itpay services next ${serviceExecutionID} --timeout 120 --json`, reason: "稍后继续等待同一任务；不重新提交查询" };
+  }
   journalTaskState(serviceExecutionID, envelope, options.env ?? process.env);
   if (response.rail_booking) envelope.result = { ...envelope.result, rail_booking: response.rail_booking };
   writeCommandEnvelope(envelope, {
@@ -1218,13 +1259,50 @@ export async function runServicesReadResult(
   serviceExecutionID: string,
   options: ServicesCommandOptions & { jsonOutput?: boolean; snapshot?: string; journey?: string } = {},
 ): Promise<void> {
+  if (!options.snapshot && !options.journey) {
+    const model = await backend.getServiceExecution(serviceExecutionID);
+    if (model.execution.service_id === "itpay-rail-exact") {
+      const item = (model.current_result_items?.length ? model.current_result_items : model.result_items)?.[0];
+      if (!item) {
+        await runServicesNext(backend, serviceExecutionID, options);
+        return;
+      }
+      const rows: Record<string, unknown>[] = [];
+      let offset = 0;
+      let total = 0;
+      let resolvedStationPair: unknown;
+      let nextOffset: number | null = 0;
+      while (nextOffset !== null && rows.length < 100) {
+        const response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, item.service_capability_result_item_id, offset, 20);
+        const container = (response.page.result ?? response.page) as Record<string, unknown>;
+        const candidates = Array.isArray(container.candidates) ? container.candidates : [];
+        resolvedStationPair ??= container.resolved_station_pair;
+        rows.push(...candidates.map((value) => compactExactTrain(value as Record<string, unknown>)));
+        const page = (container.catalog_page ?? {}) as { next_offset?: number | null };
+        total = typeof container.catalog_total === "number" ? container.catalog_total : Math.max(total, rows.length);
+        nextOffset = typeof page.next_offset === "number" && page.next_offset > offset ? page.next_offset : null;
+        offset = nextOffset ?? offset;
+      }
+      writeCommandEnvelope({
+        status: "ready",
+        result: { service_execution_id: serviceExecutionID, scope: "station_pair", resolved_station_pair: resolvedStationPair,
+          total, read_count: rows.length,
+          trains: rows, ...(nextOffset !== null ? { next_offset: nextOffset } : {}) },
+        instruction: "这是同一已保存站对的车次行。按用户时限、席别和人数筛选；零条仅代表这一站对。购票时读取选中项的当前详情和服务端选择凭据。",
+        next: nextOffset !== null ? { command: `itpay services page ${serviceExecutionID} ${item.service_capability_result_item_id} --offset ${nextOffset} --limit 20 --json`, reason: "继续读取同一结果的剩余车次" } : null,
+        recovery: [],
+      }, { ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+        ...(options.output ? { output: options.output } : {}),
+        plainResult: rows.map((row) => `${row.train_code} ${row.from_station} ${row.departure} → ${row.to_station} ${row.arrival}`) });
+      return;
+    }
+  }
   // rail.progressive.v2 planning read: --journey/--snapshot select committed
   // planning evidence — a free owner-validated read that never touches the
   // grant/Vault path. Without the selectors the authorized-delivery flow is
   // unchanged.
-  // rail.planning full catalog read: --snapshot alone returns the complete
-  // committed rail.catalog.v3 — shared dictionaries and field_legend are
-  // preserved verbatim; one catalog, never split into candidates+journeys.
+  // rail.planning catalog read: --snapshot returns compact rows for the
+  // committed rail.catalog.v3; journey detail remains available separately.
   if (options.snapshot && !options.journey) {
     const committed = await backend.getRailPlanningCatalog(serviceExecutionID, options.snapshot);
     const catalog = committed.catalog;
@@ -1244,9 +1322,12 @@ export async function runServicesReadResult(
         plan_id: committed.plan_id,
         snapshot_id: committed.snapshot_id,
         query_revision: committed.query_revision,
-        catalog,
+        coverage: catalog?.coverage,
+        calculation_scope: catalog?.request_summary,
+        total: journeyCount,
+        journeys,
       },
-      instruction: "catalog 是本次查询的完整已保存目录。按用户问题筛选全部journeys并一次回答；只有需要单程细节时才读取journey。价格和余票供比较，购买前须实时报价。",
+      instruction: "这是同一已保存快照的完整紧凑车次目录。按用户问题筛选全部journeys并一次回答；需要单程购票详情时按 journey 引用读取。价格和余票供比较，购买前须实时报价。",
       next: null,
       recovery: [],
     }, {
@@ -1256,7 +1337,7 @@ export async function runServicesReadResult(
         ? [
             `${journeyCount} combinations:`,
             ...journeys.map((j) =>
-              `${j.defaultLayer === "backup" ? "[备选] " : "[主选择] "}${j.ref}  ${j.route}`,
+              `${j.defaultLayer === "backup" ? "[备选] " : "[主选择] "}${j.ref}  ${j.route}  ${j.rides?.map((r) => `${r.train_code} ${r.departure}–${r.arrival}`).join(" / ") ?? ""}`,
             ),
           ]
         : [`catalog: ${committed.snapshot_id} (no combinations)`],
@@ -1300,6 +1381,24 @@ export async function runServicesReadResult(
     ...(options.output ? { output: options.output } : {}),
     plainResult: servicesNextPlainResult(envelope.result),
   });
+}
+
+function compactExactTrain(candidate: Record<string, unknown>): Record<string, unknown> {
+  const seats = Array.isArray(candidate.seats) ? candidate.seats as Record<string, unknown>[] : [];
+  return {
+    candidate_id: candidate.candidate_id,
+    train_code: candidate.train_code,
+    from_station: candidate.from_station,
+    from_station_code: candidate.from_station_code,
+    to_station: candidate.to_station,
+    to_station_code: candidate.to_station_code,
+    travel_date: candidate.travel_date,
+    departure: candidate.departure,
+    arrival: candidate.arrival,
+    seats: seats.map((seat) => ({ seat_type: seat.seat_type, seat_name: seat.seat_name,
+      availability_text: seat.availability_text, remaining: seat.remaining,
+      fare_minor: seat.fare_minor, quoted_total_minor: seat.quoted_total_minor })),
+  };
 }
 
 function railLegSeatSummary(seat: { passenger_index: number; seat_type_name?: string; seat_label?: string; coach_no?: string; seat_no?: string; confirmed: boolean }) {
@@ -1385,12 +1484,18 @@ function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string): 
   const first = rides[0] as Record<string, unknown> | undefined;
   const last = rides.at(-1) as Record<string, unknown> | undefined;
   const offer = card.representative_offer;
+  const metrics = card.representative_metrics;
   return {
     journey_id: card.journey_id,
     route: (card.route_names?.length ? card.route_names : card.route ?? []).join("→"),
     ...(trains.length ? { trains } : {}),
     ...(first?.departure || last?.arrival ? { time: `${first?.departure ?? ""}–${last?.arrival ?? ""}` } : {}),
     ...(offer ? { price: formatMoney(offer.rail_payable_minor, offer.currency) } : { price: "unknown" }),
+    ...(metrics ? { calculation_scope: {
+      origin: metrics.origin_scope ?? "legacy_unknown", destination: metrics.destination_scope ?? "legacy_unknown",
+      duration_basis: metrics.duration_basis ?? "legacy_unknown", arrival_basis: metrics.arrival_basis ?? "legacy_unknown",
+      duration_minutes: metrics.door_to_door_min ?? null,
+    } } : {}),
     ...(card.decision_role ? { decision_role: card.decision_role } : {}),
     ...(card.explanation?.length ? { explanation: card.explanation } : {}),
     ...(card.reason_codes?.length ? { reason_codes: card.reason_codes } : {}),
@@ -1491,8 +1596,8 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     ...(plan.available_actions?.length ? { available_actions: plan.available_actions } : {}),
   };
   const nextPoll: CommandAction = {
-    command: `itpay services next ${se}${plan.snapshot_id ? ` --since-snapshot ${plan.snapshot_id}` : ""} --json`,
-    reason: "读取同一规划的增量进展（不触发供应商调用）",
+    command: `itpay services next ${se} --timeout 120${plan.snapshot_id ? ` --since-snapshot ${plan.snapshot_id}` : ""} --json`,
+    reason: "仍需更多结果时有界等待同一规划（不触发供应商调用）",
   };
   // Two-goal interaction contract (spec 03 §2): the local Agent picks compare
   // or prepare_checkout from full context — the envelope teaches both branches
@@ -2470,12 +2575,7 @@ export async function runServicesRun(
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     // A planning projection can exist before any usable result or user action.
     // Keep the existing bounded wait until there is something to hand over.
-    const planningDeliverable = () => Boolean(model.rail_planning && (
-      model.rail_planning.recommendation || model.rail_planning.alternatives?.length ||
-      ["complete", "paused", "failed", "cancelled", "expired"].includes(model.rail_planning.search?.expansion_status ?? "") ||
-      model.rail_planning.available_actions?.some((action) => ["select_journey", "expand_search"].includes(action.type))
-    ));
-    while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && !model.current_delivery && !planningDeliverable() && Date.now() < until) {
+    while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && shouldWaitForServiceResult(model) && Date.now() < until) {
       await sleep(options.pollIntervalMS ?? 1500);
       model = await backend.getServiceExecution(id);
     }

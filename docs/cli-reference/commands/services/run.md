@@ -4,7 +4,7 @@
 
 运行 Catalog 中已发布的通用 Buyer workflow。CLI 只提交服务声明要求的输入，并复用现有 Service Execution、Checkout、交付和退款命令；它不解释或执行 Seller 提供的任意命令文本。
 
-没有提供输入时，本命令创建一次 Execution，返回已发布的 JSON input schema，并要求 Agent 继续同一 Execution。已有 Execution 必须通过 `--execution` 恢复，不能创建替代 Execution。
+没有提供输入且未指定现有 execution 时，本命令创建一次 Execution，返回已发布的 JSON input schema，并要求 Agent 继续同一 Execution。已有 Execution 必须通过 `--execution` 恢复，不能创建替代 Execution。
 
 ## 语法与参数
 

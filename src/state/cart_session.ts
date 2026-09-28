@@ -74,9 +74,11 @@ export class CartSession {
       ...(this.state.lastDisplayToken ? { lastDisplayToken: this.state.lastDisplayToken } : {}),
       ...(this.state.lastCheckoutURL ? { lastCheckoutURL: this.state.lastCheckoutURL } : {}),
     };
+    const contents = JSON.stringify(toSave, null, 2);
+    if (existsSync(path) && readFileSync(path, "utf-8") === contents) return;
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, JSON.stringify(toSave, null, 2), { encoding: "utf-8", mode: 0o600 });
+    writeFileSync(temporary, contents, { encoding: "utf-8", mode: 0o600 });
     chmodSync(temporary, 0o600);
     renameSync(temporary, path);
     chmodSync(path, 0o600);

@@ -712,6 +712,21 @@ test("services next offers a saved-result page continuation without new quota", 
 	assert.match(page?.reason ?? "", /不重新查询、不消耗额度/);
 });
 
+test("rail exact read-result collects saved pages without another supplier query", async () => {
+	const before = mock.requests.length;
+	const exact = Object.create(backend) as BackendClient;
+	const model = await backend.getServiceExecution("se_rail_paged");
+	exact.getServiceExecution = async () => ({ ...model, execution: { ...model.execution, service_id: "itpay-rail-exact" } });
+	await runServicesReadResult(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { total: number; read_count: number; trains: unknown[] }; next: null };
+	assert.equal(envelope.status, "ready");
+	assert.equal(envelope.result.total, 12);
+	assert.equal(envelope.result.read_count, 12);
+	assert.equal(envelope.result.trains.length, 12);
+	assert.equal(envelope.next, null);
+	assert.equal(mock.requests.slice(before).filter((request) => request.method !== "GET").length, 0);
+});
+
 test("rail progressive planning keeps polling the same execution while expanding", async () => {
 	await runServicesNext(backend, "se_rail_plan_running", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
@@ -723,7 +738,7 @@ test("rail progressive planning keeps polling the same execution while expanding
 	assert.equal(envelope.status, "planning");
 	assert.equal(envelope.result.rail_planning.expansion_status, "running");
 	assert.equal(envelope.result.rail_planning.poll_after_ms, 4000);
-	assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --since-snapshot rsnap_1 --json");
+	assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --timeout 120 --since-snapshot rsnap_1 --json");
 	assert.equal(envelope.result.journeys?.[0]?.journey_id, "journey_alt");
 	assert.equal(envelope.result.journeys?.[0]?.price, "unknown");
 	assert.match(envelope.instruction, /不要重新发起查询/);
@@ -783,7 +798,7 @@ test("services run waits for a usable rail planning result", async () => {
   assert.equal(gets, 4);
   assert.equal(envelope.result.rail_planning.expansion_status, "running");
   assert.ok(envelope.result.journeys?.length);
-  assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --since-snapshot rsnap_1 --json");
+  assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --timeout 120 --since-snapshot rsnap_1 --json");
   assert.match(envelope.instruction, /查询|规划/);
 });
 
@@ -869,14 +884,14 @@ test("real recommend snapshot drives every CLI read command", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_real", { snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
 	const catalogEnv = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { snapshot_id: string; catalog: { schema_version: string; journeys: unknown[]; field_legend: unknown } };
+		result: { snapshot_id: string; total: number; journeys: Array<{ ref: string; route: string }> };
 		next?: { command: string };
 	};
 	assert.equal(catalogEnv.status, "ready");
 	assert.equal(catalogEnv.result.snapshot_id, "rsnap_b_rec");
-	assert.equal(catalogEnv.result.catalog.schema_version, "rail.catalog.v3");
-	assert.equal(catalogEnv.result.catalog.journeys.length, 19);
-	assert.ok(catalogEnv.result.catalog.field_legend);
+	assert.equal(catalogEnv.result.total, 19);
+	assert.equal(catalogEnv.result.journeys.length, 19);
+	assert.ok(catalogEnv.result.journeys.every((row) => row.ref && row.route));
 
 	// 3) The pinned journey detail resolves through the same snapshot — the
 	// audit's --journey 404 regression stays dead.
@@ -939,38 +954,37 @@ test("rail progressive journey detail reads committed evidence without the vault
 	assert.match(envelope.instruction, /受保护 Checkout/);
 });
 
-test("rail progressive read-result --snapshot returns the full catalog once", async () => {
+test("rail progressive read-result --snapshot returns compact rows once", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_complete", { snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
 		result: {
 			plan_id: string; snapshot_id: string; query_revision: number;
-			catalog: { schema_version: string; field_legend: unknown; journeys: Array<{ ref: string }> };
-			candidates?: unknown; journeys?: unknown;
+			total: number; journeys: Array<{ ref: string; route: string }>;
+			candidates?: unknown; catalog?: unknown;
 		};
 	};
 	assert.equal(envelope.status, "ready");
 	assert.equal(envelope.result.snapshot_id, "rsnap_1");
-	assert.equal(envelope.result.catalog.schema_version, "rail.catalog.v3");
-	assert.equal(envelope.result.catalog.journeys.length, 2);
-	// The catalog ships once: never duplicated into legacy candidates/journeys.
+	assert.equal(envelope.result.total, 2);
+	assert.equal(envelope.result.journeys.length, 2);
+	assert.ok(envelope.result.journeys.every((row) => row.ref && row.route));
+	// The compact rows ship once without duplicating the raw catalog.
 	assert.equal(envelope.result.candidates, undefined);
-	assert.equal(envelope.result.journeys, undefined);
-	assert.ok(envelope.result.catalog.field_legend);
+	assert.equal(envelope.result.catalog, undefined);
 });
 
 test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { snapshot_id: string; catalog: { encoding: string; journeys: unknown[] } };
+		result: { snapshot_id: string; total: number; journeys: Array<{ ref: string; rides: Array<{ train_code: string }> }> };
 		next: null;
 	};
 	assert.equal(envelope.status, "ready");
-	// The packed document passes through verbatim — the full catalog is the
-	// lossless payload; decoding is only for the human summary/selectors.
-	assert.equal(envelope.result.catalog.encoding, "shared_rows.v1");
-	assert.equal(envelope.result.catalog.journeys.length, 2);
+	assert.equal(envelope.result.total, 2);
+	assert.equal(envelope.result.journeys.length, 2);
+	assert.equal(envelope.result.journeys[0]?.rides[0]?.train_code, "C7606");
 	assert.equal(envelope.next, null);
 });
 
@@ -1516,6 +1530,7 @@ test("terminal service executions never recommend replaying a capability", async
 test("services read-result delegates current grant authorization to the Vault endpoint", async () => {
   let grantedResultCalled = false;
   const currentGrantBackend = {
+    getServiceExecution: async () => ({ execution: { service_id: "other-service" } }),
     getGrantedServiceResult: async () => {
       grantedResultCalled = true;
       return {
@@ -2469,13 +2484,10 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   };
   assert.equal(untyped.status, "shown");
   assert.equal(untyped.result.skill, "itpay");
-  assert.match(untyped.result.content, /## Route The Human's Intent/);
-  assert.match(untyped.result.content, /## Serve The Human/);
-  assert.match(untyped.result.content, /Perform every technical step yourself/);
-  assert.match(untyped.result.content, /policy route, not a promise/);
-  assert.match(untyped.result.content, /## Sell a Service/);
+  assert.match(untyped.result.content, /## Choose one entry/);
+  assert.match(untyped.result.content, /## Follow one envelope/);
+  assert.match(untyped.result.content, /itpay docs show rail-booking --json/);
   assert.match(untyped.result.content, /itpay sell guide --json/);
-  assert.match(untyped.result.content, /## Follow One Envelope/);
   assert.equal(untyped.next.command, "itpay install --json");
 
   const typed = JSON.parse((await runCLI([
@@ -2489,9 +2501,9 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   ], {})).stdout) as typeof typed;
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next, null);
-  assert.match(workbuddy.instruction, /同一 Node\/CLI launcher/);
-  assert.match(workbuddy.instruction, /服务用户的代理/);
-  assert.match(workbuddy.instruction, /dangerouslyDisableSandbox/);
+  assert.match(workbuddy.instruction, /同一 CLI launcher/);
+  assert.match(workbuddy.instruction, /宿主允许的持久化权限/);
+  assert.doesNotMatch(workbuddy.instruction, /dangerouslyDisableSandbox/);
 });
 
 test("skill show accepts a direct Skill root and the legacy parent directory", async () => {
@@ -2777,7 +2789,8 @@ test("checkout pending JSON returns one compact human handoff", async () => {
     presentation: { recommended: "show_link", alternatives: ["show_copyable_entry"] },
   });
   assert.deepEqual(Object.keys(parsed.handoff), ["url", "qr_local_path", "markdown"]);
-  assert.match(parsed.handoff.markdown, /itpay checkout --id chk_pending --token cdt_pending --json/);
+  assert.doesNotMatch(parsed.handoff.markdown, /itpay checkout --id/);
+  assert.match(parsed.handoff.markdown, /打开 ItPay 付款页面/);
   assert.match(parsed.instruction, /停止等待/);
   assert.match(parsed.instruction, /不要创建新 Checkout、Payment Intent 或 Execution/);
   assert.match(parsed.next.command, /checkout --id chk_pending --token cdt_pending --json$/);
@@ -3155,7 +3168,7 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
       assert.doesNotMatch(envelope.instruction, /present_files/);
     }
     if (desktop) {
-      assert.match(envelope.handoff.markdown ?? "", new RegExp(`itpay --agent-type ${agentType} checkout --id`));
+      assert.doesNotMatch(envelope.handoff.markdown ?? "", /checkout --id|--token/);
     }
     const cartRequest = mock.requests.slice(before).find((request) => request.method === "POST" && request.path === "/v1/carts");
     assert.equal((cartRequest?.body as { client_context?: { host?: string } })?.client_context?.host, expectedHost);
@@ -5499,7 +5512,7 @@ test("rail input_required returns teaching guidance, not an empty schema", async
   await runServicesStart(client,"itpay-rail-exact",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
   assert.equal(result.status,"input_required");
-  assert.equal(result.result.guidance.when_to_use.includes("itpay-rail-smart"),true);
+  assert.match(result.result.guidance.when_to_use,/站|Exact/);
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["origin","destination","travel_date"]);
   assert.match(result.result.guidance.input_fields[2].description,/travel_date/);
   assert.equal(result.result.guidance.input_example.travel_date,"2026-09-19");

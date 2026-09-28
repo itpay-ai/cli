@@ -38,6 +38,7 @@ function summarizeService(item: CatalogItem): Record<string, unknown> {
     service_id: item.service_id ?? null,
     title: item.title,
     description: item.description ?? "",
+    ...(item.service_id?.startsWith("itpay-rail-") ? { guide: "itpay docs show rail-booking --json" } : {}),
     ...(flow ? {
       discovery: {
         title: flow.discovery.title,

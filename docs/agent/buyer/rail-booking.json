@@ -4,114 +4,78 @@
   "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows use the same entry point via itpay sell.",
   "topic": "rail-booking",
   "title": "Railway Query, Planning, and Ticket Booking",
-  "purpose": "Choose the right railway service for the buyer's situation, submit the exact input contract each service expects, bridge a chosen train into booking via the server-issued selection, and follow the protected checkout flow without inventing field names.",
+  "purpose": "One railway route from understanding the request to saved results, booking, protected checkout, order status and refunds.",
   "when_to_use": [
-    "The buyer wants train schedules, routes, or tickets.",
-    "A railway service execution fails at the geo, search, catalog, or recommend step.",
-    "The buyer only knows a city or fuzzy location rather than a station name.",
-    "The buyer asks about seat preferences, refunds, or ticket issuance status.",
-    "A query returned login_required or rate_limited."
+    "Any railway schedule, planning or ticket request; read this topic once before the first railway action."
   ],
-  "service_selection": {
-    "itpay-rail-exact": "Use when both exact railway station names are known, or when a few credible station-pair hypotheses can be checked with exact (e.g. 古镇 → 广州南). It is one station-pair + one travel_date query: filter the returned list locally for remembered train numbers or time windows — do NOT re-query per train. Do not silently treat a city name as its station.",
-    "itpay-rail-smart": "Use when the buyer has a city name, an area, an address, or wants transfer planning and recommendations. The platform resolves locations to stations itself; never silently convert a city into its namesake station.",
-    "itpay-rail-booking": "Purchase service — use after the buyer chooses a train/seat or delegates selection under clear rules. Starts draft/review → live quote → protected checkout → asynchronous issuance on one execution. Never queried for schedules.",
-    "svc_qizhidao_company_lookup": "Not a railway service; do not mix intents."
+  "goal_and_overview": {
+    "route": "Understand constraints → form a credible station-pair hypothesis → choose Exact or Smart → read saved results and select → create booking → obtain only missing human consent → show official entry → read the same order state.",
+    "query_vs_booking": "Exact/Smart returns a query execution and saved evidence. Booking creates a separate execution from a server-issued selection; it is not a repeated search.",
+    "comparison": "If the human only asked to compare, answer from the results and stop. A clear purchase delegation permits selection under their rules, subject to required human terms."
   },
-  "input_contract": {
-    "itpay-rail-exact": {
-      "required": {
-        "origin": "Departure railway station name only, e.g. 古镇. Not a city or an address.",
-        "destination": "Arrival railway station name only, e.g. 广州南.",
-        "travel_date": "Travel date in YYYY-MM-DD. The field name must be exactly travel_date; aliases like date are rejected."
-      },
-      "optional": "None. additionalProperties is false — extra fields are rejected by the provider.",
+  "understand_before_search": [
+    "Identify date, arrival deadline, party size, destination precision, speed versus broad coverage, and whether the human delegated buying.",
+    "Use existing knowledge or one brief official information lookup to form a credible station pair. It helps identify stations, not current trains, seats, prices or global optimality. Do not make external research mandatory.",
+    "For Shanghai to Changsha with a fast arrival before 15:00, Shanghai Hongqiao → Changsha South is a credible pair to verify first with Exact. State the intended scope in one sentence; do not re-ask the stated speed preference.",
+    "A city or district is an area, not necessarily the namesake station. Shanghai station and Shanghai city can look similar in text but have different scope."
+  ],
+  "choose_search": {
+    "exact": "Known or credible resolved station pair, direct trains for one station pair and date only. A zero result does not mean the whole city has no train. Another evidence-based pair may be checked under the original request.",
+    "smart": "Broad station comparison, transfers, uncertain places, or a concrete address with ground connections. Fastest does not automatically mean max_transfers=0.",
+    "scope": "Exact cannot claim a citywide or all-transfer optimum. Smart gives its observed scope and missing evidence; its first useful options may be shown before expansion finishes."
+  },
+  "input_and_expected_result": {
+    "exact": {
+      "command": "itpay services run itpay-rail-exact --input-json <query-file> --json",
       "example": {
-        "origin": "古镇",
-        "destination": "广州南",
-        "travel_date": "2026-09-19"
-      }
+        "origin": "上海虹桥",
+        "destination": "长沙南",
+        "travel_date": "2026-10-06"
+      },
+      "contract": "Only origin, destination and travel_date are accepted. Use station names, not an undocumented station-code field. Filter time, seat and quantity against returned rows. Date is illustrative; use the actual requested queryable date."
     },
-    "itpay-rail-smart": {
-      "required": {
-        "origin": "Fullest known departure location: city, district, area, or address is all acceptable.",
-        "destination": "Fullest known arrival location, same rule as origin.",
-        "travel_date": "Travel date in YYYY-MM-DD. The field name must be exactly travel_date."
-      },
-      "optional": {
-        "origin_city": "Departure city hint that helps location resolution.",
-        "destination_city": "Arrival city hint.",
-        "origin_location": "Known coordinate object (AMap GCJ-02).",
-        "destination_location": "Destination coordinate object.",
-        "depart_after": "Do not depart before this time.",
-        "arrive_before": "Do not arrive after this time.",
-        "priority": "One of balanced | fastest | cheapest | safest | flexible.",
-        "max_transfers": "Integer 0-2, allowed transfer count.",
-        "passengers": "Integer 1-5, default 1: adult passenger count reflected in per-leg inventory and amounts. NOT identity records.",
-        "preference_context": "Bounded object, max 4 string-valued keys (<=200 chars each) of soft ranking preferences, e.g. {\"no_taxi\":\"true\"}. Validated allowlist; never carry passenger identity."
-      },
+    "smart": {
+      "command": "itpay services run itpay-rail-smart --input-json <query-file> --json",
       "example": {
-        "origin": "中山古镇",
-        "destination": "广州南",
-        "travel_date": "2026-09-19",
-        "priority": "fastest"
-      }
+        "origin": "上海",
+        "destination": "长沙",
+        "travel_date": "2026-10-06",
+        "arrive_before": "15:00",
+        "priority": "fastest",
+        "passengers": 1
+      },
+      "contract": "Origin/destination may be areas or precise places. Adult passengers is an integer 1–5. arrive_before maps to arrive_by; conflicting aliases are rejected. preference_context is currently unsupported; do not send it."
     },
-    "itpay-rail-booking": {
-      "preferred": {
-        "passengers": "Integer 1-5: number of passengers, NOT passenger identity records.",
-        "selection": {
-          "token": "The booking_offer.selection_token carried on the chosen result item.",
-          "seat_type": "Use the seat_type code shown with seat_name in the returned booking_template.seat_choices (e.g. O = 二等座); never submit the display name as the code. Omit this optional field when the returned offer has no code; never guess."
-        }
-      },
-      "explicit_legs": {
-        "passengers": "Integer 1-5.",
-        "legs": "Array with exactly ONE leg: from_station_code, to_station_code, travel_date, train_code, departure_time (HH:MM), arrival_time (HH:MM), arrival_days (int 0-7), seat_type. The public review accepts a single leg; only use when no booking_offer is available, and never guess these values. For v2 separate_legs_only journeys, book one leg at a time via that leg's own booking_offer — never a multi-leg basket."
-      },
-      "boundary": "Identity fields (names, ID numbers, phones) never belong in this input; they are collected on the protected checkout page."
-    }
+    "result": "Read the resolved station pair or area scope, observed coverage, complete compact train rows, fare/inventory evidence and stable references. The recommendation card is not the full catalog. Unknown cost and unverified address ground facts remain unknown.",
+    "waiting": "A query run waits within a bound. To continue, use the same execution with itpay services next <execution_id> --timeout 120 --json; it is read-only. Do not sleep/get/events repeatedly or resubmit input.",
+    "followup": "Read the saved result for the original execution. Smart: itpay services read-result <execution_id> --snapshot <snapshot_id> --json. Exact: use its returned saved-result reader. Filter all existing rows before considering a new supplier query. Planning deadline does not erase saved facts; an old selection token is not refreshed by rereading."
   },
-  "selection_flow": [
-    "Exact results carry per-train candidates; smart results carry journeys. Bookable options carry booking_offer with a server-signed selection_token.",
-    "The token binds the stored result snapshot and the chosen option. Submit it with passengers (and the exact seat_type code from booking_template.seat_choices when the user picked a class); the server derives the authoritative legs and re-quotes live. Do NOT hand-build legs JSON from the visible result. If only the code spelling is corrected and the confirmed train, actual seat class, passenger count, price, and terms remain identical, reuse the buyer's explicit approval. Material draft changes or missing approval require confirmation.",
-    "A historical selection identifies the original choice; booking refreshes current fare and inventory. A foreign buyer is rejected. Never guess token contents or hand-build legs as recovery.",
-    "Repeating the same selection restores the same booking execution instead of creating a second one.",
-    "v2 single-leg cards carry an opaque rsel_ selection_token bound to the buyer and saved journey/offer. The original selection can enter booking after its search window expires; live quote determines whether that exact train and seat remain purchasable.",
-    "v2 separate_legs_only journeys never carry a whole-journey token: open the journey detail, pick one leg, and use that leg's owner-issued booking_offer; each leg is quoted and confirmed independently with no joint guarantee."
-  ],
-  "trial_and_login": {
-    "policy": "itpay-rail-exact and itpay-rail-smart each allow 2 anonymous queries per enrolled device lineage — independent counters, not a shared pool of 4.",
-    "login_required": "Trial for that service is exhausted. The query is paused BEFORE provider calls; the execution keeps its input. Offer itpay auth login; after binding, resume the SAME execution with services run --execution <id> (no input file). Do not start a new execution, do not make the user re-describe the trip, and do not burn the other service's quota to dodge the gate.",
-    "rate_limited": "Registered accounts have no cumulative search cap but normal per-minute limits apply; wait retry_after_ms and resume the same execution.",
-    "fourth_result": "The 4th result is delivered first; only the next new query requires authorization.",
-    "purchase_after_trial": "Selecting a saved option and buying it does not consume search quota and works even when trial is exhausted."
+  "select_and_book": {
+    "delegation": "If the human delegated selection under clear rules, filter all eligible rows and pick accordingly. If no choice matches, report what was checked without loosening constraints. Never present a station-pair result as a global optimum.",
+    "input": "Use the returned booking_template selection token, passenger count and a seat_type code matched to seat_name (for example O may mean 二等座 in that returned offer). Never send the display name as the code or guess a code for another train.",
+    "command": "itpay services run itpay-rail-booking --input-json <booking-file> --json",
+    "single_leg": "Booking accepts one leg. Smart transfer options require separate leg purchases without a joint seat or connection guarantee; do not send a multi-leg basket.",
+    "identity": "Passenger name, ID and phone are entered on the official protected checkout page, not in query or booking JSON."
   },
-  "flow": [
-    "For a known railway service, submit input directly with services run <service> --input-json <file> --json; keep the returned execution for follow-ups.",
-    "itpay-rail-smart may stop at a location confirmation step; show the candidate places to the buyer, then continue the same execution after the human confirms.",
-    "After the buyer explicitly picks a train/seat, run itpay-rail-booking with the selection token (preferred) or explicit legs. The execution then pauses at the booking review (workflow:confirm_booking): services next returns booking_review_required with human_action.context.review carrying draft_revision, legs, seat_options and notice_version.",
-    "Whether or not the query was free, the answer is the same shape under compare: one preferred option, at most two meaningful alternatives, the key trade-offs — then stop and wait for the buyer. Do not stack more options or chain into purchase.",
-    "Collect the review input and submit it with services action <id> --action workflow:confirm_booking --actor-type human --status approved --input-json <file> --json. Required fields: draft_revision (exact server value), passengers, seat_type, seat_preferences (one entry per passenger_index 0..n-1, values limited to that leg's seat_options), party_preference, fallback=automatic_assignment, notice_version, accept_non_guaranteed=true. Only after an accepted review does the server quote and offer checkout.",
-    "The booking execution reaches a protected checkout: passenger identity data is entered by the human on that page, never through the CLI. Account authentication may happen inside checkout — do not force a separate auth login first (Path B).",
-    "Payment success does not mean the ticket is issued. Issuance is asynchronous; keep reading the same execution with services next.",
-    "If seat details are still syncing after issuance, advise the buyer to verify the itinerary on 12306 instead of repeating the query."
-  ],
-  "failure_handling": {
-    "failed_step": "The CLI reports failed_step and failed_step_meaning in the result when a workflow fails.",
-    "geo": "Location resolution failed: check origin/destination are real place names, or attach origin_city/coordinate hints, then start a NEW execution (a failed execution is terminal).",
-    "search": "Supplier query failed: most commonly a wrong field name (must be travel_date) or a nonexistent station name; recheck input against this doc.",
-    "catalog_or_recommend": "Location resolved but no feasible trains: change the date or stations.",
-    "login_required_is_not_failure": "login_required / rate_limited pause the execution; they are NOT failures and never justify a replacement execution.",
-    "general_rule": "Never replay a failed execution and never guess different field names; correct the input and start a new execution of the same service.",
-    "booking_review_changed": "The submitted draft_revision is stale: re-read services next for the current review projection and resubmit the full input; do not bump the revision yourself.",
-    "plan_conflict": "409: the action_request_id/expected_query_revision/snapshot_id no longer matches owner state. Re-read services next and reuse the fresh action handle; an identical replay of an accepted action still returns its original acceptance.",
-    "stale_cursor": "The paging cursor was minted against an older snapshot; restart paging from the current snapshot_id.",
-    "snapshot_not_found": "Unknown or superseded snapshot id; read the current projection for the latest snapshot.",
-    "journey_not_in_snapshot": "The rj_ reference is not inside the saved snapshot; pick a journey from the current page/projection.",
-    "plan_expired": "The 15-minute plan lifecycle ended: expansion stopped and the snapshot is read-only evidence; start a new execution for a fresh search. In-flight checkout/payment is unaffected.",
-    "action_request_invalid": "The action payload failed validation (unknown patch fields, malformed handle); copy the command from available_actions instead of composing it.",
-    "selection_stale": "The rsel_ token no longer matches the current snapshot/policy; re-read the journey and take the fresh booking_offer."
+  "review_and_checkout": {
+    "review": "Read the current booking review revision, actual train/date/stations, seat code and name, party, price state and notice terms. Submit workflow:confirm_booking with actor-type human only after real human consent to required terms, including seat assignment not guaranteed. Do not forge a human actor from agent delegation.",
+    "equivalent_correction": "If only seat code spelling changes while train, actual seat class, party, price and terms are identical, reuse an existing explicit human approval. Material draft changes or missing approval require human confirmation.",
+    "checkout": "Show the returned safe itinerary summary and official link/QR supported by the actual host. Do not repeat a price approval already valid for unchanged terms. The human completes identity and payment on that page. Handoff is not payment or ticket issuance."
+  },
+  "continue_and_aftercare": {
+    "same_execution": "Wait and read the same query or booking execution. Once an order exists, use itpay order <order_id> --json for its authoritative state. Paid can still be issuing; report issued only when confirmed.",
+    "saved_vs_live": "A saved snapshot remains historical evidence after expiry. Real-time booking or quote credentials may expire and require the documented fresh validation path; rereading an old token does not renew it.",
+    "refund": "Read itpay docs show orders-refunds --json and the current order policy. Railway supplier cancellation/return and platform refund have separate facts; a refund request is not completed railway return."
+  },
+  "exceptional_branches": {
+    "login_required": "Use itpay auth login --json, complete the official handoff, then execute the returned recovery command for the same paused query. Login returning a command does not execute it.",
+    "rate_limited": "Respect returned retry_after and continue the same execution.",
+    "booking_review_invalid": "Read the same booking review and use the returned seat code; reuse real consent only under the strict equivalent-correction rule.",
+    "booking_review_changed": "Read the current revision and compare material terms; confirm new terms only when changed.",
+    "selection_stale": "Saved result stays readable, but follow the current owner action for new live inventory and quote evidence; do not assume reread refreshes the token.",
+    "unknown_paid_outcome": "Read the same checkout/order before any mutation. Never repeat payment or create a new order on an unknown outcome.",
+    "lock": "Use the CLI returned device repair-lock recovery only for a lock proven stale; preserve active owners and identity.",
+    "empty": "Report verified scope, failures and missing evidence separately. Do not guess a new date or station as a generic repair."
   },
   "seat_preferences": {
     "meaning": "A buyer's seat-letter preference may be planned per leg before payment. The plan is submitted to the supplier when encodable; unsupported combinations fall back to automatic assignment.",
@@ -120,44 +84,11 @@
     "review_contract": "Submitted inside the confirm_booking action via --input-json (nested JSON; --input key=value cannot express it and must not be combined with it). One preference per passenger slot, passenger_index 0-based. draft_revision must equal the server projection; a stale revision returns booking_review_changed — re-read services next and resubmit, never increment locally.",
     "revision": "While payment has not started, the same execution accepts a revised review: resubmit confirm_booking with the new draft_revision; the old unpaid quote/checkout is retired and re-quoted. After a payment attempt the review is closed — never create a replacement purchase."
   },
-  "agent_rules": [
-    "Pick the service by the buyer's input precision: known stations or a few credible station-pair hypotheses → itpay-rail-exact; broader fuzzy locations → itpay-rail-smart; explicit purchase intent after a selection → itpay-rail-booking.",
-    "Choose the goal first (see goals): compare presents one preferred option plus at most two meaningful alternatives then waits; prepare_checkout selects under the buyer's rules and continues to the official confirmation entry without re-asking.",
-    "Never invent input field names. If the guidance block or this doc does not list a field, do not send it.",
-    "Never ask the buyer for passenger names, ID numbers, or phone numbers in chat; those are collected only on the protected checkout page.",
-    "Never reconstruct provider-shaped legs JSON when a booking_offer.selection_token is available; submit the token plus passengers.",
-    "Seat preferences are requests, not guarantees: always repeat the notice that automatic assignment remains possible, and never claim a specific seat before the issued order shows it.",
-    "Take draft_revision only from the current services next review projection; on booking_review_changed re-read instead of retrying the stale value.",
-    "login_required and rate_limited are pauses, not failures: resume the same execution, never spawn a replacement.",
-    "Do not repeat or replay a failed execution; correct the input and start a new one.",
-    "Do not claim payment equals ticket issuance; issuance is asynchronous and confirmed only by the issued seat status.",
-    "For v2 plans, act only on available_actions[] from the current projection: run the exact command the backend returned, then re-read; never invent action types, request ids, revisions or fields.",
-    "expand_search is the only intent that may spend provider budget; refine_preferences re-ranks saved data first and does not by itself expand.",
-    "A paused/expired/complete plan is still readable and selectable from its saved snapshot; never start a replacement execution to keep polling.",
-    "stop_search pauses scheduling but keeps saved data and existing selections; booking stays reachable only through the allowed actions the owner reports.",
-    "When since_snapshot returns result_not_updated, keep the previous snapshot and still surface the latest expansion status/end reason to the user."
-  ],
-  "human_language": {
-    "prefer": [
-      "车次",
-      "出发站",
-      "到达站",
-      "出行日期",
-      "座位",
-      "余票",
-      "出票中",
-      "已出票",
-      "登录后继续免费查询"
-    ],
-    "avoid": [
-      "workflow",
-      "execution",
-      "provider",
-      "seat_source",
-      "candidate_id",
-      "token",
-      "quota"
-    ]
+  "notifications": {
+    "channels": "Delivery notices reach the checkout-confirmed contact: email always works; a verified mainland SMS recipient is optional and checkout-scoped. The passenger phone, the login phone and the notification recipient are independent facts.",
+    "status_read": "The order read exposes masked per-leg notification entries (keys: issued, details_pending, seat_ready) with channel, status and masked recipient — never raw numbers.",
+    "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
+    "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
   },
   "search_terms": [
     "rail",
@@ -172,33 +103,5 @@
     "seat",
     "booking",
     "rail-booking"
-  ],
-  "notifications": {
-    "channels": "Delivery notices reach the checkout-confirmed contact: email always works; a verified mainland SMS recipient is optional and checkout-scoped. The passenger phone, the login phone and the notification recipient are independent facts.",
-    "status_read": "The order read exposes masked per-leg notification entries (keys: issued, details_pending, seat_ready) with channel, status and masked recipient — never raw numbers.",
-    "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
-    "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
-  },
-  "progressive_v2": {
-    "capability": "New CLI declares client_context.features=[\"rail.progressive.v2\"] at service start. It is a response-format declaration only; quota, service version and provider credentials stay server-decided. Old clients keep the legacy projection; never create a second execution to probe.",
-    "read_model": "While the plan workflow is active, services next carries rail_planning: schema_version, plan_id (jp_), query_revision, snapshot_id (rps_), readiness, expansion {status, reason, poll_after_ms, new_results_guaranteed}, coverage, budgets, recommendation + up to 4 alternatives (journey cards rj_), available_actions with concrete commands, result_item_id.",
-    "expansion_states": "queued/running: automatic work remains; paused: batch sufficient or auto window ended, expand only on explicit intent; complete/cancelled: budget or frontier exhausted — snapshot stays read-only, expand action absent; failed: reason visible after a published snapshot, readiness stays ready; expired: 15-minute lifecycle end — evidence read-only, in-flight purchase unaffected.",
-    "reads": "services next --since-snapshot <rps_…> suppresses the journey payload but always returns the latest expansion status. read-result gains --snapshot, --journey <rj_…> and an opaque --cursor bound to snapshot+filter+sort (stale -> stale_cursor). Reads never call the provider, never extend lifecycle, never invoke the model.",
-    "actions": "Three allowlisted planning actions ride POST actions with action_type workflow:expand_search | workflow:refine_preferences | workflow:stop_search. input_snapshot carries server-issued action_request_id plus expected_query_revision and snapshot_id; refine adds a validated preference_patch. Always copy the concrete command from available_actions[]; never assemble fields. Same id + same payload returns the stored acceptance; same id + different payload -> plan_conflict.",
-    "journey_card": "Cards carry station names, train codes, dated times, transfer/same-run notes, observed_at price time and handles. representative_offer.ticket_offers[] lists one purchasable segment per entry (leg_index, offer_id, service_ref, station codes, travel_date, seat_type, passengers, integer-minor amounts); per-item amounts sum to the total. rides[] (ridden legs) and ticket_offers[] (purchasable segments) are different lists — never infer transfers or fees from array lengths.",
-    "selection": "booking_support=single_leg cards carry booking_offer {service_id: itpay-rail-booking, selection_token: rsel_…}; submit it to itpay-rail-booking with passengers as today. separate_legs_only cards expose no whole-journey token — each leg is quoted and confirmed separately via its protected detail; never assemble legs JSON yourself. booking_support=none has no selection action.",
-    "honesty": "Coverage is bounded: repeat searched_scope/notices verbatim, never claim national-exhaustive search, and surface missing prices as unknown — never 0."
-  },
-  "goals": {
-    "compare": "Buyer wants to see options and keeps the final choice. Present one preferred option plus at most two meaningful alternatives, then wait. A fully-specified query with no purchase delegation stays compare.",
-    "prepare_checkout": "Buyer named the product, or delegated selection under explicit rules and asked for the purchase entry. Select under those rules, explain the match, and continue to the official confirmation/payment entry without re-asking '要不要买'. Clear delegation missing only the date asks for the date alone.",
-    "boundaries": [
-      "Decide locally from the whole conversation (negations, conditions, references, latest withdrawal); no trigger-word lists, no regex, no field-completeness classifier, no mode flag, never ask the human to name a mode.",
-      "Explicit buyer rules outrank default recommendations; missing facts are unknown, never assumed satisfied.",
-      "compare must not continue into selection; prepare_checkout must not silently downgrade to waiting.",
-      "A pending/login/error state is never new intent; withdrawal updates the goal but never rewrites a completed payment.",
-      "Neither goal authorizes payment or skips confirmation: payment, terms and passenger identity stay behind their own gates."
-    ],
-    "recipe": "The Skill first screen describes query→booking→review→checkout. Load rail-fast-checkout only when the current response leaves a stage detail unclear."
-  }
+  ]
 }
