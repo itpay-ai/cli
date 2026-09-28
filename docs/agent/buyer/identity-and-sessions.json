@@ -90,5 +90,13 @@
     "lock",
     "window",
     "chat"
-  ]
+  ],
+  "auth_session_states": {
+    "stages": "The CLI now reports the auth session stage exactly as the server returns it: waiting_provider (show the handoff and wait), email_verification_required (the human must verify the emailed code on the auth page), merge_confirmation_required (an existing account matches — the human must confirm the merge on the auth page), provider_pending/pending (generic wait), completed (session done — bind it, do not restart).",
+    "terminal_states": "auth_expired/auth_denied/auth_cancelled/auth_failed mean this session is over; say so plainly and start a NEW session only if the human still wants in — never keep polling a dead one.",
+    "transport_unknown": "auth_session_unknown means a network error while polling — the outcome is unknown. Keep waiting on the SAME session (it may still complete); do NOT restart auth, and do not assume denial.",
+    "missing": "auth_session_not_found means the cached session is gone server-side; start a new login.",
+    "completed_resume": "When login completes, itpay auth login resumes the remembered pending service execution automatically when one exists — you do not need to find it yourself.",
+    "path_b": "A buyer who reaches checkout without a login completes identity inside the protected checkout page; never force a separate itpay auth login first."
+  }
 }

@@ -37,6 +37,7 @@ import type {
   GrantedServiceResult,
   ServiceCapabilityInvoked,
   ServiceExecutionAction,
+  RailPlanningActionResponse,
   ServiceExecutionCheckoutCreated,
   ServiceExecutionEvents,
   ServiceExecutionReadModel,
@@ -246,8 +247,8 @@ export class BackendClient {
   recordServiceExecutionAction(
     serviceExecutionID: string,
     input: RecordServiceExecutionActionRequest,
-  ): Promise<ServiceExecutionAction> {
-    return this.http.post<ServiceExecutionAction>(
+  ): Promise<ServiceExecutionAction | RailPlanningActionResponse> {
+    return this.http.post<ServiceExecutionAction | RailPlanningActionResponse>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/actions`,
       input,
     );

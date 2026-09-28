@@ -119,11 +119,23 @@ export class DeviceAuthority {
 
   private async ensureAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
     if (!this.pending) {
-      this.pending = withFileLock(`${this.statePath}.lock`, () => this.prepareAuthorization()).finally(() => {
+      this.pending = this.cachedAuthorization() ?? withFileLock(`${this.statePath}.lock`, () => this.prepareAuthorization());
+      this.pending = this.pending.finally(() => {
         this.pending = undefined;
       });
     }
     return this.pending;
+  }
+
+  private cachedAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> | undefined {
+    const agentType = this.requestedAgentType;
+    if (!agentType) return undefined;
+    const state = this.readState();
+    const registration = state?.registrations[this.backendKey];
+    const session = registration?.sessions[agentType];
+    if (!registration?.agentInstances[agentType] || !session || Date.parse(session.expiresAt) <= Date.now() + 60_000) return undefined;
+    const privateKey = this.readPrivateKey();
+    return privateKey ? Promise.resolve({ state: registration, agentType, session, privateKey }) : undefined;
   }
 
   async recoverAuthorization(): Promise<void> {
@@ -135,6 +147,10 @@ export class DeviceAuthority {
       delete registration.sessions[this.requestedAgentType];
       this.writeState(state);
     });
+  }
+
+  repairLock(): "absent" | "recovered" | "active" {
+    return inspectAndRecoverLock(`${this.statePath}.lock`);
   }
 
   async recoverBackendReset(): Promise<{ removed: boolean; agentTypes: string[] }> {
@@ -324,6 +340,7 @@ export class DeviceAuthority {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", ...this.compatibilityHeaders, ...extraHeaders },
       body,
+      signal: AbortSignal.timeout(15_000),
     });
     const payload = await response.json().catch(() => ({})) as { code?: string; message?: string };
     if (!response.ok) throw new DeviceAuthorizationError(response.status, payload.code, payload.message || payload.code || `ItPay device request failed: ${response.status}`);
@@ -377,6 +394,14 @@ export class DeviceStateError extends Error {
   constructor(readonly operation: DeviceStateOperation, readonly causeCode: string) {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
+  }
+}
+
+export class DeviceLockBusyError extends Error {
+  readonly code = "device_lock_busy";
+  constructor() {
+    super("ItPay device identity is being updated by another process");
+    this.name = "DeviceLockBusyError";
   }
 }
 
@@ -434,9 +459,9 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
   } catch (error) {
     throw asDeviceStatePathError(error, "prepare_lock") ?? error;
   }
-  const ownerToken = randomUUID();
+  const ownerToken = `${process.pid}:${randomUUID()}`;
   let acquired = false;
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 800; attempt += 1) {
     try {
       writeFileSync(path, ownerToken, { encoding: "utf8", flag: "wx", mode: 0o600 });
       chmodSync(path, 0o600);
@@ -445,22 +470,49 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock") ?? error;
-      try {
-        if (Date.now() - statSync(path).mtimeMs > 30_000) moveLockAside(path, "stale", "remove_stale_lock");
-      } catch (statError) {
-        if ((statError as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw asDeviceStateError(statError, "inspect_lock") ?? statError;
-        }
-      }
+      inspectAndRecoverLock(path);
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
-  if (!acquired) throw new Error("timed out waiting for ItPay device identity lock");
+  if (!acquired) throw new DeviceLockBusyError();
   try {
     return await run();
   } finally {
     releaseLock(path, ownerToken);
   }
+}
+
+function inspectAndRecoverLock(path: string): "absent" | "recovered" | "active" {
+  let token: string;
+  let age: number;
+  try {
+    const lockStat = statSync(path);
+    age = Date.now() - lockStat.mtimeMs;
+    token = lockStat.isDirectory() ? "" : readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    throw asDeviceStateError(error, "inspect_lock") ?? error;
+  }
+  const ownerPID = /^(\d+):[0-9a-f-]+$/.exec(token)?.[1];
+  if (ownerPID) {
+    try {
+      process.kill(Number(ownerPID), 0);
+      return "active";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return "active";
+    }
+  } else if (age <= 30_000) {
+    return "active";
+  }
+  // Recheck the exact owner before moving the lock; another process may have renewed it.
+  try {
+    if (token ? readFileSync(path, "utf8") !== token : !statSync(path).isDirectory()) return "active";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    throw asDeviceStateError(error, "inspect_lock") ?? error;
+  }
+  moveLockAside(path, "stale", "remove_stale_lock");
+  return "recovered";
 }
 
 function releaseLock(path: string, ownerToken: string): void {

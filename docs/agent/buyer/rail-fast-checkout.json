@@ -1,0 +1,68 @@
+{
+  "schema_version": "itp.agent_doc.v1",
+  "role": "buyer_agent",
+  "product_scope": "itpay_rail",
+  "topic": "rail-fast-checkout",
+  "title": "Rail Fast Checkout — One Human Question, Owners Do The Rest",
+  "purpose": "After the buyer has picked a train/seat (prepare_checkout delegation), carry one valid selection through booking review, protected checkout and issuance tracking with a single consolidated human interaction — using only existing commands and owner-issued handles.",
+  "when_to_use": [
+    "The buyer explicitly picked a train/seat or delegated selection under rules, and you hold a bookable option with booking_offer.selection_token from itpay-rail-exact or itpay-rail-smart.",
+    "Do NOT use for a plain schedule query (compare goal) — present one preferred option plus up to two alternatives and wait instead."
+  ],
+  "steps": [
+    {
+      "step": "create_booking_input",
+      "command": "printf '%s' '{\"passengers\":1,\"selection\":{\"token\":\"<token>\"}}' > /tmp/itpay-booking-input.json",
+      "notes": [
+        "Fill <token> with the current result's booking_offer.selection_token; add selection.seat_type when the buyer picked a class. Create the file yourself under /tmp — the buyer never sees a path.",
+        "Never reconstruct legs JSON when a token is available; the owner derives authoritative legs and re-quotes live."
+      ]
+    },
+    {
+      "step": "start_booking",
+      "command": "itpay services run itpay-rail-booking --input-json /tmp/itpay-booking-input.json --json",
+      "then": "Use the booking run response directly; call its next only if it is still waiting for progress.",
+      "expected_status": "booking_review_required"
+    },
+    {
+      "step": "one_consolidated_review",
+      "read": "human_action.context.review carries legs, seat_options, draft_revision and notice_version.",
+      "ask_human_once": "Show the itinerary, seat options and the seat-preference disclaimer in one message; collect passengers count, seat_type, one seat preference per passenger slot, party_preference, and agreement to the notice_version terms.",
+      "web_review": "If the review projection carries an official web entry (handoff.url in the envelope), prefer it: open it for the buyer and wait there; the chat fallback remains valid if the page is unavailable.",
+      "submit": "itpay services action <execution_id> --action workflow:confirm_booking --actor-type human --status approved --input-json /tmp/itpay-review.json --json",
+      "notes": [
+        "draft_revision must equal the current server value; booking_review_changed means re-read services next and resubmit, never bump locally.",
+        "accept_non_guaranteed is true only when the buyer actually agreed; never fabricate a human approval.",
+        "On booking_review_invalid, re-read this booking. A seat-code spelling correction may reuse the buyer's explicit approval only if train, actual seat class, passenger count, price, and terms are unchanged; confirm material changes or missing approval.",
+        "Passenger names, ID numbers and phones are NOT in this input — they belong to the protected checkout page."
+      ]
+    },
+    {
+      "step": "checkout_handoff",
+      "read": "The current booking response may already contain handoff.url (the protected checkout page).",
+      "command": "Only if the current handoff was not presented, use the exact checkout command returned by the CLI.",
+      "notes": [
+        "Show or open the checkout exactly once; pass --viewer mobile when the buyer is on a phone.",
+        "The buyer completes identity and payment on that page (Path B — no forced separate login). Payment handoff is not payment success; wallet return is not confirmation."
+      ]
+    },
+    {
+      "step": "track_issuance",
+      "command": "itpay services next <execution_id> --json",
+      "then": "itpay orders show <order_id> --json",
+      "expected_status": ["paid_pending_issuance", "issued"],
+      "notes": [
+        "Issuance is asynchronous — paid does not mean ticketed. Keep reading the SAME execution; never create a replacement.",
+        "On issued, report the order state; if seat details are still syncing, advise checking 12306 instead of re-querying."
+      ]
+    }
+  ],
+  "never": [
+    "Never build legs JSON from visible result fields while a selection_token exists.",
+    "Never run a second services run for the same selection — repeat submission restores the same execution.",
+    "Never ask for passenger identity, verification codes, or payment details in chat.",
+    "Never claim payment equals issuance, or a displayed handoff equals human approval.",
+    "Never invent command flags, action types, revisions or tokens; copy server-issued handles verbatim."
+  ],
+  "search_terms": ["fast checkout", "快速下单", "一键购票", "rail checkout recipe"]
+}

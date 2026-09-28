@@ -45,6 +45,9 @@ export interface MockBackendHandle {
   feedbacks: Array<Record<string, unknown>>;
   setAccountOrders: (orders: Array<Record<string, unknown>>) => void;
   setFeedbackError: (error?: { status: number; code: string; message: string } | "transport") => void;
+  setAgentBinding: (binding: { status: string; phone_verified?: boolean }) => void;
+  setAuthSessionStage: (stage: string) => void;
+  setAuthSessionError: (error?: { status: number; code: string; message: string } | "transport") => void;
   setServiceError: (error?: {
     status: number; code: string; message: string;
     service_execution_id?: string; provider_called?: boolean;
@@ -73,6 +76,9 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   let accountOrders: Array<Record<string, unknown>> = [];
   let serviceError: Parameters<MockBackendHandle["setServiceError"]>[0];
   let feedbackError: Parameters<MockBackendHandle["setFeedbackError"]>[0];
+  let agentBinding: { status: string; phone_verified?: boolean } = { status: "unbound" };
+  let authSessionStage = "waiting_provider";
+  let authSessionError: Parameters<MockBackendHandle["setAuthSessionError"]>[0];
   const feedbacks: Array<Record<string, unknown>> = [];
   const orderByID: Record<string, Record<string, unknown>> = {
     ord_delivery: {
@@ -187,6 +193,55 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     if (serviceError && path.startsWith("/v1/service-executions")) {
       const { status, ...body } = serviceError;
       respond(res, status, body);
+      return;
+    }
+
+    // Agent account binding + dashboard auth sessions (itpay auth login/status).
+    if (authSessionError && (path.startsWith("/v1/dashboard/auth-sessions") || path === "/v1/agent-device-account-bindings")) {
+      if (authSessionError === "transport") {
+        req.socket.destroy();
+        return;
+      }
+      const { status, ...body } = authSessionError;
+      respond(res, status, body);
+      return;
+    }
+    if (method === "GET" && path === "/v1/agent-device-account-bindings") {
+      respond(res, 200, agentBinding);
+      return;
+    }
+    if (method === "POST" && path === "/v1/agent-device-account-bindings") {
+      if (authSessionStage !== "completed") {
+        respond(res, 409, { code: "auth_session_not_completed", message: "session not completed" });
+        return;
+      }
+      agentBinding = { status: "authenticated", phone_verified: true };
+      respond(res, 200, agentBinding);
+      return;
+    }
+    if (method === "POST" && path === "/v1/dashboard/auth-sessions") {
+      authSessionStage = "waiting_provider";
+      const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      respond(res, 200, {
+        dashboard_auth_session_id: "dash_mock",
+        start_url: `${base}/auth?start_token=start_tok_mock&state=dash_mock`,
+        poll_token: "poll_tok_mock",
+        expires_at: "2099-01-01T00:00:00Z",
+      });
+      return;
+    }
+    const authSessionPollMatch = path.match(/^\/v1\/dashboard\/auth-sessions\/([^/]+)$/);
+    if (method === "GET" && authSessionPollMatch) {
+      if (authSessionPollMatch[1] !== "dash_mock") {
+        respond(res, 404, { code: "not_found", message: "auth session not found" });
+        return;
+      }
+      respond(res, 200, { status: authSessionStage, expires_at: "2099-01-01T00:00:00Z" });
+      return;
+    }
+    const authSessionClaimMatch = path.match(/^\/v1\/dashboard\/auth-sessions\/([^/]+)\/claim$/);
+    if (method === "POST" && authSessionClaimMatch) {
+      respond(res, 200, { expires_at: "2099-01-01T00:00:00Z" });
       return;
     }
 
@@ -1393,6 +1448,9 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     setAccountOrders: (orders) => { accountOrders = orders; },
     setFeedbackError: (error) => { feedbackError = error; },
     setServiceError: (error) => { serviceError = error; },
+    setAgentBinding: (binding) => { agentBinding = binding; },
+    setAuthSessionStage: (stage) => { authSessionStage = stage; },
+    setAuthSessionError: (error) => { authSessionError = error; },
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));

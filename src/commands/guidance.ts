@@ -8,6 +8,41 @@ export interface CommandAction {
   reason: string;
 }
 
+// input_template carries a command shape that is NOT directly executable —
+// a required value (file path, rank, selection id) is still unknown. It must
+// never appear in `next.command` or `recovery[].command`.
+export interface InputTemplate {
+  command: string;
+  required_input: string[];
+  executable: false;
+}
+
+// itpay.interaction.v1 — the structured counterpart of `instruction`. Same
+// semantic source, machine-readable goal branches. See
+// docs/reviews/agent-ux-handoff-2026-09-23/03-CONTRACT-AND-RESOLVER.md.
+export interface InteractionBlock {
+  schema_version: "itpay.interaction.v1";
+  stage: string;
+  by_goal?: {
+    compare?: Record<string, unknown>;
+    prepare_checkout?: Record<string, unknown>;
+  };
+  input_template?: InputTemplate;
+  recipe?: { id: string; for_goal?: string; steps: Array<Record<string, unknown>> };
+  [key: string]: unknown;
+}
+
+// itpay.communication.v1 — what must reach the human now and what we wait for.
+export interface CommunicationBlock {
+  schema_version: "itpay.communication.v1";
+  status_line?: string;
+  tell?: string;
+  wait_for?: string;
+  must_convey?: string[];
+  next_expectation?: string;
+  [key: string]: unknown;
+}
+
 export interface CommandEnvelope {
   status: string;
   result: Record<string, unknown>;
@@ -15,6 +50,8 @@ export interface CommandEnvelope {
   instruction: string;
   next: CommandAction | null;
   recovery: CommandAction[];
+  interaction?: InteractionBlock;
+  communication?: CommunicationBlock;
 }
 
 interface CommandNullResultEnvelope extends Omit<CommandEnvelope, "result"> {
@@ -98,6 +135,12 @@ export function writeCommandEnvelope(
   }
   out(`instruction: ${qualified.instruction}\n`);
   if (qualified.next) out(`next: ${qualified.next.command}\n`);
+  if ("interaction" in qualified && qualified.interaction) {
+    out(`interaction: ${JSON.stringify(qualified.interaction)}\n`);
+  }
+  if ("communication" in qualified && qualified.communication) {
+    out(`communication: ${JSON.stringify(qualified.communication)}\n`);
+  }
   if (qualified.recovery.length > 0) {
     out("recovery:\n");
     for (const action of qualified.recovery) {
@@ -113,12 +156,35 @@ function qualifyEnvelope<T extends CommandEnvelope | CommandNullResultEnvelope |
 ): T {
   return {
     ...value,
+    result: qualifyCommandsDeep(value.result, agentType) as T["result"],
+    ...("handoff" in value && value.handoff ? { handoff: qualifyCommandsDeep(value.handoff, agentType) as Record<string, unknown> } : {}),
+    ...("interaction" in value && value.interaction ? { interaction: qualifyCommandsDeep(value.interaction, agentType) as InteractionBlock } : {}),
+    ...("communication" in value && value.communication ? { communication: qualifyCommandsDeep(value.communication, agentType) as CommunicationBlock } : {}),
     next: value.next ? { ...value.next, command: qualifyBackendCommand(qualifyItPayCommand(value.next.command, agentType)) } : null,
     recovery: value.recovery.map((action) => ({
       ...action,
       command: qualifyBackendCommand(qualifyItPayCommand(action.command, agentType)),
     })),
   };
+}
+
+// Every `itpay ` command string anywhere in the envelope — result fields,
+// interaction recipes/templates, available_actions — keeps the same Agent
+// Type / Backend qualification as top-level next/recovery. Instruction prose
+// never starts with "itpay " so prose stays untouched.
+function qualifyCommandsDeep(value: unknown, agentType: string | undefined): unknown {
+  if (typeof value === "string") {
+    return value.startsWith("itpay ")
+      ? qualifyBackendCommand(qualifyItPayCommand(value, agentType))
+      : value;
+  }
+  if (Array.isArray(value)) return value.map((item) => qualifyCommandsDeep(item, agentType));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, qualifyCommandsDeep(item, agentType)]),
+    );
+  }
+  return value;
 }
 
 export function errorRecoveryActions(error: unknown): ErrorRecoveryAction[] {

@@ -13,7 +13,10 @@
 
 ```bash
 itpay checkout [--id <checkout_id>] [--token <display_token>]
-  [--host <host>] [--target <target>] [--locale <zh-CN|en>] [--json]
+  [--host <host>] [--target <target>] [--locale <zh-CN|en>]
+  [--present <auto|browser|image|link|none>] [--no-open] [--viewer <desktop|mobile|unknown>]
+  [--relay-option <ref>] [--confirm-relay] [--request-key <key>] [--relay-status <relay_id>]
+  [--json]
 ```
 
 省略 `--id/--token` 时只能使用本机保存的一组完整句柄；不得把其他 Checkout 的 token 拼接使用。
@@ -21,6 +24,12 @@ itpay checkout [--id <checkout_id>] [--token <display_token>]
 `--host` 默认由 `--agent-type` 决定；`openclaw` 必须显式传当前入口。IM Host 必须提供 `--target`。`--json` 输出机器可读合同，不内嵌二维码字符画或图片二进制。
 
 `--locale` 默认 `zh-CN`，可显式使用 `en`。它只改变重新渲染的 Card 文案，不改变 Checkout、付款、授权或恢复状态。
+
+展示控制（display plane，不创建任何新的付款路径）：
+
+- `--present` 一次只选一种展示方式：`browser` 打开系统浏览器、`image` 展示官方二维码图片、`link` 给出可点击链接、`none` 只说明状态、`auto`（默认）按宿主能力选择一种。`--json` 下默认只返回展示计划而不执行打开；显式 `--present browser` 即是一次打开请求。`ITPAY_NO_BROWSER=1` 与 `--no-open` 都禁止打开浏览器。已付款、已退款或报价失效的 Checkout 不会发起任何展示动作，只读取原状态。
+- `--viewer` 告知用户正在看哪类设备：`mobile` 时不会把二维码当作同机可读方式；`desktop` 时才考虑打开浏览器。
+- 消息转发（relay）要求服务端已签发的脱敏联系人引用 `--relay-option`、稳定幂等键 `--request-key` 和显式人类同意 `--confirm-relay`，三者缺一不可；CLI 不自行发送短信或邮件。`--relay-status <relay_id>` 只读取一次既有转发结果，绝不重发。`--present` 与 relay 互斥。当前 Backend 未提供 relay 能力时会如实返回不可用。
 
 ## 等待付款输出
 

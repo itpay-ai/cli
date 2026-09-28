@@ -8,12 +8,16 @@ import { buildAgentChatHandoff } from "../render/markdown.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { renderTerminalQR } from "../render/qr.js";
 import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../render/locale.js";
+import { openInSystemBrowser, type BrowserDispatch } from "../render/browser.js";
 import type { OutputSink } from "../render/sink.js";
-import type { ClientHost } from "../state/client_context.js";
+import { hostCapabilities, normalizeViewer, type ClientHost, type ViewerDevice } from "../state/client_context.js";
 import { DEFAULT_BASE_URL } from "../state/config.js";
 import { buildCheckoutQRPlan } from "./buy.js";
 import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
-import { type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
+import { CommandContractError, type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
+import { resolvePresentation, resolveRelay, type PresentationRoute } from "./presentation.js";
+
+export type PresentMethod = "auto" | "browser" | "image" | "link" | "none";
 
 export interface CheckoutPresentationOptions {
   checkoutID: string;
@@ -26,12 +30,62 @@ export interface CheckoutPresentationOptions {
   agentType?: string;
   target?: string;
   locale?: CardLocale;
+  // W5 presentation/relay controls (spec 03 §6). Defaults never open a
+  // browser and never send a message; JSON output stays a plan.
+  present?: PresentMethod;
+  noOpen?: boolean;
+  viewer?: ViewerDevice;
+  relayOption?: string;
+  confirmRelay?: boolean;
+  requestKey?: string;
+  relayStatus?: string;
 }
 
 export async function runCheckoutPresentation(
   backend: BackendClient,
   options: CheckoutPresentationOptions,
 ): Promise<void> {
+  const present = options.present as string | undefined;
+  if (present !== undefined && !["auto", "browser", "image", "link", "none"].includes(present)) {
+    throw new CommandContractError(
+      "present_invalid",
+      `--present must be one of auto|browser|image|link|none`,
+      "使用支持的展示方式；未知参数已被拒绝。",
+      [],
+    );
+  }
+  const relayRequested = Boolean(options.relayOption || options.confirmRelay || options.requestKey || options.relayStatus);
+  if (relayRequested && options.present && options.present !== "none") {
+    throw new CommandContractError(
+      "present_relay_conflict",
+      "--present and --relay-* options are mutually exclusive",
+      "展示和消息转发二选一；不要在同一次调用中同时开页面和发消息。",
+      [],
+    );
+  }
+  if (options.noOpen && options.present === "browser") {
+    throw new CommandContractError(
+      "present_conflict",
+      "--present browser conflicts with --no-open",
+      "--no-open 与浏览器展示冲突；改用 --present link 或 image。",
+      [],
+    );
+  }
+  if (options.relayStatus) {
+    // Read-only relay status. The backend exposes no relay routes yet, so the
+    // honest answer is unavailable — never a resend, never a guessed state.
+    writeCommandEnvelope({
+      status: "relay_unavailable",
+      result: { relay_id: options.relayStatus },
+      instruction: "当前 Backend 未提供消息转发状态查询；不要重发。读取原订单/Checkout 状态核对。",
+      next: { command: `itpay checkout --id ${options.checkoutID} --token ${options.displayToken} --json`, reason: "读取原 Checkout 当前状态" },
+      recovery: [],
+    }, {
+      ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+      ...(options.output ? { output: options.output } : {}),
+    });
+    return;
+  }
   const locale = normalizeCardLocale(options.locale);
   const presentation = await backend.getCheckoutPresentation(
     options.checkoutID,
@@ -94,11 +148,79 @@ export async function runCheckoutPresentation(
   if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
     plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
   }
+
+  // W5: deterministic presentation plan — business state first, then declared
+  // capabilities. `present` is the explicit display request; without it (or
+  // under --json alone) nothing opens.
+  // An explicit --viewer (including "unknown") wins over the host default.
+  const viewer = options.viewer ? normalizeViewer(options.viewer) : (host === "terminal" ? "desktop" : "unknown");
+  const locality = ["terminal", "codex", "claude-code"].includes(host) ? "same_device" : "unknown";
+  const decision = resolvePresentation({
+    business: {
+      commerce_policy: "allowed",
+      payment_state: "unpaid",
+      quote_valid: presentation.rail_quote?.expires_at
+        ? Date.parse(presentation.rail_quote.expires_at) > Date.now()
+        : true,
+      amount_minor: presentation.checkout.amount_minor,
+    },
+    viewer,
+    executor_locality: locality,
+    capabilities: hostCapabilities(host),
+    ...(explicitChoiceFor(options.present) ? { explicit_choice: explicitChoiceFor(options.present)! } : {}),
+  });
+  const presentationResult: Record<string, unknown> = {
+    recommended: decision.recommended,
+    alternatives: decision.alternatives,
+    ...(decision.blocker ? { blocker: decision.blocker } : {}),
+  };
+
+  let dispatch: BrowserDispatch | { status: "not_attempted" } = { status: "not_attempted" };
+  // Explicit --present browser may open even under --json (the flag IS the
+  // display request); --present auto under --json stays a plan and never opens.
+  const browserRequested = options.present === "browser"
+    || (options.present === "auto" && !options.jsonOutput && !options.noOpen && decision.recommended === "open_system_browser");
+  if (browserRequested && !options.noOpen && process.env.ITPAY_NO_BROWSER !== "1") {
+    const target = decision.recommended === "open_embedded_browser" ? decision.recommended : "open_system_browser";
+    dispatch = await openInSystemBrowser(checkoutURL, options.baseURL);
+    presentationResult.dispatched = { route: target, observation: dispatch.status };
+    // Dispatch proves the request was accepted — nothing about visibility.
+    if (dispatch.status === "dispatch_accepted") {
+      envelope.instruction += " 已发起在本机浏览器打开官方确认页；只有用户确认看到页面才视为已显示，没看到时改发链接。";
+    } else {
+      envelope.instruction += " 浏览器打开未成功；按 handoff 链接展示，不要重复尝试同一方式。";
+    }
+  }
+  if (relayRequested) {
+    presentationResult.relay = resolveRelay({
+      ...(options.relayOption ? { relayOption: options.relayOption } : {}),
+      ...(options.confirmRelay ? { confirmRelay: options.confirmRelay } : {}),
+      ...(options.requestKey ? { requestKey: options.requestKey } : {}),
+      backendCapability: false,
+    });
+    envelope.instruction += " 消息转发当前不可用；不要声称已发送，改用现有官方入口展示。";
+  }
+  envelope.result = { ...envelope.result, presentation: presentationResult };
+  envelope.communication = {
+    schema_version: "itpay.communication.v1",
+    tell: decision.communication.tell,
+    wait_for: decision.communication.wait_for,
+    must_convey: decision.communication.must_convey,
+  };
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
     ...(options.output ? { output: options.output } : {}),
     plainResult,
   });
+}
+
+function explicitChoiceFor(present: PresentMethod | undefined): PresentationRoute | undefined {
+  switch (present) {
+    case "browser": return "open_system_browser";
+    case "link": return "show_link";
+    case "image": return "show_official_image";
+    default: return undefined;
+  }
 }
 
 function pendingCheckoutEnvelope(
@@ -150,13 +272,25 @@ function pendingCheckoutEnvelope(
         })),
       } } : {}),
       ...(railPassengersPending ? { rail_passengers_confirmed: false } : {}),
+      ...(presentation.payment_deadline_at ? { payment_deadline_at: presentation.payment_deadline_at } : {}),
+      ...(typeof presentation.payment_remaining_seconds === "number"
+        ? { payment_remaining_seconds: presentation.payment_remaining_seconds }
+        : {}),
+      ...(presentation.server_now ? { server_now: presentation.server_now } : {}),
+      ...(presentation.verified_sms_contact ? { verified_sms_contact: presentation.verified_sms_contact } : {}),
+      ...(presentation.account_phone_option?.masked_recipient
+        ? { account_phone_option: { masked_recipient: presentation.account_phone_option.masked_recipient } }
+        : {}),
     },
     handoff: presentationHandoff.handoff,
     instruction: railPassengersPending
       ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好仅为购票请求、购票时才提交给供应商且不保证满足；无法逐人提交的偏好将自动分配座位，以实际出票为准。`
       : presentationHandoff.instruction,
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
-    recovery: [],
+    recovery: [{
+      command: nextCommand,
+      reason: "付款时限由服务端统一确定，刷新不会延长；到期未支付自动取消后须重新核价下单，不要重发旧付款动作",
+    }],
   };
 }
 
