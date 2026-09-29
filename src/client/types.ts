@@ -718,6 +718,7 @@ export interface RailPlanningProjection {
       pairs_total?: number;
       pairs_failed?: number;
       journeys_total?: number;
+      journeys_eligible?: number;
       journeys_direct?: number;
       journeys_one_transfer?: number;
       journeys_multi_transfer?: number;
@@ -748,6 +749,8 @@ export interface RailJourneyCard {
   route_text?: string;
   rides?: Array<Record<string, unknown>>;
   availability?: string;
+  qualification_status?: "eligible" | "ineligible" | "unknown";
+  qualification_reasons?: string[];
   passengers?: number;
   transfer_count?: number;
   transfer_wait_minutes?: number[];
@@ -758,6 +761,8 @@ export interface RailJourneyCard {
   // demoted (longer wait, worse connection, duplicate group member).
   default_layer?: "main" | "backup" | string;
   backup_reason?: string;
+  backup_baseline_min?: number | null;
+  backup_delta_min?: number | null;
   choice_group_representative?: string | null;
   representative_offer?: {
     offer_id: string;

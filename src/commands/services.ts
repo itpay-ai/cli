@@ -1353,6 +1353,7 @@ export async function runServicesReadResult(
     const journeys: Record<string, unknown>[] = [];
     let nextOffset: number | null = offset;
     let total = 0;
+    let qualificationCounts: { eligible: number; ineligible: number; unknown: number } | undefined;
     let planID: string | undefined;
     let queryRevision: number | undefined;
     while (nextOffset !== null) {
@@ -1370,9 +1371,11 @@ export async function runServicesReadResult(
       planID = response.plan_id;
       queryRevision = response.query_revision;
       const container = (response.page.result ?? response.page) as Record<string, unknown>;
-      const page = container.journey_page as { total?: number; next_offset?: number | null } | undefined;
+      const page = container.journey_page as { total?: number; next_offset?: number | null;
+        qualification_counts?: { eligible: number; ineligible: number; unknown: number } } | undefined;
       const rows = Array.isArray(container.journeys) ? container.journeys as RailJourneyCard[] : [];
       total = typeof page?.total === "number" ? page.total : rows.length;
+      qualificationCounts = page?.qualification_counts ?? qualificationCounts;
       journeys.push(...rows.map((card) => compactRailJourney(card, serviceExecutionID, options.snapshot!)));
       const following = page?.next_offset;
       if (typeof following === "number" && following <= nextOffset) throw new Error("saved page cursor did not advance");
@@ -1387,11 +1390,16 @@ export async function runServicesReadResult(
         snapshot_id: options.snapshot,
         query_revision: queryRevision,
         total,
+        qualification_counts: qualificationCounts,
         offset,
         count: journeys.length,
         journeys,
       },
-      instruction: "这是同一已保存快照的完整线路分页。若问题需要全部方案，沿 next.command 读完再一次回答；未知费用不能当免费。购票条件用所选线路的 detail.command，价格与余票在购买前实时报价。",
+      instruction: qualificationCounts === undefined
+        ? "此历史快照没有完整资格计数；线路仅供核对铁路事实，不能据此认定可购买。沿同快照 detail.command 查看详情。"
+        : qualificationCounts.eligible === 0
+        ? `查到 ${total} 个时刻组合，当前 0 条满足购票资格。请读取诊断线路的 detail.command 查看具体原因；修改条件须依据用户意愿。`
+        : "这是同一已保存快照的完整线路分页；合格线路已排在前面。若问题需要全部方案，沿 next.command 读完再一次回答；未知费用不能当免费。购票条件用合格线路的 detail.command，价格与余票在购买前实时报价。",
       next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${options.snapshot} --offset ${nextOffset} --limit ${limit} --json`, reason: "读取同一快照的下一页线路" },
       recovery: [],
     }, {
@@ -1399,9 +1407,9 @@ export async function runServicesReadResult(
       ...(options.output ? { output: options.output } : {}),
       plainResult: journeys.length > 0
         ? [
-            `${total} combinations (showing ${offset + 1}-${offset + journeys.length}):`,
+            `已保存 ${total} 个车次时刻组合，当前合格 ${qualificationCounts?.eligible ?? "未知"} 条；显示 ${offset + 1}-${offset + journeys.length}：`,
             ...journeys.map((j) =>
-              `${j.default_layer === "backup" ? "[备选] " : "[主选择] "}${j.journey_ref}  ${j.route}`,
+              `${j.qualification_status === "eligible" ? j.default_layer === "backup" ? "[合格备选]" : "[合格]" : j.default_layer === "backup" ? "[备选，仅供诊断]" : "[仅供诊断]"} ${j.journey_ref}  ${j.route}  ${(j.rides as Array<{ train_code?: string; departure?: string; arrival?: string }>).map((r) => `${r.train_code ?? "车次未明"} ${r.departure ?? "时间未明"}→${r.arrival ?? "时间未明"}`).join("；")}  ${j.rail_payable_fen != null ? `参考铁路金额 ${j.rail_payable_fen}分` : "金额未知"}${j.backup_delta_min != null ? `；比本次最短铁路耗时多 ${j.backup_delta_min} 分钟` : ""}${Array.isArray(j.qualification_reasons) ? `；原因 ${j.qualification_reasons.join("、")}` : ""}`,
             ),
           ]
         : [`catalog: ${options.snapshot} (no combinations on this page)`],
@@ -1586,11 +1594,16 @@ function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, s
     journey_ref: card.journey_id,
     ...(card.profile_refs?.balanced ? { profile_ref: card.profile_refs.balanced } : {}),
     default_layer: card.default_layer ?? "main",
+    ...(card.backup_reason ? { backup_reason: card.backup_reason } : {}),
+    ...(card.backup_baseline_min != null ? { backup_baseline_min: card.backup_baseline_min } : {}),
+    ...(card.backup_delta_min != null ? { backup_delta_min: card.backup_delta_min } : {}),
     route: card.route_text ?? (card.route_names ?? card.route ?? []).join("→"),
     rides,
     ...(ticketSeats.length ? { seats: ticketSeats } : {}),
     passengers: card.passengers ?? offer?.ticket_offers?.[0]?.passengers ?? null,
     availability: card.availability ?? "unknown",
+    qualification_status: card.qualification_status ?? "unknown",
+    ...(card.qualification_reasons?.length ? { qualification_reasons: card.qualification_reasons } : {}),
     ...(offer ? { rail_payable_fen: offer.rail_payable_minor, currency: offer.currency } : { rail_payable_fen: null }),
     estimated_trip_total: metrics?.estimated_total_cost ?? null,
     cost_basis: metrics?.cost_basis ?? "unknown",
@@ -1600,7 +1613,7 @@ function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, s
     rail_duration_minutes: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 60000) : null,
     ...(card.observed_at ? { observed_at: card.observed_at } : {}),
     detail: { command: `itpay services read-result ${serviceExecutionID} --snapshot ${snapshotID} --journey ${card.journey_id} --json`,
-      reason: "读取此完整线路的席别、报价和购买条件" },
+      reason: card.qualification_status === "eligible" ? "读取此完整线路的席别、报价和购买条件" : "读取此线路的铁路事实和不可购买原因" },
   };
 }
 
@@ -1611,6 +1624,8 @@ function compactRailTicketPlan(raw: Record<string, unknown>): Record<string, unk
     ticket_plan_ref: raw.ticket_plan_ref,
     passengers: raw.passenger_count ?? (Array.isArray(raw.ticket_offers) ? (raw.ticket_offers[0] as Record<string, unknown> | undefined)?.passengers : null) ?? null,
     purchase_support: raw.purchase_support ?? "none",
+    qualification_status: raw.qualification_status ?? "unknown",
+    qualification_reasons: raw.qualification_reasons ?? [],
     rail_amount_fen: raw.rail_amount_fen ?? null,
     service_fee_fen: raw.service_fee_fen ?? null,
     price_verified: raw.rail_amount_verified === true,
@@ -1703,7 +1718,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   // Journey counts come from the committed catalog — real combination counts,
   // never seat-row counts. Transfer buckets follow the verified transfer_count.
   const journeyMix = counts && (counts.journeys_total ?? 0) > 0
-    ? `${counts.journeys_total}个铁路组合（直达${counts.journeys_direct ?? 0}/1中转${counts.journeys_one_transfer ?? 0}/2中转${counts.journeys_multi_transfer ?? 0}）`
+    ? `已保存${counts.journeys_total}个具体车次时刻组合，其中${counts.journeys_eligible ?? "未知"}条当前满足铁路资格（直达${counts.journeys_direct ?? 0}/1中转${counts.journeys_one_transfer ?? 0}/2中转${counts.journeys_multi_transfer ?? 0}；这些不是不同站序的数量）`
     : "";
   const pairProgress = counts && (counts.pairs_total ?? 0) > 0
     ? `已检查${counts.pairs_checked ?? 0}/${counts.pairs_total}个附近站对`
@@ -1847,7 +1862,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       // §7.1 case 3 on a recoverable pause: unverified scope is named with real
       // counts, and the phrasing never implies the whole nearby range ran.
       const partialPause = !directHint && counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
-        ? `目前找到${counts.journeys_total ?? 0}个可选组合；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
+        ? `已保存${counts.journeys_total ?? 0}个具体车次时刻组合，其中${counts.journeys_eligible ?? "未知"}条当前满足铁路资格；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
         : "";
       // §S5: a dispatch whose outcome is unknown pauses for reconciliation —
       // the message names the state, never rephrases it as a normal pause or
@@ -1879,7 +1894,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       // is "N confirmed + X pairs unverified" — never the case-2 phrasing that
       // implies the whole nearby range was checked.
       const partial = counts && (counts.pairs_total ?? 0) > (counts.pairs_checked ?? 0)
-        ? `目前找到${counts.journeys_total ?? 0}个可选组合；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
+        ? `已保存${counts.journeys_total ?? 0}个具体车次时刻组合，其中${counts.journeys_eligible ?? "未知"}条当前满足铁路资格；还有${(counts.pairs_total ?? 0) - (counts.pairs_checked ?? 0)}个站对/部分中转路径未核验。以下是已确认结果，不能据此断定没有其它走法。`
         : "";
       // §S5: a processing failure with a committed catalog is "saved N
       // verified combinations, later expansion/recommend incomplete" — the

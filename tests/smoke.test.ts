@@ -1184,8 +1184,25 @@ test("rail compact object and shared rows keep ride boundaries and plan facts", 
 test("rail read-result --snapshot plain output marks default layers and regenerates packed routes", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", output: stdoutSink });
 	const out = stdoutCapture.join("");
-	assert.match(out, /\[主选择\] jny_pack_a\s+中山北 C7606 → 广州南换乘114分 → D1820 万州北/);
-	assert.match(out, /\[备选\] jny_pack_b\s+中山北 G68 → 广州南换乘90分 → G1312 万州北/);
+	assert.match(out, /\[仅供诊断\] jny_pack_a\s+中山北 C7606 → 广州南换乘114分 → D1820 万州北/);
+	assert.match(out, /\[备选，仅供诊断\] jny_pack_b\s+中山北 G68 → 广州南换乘90分 → G1312 万州北/);
+	assert.match(out, /历史快照没有完整资格计数/);
+});
+
+test("rail saved page with no qualified journey explains the evidence gap", async () => {
+	const diagnostic = { journey_id: "jny_diag", route_names: ["甲站", "乙站"],
+		rides: [{ train_code: "G1", departure: "2030-10-10 09:00", arrival: "2030-10-10 10:00" }],
+		qualification_status: "ineligible", qualification_reasons: ["INVENTORY_INSUFFICIENT"],
+		availability: "unavailable", booking_support: "none" };
+	const saved = { getServiceExecutionResultItemPage: async () => ({ snapshot_id: "rps_diag", plan_id: "rp_diag", query_revision: 1,
+		page: { result: { journey_page: { total: 1, next_offset: null,
+			qualification_counts: { eligible: 0, ineligible: 1, unknown: 0 } }, journeys: [diagnostic] } } }) } as unknown as BackendClient;
+	await runServicesReadResult(saved, "se_diag", { snapshot: "rps_diag", jsonOutput: true, output: stdoutSink });
+	const result = JSON.parse(stdoutCapture.join("")) as { instruction: string; result: { journeys: Array<{ qualification_status: string; qualification_reasons: string[]; detail: { reason: string } }> } };
+	assert.match(result.instruction, /查到 1 个时刻组合，当前 0 条满足购票资格/);
+	assert.equal(result.result.journeys[0]?.qualification_status, "ineligible");
+	assert.deepEqual(result.result.journeys[0]?.qualification_reasons, ["INVENTORY_INSUFFICIENT"]);
+	assert.match(result.result.journeys[0]?.detail.reason ?? "", /不可购买原因/);
 });
 
 test("rail read-result --snapshot rejects unknown catalog encodings with an upgrade hint", async () => {

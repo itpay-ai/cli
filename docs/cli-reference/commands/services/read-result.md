@@ -27,6 +27,10 @@ itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--
 
 Exact 执行不带选择器时读取已保存全部车次，单次最多合并 100 条并给出明确续读位置。Smart 使用 `--snapshot` 读取固定快照的默认小页，或用 `--journey` 读一条线路的票计划页；按返回的 next.command 续读同快照。这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
 
+Smart 保存目录按本次主推荐、其他合格线路、不可用或资格未知的诊断线路排列；`total` 仍是全部已保存时刻组合数，`qualification_counts` 分别说明当前合格、不合格、未知数。诊断线路保留车次、时刻和 `qualification_reasons`，其 `detail.command` 用于查看事实与原因，不表示可以购买。只有 `qualification_status=eligible` 且逐段票方案完整时，才给当前购买入口。历史快照缺资格字段按未知展示。`--all` 仍读取全部事实，不会重新查询铁路。
+
+进度中的“保存组合”是具体车次与时刻组合数，不是不同站序数；“合格线路”按组合去重，profile 是同一组合下可推荐的席别及接驳选项数。模型实际调用和看到的合格组合以快照 coverage 为准；未穷尽范围不能称全网最优。推荐说明只披露当前方案实际涉及的地面交通、无座、跨日和分段票限制。
+
 CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer token、`agent_device_id` 参数或开发者凭证。
 
 CLI 直接请求 Backend 的当前有效 Grant。历史 `delivery_bindings` 不作为访问判断；Backend 负责验证当前 Vault、Agent instance、Buyer、scope、TTL 和退款锁。
