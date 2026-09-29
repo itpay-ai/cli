@@ -1909,17 +1909,23 @@ services
   .argument("<service_execution_id>")
   .option("--snapshot <snapshot_id>", "rail.progressive.v2: read one journey from a committed planning snapshot")
   .option("--journey <journey_id>", "rail.progressive.v2: journey id to read")
+  .option("--offset <offset>", "saved journey offset", Number, 0)
+  .option("--limit <limit>", "journeys per page (1-20)", Number, 3)
+  .option("--all", "read every saved journey page")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
-      await runServicesReadResult(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), snapshot: options.snapshot, journey: options.journey });
+      await runServicesReadResult(backend, serviceExecutionID, { jsonOutput: Boolean(options.json), snapshot: options.snapshot, journey: options.journey,
+        offset: options.offset, limit: options.limit, all: Boolean(options.all) });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
-        code: "agent_access_denied",
-        instruction: "请用户在订单页面重新授权；不要使用开发者权限绕过授权或退款锁。",
+        code: error instanceof HttpError && error.code === "agent_access_denied" ? "agent_access_denied" : "service_result_read_failed",
+        instruction: error instanceof HttpError && error.code === "agent_access_denied"
+          ? "请用户在订单页面重新授权；不要使用开发者权限绕过授权或退款锁。"
+          : "读取同一服务的已保存结果；若快照已不可读，先查看该服务当前状态和有效动作。",
         recovery: [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "检查交付模式和 grant 状态" }],
       });
     }

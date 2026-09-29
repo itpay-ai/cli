@@ -966,14 +966,15 @@ test("real recommend snapshot drives every CLI read command", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_real", { snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
 	const catalogEnv = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { snapshot_id: string; total: number; journeys: Array<{ ref: string; route: string }> };
+		result: { snapshot_id: string; total: number; journeys: Array<{ journey_ref: string; route: string }> };
 		next?: { command: string };
 	};
 	assert.equal(catalogEnv.status, "ready");
 	assert.equal(catalogEnv.result.snapshot_id, "rsnap_b_rec");
 	assert.equal(catalogEnv.result.total, 19);
-	assert.equal(catalogEnv.result.journeys.length, 19);
-	assert.ok(catalogEnv.result.journeys.every((row) => row.ref && row.route));
+	assert.equal(catalogEnv.result.journeys.length, 3);
+	assert.ok(catalogEnv.result.journeys.every((row) => row.journey_ref && row.route));
+	assert.match(catalogEnv.next?.command ?? "", /--offset 3/);
 
 	// 3) The pinned journey detail resolves through the same snapshot — the
 	// audit's --journey 404 regression stays dead.
@@ -981,14 +982,14 @@ test("real recommend snapshot drives every CLI read command", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_real", { journey: "jny_01db23eedc", snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
 	const detail = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { journey: { journey_id: string; ticket_plans?: unknown[]; representative_offer?: unknown } };
+		result: { journey: { journey_ref: string; rail_payable_fen?: number | null }; ticket_plans?: unknown[] };
 		next: null;
 		interaction?: { select_delegated: string };
 	};
 	assert.equal(detail.status, "ready");
-	assert.equal(detail.result.journey.journey_id, "jny_01db23eedc");
-	assert.ok(Array.isArray(detail.result.journey.ticket_plans));
-	assert.ok(detail.result.journey.representative_offer);
+	assert.equal(detail.result.journey.journey_ref, "jny_01db23eedc");
+	assert.ok(Array.isArray(detail.result.ticket_plans));
+	assert.ok(detail.result.journey.rail_payable_fen);
 	assert.equal(detail.next, null);
 	assert.equal(detail.interaction?.select_delegated, undefined);
 });
@@ -1030,6 +1031,22 @@ test("rail ground evidence stop asks for missing place facts without expanding",
 	assert.doesNotMatch(envelope.instruction, /可授权继续扩大|重新发起查询/);
 });
 
+test("legacy rail plan stays readable but asks for a new search before more dispatch", async () => {
+	const base = await backend.getServiceExecution("se_rail_plan_paused");
+	const client = Object.create(backend) as BackendClient;
+	client.getServiceExecution = async () => ({ ...base, rail_planning: {
+		...base.rail_planning!, search: { ...base.rail_planning!.search,
+			expansion_status: "paused", reason: "legacy_plan_requires_new_search" },
+		available_actions: [],
+	} });
+	await runServicesNext(client, "se_rail_plan_paused", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: null; instruction: string };
+	assert.equal(envelope.status, "awaiting_input");
+	assert.equal(envelope.next, null);
+	assert.match(envelope.instruction, /已保存的结果仍可读取/);
+	assert.match(envelope.instruction, /新的 Smart 查询/);
+});
+
 test("rail progressive snapshot page returns journeys with an opaque cursor", async () => {
 	await runServicesPage(backend, "se_rail_plan_page", "rsnap_1", { offset: 0, limit: 5, jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
@@ -1049,7 +1066,7 @@ test("rail progressive journey detail reads committed evidence without the vault
 	await runServicesReadResult(backend, "se_rail_plan_complete", { journey: "journey_rec", snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { plan_id: string; snapshot_id: string; journey: { journey_id: string; booking_support: string } };
+		result: { plan_id: string; snapshot_id: string; journey: { journey_ref: string } };
 		next: null;
 		interaction?: { select_delegated: string };
 		instruction: string;
@@ -1057,7 +1074,7 @@ test("rail progressive journey detail reads committed evidence without the vault
 	assert.equal(envelope.status, "ready");
 	assert.equal(envelope.result.plan_id, "rplan_1");
 	assert.equal(envelope.result.snapshot_id, "rsnap_1");
-	assert.equal(envelope.result.journey.journey_id, "journey_rec");
+	assert.equal(envelope.result.journey.journey_ref, "journey_rec");
 	assert.equal(envelope.next, null);
 	assert.match(envelope.interaction?.select_delegated ?? "", /select_journey.*journey_id=journey_rec/);
 	assert.match(envelope.instruction, /受保护 Checkout/);
@@ -1069,7 +1086,7 @@ test("rail progressive read-result --snapshot returns compact rows once", async 
 		status: string;
 		result: {
 			plan_id: string; snapshot_id: string; query_revision: number;
-			total: number; journeys: Array<{ ref: string; route: string }>;
+			total: number; journeys: Array<{ journey_ref: string; route: string }>;
 			candidates?: unknown; catalog?: unknown;
 		};
 	};
@@ -1077,18 +1094,34 @@ test("rail progressive read-result --snapshot returns compact rows once", async 
 	assert.equal(envelope.result.snapshot_id, "rsnap_1");
 	assert.equal(envelope.result.total, 2);
 	assert.equal(envelope.result.journeys.length, 2);
-	assert.ok(envelope.result.journeys.every((row) => row.ref && row.route));
+	assert.ok(envelope.result.journeys.every((row) => row.journey_ref && row.route));
 	// The compact rows ship once without duplicating the raw catalog.
 	assert.equal(envelope.result.candidates, undefined);
 	assert.equal(envelope.result.catalog, undefined);
+});
+
+test("rail snapshot read pages whole journeys and keeps explicit all", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_page", { snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
+	const first = stdoutCapture.join("");
+	const page = JSON.parse(first) as { result: { total: number; count: number; journeys: Array<{ journey_ref: string }> }; next: { command: string } };
+	assert.equal(page.result.total, 8);
+	assert.equal(page.result.count, 3);
+	assert.match(page.next.command, /--snapshot rsnap_1 --offset 3 --limit 3/);
+	assert.ok(Buffer.byteLength(first, "utf8") <= 8192);
+	stdoutCapture.length = 0;
+	await runServicesReadResult(backend, "se_rail_plan_page", { snapshot: "rsnap_1", all: true, jsonOutput: true, output: stdoutSink });
+	const all = JSON.parse(stdoutCapture.join("")) as { result: { count: number; journeys: Array<{ journey_ref: string }> }; next: null };
+	assert.equal(all.result.count, 8);
+	assert.equal(new Set(all.result.journeys.map((row) => row.journey_ref)).size, 8);
+	assert.equal(all.next, null);
 });
 
 test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { snapshot_id: string; total: number; journeys: Array<{ ref: string; rides: Array<{ train_code: string; departure: string }>;
-			calculation_scope?: Record<string, unknown>; detail: { command: string } }> };
+		result: { snapshot_id: string; total: number; journeys: Array<{ journey_ref: string; rides: Array<{ train_code: string; departure: string; required_buffer_minutes?: number }>;
+			cost_basis?: string; estimated_trip_total?: number | null; detail: { command: string } }> };
 		next: null;
 	};
 	assert.equal(envelope.status, "ready");
@@ -1096,11 +1129,12 @@ test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", a
 	assert.equal(envelope.result.journeys.length, 2);
 	assert.equal(envelope.result.journeys[0]?.rides[0]?.train_code, "C7606");
 	assert.equal(envelope.result.journeys[0]?.rides[0]?.departure, "2026-10-01 08:00");
+	assert.equal(envelope.result.journeys[0]?.rides[1]?.required_buffer_minutes, 30);
 	assert.equal(envelope.result.journeys[0]?.detail.command,
 		"itpay services read-result se_rail_plan_packed --snapshot rsnap_packed --journey jny_pack_a --json");
-	assert.equal(envelope.result.journeys[0]?.calculation_scope?.cost_basis, "rail_fare");
-	assert.equal(envelope.result.journeys[0]?.calculation_scope?.estimated_total_cost, 27);
-	assert.equal(envelope.result.journeys[1]?.calculation_scope?.origin, "legacy_unknown");
+	assert.equal(envelope.result.journeys[0]?.cost_basis, "rail_fare");
+	assert.equal(envelope.result.journeys[0]?.estimated_trip_total, 27);
+	assert.equal(envelope.result.journeys[1]?.cost_basis, "unknown");
 	assert.equal(envelope.next, null);
 });
 

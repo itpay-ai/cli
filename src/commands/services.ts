@@ -104,12 +104,16 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
       { name: "origin_location", description: "已知坐标对象（高德 GCJ-02）" },
       { name: "destination_location", description: "目的地坐标对象" },
       { name: "depart_after", description: "不早于该时间出发" },
+      { name: "depart_before", description: "不晚于该时间出发" },
       { name: "arrive_before", description: "不晚于该时间到达" },
+      { name: "user_query", description: "旅行需求原话，最多4096 UTF-8字节；时间等明确条件仍填写对应结构化字段" },
+      { name: "seat_preferences", description: "已确认的席别代码数组，不填写旅客身份" },
       { name: "priority", enum: "balanced|fastest|cheapest|safest|flexible", description: "方案偏好" },
+      { name: "duration_basis", enum: "rail|door_to_door", description: "最快默认按铁路全程含换乘；明确要求且接驳证据完整时可按门到门" },
       { name: "max_transfers", description: "允许中转次数，0-2" },
       { name: "passengers", description: "成人乘客整数 1-5；不填写身份资料" },
     ],
-    input_example: { origin: "上海", destination: "长沙", travel_date: "2026-10-06", arrive_before: "15:00", priority: "fastest", passengers: 1 },
+    input_example: { origin: "<用户出发地点>", destination: "<用户目的地>", travel_date: "<用户出行日期 YYYY-MM-DD>", priority: "fastest", passengers: 1 },
     notes: [
       "位置有歧义时会进入位置确认步骤，请用户选定后继续同一执行",
       "推荐结果含每趟车的席别与余票；购票在后续受保护流程完成",
@@ -1288,7 +1292,7 @@ export async function runServicesList(
 export async function runServicesReadResult(
   backend: BackendClient,
   serviceExecutionID: string,
-  options: ServicesCommandOptions & { jsonOutput?: boolean; snapshot?: string; journey?: string } = {},
+  options: ServicesCommandOptions & { jsonOutput?: boolean; snapshot?: string; journey?: string; offset?: number; limit?: number; all?: boolean } = {},
 ): Promise<void> {
   if (!options.snapshot && !options.journey) {
     const model = await backend.getServiceExecution(serviceExecutionID);
@@ -1341,51 +1345,79 @@ export async function runServicesReadResult(
   // rail.planning catalog read: --snapshot returns compact rows for the
   // committed rail.catalog.v3; journey detail remains available separately.
   if (options.snapshot && !options.journey) {
-    const committed = await backend.getRailPlanningCatalog(serviceExecutionID, options.snapshot);
-    const catalog = committed.catalog;
-    // The committed catalog may ship shared_rows.v1 positional rows — decode
-    // the summary through the column legend; an unknown encoding is an
-    // explicit upgrade error, never an empty catalog.
-    const decoded = catalog
-      ? decodeRailCatalogJourneys(catalog as Record<string, unknown>)
-      : { journeys: [], packed: false };
-    const journeys = decoded.journeys.map((journey) => ({ ...journey,
-      detail: { command: `itpay services read-result ${serviceExecutionID} --snapshot ${committed.snapshot_id} --journey ${journey.ref} --json`,
-        reason: "读取同一已保存快照的此行程完整购票条件" },
-    }));
-    const counts = (catalog?.counts ?? {}) as Record<string, unknown>;
-    const journeyCount = journeys.length || Number(counts?.combinations ?? 0);
+    const offset = options.offset ?? 0;
+    const limit = options.limit ?? 3;
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 20) {
+      throw new CommandContractError("page_invalid", "offset must be non-negative and limit 1-20", "目录页码无效；请按返回的 next.command 读取。", []);
+    }
+    const journeys: Record<string, unknown>[] = [];
+    let nextOffset: number | null = offset;
+    let total = 0;
+    let planID: string | undefined;
+    let queryRevision: number | undefined;
+    while (nextOffset !== null) {
+      let response: Awaited<ReturnType<BackendClient["getServiceExecutionResultItemPage"]>>;
+      try {
+        response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, options.snapshot, nextOffset, limit);
+      } catch (error) {
+        if (error instanceof HttpError && error.code === "result_not_pageable") {
+          const committed = await backend.getRailPlanningCatalog(serviceExecutionID, options.snapshot);
+          decodeRailCatalogJourneys(committed.catalog);
+        }
+        throw error;
+      }
+      if (response.snapshot_id !== options.snapshot) throw new Error("saved page snapshot changed");
+      planID = response.plan_id;
+      queryRevision = response.query_revision;
+      const container = (response.page.result ?? response.page) as Record<string, unknown>;
+      const page = container.journey_page as { total?: number; next_offset?: number | null } | undefined;
+      const rows = Array.isArray(container.journeys) ? container.journeys as RailJourneyCard[] : [];
+      total = typeof page?.total === "number" ? page.total : rows.length;
+      journeys.push(...rows.map((card) => compactRailJourney(card, serviceExecutionID, options.snapshot!)));
+      const following = page?.next_offset;
+      if (typeof following === "number" && following <= nextOffset) throw new Error("saved page cursor did not advance");
+      nextOffset = typeof following === "number" ? following : null;
+      if (!options.all) break;
+    }
     writeCommandEnvelope({
       status: "ready",
       result: {
         service_execution_id: serviceExecutionID,
-        plan_id: committed.plan_id,
-        snapshot_id: committed.snapshot_id,
-        query_revision: committed.query_revision,
-        coverage: catalog?.coverage,
-        calculation_scope: catalog?.request_summary,
-        total: journeyCount,
+        plan_id: planID,
+        snapshot_id: options.snapshot,
+        query_revision: queryRevision,
+        total,
+        offset,
+        count: journeys.length,
         journeys,
       },
-      instruction: "这是同一已保存快照的紧凑行程目录。按用户问题筛选全部 journeys 并一次回答；未计入接驳或未知费用不能当免费。需要购票详情时执行所选行 detail.command；价格和余票仍须购买前实时报价。",
-      next: null,
+      instruction: "这是同一已保存快照的完整线路分页。若问题需要全部方案，沿 next.command 读完再一次回答；未知费用不能当免费。购票条件用所选线路的 detail.command，价格与余票在购买前实时报价。",
+      next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${options.snapshot} --offset ${nextOffset} --limit ${limit} --json`, reason: "读取同一快照的下一页线路" },
       recovery: [],
     }, {
       ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
       ...(options.output ? { output: options.output } : {}),
       plainResult: journeys.length > 0
         ? [
-            `${journeyCount} combinations:`,
+            `${total} combinations (showing ${offset + 1}-${offset + journeys.length}):`,
             ...journeys.map((j) =>
-              `${j.defaultLayer === "backup" ? "[备选] " : "[主选择] "}${j.ref}  ${j.route}  ${j.rides?.map((r) => `${r.train_code} ${r.departure}–${r.arrival}`).join(" / ") ?? ""}`,
+              `${j.default_layer === "backup" ? "[备选] " : "[主选择] "}${j.journey_ref}  ${j.route}`,
             ),
           ]
-        : [`catalog: ${committed.snapshot_id} (no combinations)`],
+        : [`catalog: ${options.snapshot} (no combinations on this page)`],
     });
     return;
   }
   if (options.journey) {
     const detail = await backend.getRailJourneyDetail(serviceExecutionID, options.journey, options.snapshot);
+    const planOffset = options.offset ?? 0;
+    const planLimit = options.limit ?? 3;
+    if (!Number.isInteger(planOffset) || planOffset < 0 || !Number.isInteger(planLimit) || planLimit < 1 || planLimit > 20) {
+      throw new CommandContractError("page_invalid", "offset must be non-negative and limit 1-20", "席别方案页码无效；请按返回的 next.command 读取。", []);
+    }
+    const plans = detail.journey.ticket_plans ?? [];
+    const selected = options.all ? plans : plans.slice(planOffset, planOffset + planLimit);
+    const nextOffset = !options.all && planOffset + selected.length < plans.length ? planOffset + selected.length : null;
     writeCommandEnvelope({
       status: "ready",
       result: {
@@ -1393,10 +1425,13 @@ export async function runServicesReadResult(
         plan_id: detail.plan_id,
         snapshot_id: detail.snapshot_id,
         query_revision: detail.query_revision,
-        journey: detail.journey,
+        journey: compactRailJourney(detail.journey, serviceExecutionID, detail.snapshot_id),
+        ticket_plan_total: plans.length,
+        ticket_plan_offset: planOffset,
+        ticket_plans: selected.map(compactRailTicketPlan),
       },
-      instruction: "展示该 journey 的完整明细（车次、分段、席别报价、接驳估计与风险标注）。rail_payable 只是该行程当前可购报价的参考价，不是锁价；下单前须走受保护 Checkout 收集乘车人。用户已明确委托按规则代选时用 select_delegated；用户亲自选定该行程时用 select_user_chosen，不能把 Agent 选择记作人类动作。",
-      next: null,
+      instruction: "同一线路的完整车次和分页席别方案；报价只是参考价，购买前须受保护 Checkout 实时报价。若仍有席别方案，沿 next.command 读取。代选与真人选择按用户真实授权区分。",
+      next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${detail.snapshot_id} --journey ${options.journey} --offset ${nextOffset} --limit ${planLimit} --json`, reason: "读取此行程余下席别方案" },
       ...(detail.journey?.booking_support === "single_leg" ? { interaction: {
         schema_version: "itpay.interaction.v1" as const, stage: "query_results_ready",
         select_user_chosen: `itpay services action ${serviceExecutionID} --action select_journey --actor-type human --status approved --input journey_id=${detail.journey.journey_id} --json`,
@@ -1520,6 +1555,75 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
     instruction: `告诉用户：付款已确认，订单处理状态待确认（${rail.state}）；付款成功不代表已出票，请勿重复购买或再次付款。稍后只读取同一任务。`,
     next: { command: `itpay services next ${execution.service_execution_id} --json`, reason: "稍后读取同一出票任务" },
     recovery: [],
+  };
+}
+
+function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, snapshotID: string): Record<string, unknown> {
+  if (!card.journey_id) throw new Error("saved journey has no stable ID");
+  const rides = (card.rides ?? []).map((ride) => ({
+    train_code: ride.train_code ?? (Array.isArray(ride.train_codes) ? ride.train_codes.join("/") : null),
+    from_station: ride.from_station ?? null, from_station_code: ride.from_station_code ?? null,
+    departure: ride.departure ?? null, to_station: ride.to_station ?? null,
+    to_station_code: ride.to_station_code ?? null, arrival: ride.arrival ?? null,
+    ...(typeof ride.wait_minutes === "number" ? { wait_minutes: ride.wait_minutes } : {}),
+    ...(typeof ride.minimum_connection_minutes === "number" ? { required_buffer_minutes: ride.minimum_connection_minutes } : {}),
+    ...(ride.same_run === true ? { same_run: true } : {}),
+  }));
+  const offer = card.representative_offer;
+  const metrics = card.representative_metrics;
+  const ticketSeats = (offer?.ticket_offers ?? []).map((raw) => ({
+    leg_index: raw.leg_index, seat_type: raw.seat_type, seat_name: raw.seat_name,
+    availability: raw.availability_text, remaining: raw.inventory_exact === true ? raw.remaining : null,
+  }));
+  const railwayTime = (value: unknown) => {
+    if (typeof value !== "string") return NaN;
+    const time = value.replace(" ", "T");
+    return Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(time) ? time : `${time}Z`);
+  };
+  const start = railwayTime(rides[0]?.departure);
+  const end = railwayTime(rides.at(-1)?.arrival);
+  return {
+    journey_ref: card.journey_id,
+    ...(card.profile_refs?.balanced ? { profile_ref: card.profile_refs.balanced } : {}),
+    default_layer: card.default_layer ?? "main",
+    route: card.route_text ?? (card.route_names ?? card.route ?? []).join("→"),
+    rides,
+    ...(ticketSeats.length ? { seats: ticketSeats } : {}),
+    passengers: card.passengers ?? offer?.ticket_offers?.[0]?.passengers ?? null,
+    availability: card.availability ?? "unknown",
+    ...(offer ? { rail_payable_fen: offer.rail_payable_minor, currency: offer.currency } : { rail_payable_fen: null }),
+    estimated_trip_total: metrics?.estimated_total_cost ?? null,
+    cost_basis: metrics?.cost_basis ?? "unknown",
+    duration_basis: metrics?.duration_basis ?? "unknown",
+    timezone: "Asia/Shanghai",
+    ...(card.risk_notes?.length ? { risk_notes: card.risk_notes } : {}),
+    rail_duration_minutes: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 60000) : null,
+    ...(card.observed_at ? { observed_at: card.observed_at } : {}),
+    detail: { command: `itpay services read-result ${serviceExecutionID} --snapshot ${snapshotID} --journey ${card.journey_id} --json`,
+      reason: "读取此完整线路的席别、报价和购买条件" },
+  };
+}
+
+function compactRailTicketPlan(raw: Record<string, unknown>): Record<string, unknown> {
+  const legs = Array.isArray(raw.legs) ? raw.legs as Record<string, unknown>[] : [];
+  const seats = Array.isArray(raw.seat_offers) ? raw.seat_offers as Record<string, unknown>[][] : [];
+  return {
+    ticket_plan_ref: raw.ticket_plan_ref,
+    passengers: raw.passenger_count ?? (Array.isArray(raw.ticket_offers) ? (raw.ticket_offers[0] as Record<string, unknown> | undefined)?.passengers : null) ?? null,
+    purchase_support: raw.purchase_support ?? "none",
+    rail_amount_fen: raw.rail_amount_fen ?? null,
+    service_fee_fen: raw.service_fee_fen ?? null,
+    price_verified: raw.rail_amount_verified === true,
+    legs: legs.map((leg, index) => ({
+      train_code: leg.train_code ?? null,
+      from_station: leg.from_station ?? null, from_station_code: leg.from_station_code ?? null,
+      departure: leg.departure ?? null,
+      to_station: leg.to_station ?? null, to_station_code: leg.to_station_code ?? null,
+      arrival: leg.arrival ?? null,
+      seats: (seats[index] ?? []).map((seat) => ({ seat_type: seat.seat_type, seat_name: seat.seat_name,
+        availability: seat.availability_text, remaining: seat.inventory_exact === true ? seat.remaining : null,
+        unit_fare_fen: seat.fare_minor, eligible: seat.eligible === true })),
+    })),
   };
 }
 
@@ -1714,6 +1818,13 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         recovery: [],
       };
     case "paused": {
+      if (plan.search?.reason === "legacy_plan_requires_new_search") {
+        return {
+          status: "awaiting_input", result,
+          instruction: "这次规划使用旧算法快照，当前版本已暂停后续查询。已保存的结果仍可读取；若需继续覆盖未查范围，请按原出行条件发起一项新的 Smart 查询。不要把旧快照解释为新版完整结果。",
+          next: null, recovery: [],
+        };
+      }
       // §7.1 case 1: usable directs committed while ranked scope remains. The
       // message must carry real counts, and expansion is a user choice — the
       // Agent must not treat "expandable" as consent already given.

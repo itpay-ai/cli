@@ -689,6 +689,7 @@ export interface RailBookingStatus {
 
 export interface RailPlanningProjection {
   schema_version?: string;
+  planner_behavior_version?: "rail.planner.v3" | string;
   plan_id?: string;
   service_execution_id?: string;
   query_revision?: number;
@@ -738,6 +739,7 @@ export interface RailJourneyCard {
   tradeoff_codes?: string[];
   profile_ref?: string;
   recommended_profile?: Record<string, unknown>;
+  profile_refs?: Record<string, string | null>;
   representative_metrics?: Record<string, unknown>;
   journey_id: string;
   route_family_id: string;

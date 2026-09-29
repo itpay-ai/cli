@@ -4,7 +4,7 @@
 
 ## 范围与意义
 
-同一命令读取三种已保存结果：铁路 Exact 车次页自动合并成紧凑业务行、铁路 Smart 快照完整紧凑车次目录，或持有效 grant 读取 Vault 保护内容。铁路读取免费、只读且不重新调用供应商。
+同一命令读取三种已保存结果：铁路 Exact 车次页自动合并成紧凑业务行、铁路 Smart 快照分页紧凑车次目录，或持有效 grant 读取 Vault 保护内容。铁路读取免费、只读且不重新调用供应商。
 
 **上游：** 铁路查询的已保存结果入口，或 `services next` 返回 `vault_artifact` 且用户已在订单页面授权。
 **下游：** 铁路紧凑行中使用逐行 `detail.command` 读取购买条件；Vault 仅在 grant scope 和 TTL 内使用返回字段。
@@ -12,17 +12,20 @@
 ## 语法与参数
 
 ```bash
-itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--journey <journey_id>] [--json]
+itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--journey <journey_id>] [--offset <offset>] [--limit <limit>] [--all] [--json]
 ```
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `service_execution_id` | 是 | 铁路查询或 Vault 交付对应的 execution ID。 |
-| `--journey <journey_id>` | 否 | rail.progressive.v2 规划明细：读取指定 journey 的完整卡片（分段、席别报价、接驳估计、风险标注）。免费、属主校验、不触发供应商调用。 |
-| `--snapshot <snapshot_id>` | 否 | 单独使用时读取该 Smart 已提交快照的完整紧凑目录；与 `--journey` 配合时读取一条完整卡片。 |
+| `--journey <journey_id>` | 否 | rail.progressive.v2 规划明细：读取指定 journey 的分段与席别选项；票计划按页返回。免费、属主校验、不触发供应商调用。 |
+| `--snapshot <snapshot_id>` | 否 | 单独使用时读取该 Smart 已提交快照的紧凑线路页；与 `--journey` 配合时读取该线路详情页。 |
+| `--offset <offset>` | 否 | Smart 保存结果从零开始的页偏移；不改变快照或重新查询。 |
+| `--limit <limit>` | 否 | Smart 保存结果当前页条数；默认3条完整线路或3个票计划。 |
+| `--all` | 否 | 显式读取 Smart 保存目录全量；输出可能很大，常规读取应沿当前页的 next.command。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
 
-Exact 执行不带选择器时读取已保存全部车次，单次最多合并 100 条并给出明确续读位置。Smart 使用 `--snapshot` 读取固定快照，或用 `--journey` 读单程明细；这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
+Exact 执行不带选择器时读取已保存全部车次，单次最多合并 100 条并给出明确续读位置。Smart 使用 `--snapshot` 读取固定快照的默认小页，或用 `--journey` 读一条线路的票计划页；按返回的 next.command 续读同快照。这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
 
 CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer token、`agent_device_id` 参数或开发者凭证。
 

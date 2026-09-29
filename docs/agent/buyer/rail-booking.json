@@ -14,18 +14,52 @@
     "comparison": "If the human only asked to compare, answer from the results and stop. A clear purchase delegation permits selection under their rules, subject to required human terms."
   },
   "flow_at_a_glance": [
-    { "step": "search Exact", "command": "itpay services run itpay-rail-exact --input-json <query-file> --json", "returns": "one station-pair query execution, resolved scope and either useful results or a same-execution wait action", "next": "follow the current next command when still working; compare results and stop if the request is satisfied" },
-    { "step": "search Smart", "command": "itpay services run itpay-rail-smart --input-json <query-file> --json", "returns": "one broader planning execution, observed coverage and either useful results or a same-execution wait action", "next": "follow the current next command when still working; compare results and stop if the request is satisfied" },
-    { "step": "read saved result", "command": "itpay services read-result <query_execution_id> --json (Exact), or --snapshot <snapshot_id> --json (Smart)", "returns": "saved rows with a stable detail.command for each train or journey", "next": "for a delegated purchase, run the chosen row's detail.command; do not resubmit the query" },
-    { "step": "book", "command": "itpay services run itpay-rail-booking --input-json <booking-file> --json", "returns": "a separate booking execution using the returned selection token, seat code and party size", "next": "follow its review or waiting action on that same booking execution" },
-    { "step": "review", "command": "itpay services next <booking_execution_id> --json", "returns": "current review revision, material terms and a non-executable confirm_booking input_template", "next": "submit the returned actor-type human template only after genuine consent; reuse an unchanged explicit consent for code-only correction" },
-    { "step": "checkout", "command": "use the returned next or handoff for the same booking execution", "returns": "an official protected payment entry", "next": "do not infer paid or issued from the handoff" },
-    { "step": "aftercare", "command": "itpay order <order_id> --json", "returns": "authoritative payment and ticket state", "next": "use orders-refunds for the same order when needed" }
+    {
+      "step": "search Exact",
+      "command": "itpay services run itpay-rail-exact --input-json <query-file> --json",
+      "returns": "one station-pair query execution, resolved scope and either useful results or a same-execution wait action",
+      "next": "follow the current next command when still working; compare results and stop if the request is satisfied"
+    },
+    {
+      "step": "search Smart",
+      "command": "itpay services run itpay-rail-smart --input-json <query-file> --json",
+      "returns": "one broader planning execution, observed coverage and either useful results or a same-execution wait action",
+      "next": "follow the current next command when still working; compare results and stop if the request is satisfied"
+    },
+    {
+      "step": "read saved result",
+      "command": "itpay services read-result <query_execution_id> --json (Exact), or --snapshot <snapshot_id> --json (Smart)",
+      "returns": "saved rows with a stable detail.command for each train or journey",
+      "next": "for a delegated purchase, run the chosen row's detail.command; do not resubmit the query"
+    },
+    {
+      "step": "book",
+      "command": "itpay services run itpay-rail-booking --input-json <booking-file> --json",
+      "returns": "a separate booking execution using the returned selection token, seat code and party size",
+      "next": "follow its review or waiting action on that same booking execution"
+    },
+    {
+      "step": "review",
+      "command": "itpay services next <booking_execution_id> --json",
+      "returns": "current review revision, material terms and a non-executable confirm_booking input_template",
+      "next": "submit the returned actor-type human template only after genuine consent; reuse an unchanged explicit consent for code-only correction"
+    },
+    {
+      "step": "checkout",
+      "command": "use the returned next or handoff for the same booking execution",
+      "returns": "an official protected payment entry",
+      "next": "do not infer paid or issued from the handoff"
+    },
+    {
+      "step": "aftercare",
+      "command": "itpay order <order_id> --json",
+      "returns": "authoritative payment and ticket state",
+      "next": "use orders-refunds for the same order when needed"
+    }
   ],
   "understand_before_search": [
     "Identify date, arrival deadline, party size, destination precision, speed versus broad coverage, and whether the human delegated buying.",
     "Use existing knowledge or one brief official information lookup to form a credible station pair. It helps identify stations, not current trains, seats, prices or global optimality. Do not make external research mandatory.",
-    "For Shanghai to Changsha with a fast arrival before 15:00, Shanghai Hongqiao → Changsha South is a credible pair to verify first with Exact. State the intended scope in one sentence; do not re-ask the stated speed preference.",
     "A city or district is an area, not necessarily the namesake station. Shanghai station and Shanghai city can look similar in text but have different scope."
   ],
   "choose_search": {
@@ -37,23 +71,22 @@
     "exact": {
       "command": "itpay services run itpay-rail-exact --input-json <query-file> --json",
       "example": {
-        "origin": "上海虹桥",
-        "destination": "长沙南",
-        "travel_date": "2026-10-06"
+        "origin": "<已核实出发站>",
+        "destination": "<已核实到达站>",
+        "travel_date": "<用户出行日期 YYYY-MM-DD>"
       },
       "contract": "Only origin, destination and travel_date are accepted. Use station names, not an undocumented station-code field. Filter time, seat and quantity against returned rows. Date is illustrative; use the actual requested queryable date."
     },
     "smart": {
       "command": "itpay services run itpay-rail-smart --input-json <query-file> --json",
       "example": {
-        "origin": "上海",
-        "destination": "长沙",
-        "travel_date": "2026-10-06",
-        "arrive_before": "15:00",
+        "origin": "<用户出发地点>",
+        "destination": "<用户目的地>",
+        "travel_date": "<用户出行日期 YYYY-MM-DD>",
         "priority": "fastest",
         "passengers": 1
       },
-      "contract": "Origin/destination may be areas or precise places. Adult passengers is an integer 1–5. arrive_before maps to arrive_by; conflicting aliases are rejected. preference_context is currently unsupported; do not send it."
+      "contract": "Origin/destination may be areas or precise places. Adult passengers is an integer 1–5. arrive_before maps to arrive_by; conflicting aliases are rejected. preference_context is currently unsupported; do not send it. 后端为新计划固定 rail.planner.v3；旧未完成计划会暂停，新查询沿原用户条件发起，保存结果仍可读。"
     },
     "result": "Read the resolved station pair or area scope, observed coverage, complete compact train rows, fare/inventory evidence and stable references. The recommendation card is not the full catalog. Unknown cost and unverified address ground facts remain unknown.",
     "waiting": "A query run waits within a bound. To continue, use the same execution with itpay services next <execution_id> --timeout 120 --json; it is read-only. Do not sleep/get/events repeatedly or resubmit input.",
