@@ -197,7 +197,7 @@ try {
   assert.equal(skillHelp.result.skill, "itpay");
   assert.match(skillHelp.result.content, /Choose one entry/);
   assert.match(skillHelp.result.content, /Show the human/);
-  assert.match(skillHelp.result.content, /rail-booking --json/);
+  assert.match(skillHelp.result.content, /docs show rail-booking/);
   assert.match(skillHelp.result.content, /Refund/);
   assert.match(skillHelp.result.content, /Keep internal/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);

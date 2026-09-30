@@ -1680,17 +1680,23 @@ services
   .argument("<service_execution_id>")
   .requiredOption("--capability <capability_id>")
   .option("--input <key=value>", "redacted input summary", collectOption, [])
+  .option("--input-json <file>", "JSON object containing the complete capability input")
   .option("--json", "output JSON")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     const backend = newBackendClient(config);
     try {
+      const recovery = [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取当前动作要求" }];
+      if (options.inputJson && options.input.length > 0) {
+        throw new CommandContractError("capability_input_invalid", "--input and --input-json cannot be combined", "嵌套输入用 --input-json <file>，扁平输入用 --input key=value，二选一；本次未调用供应商。", recovery);
+      }
+      const input = options.inputJson ? readInputJsonObject(options.inputJson, "capability_input_invalid", recovery) : parseKeyValueList(options.input);
       await runServicesInvoke(
         backend,
         config,
         serviceExecutionID,
         options.capability,
-        parseKeyValueList(options.input),
+        input,
         { jsonOutput: Boolean(options.json) },
       );
     } catch (error) {

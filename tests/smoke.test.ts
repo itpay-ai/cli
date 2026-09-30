@@ -5940,3 +5940,19 @@ test("Vault missing context stays a template and preparing keeps all sections", 
  stdoutCapture=[];await runVaultRead(client,"var_company_report",["registration","finance","registration"],{host:"telegram",target:"chat with spaces",agentType:"openclaw",jsonOutput:true,output:stdoutSink});
  const preparing=JSON.parse(stdoutCapture.join(""));assert.match(preparing.next.command,/--section registration --section finance/);assert.match(preparing.next.command,/--host telegram --target 'chat with spaces'/);assert.match(preparing.next.command,/--agent-type openclaw vault read/);
 });
+
+test("invoke accepts its input-json recovery template and rejects mixed input before HTTP", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-invoke-json-"));
+  const file = join(home, "input.json");
+  writeFileSync(file, JSON.stringify({ keyword: "广州塔" }));
+  const args = ["--agent-type", "workbuddy", "services", "invoke", "se_rail_catalog", "--capability", "fuzzy_disambiguation", "--input-json", file, "--json"];
+  const env = { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home };
+  const response = JSON.parse((await runCLI(args, env)).stdout);
+  assert.equal(response.status, "result_ready");
+  const before = mock.requests.filter(request => request.path.includes("/capabilities/")).length;
+  await assert.rejects(runCLI([...args, "--input", "keyword=other"], env), (error: unknown) => {
+    assert.equal(JSON.parse(String((error as { stdout?: string }).stdout)).error.code, "capability_input_invalid");
+    return true;
+  });
+  assert.equal(mock.requests.filter(request => request.path.includes("/capabilities/")).length, before);
+});
