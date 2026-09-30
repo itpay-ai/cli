@@ -2108,7 +2108,7 @@ test("runBuy (markdown) renders a markdown block with a QR image and a link", as
   assert.match(text, /display_token=/);
 });
 
-test("runBuy (plain-chat) prints a short text + URL block", async () => {
+test("runBuy (plain-chat) prints the same payment facts and next action as JSON", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -2123,9 +2123,10 @@ test("runBuy (plain-chat) prints a short text + URL block", async () => {
     output: stdoutSink,
   });
   const text = stdoutCapture.join("");
-  assert.match(text, /open: https:\/\//);
-  assert.match(text, /open: .*display_token=/);
-  assert.match(text, /qr_image:/);
+  assert.match(text, /human_checkout_required/);
+  assert.match(text, /handoff.url: .*display_token=/);
+  assert.match(text, /next: itpay checkout --id/);
+  assert.match(text, /handoff.qr_image_url:/);
 });
 
 test("runBuy --pay sends display_token to payment intent creation", async () => {

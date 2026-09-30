@@ -219,7 +219,7 @@ export async function runBuy(
   }
 
   // --- Output ---
-  if (options.jsonOutput) {
+  if (options.jsonOutput || platformKeyForHost(options.host) === "plain_chat") {
     const envelope = buildBuyEnvelope({
       cart,
       checkoutID,
@@ -232,7 +232,7 @@ export async function runBuy(
       ...(options.agentType ? { agentType: options.agentType } : {}),
       ...(options.target ? { target: options.target } : {}),
     });
-    writeCommandEnvelope(envelope, { jsonOutput: true, ...(options.output ? { output: options.output } : {}) });
+    writeCommandEnvelope(envelope, { jsonOutput: Boolean(options.jsonOutput), ...(options.output ? { output: options.output } : {}), ...(options.agentType ? { agentType: options.agentType } : {}) });
     return {
       kind: "checkout_rendered",
       plan,
