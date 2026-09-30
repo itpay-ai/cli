@@ -5957,3 +5957,16 @@ test("invoke accepts its input-json recovery template and rejects mixed input be
   });
   assert.equal(mock.requests.filter(request => request.path.includes("/capabilities/")).length, before);
 });
+
+test("multi-service catalog text keeps each real entry without a guessed top-level choice", async () => {
+  const client = Object.create(backend) as BackendClient;
+  const original = await backend.getCatalogManifest();
+  const first = original.manifest.items[0]!;
+  client.getCatalogManifest = async () => ({ ...original, manifest: { ...original.manifest, items: [first, { ...first, title: "另一服务", service_id: "itpay-rail-smart" }] } });
+  await runCatalogList(client, { output: stdoutSink });
+  const plain = stdoutCapture.join("");
+  assert.match(plain, /entry: itpay services start svc_qizhidao_company_lookup --json/);
+  assert.match(plain, /entry: itpay services start itpay-rail-smart --json/);
+  assert.match(plain, /entry: itpay docs show rail-booking/);
+  assert.doesNotMatch(plain, /\nnext:/);
+});

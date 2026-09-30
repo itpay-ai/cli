@@ -69,6 +69,8 @@ function catalogPlainLines(version: string, services: Record<string, unknown>[])
   for (const service of services) {
     lines.push(`service: ${String(service.title)}`);
     lines.push(`  service_id: ${String(service.service_id ?? "unavailable")}`);
+    if (service.entry) lines.push(`  entry: ${String(service.entry)}`);
+    if (service.guide) lines.push(`  entry: ${String(service.guide)}`);
     if (service.description) lines.push(`  description: ${String(service.description)}`);
     const discovery = service.discovery as Record<string, unknown> | undefined;
     if (discovery) {
