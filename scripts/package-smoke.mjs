@@ -218,14 +218,15 @@ try {
     assert.match(cardHelp, /--locale <locale>/, `Card locale is undocumented by help: itpay ${commandPath.join(" ")}`);
   }
 
-  let stderr = "";
+  let errorOutput = "";
   try {
     execFileSync(process.execPath, [entry, "services", "list"], { env, encoding: "utf8", stdio: "pipe" });
     assert.fail("commerce command without agent type must fail");
   } catch (error) {
-    stderr = String(error.stderr ?? "");
+    errorOutput = String(error.stdout ?? "");
+    assert.equal(String(error.stderr ?? ""), "");
   }
-  assert.match(stderr, /agent type is required/);
+  assert.match(errorOutput, /agent type is required/);
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
