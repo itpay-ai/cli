@@ -5609,6 +5609,7 @@ test("rail endpoint confirmation asks only for candidate ids in the same executi
   const result=JSON.parse(stdoutCapture.join(""));
   assert.equal(result.result.sides[0].status,"resolved");
   assert.equal(result.result.sides[1].candidates[0].id,"destination_1");
+  assert.equal(result.result.human_action.context, undefined);
   assert.match(result.interaction.input_template.command,/--input choices=/);
   assert.doesNotMatch(result.interaction.input_template.command,/origin_lng|destination_lat/);
 });

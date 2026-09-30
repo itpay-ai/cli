@@ -2103,7 +2103,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         });
         return {
           status: "confirmation_required",
-          result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
+          result: { service_execution_id: id, service_id: execution.service_id,
+            human_action: { action_type: action.action_type, input_schema: action.input_schema },
             required_fields: requiredFields, sides },
           instruction: sides.some(side => side.status !== "resolved" && !side.candidates?.length)
             ? "尚未查票；未解析端点没有可选候选。说明该端点返回的证据不足原因，只补缺失地址或行政归属；外部依赖故障沿同执行恢复，不让用户任选或扩大范围。已解析端点保留。"
