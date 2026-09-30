@@ -85,7 +85,7 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
       { name: "destination", required: true, description: "到达火车站名（如'广州南'）", example: "广州南" },
       { name: "travel_date", required: true, description: "出行日期 YYYY-MM-DD；字段名必须是 travel_date，'date' 等别名无效", example: "2026-09-19" },
     ],
-    input_example: { origin: "古镇", destination: "广州南", travel_date: "2026-09-19" },
+    input_example: { origin: "<已核实出发站名>", destination: "<已核实到达站名>", travel_date: "<用户出行日期 YYYY-MM-DD>" },
     notes: [
       "本服务只接受这三个字段，多传字段会被供应商拒绝",
       "查询为空只说明这一已解析站对；如原意仍需更多覆盖，可验证另一可信站对或使用 Smart",
@@ -133,7 +133,7 @@ function railServiceGuidance(serviceID: string, schema?: Record<string, unknown>
     optional_fields: (guidance.optional_fields ?? []).filter((field) => !["origin_city", "destination_city", "origin_location", "destination_location"].includes(field.name)).concat([
       { name: "reuse_from", description: "同 owner 的已保存 Exact result_item_id 或 Smart snapshot_id；端点/日期新查询可复用有效事实" },
     ]),
-    input_example: { endpoints: { origin: { kind: "area", text: "广东省中山市古镇镇" }, destination: { kind: "station", text: "长沙南站" } }, travel_date: "<用户出行日期 YYYY-MM-DD>" },
+    input_example: { endpoints: { origin: { kind: "area", text: "<用户出发市县镇完整名称>" }, destination: { kind: "station", text: "<已核实到达站名>" } }, travel_date: "<用户出行日期 YYYY-MM-DD>" },
     notes: ["仅用当前 input_schema 支持的端点写法；不要与旧 origin/destination 混用", "唯一地点直接解析；真实歧义只询问有缺口的一端，外部故障按当前执行恢复"],
   };
 }
@@ -400,6 +400,11 @@ function invokedEnvelope(
     ...(quota ? { quota } : {}),
   };
   const preview = response.invocation?.safe_result_preview;
+  const notices = Array.isArray(preview?.notices) ? preview.notices.map((notice: unknown) => {
+    if (!notice || typeof notice !== "object" || !("code" in notice) || !("message" in notice) || typeof notice.message !== "string") return notice;
+    if (!["RAIL_TRANSFER_SCOPE_LIMIT", "RAIL_TRANSFER_SEARCH_INCOMPLETE"].includes(String(notice.code))) return notice;
+    return {...notice, message: notice.message.replace(/可按主要枢纽分段查询[。；]?/g, "")};
+  }) : preview?.notices;
   if (!response.effective_quota?.exhausted && preview?.search_status === "LOCATION_CONFIRMATION_REQUIRED" && preview.location_confirmation) {
     return { value: locationConfirmationEnvelope(response.execution.service_execution_id,
       requestedCapability.capability_id, input, preview.location_confirmation as Record<string, unknown>),
@@ -411,7 +416,7 @@ function invokedEnvelope(
       recommendation: preview.recommendation,
       decision_source: preview.decision_source,
       coverage: preview.coverage,
-      notices: preview.notices,
+      notices,
       search_status: preview.search_status,
       searched_scope: preview.searched_scope,
       effective_policy_hash: preview.effective_policy_hash,
@@ -428,13 +433,13 @@ function invokedEnvelope(
   let instruction = items.length > 0
 		? "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时，才提交对应编号；不要向用户提及 safe_payload、Execution 或内部 ID。"
     : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
-  if (items.length === 0 && Array.isArray(preview?.notices)) {
-    const railNotice = preview.notices.find((notice: unknown) => {
+  if (items.length === 0 && Array.isArray(notices)) {
+    const railNotice = notices.find((notice: unknown) => {
       if (!notice || typeof notice !== "object") return false;
       const value = notice as Record<string, unknown>;
       return ["RAIL_TRANSFER_SCOPE_LIMIT", "RAIL_TRANSFER_SEARCH_INCOMPLETE"].includes(String(value.code)) && typeof value.message === "string";
     }) as { message: string } | undefined;
-    if (railNotice) instruction = `向用户展示官方提示：${railNotice.message} 不要断言该行程必须多次中转或没有车。等待用户选择分段查询的起终点，不自动更换输入或重试。`;
+    if (railNotice) instruction = `向用户展示官方提示：${railNotice.message} 说明本次已查范围和未完成原因，按服务端提供的当前动作恢复；不能据此断言没有车，不默认扩大范围或让用户另选分段站点。`;
   }
   let next: CommandAction | null = null;
   if (items.length > 0 && baseResult.catalog) {
@@ -1876,6 +1881,13 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           next: null, recovery: [],
         };
       }
+      if (journeys.length === 0) {
+        return {
+          status: "no_result", result,
+          instruction: `本次已查询范围内没有当前合格线路。原因以 notices、coverage 和 search.reason 为准；缺票、接续失败、依赖故障或未覆盖范围不能改说成没有车。已有铁路事实可从 full_result 读取，后续仅使用 available_actions 中与用户意图一致的动作。`,
+          next: null, recovery: [],
+        };
+      }
       return {
         status: "ready",
         result,
@@ -2112,13 +2124,24 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     const id = execution.service_execution_id;
     const paymentVerified = model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     const state = model.workflow?.status === "payment" && paymentVerified ? "running" : model.workflow?.status ?? "input_required";
-    if (state === "failed" && ["amap_request_failed", "amap_rate_limited", "amap_quota_exceeded"].includes(model.workflow?.error_code ?? "")) {
+    if (["quota_paused", "failed"].includes(state) && model.workflow?.error_code !== "area_scope_too_broad" && (model.workflow?.dependency ||
+      ["amap_request_failed", "amap_rate_limited", "amap_qps_exceeded", "amap_quota_exceeded", "amap_daily_quota_exceeded", "amap_service_forbidden", "amap_ip_forbidden", "amap_key_invalid", "amap_parameter_invalid", "amap_web_service_key_not_configured"].includes(model.workflow?.error_code ?? ""))) {
+      const dependency = model.workflow?.dependency;
+      const resumable = state === "quota_paused" && dependency?.retryable === true;
       return {
-        status: "failed",
-        result: { service_execution_id: id, service_id: execution.service_id, reason: model.workflow?.error_code },
-        instruction: "尚未查票。地图服务本轮未完成地点解析，这是外部故障，不要求用户换地址或自行找坐标。已做的有界尝试结束；请保留原出行条件，待服务恢复后再按用户意愿查询。",
-        next: null, recovery: [],
+        status: "dependency_unavailable",
+        result: { service_execution_id: id, service_id: execution.service_id, reason: model.workflow?.error_code, ...(dependency ? {dependency} : {}) },
+        instruction: resumable
+          ? "地图服务暂时限流。保留原条件及已解析端点；到 retry_at 后执行下一步，继续同一任务，不重新提交地点。"
+          : "地图服务本轮未完成解析，这是外部依赖故障，不要求用户换地址或自行找坐标。有界尝试已结束；保留原条件及已有结果，交由服务维护方处理该错误。",
+        next: resumable ? {command: `itpay services run ${execution.service_id} --execution ${id} --json`, reason: "等待所示恢复时间后继续同一执行"} : null,
+        recovery: [],
       };
+    }
+    if (state === "failed" && model.workflow?.error_code === "area_scope_too_broad") {
+      return {status:"awaiting_input",result:{service_execution_id:id,reason:"area_scope_too_broad", affected_endpoint:model.workflow.dependency?.endpoint, input_template:{endpoints:{[model.workflow.dependency?.endpoint ?? "<受影响侧>"]:{kind:"area",text:"<市县镇完整名称>"}}}},
+        instruction:"区域范围是省或国家。只补充受影响端点的市、县或镇；保留另一端、日期与用户约束。修正模板：endpoints.<受影响侧>={kind:area,text:<市县镇完整名称>}。",
+        next:null,recovery:[]};
     }
     if (state === "failed" && ["address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"].includes(model.workflow?.error_code ?? "")) {
       const code = model.workflow!.error_code!;

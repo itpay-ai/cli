@@ -60,7 +60,7 @@
   "understand_before_search": [
     "Identify date, arrival deadline, party size, destination precision, speed versus broad coverage, and whether the human delegated buying.",
     "Use existing knowledge or one brief official information lookup to form a credible station pair. It helps identify stations, not current trains, seats, prices or global optimality. Do not make external research mandatory.",
-    "A city or district is an area, not necessarily the namesake station. Shanghai station and Shanghai city can look similar in text but have different scope."
+    "A city or district is an area; a verified railway station locks one station. Similar names do not make their scopes interchangeable."
   ],
   "choose_search": {
     "exact": "Known or credible resolved station pair, direct trains for one station pair and date only. A zero result does not mean the whole city has no train. Another evidence-based pair may be checked under the original request.",
@@ -81,8 +81,14 @@
       "command": "itpay services run itpay-rail-smart --input-json <query-file> --json",
       "example": {
         "endpoints": {
-          "origin": {"kind": "area", "text": "广东省中山市古镇镇"},
-          "destination": {"kind": "station", "text": "长沙南站"}
+          "origin": {
+            "kind": "area",
+            "text": "<用户出发市县镇完整名称>"
+          },
+          "destination": {
+            "kind": "station",
+            "text": "<已核实到达站名>"
+          }
         },
         "travel_date": "<用户出行日期 YYYY-MM-DD>"
       },
@@ -118,7 +124,10 @@
     "unknown_paid_outcome": "Read the same checkout/order before any mutation. Never repeat payment or create a new order on an unknown outcome.",
     "lock": "Use the CLI returned device repair-lock recovery only for a lock proven stale; preserve active owners and identity.",
     "empty": "Report verified scope, failures and missing evidence separately. Do not guess a new date or station as a generic repair.",
-    "ground_evidence_required": "If trains were found but a precise address deadline cannot be verified without ground or station-exit evidence, report the checked rail scope and missing fact. Ask for a precise location or verifiable connection fact; do not expand rail station pairs by default or call it no trains."
+    "ground_evidence_required": "If trains were found but a precise address deadline cannot be verified without ground or station-exit evidence, report the checked rail scope and missing fact. Ask for a precise location or verifiable connection fact; do not expand rail station pairs by default or call it no trains.",
+    "dependency_unavailable": "Map faults are external failures, not empty location candidates. Preserve resolved endpoints and original conditions. For a retryable wait, respect dependency.retry_at and execute the returned same-execution run command; never restart or sleep inside the CLI. Daily quota, permission or IP failures need service maintenance, not a different address.",
+    "partial": "Report saved usable routes together with checked scope and the precise gap. Unqueried hubs, geographic evidence gaps and budget limits are not proof of no trains. Use the returned action only; do not expand station pairs by default.",
+    "geographic_notice": "Geographic deviation is a ranking or explanation notice. Current eligibility and booking conditions come from verified dates, connections, inventory, prices, authorization and required ground evidence; do not reject a returned eligible train merely by geometric ratio."
   },
   "seat_preferences": {
     "meaning": "A buyer's seat-letter preference may be planned per leg before payment. The plan is submitted to the supplier when encodable; unsupported combinations fall back to automatic assignment.",

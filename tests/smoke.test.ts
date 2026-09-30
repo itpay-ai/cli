@@ -5599,7 +5599,8 @@ test("rail empty transfer result preserves official guidance and stops", async (
   assert.equal(result.next, null);
   assert.match(result.instruction, /本次中转查询未完整完成/);
   assert.match(result.instruction, /最多两次枢纽同站中转/);
-  assert.match(result.instruction, /主要枢纽分段查询/);
+  assert.doesNotMatch(result.instruction, /主要枢纽分段查询/);
+  assert.match(result.instruction, /当前.*动作|范围|缺口/);
   assert.equal(result.result.catalog.notices[0].code, "RAIL_TRANSFER_SEARCH_INCOMPLETE");
   assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
 });
@@ -5755,7 +5756,7 @@ test("rail input_required returns teaching guidance, not an empty schema", async
   assert.match(result.result.guidance.when_to_use,/站|Exact/);
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["origin","destination","travel_date"]);
   assert.match(result.result.guidance.input_fields[2].description,/travel_date/);
-  assert.equal(result.result.guidance.input_example.travel_date,"2026-09-19");
+  assert.equal(result.result.guidance.input_example.travel_date,"<用户出行日期 YYYY-MM-DD>");
   assert.match(result.instruction,/guidance/);
 });
 
@@ -5814,4 +5815,23 @@ test("failed workflow on an unmapped step keeps the generic failure guidance", a
   assert.equal(result.result.failed_step_meaning,undefined);
   assert.match(result.instruction,/执行已失败（错误码：workflow_failed）且不可续用/);
   assert.doesNotMatch(result.instruction,/新建执行/);
+});
+
+test("map dependency wait exposes safe facts and resumes the same execution without login", async () => {
+  const base = await backend.getServiceExecution("se_mock_next");
+  const model: ServiceExecutionReadModel = {...base,
+    execution_requests: [], workflow_entry: {capability_id:"itpay_service",input_schema:{}},
+    workflow: {status:"quota_paused",current_step:"geo",revision:2,steps:{},error_code:"amap_rate_limited",
+      dependency:{infocode:"10004",error_code:"AMAP_RATE_LIMITED",retryable:true,retry_after:60,retry_at:1800000000}}};
+  delete model.rail_planning; delete model.rail_booking;
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  stdoutCapture.length=0;
+  await runServicesNext(client,model.execution.service_execution_id,{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"dependency_unavailable");
+  assert.equal(result.result.dependency.infocode,"10004");
+  assert.match(result.next.command,new RegExp(`--execution ${model.execution.service_execution_id}`));
+  assert.doesNotMatch(result.instruction,/登录|换地址|确认地点/);
+  assert.ok(Buffer.byteLength(stdoutCapture.join(""))<=8192);
 });
