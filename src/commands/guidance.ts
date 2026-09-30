@@ -111,7 +111,8 @@ export function writeCommandEnvelope(
   const qualified = qualifyEnvelope(value, agentType);
   if (options.jsonOutput) {
     const pretty = JSON.stringify(qualified, null, 2) + "\n";
-    out(pretty.length <= stdoutEnvelopeLimit ? pretty : JSON.stringify(qualified) + "\n");
+    const limit = value.result?.rail_planning ? 12 * 1024 : stdoutEnvelopeLimit;
+    out(Buffer.byteLength(pretty) <= limit ? pretty : JSON.stringify(qualified) + "\n");
     return;
   }
   out(`${qualified.status}\n`);

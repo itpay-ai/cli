@@ -1695,7 +1695,7 @@ function compactRailTicketPlan(raw: Record<string, unknown>): Record<string, unk
   };
 }
 
-function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string): Record<string, unknown> {
+function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string, snapshotID?: string): Record<string, unknown> {
   const rides = Array.isArray(card.rides) ? card.rides : [];
   const trains = rides.map((ride: Record<string, unknown>) => ride.train_code).filter(Boolean);
   const first = rides[0] as Record<string, unknown> | undefined;
@@ -1704,6 +1704,7 @@ function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string): 
   const metrics = card.representative_metrics;
   return {
     journey_id: card.journey_id,
+    ...(snapshotID ? (() => { const detail = compactRailJourney(card, serviceExecutionID, snapshotID); return { rides: detail.rides, seats: detail.seats, default_layer: detail.default_layer, detail: detail.detail }; })() : {}),
     route: (card.route_names?.length ? card.route_names : card.route ?? []).join("→"),
     ...(trains.length ? { trains } : {}),
     ...(first?.departure || last?.arrival ? { time: `${first?.departure ?? ""}–${last?.arrival ?? ""}` } : {}),
@@ -1767,7 +1768,15 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   const expansion = plan.search?.expansion_status ?? "running";
   const counts = plan.search?.counts;
   const journeys = [plan.recommendation, ...(plan.alternatives ?? [])].filter(Boolean) as RailJourneyCard[];
-  const cards = journeys.map((card) => railJourneySummary(card, se));
+  const hasEligible = typeof counts?.journeys_eligible === "number"
+    ? counts.journeys_eligible > 0 : journeys.length > 0;
+  const changedScopeHint = plan.query_input && !/supplier|provider|dispatch|map|amap|permission/.test(plan.search?.reason ?? "")
+    ? "若原条件锁定车站，可提议仅放宽一端到原站周边；有已核实地点证据才建议具体站，不能说肯定有票。先询问用户是否接受该端范围变化；同意后按new_query_template开新查询，未同意则保持原站。"
+    : /supplier|provider|dispatch|map|amap|permission/.test(plan.search?.reason ?? "")
+      ? "依赖故障按原恢复动作处理，不通过换站掩盖故障。"
+      : "如需改变端点，先取得真实范围变更同意，再按正式铁路指南保留原条件发起新查询。";
+  const cards = journeys.filter(card => card.journey_id !== plan.recommendation?.journey_id)
+    .map((card) => railJourneySummary(card, se, plan.catalog_snapshot_id));
   // Journey counts come from the committed catalog — real combination counts,
   // never seat-row counts. Transfer buckets follow the verified transfer_count.
   const journeyMix = counts && (counts.journeys_total ?? 0) > 0
@@ -1809,14 +1818,14 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       ...(plan.coverage ? { coverage: plan.coverage } : {}),
     },
     ...(plan.notices?.length ? { notices: plan.notices } : {}),
-    ...(plan.recommendation ? { recommendation: railJourneySummary(plan.recommendation, se) } : {}),
+    ...(plan.recommendation ? { recommendation: railJourneySummary(plan.recommendation, se, plan.catalog_snapshot_id) } : {}),
     ...(cards.length ? { journeys: cards } : {}),
     ...(plan.snapshot_id ? { full_result: { command: `itpay services read-result ${se} --snapshot ${plan.snapshot_id} --json`, meaning: "读取已保存的完整目录；推荐和journeys仅是摘要" } } : {}),
     ...(plan.query_input && plan.catalog_snapshot_id ? { new_query_template: {
       command: "itpay services run itpay-rail-smart --input-json <file> --json",
       executable: false,
       input_example: { ...plan.query_input, reuse_from: { execution_id: se, snapshot_id: plan.catalog_snapshot_id } },
-      meaning: "端点或日期变更时建立新查询；先改真实变化的字段，旧执行和已建订单保持原样。日期变化只复用地点，不复用旧库存。",
+      meaning: "先取得真实范围变更同意，再复制完整input_example，仅改获准端。换具体站用station及匹配名称/站码；考虑原站周边用place及原站名，删除station_code，经正常地点解析或使用已核实POI/坐标；只有明确同意整个市才用area及完整行政名，删除POI/坐标/站码。日期、人数、时限及偏好保持；新执行不改变旧查询或订单。引用仅限同owner未过期事实，跨owner拒绝；日期变更不复用旧库存。",
     } } : {}),
     ...(plan.available_actions?.length ? { available_actions: plan.available_actions } : {}),
   };
@@ -1881,10 +1890,10 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           next: null, recovery: [],
         };
       }
-      if (journeys.length === 0) {
+      if (!hasEligible && !plan.result_not_updated) {
         return {
           status: "no_result", result,
-          instruction: `本次已查询范围内没有当前合格线路。原因以 notices、coverage 和 search.reason 为准；缺票、接续失败、依赖故障或未覆盖范围不能改说成没有车。已有铁路事实可从 full_result 读取，后续仅使用 available_actions 中与用户意图一致的动作。`,
+          instruction: `本次已查询范围内没有当前合格线路。原因以 notices、coverage 和 search.reason 为准；缺票、接续失败、依赖故障或未覆盖范围不能改说成没有车。已有铁路事实可从 full_result 读取。${changedScopeHint}后续使用 available_actions 中与用户意图一致的动作。`,
           next: null, recovery: [],
         };
       }
@@ -1893,7 +1902,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         result,
         // §7.3: the lead line carries real combination counts bucketed by
         // verified transfer count — seat rows never inflate the journey count.
-        instruction: `${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}${plan.search?.reason === "budget_exhausted" ? "本次查询已达到上限，以下是已查到的方案，搜索范围尚未全部核验。" : "本轮规划已完成。"}推荐和journeys是摘要；追问其他车次先读取 full_result 的已保存完整目录。compare：解释首选及最多两个有意义备选的时间/费用/便利性取舍后等待用户选择。prepare_checkout：用户已明确委托按规则选择时，按 interaction.recipe 选合格者并继续到官方确认页，不再次问是否下单；身份、review和最终付款边界仍然生效。乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
+        instruction: `${plan.result_not_updated ? "快照没有更新，空增量不表示目录为空。" : ""}${hasEligible && journeys.length === 0 ? `已保存${counts?.journeys_eligible ?? "若干"}条合格线路，执行 full_result.command 读取。` : ""}${journeyMix ? `本次共${journeyMix}（席别不重复计数）。` : ""}${plan.search?.reason === "budget_exhausted" ? "本次查询已达到上限，以下是已查到的方案，搜索范围尚未全部核验。" : "本轮规划已完成。"}推荐和journeys是摘要；追问其他车次先读取 full_result 的已保存完整目录。compare：解释首选及最多两个有意义备选的时间/费用/便利性取舍后等待用户选择。prepare_checkout：用户已明确委托按规则选择时，按 interaction.recipe 选合格者并继续到官方确认页，不再次问是否下单；身份、review和最终付款边界仍然生效。乘车人身份信息不在此收集，后续购买走受保护 Checkout。`,
         next: null,
         ...(queryResultsInteraction ? { interaction: queryResultsInteraction } : {}),
         ...(queryResultsCommunication ? { communication: queryResultsCommunication } : {}),
@@ -1947,7 +1956,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       return {
         status: "awaiting_input",
         result,
-        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${transferHint}${partialPause}规划已发布首批结果并暂停扩展：展示现有卡片与 available_actions，等待用户意图（${expandHint}）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。compare：解释首选及最多两个备选后等待；prepare_checkout：委托仍在且选项合格时按 interaction.recipe 继续到官方确认入口，不再次问是否下单。`,
+        instruction: `${modelDegradedHint}${failedPairsHint}${directHint}${transferHint}${partialPause}${hasEligible ? "规划已发布可用结果并暂停扩展：展示现有卡片与 available_actions" : `当前已查范围尚未找到合格线路，搜索已暂停；未查范围与故障以coverage/notices为准，不是完整无解。${changedScopeHint}展示 available_actions`}，等待用户意图（${expandHint}）。ready 后 next 为空表示向用户汇报并等待，不是永远没有更多。compare：解释首选及最多两个备选后等待；prepare_checkout：委托仍在且选项合格时按 interaction.recipe 继续到官方确认入口，不再次问是否下单。`,
         next: null,
         ...(queryResultsInteraction ? { interaction: queryResultsInteraction } : {}),
         ...(queryResultsCommunication ? { communication: queryResultsCommunication } : {}),

@@ -1032,6 +1032,27 @@ test("rail ground evidence stop asks for missing place facts without expanding",
 	assert.doesNotMatch(envelope.instruction, /可授权继续扩大|重新发起查询/);
 });
 
+test("rail saved eligibility survives an empty summary and unchanged increment", async () => {
+  const base = await backend.getServiceExecution("se_rail_plan_complete");
+  const { recommendation: _recommendation, ...plan } = base.rail_planning!;
+  for (const unchanged of [false, true]) {
+    stdoutCapture.length = 0;
+    const client = Object.create(backend) as BackendClient;
+    client.getServiceExecution = async () => ({ ...base, rail_planning: {
+      ...plan, alternatives: [],
+      result_not_updated: unchanged,
+      search: { ...base.rail_planning!.search, expansion_status: "complete",
+        counts: { journeys_total: 20, journeys_eligible: 1 } },
+    } });
+    await runServicesNext(client, "se_rail_plan_complete", { jsonOutput: true, output: stdoutSink });
+    const out = JSON.parse(stdoutCapture.join(""));
+    assert.equal(out.status, "ready");
+    assert.ok(out.result.full_result.command);
+    assert.doesNotMatch(out.instruction, /没有当前合格线路/);
+    assert.match(out.instruction, unchanged ? /空增量不表示目录为空/ : /已保存1条合格线路/);
+  }
+});
+
 test("legacy rail plan stays readable but asks for a new search before more dispatch", async () => {
 	const base = await backend.getServiceExecution("se_rail_plan_paused");
 	const client = Object.create(backend) as BackendClient;

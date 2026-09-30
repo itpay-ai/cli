@@ -19,7 +19,8 @@ human the useful result or action, not the internal steps.
   Exact query or broader Smart plan, saved results, selection, booking, review,
   checkout, order status and railway refunds. Subsequent envelopes supply the
   current facts and actions. A known station pair can go straight to Exact;
-  a city request does not automatically require Smart.
+  a city request does not automatically require Smart. Keep specified stations
+  locked; follow the railway guide to obtain consent before a changed-scope query.
 - Other new services: `itpay catalog list --json`, then the chosen service's
   published input contract.
 - Existing execution: `itpay services next <execution_id> --json`.
@@ -74,6 +75,6 @@ Do not rotate identity, bypass a grant or refund lock, create duplicate
 purchases, or replay a paid mutation with an unknown outcome. Do not switch
 service or date merely to evade quota or failure. If a user action, terminal
 outcome or actionable failure requires stopping, state the exact fact and the
-next human step. For an existing service, keep the same execution; for an
-existing paid order, keep the same order. Human ratings and comments require
+next human step. For waiting or recovery, keep the same execution; a genuinely changed railway
+endpoint starts a new query after consent. Keep an existing paid order unchanged. Human ratings and comments require
 actual human input; safe Agent feedback follows the completed order outcome.
