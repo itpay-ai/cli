@@ -795,16 +795,17 @@ test("rail Exact zero result stays scoped to the resolved station pair", async (
 	exact.getServiceExecution = async () => ({ ...base,
 		execution: { ...base.execution, service_id: "itpay-rail-exact" },
 		current_result_items: [{ ...(base.current_result_items ?? [])[0]!, safe_payload: { result: {
-			candidates: [], catalog_total: 0, resolved_station_pair: { origin_name: "上海站", destination_name: "长沙南", scope: "station_pair" },
+			candidates: [], catalog_total: 0, resolved_station_pair: { origin_name: "上海站", origin_code: "SHH", destination_name: "长沙南", destination_code: "CWQ", travel_date: "2030-10-09", scope: "station_pair" },
 		} } }],
 	});
 	await runServicesNext(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { scope: string; total: number;
-		resolved_station_pair: { origin_name: string } }; instruction: string };
+		resolved_station_pair: { origin_name: string }; smart_template: { reuse_from: { execution_id: string } } }; instruction: string };
 	assert.equal(envelope.status, "no_result");
 	assert.equal(envelope.result.scope, "station_pair");
 	assert.equal(envelope.result.total, 0);
 	assert.equal(envelope.result.resolved_station_pair.origin_name, "上海站");
+	assert.equal(envelope.result.smart_template.reuse_from.execution_id, "se_rail_paged");
 	assert.match(envelope.instruction, /不代表全城无车/);
 });
 
@@ -5540,6 +5541,19 @@ test("location confirmation retains the execution and does not invite checkout",
   assert.doesNotMatch(result.interaction.input_template.command,/checkout|services run/);
 });
 
+test("rail endpoint confirmation asks only for candidate ids in the same execution", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"human_action",current_step:"confirm_location",revision:3,steps:{},human_action:{action_type:"workflow:confirm_location",input_schema:{type:"object",required:["choices"]},context:{places:{origin:{query:"中山市古镇镇",resolution_status:"resolved",location:[113.2,22.5]},destination:{query:"某酒店",resolution_status:"needs_confirmation",resolution_candidates:[{poi_name:"某酒店东店",location:[113.3,22.6]}]}}}}}};
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  await runServicesNext(client,model.execution.service_execution_id,{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.sides[0].status,"resolved");
+  assert.equal(result.result.sides[1].candidates[0].id,"destination_1");
+  assert.match(result.interaction.input_template.command,/--input choices=/);
+  assert.doesNotMatch(result.interaction.input_template.command,/origin_lng|destination_lat/);
+});
+
 test("rail invocation preserves the entire catalog and recommendation metadata", async () => {
   await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
   const result = JSON.parse(stdoutCapture.join(""));
@@ -5743,6 +5757,18 @@ test("rail input_required returns teaching guidance, not an empty schema", async
   assert.match(result.result.guidance.input_fields[2].description,/travel_date/);
   assert.equal(result.result.guidance.input_example.travel_date,"2026-09-19");
   assert.match(result.instruction,/guidance/);
+});
+
+test("Smart endpoint guidance follows the published schema", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const schema={type:"object",properties:{endpoints:{type:"object"},travel_date:{type:"string"}}};
+  const client=Object.create(backend) as BackendClient;
+  client.startServiceExecution=async()=>({execution:{...base.execution,service_id:"itpay-rail-smart"},capabilities:base.capabilities,workflow_entry:{capability_id:"itpay_service",input_schema:schema}});
+  await runServicesStart(client,"itpay-rail-smart",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
+  assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"station");
+  assert.equal(result.result.guidance.optional_fields.some((f:{name:string})=>f.name==="origin_location"),false);
 });
 
 test("failed rail workflow reports the failed step, its meaning, and retry guidance", async () => {

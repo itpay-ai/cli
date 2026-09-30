@@ -693,6 +693,7 @@ export interface RailPlanningProjection {
   plan_id?: string;
   service_execution_id?: string;
   query_revision?: number;
+  query_input?: Record<string, unknown>;
   snapshot_id?: string;
   /** The committed catalog snapshot detail/catalog reads resolve against —
    * distinct from snapshot_id, which tracks the newest committed snapshot. */

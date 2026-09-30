@@ -121,8 +121,21 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
   },
 };
 
-function railServiceGuidance(serviceID: string): RailServiceGuidance | undefined {
-  return RAIL_SERVICE_GUIDANCE[serviceID];
+function railServiceGuidance(serviceID: string, schema?: Record<string, unknown>): RailServiceGuidance | undefined {
+  const guidance = RAIL_SERVICE_GUIDANCE[serviceID];
+  if (serviceID !== "itpay-rail-smart" || !guidance || !(schema?.properties as Record<string, unknown> | undefined)?.endpoints) return guidance;
+  return {
+    ...guidance,
+    input_fields: [
+      { name: "endpoints", required: true, description: "origin/destination 各填 kind(area/place/station) 与完整 text；不确定 kind 可省略" },
+      { name: "travel_date", required: true, description: "用户出行日期 YYYY-MM-DD" },
+    ],
+    optional_fields: (guidance.optional_fields ?? []).filter((field) => !["origin_city", "destination_city", "origin_location", "destination_location"].includes(field.name)).concat([
+      { name: "reuse_from", description: "同 owner 的已保存 Exact result_item_id 或 Smart snapshot_id；端点/日期新查询可复用有效事实" },
+    ]),
+    input_example: { endpoints: { origin: { kind: "area", text: "广东省中山市古镇镇" }, destination: { kind: "station", text: "长沙南站" } }, travel_date: "<用户出行日期 YYYY-MM-DD>" },
+    notes: ["仅用当前 input_schema 支持的端点写法；不要与旧 origin/destination 混用", "唯一地点直接解析；真实歧义只询问有缺口的一端，外部故障按当前执行恢复"],
+  };
 }
 
 const WORKFLOW_STEP_GUIDANCE: Record<string, { meaning: string; hint: string }> = {
@@ -168,7 +181,7 @@ export async function runServicesStart(
     },
   });
   if (response.workflow_entry) {
-    const guidance = railServiceGuidance(serviceID);
+    const guidance = railServiceGuidance(serviceID, response.workflow_entry.input_schema);
     writeCommandEnvelope({
       status: "input_required",
       result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema, ...(guidance ? { guidance } : {}) },
@@ -245,12 +258,23 @@ export async function runServicesStart(
 
 function locationConfirmationEnvelope(executionID: string, capabilityID: string, input: Record<string, unknown>, confirmation: Record<string, unknown>): CommandEnvelope {
   input = (confirmation.input ?? input) as Record<string, unknown>;
-  const endpoints = (confirmation.endpoints ?? []) as Array<{side: string}>;
+  const endpoints = (confirmation.endpoints ?? []) as Array<{side: string; reason?: string; candidates?: unknown[]}>;
   const choices = Object.fromEntries(endpoints.map((endpoint) => [endpoint.side, "<用户选择的候选 id>"]));
+  const missing = endpoints.filter((endpoint) => !endpoint.candidates?.length);
+  const reason = missing[0]?.reason;
+  const instruction = missing.length
+    ? reason === "STATION_LOCATION_EVIDENCE_REQUIRED"
+      ? "尚未查票。车站身份已知，但 Smart 缺少该站地理坐标证据；请说明此系统缺口。若用户仅要双站直达，可按原站名使用 Exact；不要要求用户换站。"
+      : reason === "ADDRESS_REQUIRED" || reason === "ADMINISTRATIVE_AREA_UNRESOLVED"
+      ? "尚未查票。请只向用户询问该端点缺少的具体地址或行政归属；保留另一端和已有条件，得到信息后发起关联新查询。"
+      : reason === "COORDINATE_IDENTITY_UNVERIFIED" || reason === "COORDINATE_NAME_MISMATCH"
+      ? "尚未查票。提交的地点名称和坐标尚未得到一致证据；请核实该端点的真实名称或位置，保留另一端，不要把坐标声明当成人工确认。"
+      : "尚未查票。地点证据不足；请说明返回的具体原因与受影响端点，不要把外部故障当作用户地点歧义。"
+    : "尚未查票。仅向用户确认有真实歧义的端点，展示候选名称、地址和高德链接。用户选择后保留原输入，回到同一服务。";
   return {
     status: "location_confirmation_required",
     result: { service_execution_id: executionID, query: input, location_confirmation: confirmation },
-    instruction: "尚未查票。仅向用户确认 endpoints 中有歧义的地点，展示真实候选名称、地址和高德链接。不要自行选择候选、把区域改成车站或重复调用原查询。用户选择后保留原输入，带 location_confirmation 回到同一服务。没有候选时请用户补充已知城市或准确地名，再使用修正输入查询。",
+    instruction,
     next: null,
     ...(confirmation.can_resume ? {
       interaction: {
@@ -275,6 +299,7 @@ function requiredInputFields(schema: Record<string, unknown> | undefined): strin
 
 function locationInputInstruction(schema: Record<string, unknown> | undefined): string {
   const properties = schema?.properties as Record<string, unknown> | undefined;
+  if (properties?.endpoints) return " 两端分别填写 endpoints.origin/destination 的 kind 与完整 text；不确定 kind 可省略。区域保留范围、精确车站仅在目录验证后锁定。不要混用旧 origin/destination、手填锁站或伪造坐标。唯一地点会自动解析；只有真实多候选才让用户选返回的候选 id，地图失败应按当前执行恢复。";
   if (!properties?.origin_location || !properties?.destination_location) return "";
   if (!properties.location_confirmation) return " 地点保留用户已知最完整名称或城市范围；不要编造坐标或把城市改成同名车站。坐标及其他可选字段严格按当前 input_schema 提交。";
   return " 地点输入：先向用户说明本服务接受两个地点或城市范围。已有可信高德 GCJ-02 坐标时，可用 --input 'origin_location={\"lng\":113.0,\"lat\":23.0,\"coordinate_system\":\"gcj02\",\"source\":\"amap\"}'（数值必须替换为真实查询结果，destination_location 同理）；没有地图能力时，直接传用户已知最完整的 origin/destination，可附 origin_city/destination_city。不要编造坐标、补猜地址或把深圳等城市改成深圳站；精确站查须明确站名。用户只给城市、县或镇就保留区域意图，不追问门牌。明确地点由服务自动解析；只有返回 location_confirmation 才展示候选名称、地址和高德链接，等待用户选择，禁止自行选第一项。";
@@ -1299,6 +1324,17 @@ export async function runServicesReadResult(
     if (model.execution.service_id === "itpay-rail-exact") {
       const item = (model.current_result_items?.length ? model.current_result_items : model.result_items)?.[0];
       if (!item) {
+        const preview = model.provider_invocations.at(-1)?.safe_result_preview as Record<string, unknown> | undefined;
+        const template = exactSmartTemplate(preview?.resolved_station_pair, serviceExecutionID);
+        if (template && preview?.catalog_total === 0) {
+          writeCommandEnvelope({ status: "no_result", result: { service_execution_id: serviceExecutionID,
+            scope: "station_pair", resolved_station_pair: preview.resolved_station_pair,
+            total: 0, smart_template: template },
+            instruction: "这一站对的成功观测为0条，不代表附近区域无车。若用户允许中转或原需求范围更广，保留原始区域/地点意图并沿 smart_template 引用本次事实；只要直达时不要自动转中转。",
+            next: null, recovery: [] }, { ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
+              ...(options.output ? { output: options.output } : {}) });
+          return;
+        }
         await runServicesNext(backend, serviceExecutionID, options);
         return;
       }
@@ -1328,6 +1364,8 @@ export async function runServicesReadResult(
         status: "ready",
         result: { service_execution_id: serviceExecutionID, scope: "station_pair", resolved_station_pair: resolvedStationPair,
           total, read_count: rows.length,
+          ...(exactSmartTemplate(resolvedStationPair, serviceExecutionID, item.service_capability_result_item_id)
+            ? { smart_template: exactSmartTemplate(resolvedStationPair, serviceExecutionID, item.service_capability_result_item_id) } : {}),
           trains: rows, ...(nextOffset !== null ? { next_offset: nextOffset } : {}) },
         instruction: "这是同一已保存站对的车次行。按用户时限、席别和人数筛选；零条仅代表这一站对。纯比较答复后结束；已有购票委托则执行所选行 detail.command 读取当前席别、库存和购买凭据。",
         next: nextOffset !== null ? { command: `itpay services page ${serviceExecutionID} ${item.service_capability_result_item_id} --offset ${nextOffset} --limit 20 --json`, reason: "继续读取同一结果的剩余车次" } : null,
@@ -1467,6 +1505,16 @@ export async function runServicesReadResult(
     ...(options.output ? { output: options.output } : {}),
     plainResult: servicesNextPlainResult(envelope.result),
   });
+}
+
+function exactSmartTemplate(pair: unknown, executionID: string, resultItemID?: string): Record<string, unknown> | null {
+  if (!pair || typeof pair !== "object") return null;
+  const value = pair as Record<string, unknown>;
+  if (!["origin_name", "origin_code", "destination_name", "destination_code", "travel_date"].every((key) => typeof value[key] === "string" && value[key])) return null;
+  return { endpoints: { origin: { kind: "station", text: value.origin_name, station_code: value.origin_code },
+    destination: { kind: "station", text: value.destination_name, station_code: value.destination_code } },
+    travel_date: value.travel_date, reuse_from: { execution_id: executionID,
+      ...(resultItemID ? { result_item_id: resultItemID } : {}) } };
 }
 
 function compactExactTrain(candidate: Record<string, unknown>): Record<string, unknown> {
@@ -1738,6 +1786,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     rail_planning: {
       readiness: plan.readiness,
       query_revision: plan.query_revision,
+      ...(plan.query_input ? { endpoints: plan.query_input.endpoints } : {}),
       snapshot_id: plan.snapshot_id,
       expansion_status: expansion,
       ...(plan.search?.phase ? { phase: plan.search.phase } : {}),
@@ -1758,6 +1807,12 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     ...(plan.recommendation ? { recommendation: railJourneySummary(plan.recommendation, se) } : {}),
     ...(cards.length ? { journeys: cards } : {}),
     ...(plan.snapshot_id ? { full_result: { command: `itpay services read-result ${se} --snapshot ${plan.snapshot_id} --json`, meaning: "读取已保存的完整目录；推荐和journeys仅是摘要" } } : {}),
+    ...(plan.query_input && plan.catalog_snapshot_id ? { new_query_template: {
+      command: "itpay services run itpay-rail-smart --input-json <file> --json",
+      executable: false,
+      input_example: { ...plan.query_input, reuse_from: { execution_id: se, snapshot_id: plan.catalog_snapshot_id } },
+      meaning: "端点或日期变更时建立新查询；先改真实变化的字段，旧执行和已建订单保持原样。日期变化只复用地点，不复用旧库存。",
+    } } : {}),
     ...(plan.available_actions?.length ? { available_actions: plan.available_actions } : {}),
   };
   const nextPoll: CommandAction = {
@@ -1890,6 +1945,16 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     case "failed":
     case "cancelled":
     case "expired": {
+      if (expansion === "failed" && !plan.snapshot_id &&
+          ["address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified", "coordinate_name_mismatch", "endpoint_adcode_name_conflict", "endpoint_station_name_code_conflict", "endpoint_poi_name_conflict"].includes(plan.search?.reason ?? "")) {
+        return {
+          status: "awaiting_input", result,
+          instruction: plan.search?.reason === "station_location_evidence_required"
+            ? "尚未查票。车站身份明确，但 Smart 缺少必要地理证据；这是系统证据缺口，不要求用户换站。若双锁站仅需直达，可使用 Exact。"
+            : "尚未查票。受影响端点的名称、归属或坐标尚不能一致确认；只补正该端点的真实信息，保留其余条件，不把此次失败说成无车。",
+          next: null, recovery: [],
+        };
+      }
       // §7.1 case 3: when scope was only partially verified the honest wording
       // is "N confirmed + X pairs unverified" — never the case-2 phrasing that
       // implies the whole nearby range was checked.
@@ -2047,6 +2112,27 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     const id = execution.service_execution_id;
     const paymentVerified = model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     const state = model.workflow?.status === "payment" && paymentVerified ? "running" : model.workflow?.status ?? "input_required";
+    if (state === "failed" && ["amap_request_failed", "amap_rate_limited", "amap_quota_exceeded"].includes(model.workflow?.error_code ?? "")) {
+      return {
+        status: "failed",
+        result: { service_execution_id: id, service_id: execution.service_id, reason: model.workflow?.error_code },
+        instruction: "尚未查票。地图服务本轮未完成地点解析，这是外部故障，不要求用户换地址或自行找坐标。已做的有界尝试结束；请保留原出行条件，待服务恢复后再按用户意愿查询。",
+        next: null, recovery: [],
+      };
+    }
+    if (state === "failed" && ["address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"].includes(model.workflow?.error_code ?? "")) {
+      const code = model.workflow!.error_code!;
+      return {
+        status: "awaiting_input",
+        result: { service_execution_id: id, service_id: execution.service_id, reason: code },
+        instruction: code === "station_location_evidence_required"
+          ? "尚未查票。车站身份已知，Smart 缺少车站坐标证据；请说明此系统缺口，不要求用户换站。双锁站直达可另用 Exact。"
+          : code === "coordinate_identity_unverified"
+          ? "尚未查票。名称与提交坐标缺少一致证据；请核实受影响端点的准确地点，保留其余出行条件。"
+          : "尚未查票。地点缺少必要地址或行政归属；只请用户补充受影响端点，保留另一端及原条件。",
+        next: null, recovery: [],
+      };
+    }
     if (state === "failed" && ["login_required", "rate_limited"].includes(model.workflow?.error_code ?? "")) {
       const login = model.workflow?.error_code === "login_required";
       return {
@@ -2080,6 +2166,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       if (isLocationConfirmation) {
         const places = rawPlaces as Record<string, {
           resolution_status?: string;
+          resolution_reason?: string;
           formatted_address?: string; poi_name?: string; query?: string; location?: number[];
           resolution_candidates?: Array<{ poi_name?: string; query?: string; formatted_address?: string; location?: number[] }>;
         }>;
@@ -2091,11 +2178,12 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           return {
             side,
             status: place?.resolution_status,
+            ...(place?.resolution_reason ? { reason: place.resolution_reason } : {}),
             ...(place?.resolution_status === "resolved"
               ? { resolved_place: { name: name(place), location: place.location } }
               : {}),
             ...(candidates.length
-              ? { candidates: candidates.slice(0, 5).map((item) => ({ name: name(item), location: item.location })) }
+              ? { candidates: candidates.slice(0, 3).map((item, index) => ({ id: `${side}_${index + 1}`, name: name(item), location: item.location })) }
               : {}),
           };
         });
@@ -2103,13 +2191,17 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           status: "confirmation_required",
           result: { service_execution_id: id, service_id: execution.service_id, human_action: action,
             required_fields: requiredFields, sides },
-          instruction: "向用户展示 sides 中 status=needs_confirmation 一端的候选（名称+坐标），请用户选定后按 required_fields 逐项各传一个 --input：名称取候选 name，坐标取候选 location 的 [lng,lat]；已 resolved 的一端把其 resolved_place 原样填入。继续同一执行，不重新查询；这一步不是购买确认。",
+          instruction: requiredFields.includes("choices")
+            ? "尚未查票。仅向用户展示有真实歧义端点的候选名称、地址及 id；用户选定后，把各未解析端点的候选 id 放入 choices 对象，继续同一执行。已解析端点无需再选；不得替用户决定，也不是购买确认。"
+            : "向用户展示有歧义一端的候选；按 required_fields 填写真实选择，已解析一端保留原值。继续同一执行；这不是购买确认。",
           next: null,
           interaction: {
             schema_version: "itpay.interaction.v1",
             stage: "location_confirmation_required",
             input_template: {
-              command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`,
+              command: requiredFields.includes("choices")
+                ? `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input choices='<未解析端点到候选id的JSON对象>' --json`
+                : `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`,
               required_input: requiredFields,
               executable: false,
             },
@@ -2178,7 +2270,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           executable: false as const,
         }
       : undefined;
-    const guidance = railServiceGuidance(execution.service_id);
+    const guidance = railServiceGuidance(execution.service_id, model.workflow_entry?.input_schema);
     const failedStep = recovery ? failedWorkflowStep(model.workflow?.steps, model.workflow?.error_code) : undefined;
     const failedStepGuidance = failedStep ? WORKFLOW_STEP_GUIDANCE[failedStep] : undefined;
     const failedInvocation = recovery
@@ -2265,7 +2357,9 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
 			status: total > 0 ? "result_ready" : "no_result",
 			result: { service_execution_id: execution.service_execution_id, scope: "station_pair",
 				resolved_station_pair: container?.resolved_station_pair, total,
-				result_item_id: item.service_capability_result_item_id },
+				result_item_id: item.service_capability_result_item_id,
+				...(exactSmartTemplate(container?.resolved_station_pair, execution.service_execution_id, item.service_capability_result_item_id)
+					? { smart_template: exactSmartTemplate(container?.resolved_station_pair, execution.service_execution_id, item.service_capability_result_item_id) } : {}) },
 			instruction: total > 0
 				? "直达站对结果已保存。执行 next.command 一次读取紧凑车次行，按用户条件筛选；若只需比较，答复后结束；已有购票委托则读取所选行详情。"
 				: "这一已解析站对返回 0 条；不代表全城无车。若原需求需要更广覆盖，可核验另一可信站对或 Smart。",
