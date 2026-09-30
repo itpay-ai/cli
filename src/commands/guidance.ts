@@ -65,6 +65,7 @@ export interface CommandErrorEnvelope {
   instruction: string;
   next: null;
   recovery: CommandAction[];
+  interaction?: InteractionBlock;
 }
 
 interface ErrorRecoveryAction {
@@ -91,16 +92,28 @@ export class CommandContractError extends Error {
     message: string,
     readonly instruction: string,
     readonly recovery: CommandAction[],
+    readonly interaction?: InteractionBlock,
   ) {
     super(message);
     this.name = "CommandContractError";
   }
 }
 
-// stdoutEnvelopeLimit is the hard byte budget for one emitted JSON envelope:
-// public rail pages/projections must fit 32 KiB end-to-end, so oversized
-// pretty output falls back to a compact line rather than spilling.
-const stdoutEnvelopeLimit = 32 * 1024;
+// Domain projections and pages own byte limits; serialization never truncates facts.
+export function plainValueLines(value: unknown, label = "", depth = 0): string[] {
+  const indent = "  ".repeat(depth);
+  if (value === null || typeof value !== "object") return [`${indent}${label ? `${label}: ` : ""}${String(value ?? "unknown")}`];
+  const lines = label ? [`${indent}${label}:`] : [];
+  const entries = Array.isArray(value) ? value.map((v, i) => [String(i + 1), v] as const) : Object.entries(value);
+  for (const [key, child] of entries) lines.push(...plainValueLines(child, key, depth + (label ? 1 : 0)));
+  if (!entries.length) lines.push(`${indent}  （无记录）`);
+  return lines;
+}
+
+export function shellArgument(value: string): string {
+  if (/^[\p{L}\p{N}._:=/-]+$/u.test(value)) return value;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
 
 export function writeCommandEnvelope(
   value: CommandEnvelope | CommandNullResultEnvelope | CommandErrorEnvelope,
@@ -111,36 +124,38 @@ export function writeCommandEnvelope(
   const qualified = qualifyEnvelope(value, agentType);
   if (options.jsonOutput) {
     const pretty = JSON.stringify(qualified, null, 2) + "\n";
-    const limit = value.result?.rail_planning ? 12 * 1024 : stdoutEnvelopeLimit;
-    out(Buffer.byteLength(pretty) <= limit ? pretty : JSON.stringify(qualified) + "\n");
+    out(pretty);
     return;
   }
   out(`${qualified.status}\n`);
   const facts = "error" in qualified ? qualified.error : qualified.result ?? {};
   if (options.plainResult) {
-    for (const line of options.plainResult) out(`${line}\n`);
+    for (const line of options.plainResult) {
+      const command = line.match(/^(\s*(?:command|reader|entry): )(itpay .*)$/);
+      out(`${command ? command[1] + qualifyBackendCommand(qualifyItPayCommand(command[2]!, agentType)) : line}\n`);
+    }
   } else {
     for (const [key, fact] of Object.entries(facts)) {
-      out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+      for (const line of plainValueLines(fact, key)) out(`${line}\n`);
     }
     if ("error" in qualified && qualified.result) {
       for (const [key, fact] of Object.entries(qualified.result)) {
-        out(`${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+        for (const line of plainValueLines(fact, key)) out(`${line}\n`);
       }
     }
   }
   if ("handoff" in qualified && qualified.handoff) {
     for (const [key, fact] of Object.entries(qualified.handoff)) {
-      out(`handoff.${key}: ${typeof fact === "string" ? fact : JSON.stringify(fact)}\n`);
+      for (const line of plainValueLines(fact, `handoff.${key}`)) out(`${line}\n`);
     }
   }
   out(`instruction: ${qualified.instruction}\n`);
-  if (qualified.next) out(`next: ${qualified.next.command}\n`);
+  if (qualified.next) out(`next: ${qualified.next.command}\n  when: ${qualified.next.reason}\n`);
   if ("interaction" in qualified && qualified.interaction) {
-    out(`interaction: ${JSON.stringify(qualified.interaction)}\n`);
+    for (const line of plainValueLines(qualified.interaction, "interaction")) out(`${line}\n`);
   }
   if ("communication" in qualified && qualified.communication) {
-    out(`communication: ${JSON.stringify(qualified.communication)}\n`);
+    for (const line of plainValueLines(qualified.communication, "communication")) out(`${line}\n`);
   }
   if (qualified.recovery.length > 0) {
     out("recovery:\n");
@@ -205,19 +220,12 @@ export function errorRecoveryActions(error: unknown): ErrorRecoveryAction[] {
     return [{
       id: "inspect_service_execution",
       label: "Inspect Service Execution before checkout",
-      command: "itpay services next <service_execution_id> --json",
+      command: "itpay services list --json",
     }];
   }
-  if (error.code === "cart_item_locked" || error.status === 409) {
-    return [
-      { id: "show_cart", label: "Inspect the canonical server cart", command: "itpay cart show" },
-      { id: "continue_checkout", label: "Continue the last locally remembered checkout", command: "itpay checkout" },
-      {
-        id: "recover_service_execution",
-        label: "List recoverable Service Executions if the local handoff is missing",
-        command: "itpay services list",
-      },
-    ];
+  if (error.code === "cart_item_locked") {
+    return [{ id: "show_cart", label: "Inspect the locked cart", command: "itpay cart show --json",
+      reason: "读取已有购物内容和订单锁，不创建替代 checkout。" }];
   }
   if (error.status === 404) {
     return [{

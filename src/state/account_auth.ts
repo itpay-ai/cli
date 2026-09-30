@@ -64,11 +64,11 @@ const TERMINAL_SESSION_STATES: Record<string, { status: string; instruction: str
   },
   cancelled: {
     status: 'auth_cancelled',
-    instruction: '用户在官方页取消了授权。如仍需登录，重新运行 itpay auth login。',
+    instruction: '用户在官方页取消了授权；停止登录。只有用户明确重新要求授权时才发起新的登录。',
   },
   denied: {
     status: 'auth_denied',
-    instruction: '官方授权被拒绝。重新运行 itpay auth login 生成新请求。',
+    instruction: '官方授权被拒绝；停止登录，不自动创建新请求。只有用户明确重新要求授权时才重新登录。',
   },
 };
 

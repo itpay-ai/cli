@@ -9,7 +9,7 @@
     "Any railway schedule, planning or ticket request; read this topic once before the first railway action."
   ],
   "goal_and_overview": {
-    "route": "Understand constraints → form a credible station-pair hypothesis → choose Exact or Smart → read saved results and select → create booking → obtain only missing human consent → show official entry → read the same order state.",
+    "route": "Understand endpoints and constraints → leave a 2–4 line route brief → choose Exact or Smart → read complete saved results → select under delegation → obtain only missing real consent → show official entry → read the same order.",
     "query_vs_booking": "Exact/Smart returns a query execution and saved evidence. Booking creates a separate execution from a server-issued selection; it is not a repeated search.",
     "comparison": "If the human only asked to compare, answer from the results and stop. A clear purchase delegation permits selection under their rules, subject to required human terms."
   },
@@ -58,9 +58,13 @@
     }
   ],
   "understand_before_search": [
-    "Identify date, arrival deadline, party size, destination precision, speed versus broad coverage, and whether the human delegated buying.",
-    "Use existing knowledge or one brief official information lookup to form a credible station pair. It helps identify stations, not current trains, seats, prices or global optimality. Do not make external research mandatory.",
-    "A city or district is an area; a verified railway station locks one station. Similar names do not make their scopes interchangeable."
+    "Preserve full administrative names, original endpoint meaning, date, party size, deadlines and station locks. Ask the human only if a genuine ambiguity changes the destination or constraints.",
+    "Before the first railway query, leave a 2–4 line route brief in the conversation, or write route-brief.txt using an existing local task-note tool: endpoint understanding and constraints; 1–2 plausible station pairs or transfer directions; knowledge or actually read source; Exact/Smart choice and facts still unverified. Choose one location for the brief, do not ask for permission to plan, and never write it after querying.",
+    "With sufficient knowledge, propose a credible route directly and label remembered trains as unverified. With insufficient knowledge, first attempt a targeted lookup using the full places and date on the most relevant source below; use another source only if needed. Do not visit all three routinely or research every possible route before ItPay.",
+    "12306 https://kyfw.12306.cn/ is the official date/station/train reference; claim a date verified only after reading that date result. 同程 https://www.ly.com/mergeTrain/huochepiao helps identify station pairs and transfer directions. 携程 https://trains.ctrip.com/ is an optional supplement for transfer routes. Knowledge, search snippets and historical timetables do not prove current operation, inventory, price or purchase credentials.",
+    "If browsing is unavailable, blocked by login or captcha, stop that lookup without repeated troubleshooting or installing a browser. State which route facts remain unverified. Clear endpoints may go to Smart for combinations, or a credible double-station hypothesis to Exact; unresolved place meaning still needs human clarification. Do not guess a station from an inaccessible website.",
+    "Date verification is required; the ItPay query for the actual date can perform it. A 12306 visit is not a mandatory extra call for every order. Valid Smart journeys and credentials do not require routine Exact rechecks of each leg.",
+    "Each side independently means area, place or station, giving all nine combinations. An area is not a same-name station; a specific station stays locked until the human consents to changing it. Smart also supports two locked stations when transfers are needed."
   ],
   "choose_search": {
     "exact": "Known or credible resolved station pair, direct trains for one station pair and date only. A zero result does not mean the whole city has no train. An area delegation may permit checking another evidence-based pair within that original area; a human-specified station stays locked until they consent to changing that endpoint.",
@@ -95,7 +99,7 @@
       "contract": "The current published input_schema is authoritative: use endpoints only when it exposes endpoints. Each side independently accepts kind area/place/station and a full text; omit kind when unresolved. Area centers choose nearby stations without claiming door-to-door ground travel; place uses verified POI/coordinates when available; station locks exactly one verified railway station and does not mean the traveler is already there. All nine origin/destination combinations follow this same rule. Province-only areas need a narrower location. Never mix endpoints with legacy origin/destination or send a station lock/confirmed flag. Adult passengers is an integer 1–5. arrive_before maps to arrive_by; conflicting aliases are rejected. preference_context is unsupported. A v4 workflow still uses its own declared legacy schema."
     },
     "result": "Read the resolved station pair or area scope, observed coverage, complete compact train rows, fare/inventory evidence and stable references. The recommendation card is not the full catalog. Unknown cost and unverified address ground facts remain unknown. Eligible means usable, not equally preferable. Prefer existing default_layer, roles, dominance and tradeoffs; show at most three meaningful representatives. A same-arrival, earlier-departing and more expensive dominated option stays in the saved catalog rather than taking the first screen.",
-    "waiting": "A query run waits within a bound. To continue, use the same execution with itpay services next <execution_id> --timeout 120 --json; it is read-only. Do not sleep/get/events repeatedly or resubmit input.",
+    "waiting": "Use the same execution and returned bounded wait command. next is a read; background work may still proceed. Do not resubmit, sleep/get/events repeatedly, or reread the whole guide.",
     "followup": "Read the saved result for the original execution. Smart: itpay services read-result <execution_id> --snapshot <snapshot_id> --json. Exact: use its returned saved-result reader. Filter all existing rows before considering a new supplier query. For a new Smart query after a changed endpoint or date, supply the original intent and a same-owner reuse_from reference to an unexpired snapshot; unchanged resolved endpoints and matching fresh station-pair facts may be reused. Date change never reuses old inventory. Preference, party-size or deadline changes within the same scope use refine_preferences on the existing plan. Planning deadline does not erase saved facts; an old selection token is not refreshed by rereading. Change to a named station: kind station with matching text/code. Original-station vicinity: kind place with verified station text, remove station_code, resolve normally or use verified POI/coordinates (existing 30 km/5 candidates). Whole city only with explicit consent: kind area with full administrative name, remove POI/location/station_code. Preserve date, passengers, time limits and preferences; refuse cross-owner reuse. The public Smart input does not expose overnight layover."
   },
   "select_and_book": {
@@ -106,7 +110,7 @@
     "identity": "Passenger name, ID and phone are entered on the official protected checkout page, not in query or booking JSON."
   },
   "review_and_checkout": {
-    "review": "Read the current booking review revision, actual train/date/stations, seat code and name, party, price state and notice terms. Submit workflow:confirm_booking with actor-type human only after real human consent to required terms, including seat assignment not guaranteed. Do not forge a human actor from agent delegation.",
+    "review": "Read the current draft and requirements_remaining. Ask only for an undecided seat class or missing required terms; reuse known party size, selection and unchanged explicit approvals. No seat-letter preference means automatic assignment, not a required letter question. Submit the actual notice_version/draft_revision with actor-type human only after real consent; delegation is not terms consent.",
     "equivalent_correction": "If only seat code spelling changes while train, actual seat class, party, price and terms are identical, reuse an existing explicit human approval. Material draft changes or missing approval require human confirmation.",
     "checkout": "Show the returned safe itinerary summary and official link/QR supported by the actual host. Do not repeat a price approval already valid for unchanged terms. The human completes identity and payment on that page. Handoff is not payment or ticket issuance."
   },
@@ -128,19 +132,6 @@
     "dependency_unavailable": "Map faults are external failures, not empty location candidates. Preserve resolved endpoints and original conditions. For a retryable wait, respect dependency.retry_at and execute the returned same-execution run command; never restart or sleep inside the CLI. Daily quota, permission or IP failures need service maintenance, not a different address.",
     "partial": "Report saved usable routes together with checked scope and the precise gap. Unqueried hubs, geographic evidence gaps and budget limits are not proof of no trains. Use the returned action only; do not expand station pairs by default. A proposal to relax a condition is allowed, but requires real consent before a changed-scope query.",
     "geographic_notice": "Geographic deviation is a ranking or explanation notice. Current eligibility and booking conditions come from verified dates, connections, inventory, prices, authorization and required ground evidence; do not reject a returned eligible train merely by geometric ratio."
-  },
-  "seat_preferences": {
-    "meaning": "A buyer's seat-letter preference may be planned per leg before payment. The plan is submitted to the supplier when encodable; unsupported combinations fall back to automatic assignment.",
-    "letters": "Evidence-backed letters only: O=ABCDF (second class), M=ACDF (first class), 9=ACF (business class). Other layouts auto-assign.",
-    "boundary": "Never claim a preference was fulfilled before supplier confirmation; check the issued seat in the order/status output.",
-    "review_contract": "Submitted inside the confirm_booking action via --input-json (nested JSON; --input key=value cannot express it and must not be combined with it). One preference per passenger slot, passenger_index 0-based. draft_revision must equal the server projection; a stale revision returns booking_review_changed — re-read services next and resubmit, never increment locally.",
-    "revision": "While payment has not started, the same execution accepts a revised review: resubmit confirm_booking with the new draft_revision; the old unpaid quote/checkout is retired and re-quoted. After a payment attempt the review is closed — never create a replacement purchase."
-  },
-  "notifications": {
-    "channels": "Delivery notices reach the checkout-confirmed contact: email always works; a verified mainland SMS recipient is optional and checkout-scoped. The passenger phone, the login phone and the notification recipient are independent facts.",
-    "status_read": "The order read exposes masked per-leg notification entries (keys: issued, details_pending, seat_ready) with channel, status and masked recipient — never raw numbers.",
-    "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
-    "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
   },
   "search_terms": [
     "rail",

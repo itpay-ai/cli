@@ -37,7 +37,7 @@ import {
 } from "./commands/cart.js";
 import { CommandContractError, errorRecoveryActions, printErrorRecovery, writeCommandEnvelope, type CommandAction } from "./commands/guidance.js";
 import { runDocsList, runDocsShow, runDocsSearch } from "./commands/docs.js";
-import { runInstall } from "./commands/install.js";
+import { INSTALL_AGENT_TYPES, runInstall } from "./commands/install.js";
 import { runSkillShow } from "./commands/skill.js";
 import { runNext } from "./commands/next.js";
 import { runVaultAccess, runVaultList, runVaultRead } from "./commands/vault.js";
@@ -209,8 +209,7 @@ function reportCLIError(
   const capabilityInputInvalid = error instanceof HttpError && error.code === "capability_input_invalid";
   const deviceKeyResettable = Boolean(deviceError && (
     deviceError.code === "agent_device_key_rotated" ||
-    deviceError.code === "agent_device_key_conflict" ||
-    (deviceError.enrollmentFailed && deviceError.status === 500)
+    deviceError.code === "agent_device_key_conflict"
   ));
   const deviceRecovery: CommandAction[] = deviceError ? [
     {
@@ -238,8 +237,8 @@ function reportCLIError(
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
       ? "Backend 已撤销当前 Device 登记；CLI 没有自动创建替代身份。停止重试并请用户或运营恢复登记。"
-      : deviceKeyResettable && deviceError?.status === 500
-        ? "服务端未能完成设备登记。先原样重试一次原命令：服务端会把已登记的同一公钥幂等挂回原设备。若仍返回 internal_error（Backend 未含该修复），执行 itpay device reset-key --confirm-key-reset 生成全新密钥后重试。"
+      : deviceError?.enrollmentFailed && deviceError.status === 500
+        ? "服务端未能完成设备登记；保持原密钥和Agent Type，说明系统故障，待服务端恢复后继续原任务。不要重置身份。"
         : deviceKeyResettable
           ? "服务端记录显示当前设备私钥已不再有效（已轮换或与既有登记冲突）。执行 itpay device reset-key --confirm-key-reset 生成全新密钥并重新登记。"
           : deviceError
@@ -300,6 +299,7 @@ function reportCLIError(
 			? "移除 ITPAY_BACKEND_URL 使用正式环境，或按当前测试目标准确设置为 https://sandbox.itpay.ai 或 https://dev.itpay.ai。不要通过切换环境规避当前错误。"
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
+    ...(commandError?.interaction ? { interaction: commandError.interaction } : {}),
       recovery: incompatible
         ? requiredCLIVersion
           ? [distributionUpgradeAction(requiredCLIVersion)]
@@ -309,7 +309,7 @@ function reportCLIError(
           : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : lockError ? lockRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
       ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError || lockError || stateError ? { jsonOutput: process.argv.includes("--json") } : {}),
-      output: (text) => { process.stderr.write(text); },
+      output: (text) => { process.stdout.write(text); },
     });
     process.exitCode = 1;
     return;
@@ -403,7 +403,7 @@ for (const action of ["login", "status"] as const) {
       // and non-JSON output is human-readable instead of a raw JSON dump.
       const envelope = {
         status: String(result.status ?? "error"),
-        result: (result.result ?? result) as Record<string, unknown>,
+        result: (result.result ?? Object.fromEntries(Object.entries(result).filter(([key]) => !["status", "instruction", "next", "recovery", "handoff"].includes(key)))) as Record<string, unknown>,
         ...(result.handoff ? { handoff: result.handoff as Record<string, unknown> } : {}),
         instruction: typeof result.instruction === "string" ? result.instruction : "按返回状态继续。",
         next: (result.next ?? null) as { command: string; reason: string } | null,
@@ -512,6 +512,10 @@ deviceCmd
   .action(async (options) => {
     const config = loadConfig();
     try {
+      if (!config.agentType || !INSTALL_AGENT_TYPES.some(type => type === config.agentType)) {
+        throw new CommandContractError("agent_type_required", "supported Agent Type required before key reset",
+          "先按真实宿主配置正式支持的Agent Type；尚未修改本地密钥。", [{ command: "itpay install --json", reason: "读取当前宿主配置" }]);
+      }
       if (!options.confirmKeyReset) {
         throw new CommandContractError(
           "key_reset_confirmation_required",
@@ -532,9 +536,9 @@ deviceCmd
           private_key_preserved: false,
           server_side_device: "orphaned_under_previous_key",
         },
-        instruction: "本地设备私钥已重置；下一次需要设备身份的命令会以全新 Ed25519 密钥重新登记并获得新的额度谱系。服务端旧设备记录保留为孤儿；如需清理请走运营流程。",
+        instruction: "本地设备私钥已重置；下一次需要设备身份的命令会以全新 Ed25519 密钥重新登记；这不能恢复旧身份的订单或用于刷新额度。服务端旧设备记录保留为孤儿；如需清理请走运营流程。",
         next: {
-          command: `itpay --agent-type ${config.agentType ?? "<agent_type>"} services list --limit 1 --json`,
+          command: `itpay --agent-type ${config.agentType} services list --limit 1 --json`,
           reason: "用无业务写入的签名请求完成新密钥的重新登记",
         },
         recovery: [],
@@ -1905,12 +1909,12 @@ services
 
 services
   .command("read-result")
-  .description("Read a human-granted service result for this agent")
+  .description("Read saved railway results or human-granted service content")
   .argument("<service_execution_id>")
   .option("--snapshot <snapshot_id>", "rail.progressive.v2: read one journey from a committed planning snapshot")
   .option("--journey <journey_id>", "rail.progressive.v2: journey id to read")
   .option("--offset <offset>", "saved journey offset", Number, 0)
-  .option("--limit <limit>", "journeys per page (1-20)", Number, 3)
+  .option("--limit <limit>", "rows per page (1-20): Exact 20, Smart 3", Number)
   .option("--all", "read every saved journey page")
   .option("--json", "output JSON instead of terminal text")
   .action(async (serviceExecutionID: string, options) => {

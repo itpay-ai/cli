@@ -28,10 +28,10 @@ Type 或执行 `device recover`；应保留身份并重试原命令一次，持�
 
 ## `itpay device reset-key`
 
-仅在服务端拒绝以当前私钥完成设备登记时使用（登记阶段持续返回 `internal_error`，或返回 `agent_device_key_rotated` / `agent_device_key_conflict`）。这是本地操作，不访问 Backend：
+仅在确认当前密钥不可恢复，且服务端返回 `agent_device_key_rotated` / `agent_device_key_conflict` 时使用；`internal_error` 是服务端故障，不能据此重置身份。必须指定真实 Agent Type 并取得明确确认。这是本地操作，不访问 Backend：
 
 ```bash
-itpay device reset-key --confirm-key-reset --json
+itpay --agent-type <agent_type> device reset-key --confirm-key-reset --json
 ```
 
 命令删除本地 Ed25519 私钥并清空所有 Backend 的本地登记记录；下一次需要设备身份的命令会以全新密钥重新登记为新设备。服务端旧设备记录保留为孤儿，不会被删除或复用；原设备的额度谱系不迁移。先尝试普通重试——Backend 会把已验证私钥的重复登记幂等挂回原设备，只有在该修复不可用或私钥已被服务端轮换/冲突时才需要本命令。

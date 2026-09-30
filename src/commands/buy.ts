@@ -317,7 +317,7 @@ function buildBuyEnvelope(input: {
     result,
     handoff: presentationHandoff.handoff,
     instruction: presentationHandoff.instruction,
-    next: { command: input.plan.afterActionCommand ?? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "稍后查询同一笔 Checkout 状态" },
+    next: { command: input.plan.afterActionCommand ?? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "仅用户完成付款或要求查询时，读取同一笔Checkout权威状态" },
     recovery: [],
   };
 }

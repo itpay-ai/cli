@@ -54,7 +54,7 @@ function orderEnvelope(
   } else if (order.status === "pending_payment") {
     const remaining = typeof order.payment_remaining_seconds === "number" && order.payment_remaining_seconds <= 0;
     instruction = remaining
-      ? "先告诉用户这笔订单的付款时限已到，可能已被取消；如刚完成付款请说明系统正在核对到账，不要重复支付；否则引导用户重新核价下单，刷新不会延长付款期限。"
+      ? "付款时限已到，但订单权威状态仍为待付款；读取同一订单核对到账或终止结果。不要重复支付、重建订单或推测已取消，刷新不会延长期限。"
       : `先告诉用户订单正在等待付款${order.payment_deadline_at ? `，付款截止时间为 ${order.payment_deadline_at}` : ""}，超时未支付会被自动取消；不要创建替代订单，也不要重复发起支付授权。`;
     next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单支付状态" };
   } else if (!["delivered", "refunded", "failed", "cancelled"].includes(order.status)) {

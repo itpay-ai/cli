@@ -4,7 +4,7 @@
 
 ## 范围与意义
 
-同一命令读取三种已保存结果：铁路 Exact 车次页自动合并成紧凑业务行、铁路 Smart 快照分页紧凑车次目录，或持有效 grant 读取 Vault 保护内容。铁路读取免费、只读且不重新调用供应商。
+同一命令读取三种已保存结果：铁路 Exact 车次按页读取为紧凑业务行、铁路 Smart 快照分页紧凑车次目录，或持有效 grant 读取 Vault 保护内容。铁路读取免费、只读且不重新调用供应商。
 
 **上游：** 铁路查询的已保存结果入口，或 `services next` 返回 `vault_artifact` 且用户已在订单页面授权。
 **下游：** 铁路紧凑行中使用逐行 `detail.command` 读取购买条件；Vault 仅在 grant scope 和 TTL 内使用返回字段。
@@ -20,12 +20,12 @@ itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--
 | `service_execution_id` | 是 | 铁路查询或 Vault 交付对应的 execution ID。 |
 | `--journey <journey_id>` | 否 | rail.progressive.v2 规划明细：读取指定 journey 的分段与席别选项；票计划按页返回。免费、属主校验、不触发供应商调用。 |
 | `--snapshot <snapshot_id>` | 否 | 单独使用时读取该 Smart 已提交快照的紧凑线路页；与 `--journey` 配合时读取该线路详情页。 |
-| `--offset <offset>` | 否 | Smart 保存结果从零开始的页偏移；不改变快照或重新查询。 |
-| `--limit <limit>` | 否 | Smart 保存结果当前页条数；默认3条完整线路或3个票计划。 |
-| `--all` | 否 | 显式读取 Smart 保存目录全量；输出可能很大，常规读取应沿当前页的 next.command。 |
+| `--offset <offset>` | 否 | Exact / Smart 保存结果从零开始的页偏移；不改变快照或重新查询。 |
+| `--limit <limit>` | 否 | 保存结果当前页条数，1–20；Exact默认20条，Smart默认3条完整线路或3个票计划；必要时按最终输出字节缩小整行页。 |
+| `--all` | 否 | 显式兼容读取 Exact / Smart 保存目录全量；输出可能很大，常规读取应沿当前页的 next.command。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
 
-Exact 执行不带选择器时读取已保存全部车次，单次最多合并 100 条并给出明确续读位置。Smart 使用 `--snapshot` 读取固定快照的默认小页，或用 `--journey` 读一条线路的票计划页；按返回的 next.command 续读同快照。这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
+Exact 执行按 offset/limit 读取已保存车次，返回 total、offset、count 和同一 read-result 的续页入口；不会把前100条冒充完整范围。Smart 使用 `--snapshot` 读取固定快照的默认小页，或用 `--journey` 读一条线路的票计划页；按返回的 next.command 续读同快照。这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
 
 Smart 保存目录按本次主推荐、其他合格线路、不可用或资格未知的诊断线路排列；`total` 仍是全部已保存时刻组合数，`qualification_counts` 分别说明当前合格、不合格、未知数。诊断线路保留车次、时刻和 `qualification_reasons`，其 `detail.command` 用于查看事实与原因，不表示可以购买。只有 `qualification_status=eligible` 且逐段票方案完整时，才给当前购买入口。历史快照缺资格字段按未知展示。`--all` 仍读取全部事实，不会重新查询铁路。
 

@@ -92,5 +92,11 @@
     "交付失败",
     "没有收到结果",
     "能不能退"
-  ]
+  ],
+  "rail_notifications": {
+    "channels": "Delivery notices reach the checkout-confirmed contact: email always works; a verified mainland SMS recipient is optional and checkout-scoped. The passenger phone, the login phone and the notification recipient are independent facts.",
+    "status_read": "The order read exposes masked per-leg notification entries (keys: issued, details_pending, seat_ready) with channel, status and masked recipient — never raw numbers.",
+    "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
+    "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
+  }
 }

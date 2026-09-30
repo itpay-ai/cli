@@ -3,6 +3,8 @@
 // resume, the deterministic presentation resolver, secure browser URL
 // admission, and relay gating.
 
+import { execFileSync } from "node:child_process";
+import { shellArgument, plainValueLines } from "../src/commands/guidance.js";
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -232,8 +234,8 @@ test("rail planning in-progress envelope carries a communication plane", async (
     communication?: { status_line?: string; next_expectation?: string };
   };
   assert.equal(envelope.status, "planning");
-  assert.ok(envelope.communication?.status_line);
-  assert.match(envelope.communication?.next_expectation ?? "", /轮询|同一执行/);
+  assert.equal(envelope.communication, undefined);
+  assert.match(envelope.next?.command ?? "", /--timeout 120/);
   assert.match(envelope.next?.command ?? "", /services next se_rail_plan_running/);
 });
 
@@ -247,11 +249,9 @@ test("rail planning ready envelope carries two-goal interaction, communication a
     communication?: { status_line?: string; must_convey?: string[] };
     recovery: unknown[];
   };
-  assert.equal(envelope.interaction?.schema_version, "itpay.interaction.v1");
-  assert.ok(envelope.interaction?.stage);
-  assert.ok(envelope.interaction?.by_goal && "compare" in envelope.interaction.by_goal && "prepare_checkout" in envelope.interaction.by_goal);
-  assert.ok(envelope.communication?.status_line);
-  assert.ok(Array.isArray(envelope.communication?.must_convey));
+  assert.equal(envelope.interaction, undefined);
+  assert.equal(envelope.communication, undefined);
+  assert.doesNotMatch(stdoutCapture.join(""), /by_goal|interaction.recipe|rail.selected-to-checkout/);
   // No unresolved placeholder is ever presented as an executable command.
   const rendered = JSON.stringify(envelope);
   assert.doesNotMatch(envelope.next?.command ?? "", /</);
@@ -301,4 +301,12 @@ test("task journal keeps paused tasks resumable and forgets terminal ones", () =
   assert.equal(paused.length, 1);
   assert.equal(paused[0]!.service_execution_id, "se_a");
   assert.equal(paused[0]!.resume_command, "itpay services run svc --execution se_a --json");
+});
+
+test("post-v3 shell arguments preserve literal user text and plain objects stay readable", () => {
+ for (const value of ["有 空格", "a'b", '"quote"', '$(printf unsafe)', '`printf unsafe`']) {
+  assert.equal(execFileSync("/bin/sh", ["-c", `printf %s ${shellArgument(value)}`], {encoding:"utf8"}), value);
+ }
+ const text = plainValueLines({rides:[{train_code:"G1",departure:"2026-10-08 09:00"}],detail:{command:"itpay services page se ri --limit 1 --json"}}).join("\n");
+ assert.match(text,/train_code: G1/); assert.match(text,/command: itpay services page/); assert.doesNotMatch(text,/\{\"/);
 });

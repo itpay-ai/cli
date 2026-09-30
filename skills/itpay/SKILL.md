@@ -14,13 +14,11 @@ human the useful result or action, not the internal steps.
 
 ## Choose one entry
 
-- Railway planning or booking: read `itpay docs show rail-booking --json` once
-  before the first railway action. It covers choosing a credible station-pair
-  Exact query or broader Smart plan, saved results, selection, booking, review,
-  checkout, order status and railway refunds. Subsequent envelopes supply the
-  current facts and actions. A known station pair can go straight to Exact;
-  a city request does not automatically require Smart. Keep specified stations
-  locked; follow the railway guide to obtain consent before a changed-scope query.
+- Railway planning or booking: read `itpay docs show rail-booking` once. Before
+  the first railway query, preserve both endpoints and constraints, form a
+  credible route from existing knowledge or a targeted lookup, and leave a
+  2–4 line route brief in the conversation or existing local route-brief.txt.
+  Then choose Exact or Smart; the railway guide supplies the method.
 - Other new services: `itpay catalog list --json`, then the chosen service's
   published input contract.
 - Existing execution: `itpay services next <execution_id> --json`.
@@ -28,7 +26,7 @@ human the useful result or action, not the internal steps.
   `--query <subject>`, then use the returned authorized reader.
 - Order history: `itpay orders --json`; known order:
   `itpay order <order_id> --json`.
-- Refund: read `itpay docs show orders-refunds --json` and continue from the
+- Refund: read `itpay docs show orders-refunds` and continue from the
   known order or refund.
 - Selling: `itpay sell guide --json`, then `itpay sell status --json` and the
   packaged seller guide.

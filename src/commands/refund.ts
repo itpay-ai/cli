@@ -75,7 +75,7 @@ export async function runListRefunds(backend: BackendClient, options: RefundList
 				: "该订单没有退款记录；确认用户确实要求退款后再创建。",
 		next: selected
 			? { command: `itpay refund get ${selected.refund_request_id} --json`, reason: active ? "读取活跃退款" : "读取最新退款" }
-			: { command: `itpay refund create --order ${options.orderID} --json`, reason: "为该订单创建退款" },
+			: null,
 		recovery: [],
 	};
 	writeCommandEnvelope(envelope, {
@@ -100,13 +100,13 @@ export async function runGetRefund(backend: BackendClient, refundID: string, opt
 export async function runCancelRefund(backend: BackendClient, refundID: string, reason?: string, options: RefundReadOptions = {}): Promise<void> {
 	const refund = await backend.cancelRefund(refundID, reason?.trim() || "buyer_cancelled");
 	const envelope: CommandEnvelope = {
-		status: "cancelled",
+		status: refund.status,
 		result: {
 			refund_request_id: refund.refund_request_id,
 			order_id: refund.order_id,
 			access_locked: refund.access_locked,
 		},
-		instruction: "退款已取消；如需交付，重新进入订单并取得新的授权。",
+		instruction: refund.status === "cancelled" ? "Backend确认退款已取消；如需交付，重新进入原订单核对当前权限，旧grant不自动复活；后端要求时取得新的授权。" : "Backend未确认取消；按返回的退款权威状态核对原订单，不重复提交取消。",
 		next: { command: `itpay order ${refund.order_id} --json`, reason: "确认订单访问状态" },
 		recovery: [],
 	};

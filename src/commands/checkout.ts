@@ -14,7 +14,7 @@ import { hostCapabilities, normalizeViewer, type ClientHost, type ViewerDevice }
 import { DEFAULT_BASE_URL } from "../state/config.js";
 import { buildCheckoutQRPlan } from "./buy.js";
 import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
-import { CommandContractError, type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
+import { CommandContractError, plainValueLines, type CommandAction, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 import { resolvePresentation, resolveRelay, type PresentationRoute } from "./presentation.js";
 
 export type PresentMethod = "auto" | "browser" | "image" | "link" | "none";
@@ -287,10 +287,7 @@ function pendingCheckoutEnvelope(
       ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好仅为购票请求、购票时才提交给供应商且不保证满足；无法逐人提交的偏好将自动分配座位，以实际出票为准。`
       : presentationHandoff.instruction,
     next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
-    recovery: [{
-      command: nextCommand,
-      reason: "付款时限由服务端统一确定，刷新不会延长；到期未支付自动取消后须重新核价下单，不要重发旧付款动作",
-    }],
+    recovery: [],
   };
 }
 
@@ -338,7 +335,7 @@ function checkoutNeedsHumanHandoff(status: string): boolean {
 }
 
 function checkoutPlainResult(result: Record<string, unknown>): string[] {
-  return Object.entries(result).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`);
+  return plainValueLines(result);
 }
 
 function formatMoney(amountMinor: number, currency: string): string {

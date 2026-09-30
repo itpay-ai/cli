@@ -2,10 +2,10 @@ import type { BackendClient } from "../client/backend.js";
 import { HttpError } from "../client/http.js";
 import type { OutputSink } from "../render/sink.js";
 import type { ClientHost } from "../state/client_context.js";
-import { requiresTarget } from "../state/client_context.js";
+import { requiresTarget, validateContext } from "../state/client_context.js";
 import type { QRFormat } from "../render/qr.js";
 import { formatMoney } from "../render/output.js";
-import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
+import { CommandContractError, shellArgument, writeCommandEnvelope } from "./guidance.js";
 import { buildVaultHandoff } from "./vault_handoff.js";
 
 interface CommonOptions {
@@ -42,20 +42,20 @@ export async function runVaultList(backend: BackendClient, input: { query?: stri
     const value = await backend.listBuyerVaultArtifacts(input);
     writeCommandEnvelope({
       status: value.items.length ? "vault_listed" : "no_vault_artifacts",
-      result: { items: value.items, next_cursor: value.next_cursor || null },
+      result: { items: value.items.map(item => ({...item, amount: formatMoney(item.amount_minor, item.currency), reader: {command: vaultReadCommand(item.artifact_ref, [], input), reason: "读取这一已购内容"}})), next_cursor: value.next_cursor || null },
       instruction: value.items.length
-        ? "用编号、服务名称、内容主体、购买时间、金额和订单号说明匹配结果，不要向用户显示内部内容标识。一个精确匹配可按用户原始查看意图继续读取；多个匹配必须让用户选择。"
+        ? "用编号、服务名称、内容主体、购买时间、金额和订单号说明匹配结果，不要向用户显示内部内容标识。一个精确匹配可按用户原始查看意图继续读取；已有任务可明确匹配时读取对应行；只有真实歧义才让用户选择。"
         : "当前账号没有匹配的已购内容。向用户说明没有找到，不要猜测内容标识、自动购买或发起新的服务查询。",
-      next: null,
+      next: value.next_cursor ? { command: `itpay vault list --limit ${input.limit}${input.query ? ` --query ${shellArgument(input.query)}` : ""} --cursor ${shellArgument(value.next_cursor)}${contextFlags(input)} --json`, reason: "读取同一筛选的下一页" } : null,
       recovery: [],
-    }, outputOptions(input, value.items.map((item, index) => `${index + 1}. ${item.service_title}${item.subject_label ? ` · ${item.subject_label}` : ""} · ${formatMoney(item.amount_minor, item.currency)} · ${item.purchased_at} · ${item.order_code} · ${item.order_status}`)));
+    }, outputOptions(input));
   } catch (error) {
     if (error instanceof HttpError && error.code === "vault_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required",
         result: { intent: "list_purchased_content", query: input.query ?? "" },
-        instruction: `需要用户确认一次身份和只读权限。执行 next.command 生成官方入口，不要声称链接已经创建；用户完成后重新运行原始 vault list 命令。${accessContextInstruction(input)}`,
-        next: { command: vaultAccessCommand(undefined, input), reason: "创建一次账号读取授权" }, recovery: [],
+        instruction: `需要用户确认一次身份和只读权限。按当前动作或待填模板生成官方入口，不要声称链接已经创建；用户完成后重新运行原始 vault list 命令。${accessContextInstruction(input)}`,
+        ...vaultAccessGuidance(undefined, input), recovery: [],
       }, outputOptions(input));
       return;
     }
@@ -64,6 +64,8 @@ export async function runVaultList(backend: BackendClient, input: { query?: stri
 }
 
 export async function runVaultAccess(backend: BackendClient, artifactRef: string | undefined, options: AccessOptions): Promise<void> {
+  const issue = validateContext(options.host, options.target);
+  if (issue) throw new CommandContractError(issue.code, issue.message, "先补齐当前可信会话的真实宿主和目标；尚未创建授权请求。", [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template: { command: vaultAccessCommand(artifactRef, options), required_input: issue.code === "target_required" ? ["target"] : ["host"], executable: false } });
   const value = await backend.createVaultAccessRequest(artifactRef
     ? { purpose: "artifact_reveal", artifact_ref: artifactRef }
     : { purpose: "account_window" });
@@ -111,22 +113,22 @@ export async function runVaultRead(backend: BackendClient, artifactRef: string, 
         : value.status === "result_preparing"
           ? "这份已购内容仍在准备。稍后只重试同一 read，不要重新授权、购买或调用 Provider。"
           : "这份已购内容当前不可用。停止，不要重试、重新购买或绕过退款锁。",
-      next: null, recovery: [],
+      next: value.status === "result_preparing" ? { command: vaultReadCommand(artifactRef, normalized, options), reason: "稍后读取同一内容及原sections；不重新授权或购买" } : null, recovery: [],
     }, outputOptions(options));
   } catch (error) {
     if (error instanceof HttpError && error.code === "artifact_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required", result: { artifact_ref: artifactRef },
-        instruction: `这份内容需要用户单独确认读取权限。执行 next.command 生成一次官方入口；用户完成后重新运行原始 read，不要重复创建授权请求。${accessContextInstruction(options)}`,
-        next: { command: vaultAccessCommand(artifactRef, options), reason: "创建一次内容读取授权" }, recovery: [],
+        instruction: `这份内容需要用户单独确认读取权限。按当前动作或待填模板生成一次官方入口；用户完成后重新运行原始 read，不要重复创建授权请求。${accessContextInstruction(options)}`,
+        ...vaultAccessGuidance(artifactRef, options), recovery: [],
       }, outputOptions(options));
       return;
     }
     if (error instanceof HttpError && error.code === "vault_authorization_required") {
       writeCommandEnvelope({
         status: "human_authorization_required", result: { artifact_ref: artifactRef },
-        instruction: `账号读取授权已缺失或过期。执行 next.command 生成一次官方入口；用户完成后重新运行原始 read。${accessContextInstruction(options)}`,
-        next: { command: vaultAccessCommand(undefined, options), reason: "创建一次账号读取授权" }, recovery: [],
+        instruction: `账号读取授权已缺失或过期。按当前动作或待填模板生成一次官方入口；用户完成后重新运行原始 read。${accessContextInstruction(options)}`,
+        ...vaultAccessGuidance(undefined, options), recovery: [],
       }, outputOptions(options));
       return;
     }
@@ -140,7 +142,7 @@ export function vaultAccessCommand(artifactRef: string | undefined, options: Pic
   const openClaw = options.agentType?.trim().toLowerCase() === "openclaw";
   const host = options.host ?? (openClaw ? "<host>" : undefined);
   if (host) parts.push("--host", host);
-  const target = options.target ?? (openClaw && (!options.host || requiresTarget(options.host)) ? "<target>" : undefined);
+  const target = options.target ?? (((openClaw && !options.host) || (options.host && requiresTarget(options.host))) ? "<target>" : undefined);
   if (target) parts.push("--target", shellArgument(target));
   parts.push("--json");
   return parts.join(" ");
@@ -152,8 +154,14 @@ export function accessContextInstruction(options: Pick<CommonOptions, "agentType
     : "";
 }
 
-function shellArgument(value: string): string {
-  if (value.startsWith("<") && value.endsWith(">")) return value;
-  if (/^[\p{L}\p{N}._:=/-]+$/u.test(value)) return value;
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
+function contextFlags(options: CommonOptions): string {
+ return `${options.host ? ` --host ${options.host}` : ""}${options.target ? ` --target ${shellArgument(options.target)}` : ""}`;
+}
+function vaultReadCommand(artifact: string, sections: string[], options: CommonOptions): string {
+ return `itpay vault read --artifact ${shellArgument(artifact)}${sections.map(section => ` --section ${shellArgument(section)}`).join("")}${contextFlags(options)} --json`;
+}
+export function vaultAccessGuidance(artifact: string | undefined, options: CommonOptions): Pick<import("./guidance.js").CommandEnvelope,"next"|"interaction"> {
+ const command = vaultAccessCommand(artifact, options);
+ const missing = [...(options.agentType === "openclaw" && !options.host ? ["host"] : []), ...(options.host && requiresTarget(options.host) && !options.target || options.agentType === "openclaw" && !options.host && !options.target ? ["target"] : [])];
+ return missing.length ? {next:null, interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_template:{command,required_input:missing,executable:false}}} : {next:{command,reason:"创建一次官方只读授权入口；用户完成后恢复原reader"}};
 }
