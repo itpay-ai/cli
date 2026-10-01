@@ -8,7 +8,7 @@ import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const exec=promisify(execFile),root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const [url,dir,providerURL]=process.argv.slice(2),project=join(dir,'project');
-const env={...process.env,HOME:dir,NODE_ENV:'test',ITPAY_BACKEND_URL:'https://sandbox.itpay.ai',ITPAY_CLI_TEST_TRANSPORT_URL:url,SELL_TEST_KEY:'fixture-only'};
+const env={...process.env,HOME:dir,NODE_ENV:'test',ITPAY_BACKEND_URL:'https://sandbox.itpay.ai',ITPAY_CLI_TEST_TRANSPORT_URL:url,SELL_TEST_KEY:'fixture-only',ITPAY_SELL_SKIP_GATES:'1'};
 let serial=0;const evidence=[];
 const mcpClients = new Map();
 async function mcpCall(command, options, input, actor) {
@@ -17,7 +17,7 @@ async function mcpCall(command, options, input, actor) {
   const {StdioClientTransport}=await import('@modelcontextprotocol/sdk/client/stdio.js');
   const client=new Client({name:'sell-acceptance',version:'1.0.0'});
   await client.connect(new StdioClientTransport({command:join(root,'node_modules/.bin/tsx'),args:[join(root,'tests/sell_integration_entry.ts'),'sell','mcp','--stdio','--project',project],cwd:root,env:{...env,ITPAY_SELL_TEST_ACTOR:actor},stderr:'pipe'}));
-  const inventory=await client.listTools();assert.equal(inventory.tools.length,52);
+  const inventory=await client.listTools();assert.equal(inventory.tools.length,55);
   mcpClients.set(actor,client);
  }
  const args={input:input??{}};

@@ -27,6 +27,10 @@ All platform operations accept `--input-json <file>` for their declared fields a
 
 `itpay sell mcp --stdio --project <directory>` exposes local creation, import, versioning, testing, preview, sync and platform actions. It reuses the local CLI identity. Remote MCP exposes only platform actions and cannot read paths on the user's machine. Use the local server for real local tests and file access. New remote grants require the appropriate `itpay.seller.read/write/test/submit` scopes; old buyer grants do not gain Seller authority.
 
+## Human approval gates
+
+Six publishing decisions are enforced as human gates (both in this CLI and the MCP tools): G1 service identity, G2 API source/credential responsibility, G3 workflow candidate + fixtures + saved version, G4 accepted platform E2E evidence, G5 pricing/refund policy, G6 terms confirmations and submission. A gated command fails with `status:"gate_required"` and returns the exact `review` payload, `fingerprint`, and `approve_command`. Show the review to the user, wait for their decision, then run `itpay sell gates approve --gate <gN> ... --note "<the user's own words>"` (in a TTY it also asks to type APPROVE). Approvals bind to a fingerprint of the exact content (or server-side candidate/evidence hash), are single-use, and any change after approval forces re-review; gates are ordered G1→G6. `itpay sell gates list` shows the approval ledger (`~/.itpay-v3/sell-gates*.json`, owner-only). `ITPAY_SELL_SKIP_GATES=1` exists only for offline test automation and is refused against production; agents must never approve a gate without a fresh human decision.
+
 ## Invariants
 
 - The current runtime accepts bounded, acyclic, single-entry workflows with multiple API nodes. Free queries can use quota and explicit human confirmation; paid workflows use one payment node and either fixed per-call pricing or a trusted pre-payment dynamic quote. Prepaid balance billing remains unsupported.
