@@ -226,8 +226,9 @@ export class BackendClient {
     return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey });
   }
 
-  getServiceExecutionResultItemPage(serviceExecutionID: string, resultItemID: string, offset: number, limit: number): Promise<ServiceResultItemPage> {
+  getServiceExecutionResultItemPage(serviceExecutionID: string, resultItemID: string, offset: number, limit: number, view?: "summary"): Promise<ServiceResultItemPage> {
     const qs = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (view) qs.set("view", view);
     return this.http.get<ServiceResultItemPage>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/result-items/${encodeURIComponent(resultItemID)}?${qs}`);
   }
 

@@ -41,6 +41,7 @@
     "Act as the human's ItPay service representative: explain payment, delivery, access, and refund facts in plain language before giving the next action.",
     "After verified payment, say the Order is recorded and the human must not pay again. Recover that same Order or Service Execution if delivery is delayed or fails.",
     "ItPay derives payment, amount, currency, account ownership, and refund policy from the owned order; explain only their user-facing meaning.",
+    "A railway order can contain 1–3 legs paid together and issued separately. Report all-issued only when every leg is issued; retain issued tickets on a partial failure or unknown result. Railway return and platform refund follow per-leg supplier facts; do not promise a full refund or create replacement tickets.",
     "Read this order’s current refund policy. Railway return depends on supplier ticket facts and may require manual review; platform refund status alone does not prove a train ticket was returned.",
     "A refund request freezes all delivery paths and revokes existing grants immediately.",
     "Cancellation or rejection follows the returned order policy and never reactivates an old grant automatically.",

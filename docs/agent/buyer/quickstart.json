@@ -43,7 +43,7 @@
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
     "When testing sandbox, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://sandbox.itpay.ai prefix is preserved.",
     "Use --target only for a Host presentation destination. Use --input key=value only for simple scalars; nested objects use a small JSON file with the existing --input-json command.",
-    "Ask the user for required email or contact values and explain their purpose; never invent them.",
+    "For non-rail delivery that explicitly requires email, ask only that missing value and explain its purpose. Railway identity and notification contact are handled on the protected official checkout page; never guess them.",
     "Explain useful service facts in ordinary language; never ask the human to run commands or learn internal IDs.",
     "Normal payment uses the returned ItPay Checkout handoff.",
     "A railway query execution and its separate booking execution may serve one purchase intent; keep both references."

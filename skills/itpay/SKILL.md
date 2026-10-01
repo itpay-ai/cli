@@ -14,11 +14,11 @@ human the useful result or action, not the internal steps.
 
 ## Choose one entry
 
-- Railway planning or booking: read `itpay docs show rail-booking` once. Before
-  the first railway query, preserve both endpoints and constraints, form a
-  credible route from existing knowledge or a targeted lookup, and leave a
-  2–4 line route brief in the conversation or existing local route-brief.txt.
-  Then choose Exact or Smart; the railway guide supplies the method.
+- Railway planning or booking: read `itpay docs show rail-booking` once; preserve
+  the original endpoints and constraints, use only clear reliable route knowledge
+  directly, and make one targeted lookup if your judgment is merely probable.
+  Before querying, leave a 2–4 line route brief in the conversation or existing
+  route-brief.txt (one place only), then choose Exact or Smart using that evidence.
 - Other new services: `itpay catalog list --json`, then the chosen service's
   published input contract.
 - Existing execution: `itpay services next <execution_id> --json`.
@@ -71,7 +71,7 @@ link or QR genuinely visible using the actual host's handoff. Keep internal
 IDs, tokens, command lines, raw envelopes and diagnostics out of human-facing
 messages. Traveler names, ID numbers, phones, verification codes and payment
 details belong only in the protected official page, never chat or local query
-input. A payment entry is not payment success; payment is not ticket issuance.
+input. A railway ticket plan uses one booking and one official payment entry for the whole journey, with separate issuance per leg. A payment entry is not payment success; payment is not ticket issuance.
 Once the Order confirms payment, tell the human they must not pay again and
 continue from that same Order.
 

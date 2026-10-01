@@ -82,7 +82,7 @@ interface RailServiceGuidance {
 
 const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
   "itpay-rail-exact": {
-    when_to_use: "已知可信站对时先用本服务核验直达；城市需求可先形成有依据的站对假设。只覆盖这一站对，不代表全城市最优。首次查询前先留2–4行路线摘要，具体方法：itpay docs show rail-booking。",
+    when_to_use: "已知可信站对时先用本服务核验直达；城市需求可先形成有依据的站对假设。只覆盖这一站对，不代表全城市最优。只有明确可靠路线知识可直接用；大概率判断先短查，受阻且清晰双站可Exact核验。查询前留2–4行依据摘要：itpay docs show rail-booking。",
     input_fields: [
       { name: "origin", required: true, description: "已核实出发铁路站完整名称，不能以同名站代替区域", example: "<已核实出发站>" },
       { name: "destination", required: true, description: "已核实到达铁路站完整名称", example: "<已核实到达站>" },
@@ -95,7 +95,7 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
     ],
   },
   "itpay-rail-smart": {
-    when_to_use: "需要广泛站点比较、中转或具体地址接驳时使用；有可信站对且只需先核验直达可用 Exact。首次查询前先留2–4行路线摘要，具体方法：itpay docs show rail-booking。",
+    when_to_use: "需要广泛站点比较、中转或具体地址接驳时使用；有可信站对且只需先核验直达可用 Exact。只有明确可靠路线知识可直接用；大概率判断先短查，受阻且清晰双站可Exact核验。查询前留2–4行依据摘要：itpay docs show rail-booking。",
     input_fields: [
       { name: "origin", required: true, description: "出发地：已知最完整的位置名或区域（城市/区县/地址均可）", example: "<原始完整地点>" },
       { name: "destination", required: true, description: "目的地：与 origin 同样的位置规则", example: "<已核实到达站>" },
@@ -126,7 +126,9 @@ const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
 
 function railServiceGuidance(serviceID: string, schema?: Record<string, unknown>): RailServiceGuidance | undefined {
   const guidance = RAIL_SERVICE_GUIDANCE[serviceID];
-  if (serviceID !== "itpay-rail-smart" || !guidance || !(schema?.properties as Record<string, unknown> | undefined)?.endpoints) return guidance;
+  if (serviceID !== "itpay-rail-smart" || !guidance) return guidance;
+  const properties = schema?.properties as Record<string, unknown> | undefined;
+  if (!properties?.endpoints) return properties?.origin && properties?.destination ? guidance : undefined;
   return {
     ...guidance,
     input_fields: [
@@ -136,9 +138,39 @@ function railServiceGuidance(serviceID: string, schema?: Record<string, unknown>
     optional_fields: (guidance.optional_fields ?? []).filter((field) => !["origin_city", "destination_city", "origin_location", "destination_location"].includes(field.name)).concat([
       { name: "reuse_from", description: "同 owner 的已保存 Exact result_item_id 或 Smart snapshot_id；端点/日期新查询可复用有效事实" },
     ]),
-    input_example: { endpoints: { origin: { kind: "area", text: "<用户出发市县镇完整名称>" }, destination: { kind: "station", text: "<已核实到达站名>" } }, travel_date: "<用户出行日期 YYYY-MM-DD>" },
+    input_example: { endpoints: { origin: { text: "<用户原始出发地点>" }, destination: { text: "<用户原始目的地>" } }, travel_date: "<用户出行日期 YYYY-MM-DD>" },
     notes: ["仅用当前 input_schema 支持的端点写法；不要与旧 origin/destination 混用", "唯一地点直接解析；真实歧义只询问有缺口的一端，外部故障按当前执行恢复"],
   };
+}
+
+// Generate only declared required fields and preserve safe known query facts.
+// Authorization and passenger identity are never synthesized into templates.
+function serviceInputTemplate(schema: Record<string, unknown>, known: Record<string, unknown> = {}): Record<string, unknown> {
+  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
+  if (properties?.endpoints && !known.endpoints && (typeof known.origin === "string" || typeof known.destination === "string")) {
+    known = {...known, endpoints: {origin: {text: known.origin}, destination: {text: known.destination}}};
+  }
+  if (properties?.travel_date && !known.travel_date && typeof known.date === "string") known = {...known, travel_date: known.date};
+  const result: Record<string, unknown> = {};
+  for (const field of requiredInputFields(schema)) {
+    const rule = properties?.[field] ?? {};
+    if (field === "accept_non_guaranteed") { result[field] = false; continue; }
+    if (rule.type === "object") {
+      const value = known[field];
+      result[field] = serviceInputTemplate(rule, value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+    } else if (known[field] !== undefined && (rule.type === undefined || rule.type === "array" && Array.isArray(known[field]) || rule.type === "string" && typeof known[field] === "string" || rule.type === "boolean" && typeof known[field] === "boolean" || ["integer", "number"].includes(String(rule.type)) && typeof known[field] === "number")) result[field] = known[field];
+    else if (rule.const !== undefined) result[field] = rule.const;
+    else if (rule.default !== undefined) result[field] = rule.default;
+    else if (Array.isArray(rule.enum) && rule.enum.length) result[field] = rule.enum[0];
+    else if (rule.type === "integer" || rule.type === "number") result[field] = typeof rule.minimum === "number" ? rule.minimum : 1;
+    else if (rule.type === "boolean") result[field] = false;
+    else if (rule.type === "array") result[field] = [];
+    else result[field] = `<${field}>`;
+  }
+  for (const field of ["kind", "text", "station_code", "poi_id", "adcode", "location", "travel_date", "passengers", "priority", "user_query", "depart_after", "depart_before", "arrive_by", "arrive_before", "seat_preferences", "max_transfers", "duration_basis"]) {
+    if (properties?.[field] && known[field] !== undefined) result[field] = known[field];
+  }
+  return result;
 }
 
 const WORKFLOW_STEP_GUIDANCE: Record<string, { meaning: string; hint: string }> = {
@@ -173,6 +205,10 @@ export async function runServicesStart(
   });
   if (response.workflow_entry) {
     const guidance = railServiceGuidance(serviceID, response.workflow_entry.input_schema);
+    if (serviceID === "itpay-rail-smart" && !guidance) {
+      writeCommandEnvelope({status:"contract_unavailable",result:{service_execution_id:response.execution.service_execution_id,service_id:serviceID},instruction:"当前执行缺少可用输入合同；只读取一次同执行合同，仍缺失则报告系统缺口并停止，不猜旧Smart写法。",next:{command:`itpay services get ${response.execution.service_execution_id} --json`,reason:"读取当前执行锁定的输入合同一次"},recovery:[]},options);
+      return;
+    }
     writeCommandEnvelope({
       status: "input_required",
       result: { service_execution_id: response.execution.service_execution_id, service_id: serviceID, input_schema: response.workflow_entry.input_schema, ...(guidance ? { guidance } : {}) },
@@ -183,7 +219,8 @@ export async function runServicesStart(
         stage: "input_required",
         input_template: {
           command: `itpay services run ${serviceID} --execution ${response.execution.service_execution_id} --input-json <file> --json`,
-          required_input: ["file"],
+          input: guidance?.input_example ?? serviceInputTemplate(response.workflow_entry.input_schema),
+          required_input: ["file", ...requiredInputFields(response.workflow_entry.input_schema)],
           executable: false,
         },
       },
@@ -261,7 +298,7 @@ function locationConfirmationEnvelope(executionID: string, capabilityID: string,
       : reason === "COORDINATE_IDENTITY_UNVERIFIED" || reason === "COORDINATE_NAME_MISMATCH"
       ? "尚未查票。提交的地点名称和坐标尚未得到一致证据；请核实该端点的真实名称或位置，保留另一端，不要把坐标声明当成人工确认。"
       : "尚未查票。地点证据不足；请说明返回的具体原因与受影响端点，不要把外部故障当作用户地点歧义。"
-    : "尚未查票。仅向用户确认有真实歧义的端点，展示候选名称、地址和高德链接。用户选择后保留原输入，回到同一服务。";
+    : "尚未查票。仅向用户确认真实地点歧义，展示候选名称、地址和高德链接。具体住宅仍是目的地，附近车站只作候选；不得把选地点改成锁车站。用户选择后保留原输入，回到同一服务。";
   return {
     status: "location_confirmation_required",
     result: { service_execution_id: executionID, query: input, location_confirmation: confirmation },
@@ -653,11 +690,16 @@ export async function runServicesAction(
 				error.code,
 				error.message,
 				error.code === "booking_review_invalid"
-					? "确认输入与当前草稿不符。重新读取同一booking的review模板，席别使用返回的代码，不填显示名或猜新值。若仅修正代码写法，且车次、实际席别、人数、价格及条款等已确认内容未变，可沿用用户已有明确确认后提交；草稿实质变化或缺少真实同意时，先请用户确认变化内容。"
+					? "确认输入与当前草稿不符。使用返回 interaction.input_template.input 当前review模板，席别使用返回的代码，不填显示名或猜新值。若仅修正代码写法，且车次、实际席别、人数、价格及条款等已确认内容未变，可沿用用户已有明确确认后提交；草稿实质变化或缺少真实同意时，先请用户确认变化内容。"
 					: error.code === "booking_review_changed"
-						? "草稿版本已变化；重新读取同一booking的当前review与revision，经用户核对后再提交。"
+						? "草稿版本已变化；使用同一booking的当前review模板。仅技术修正且车次、实际席别、人数、价格及条款未变时沿用已有明确同意；实质变化或缺少真实同意才补确认。"
 						: "当前购买已有付款尝试；读取同一booking及订单状态，不创建新订单或重做付款。",
-				[{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取同一booking的当前状态与review" }],
+				error.payload?.review ? [] : [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取同一booking的当前状态与review" }],
+                error.payload?.review?.input_template ? {
+                  schema_version: "itpay.interaction.v1", stage: "booking_review_required",
+                  input_template: {command: `itpay services action ${serviceExecutionID} --action ${actionType} --actor-type human --status approved --input-json <file> --json`, input: error.payload?.review.input_template as Record<string, unknown>, required_input: ["file"], executable: false},
+                } : undefined,
+                {service_execution_id: serviceExecutionID, review: error.payload?.review, input_errors: error.payload?.input_errors},
 			);
 		}
 		throw error;
@@ -880,22 +922,19 @@ export async function runServicesCheckout(
   try {
     const booking = await backend.getServiceExecution(serviceExecutionID);
     if (booking.execution.service_id === "itpay-rail-booking") {
-      const leg = booking.rail_booking?.legs?.[0];
       const review = booking.workflow?.human_action?.context?.review as Record<string, unknown> | undefined;
-      const reviewLeg = Array.isArray(review?.legs) ? review.legs[0] as Record<string, unknown> | undefined : undefined;
-      const facts = leg ?? reviewLeg;
-      if (facts) {
-        const safe = facts as Record<string, unknown>;
-        itinerary = { travel_date: safe.travel_date, train_code: safe.train_code,
-          from_station: safe.from ?? safe.from_station, to_station: safe.to ?? safe.to_station,
-          departure: safe.departure, arrival: safe.arrival,
-          seat_name: safe.seat_name ?? safe.seat_type_name,
-          passengers: review?.passengers ?? safe.passengers ?? null };
-        itineraryTitle = [facts.travel_date, facts.train_code,
-          facts.from ?? (facts as Record<string, unknown>).from_station,
-          "→", facts.to ?? (facts as Record<string, unknown>).to_station,
-          facts.seat_name ?? (facts as Record<string, unknown>).seat_type_name]
-          .filter((value) => typeof value === "string" && value.length > 0).join(" ");
+      const facts = booking.rail_booking?.legs ?? (Array.isArray(review?.legs) ? review.legs : []);
+      const legs = facts.filter(value=>value && typeof value==="object").map(value=>{
+        const leg=value as Record<string,unknown>;
+        return {travel_date:leg.travel_date,train_code:leg.train_code,
+          from_station:leg.from ?? leg.from_station ?? leg.from_station_code,
+          to_station:leg.to ?? leg.to_station ?? leg.to_station_code,
+          departure:leg.departure ?? leg.departure_time,arrival:leg.arrival ?? leg.arrival_time,
+          arrival_days:leg.arrival_days,seat_name:leg.seat_name ?? leg.seat_type_name ?? leg.seat_type};
+      });
+      if(legs.length){
+        itinerary={legs,passengers:review?.passengers ?? null,purchase_unit:"journey"};
+        itineraryTitle=legs.map(leg=>[leg.train_code,leg.from_station,"->",leg.to_station].filter(value=>typeof value==="string" && value.length).join(" ")).join(" / ");
       }
     }
   } catch {
@@ -950,7 +989,10 @@ export async function runServicesCheckout(
     });
   }
   const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, options.agentType, options.target);
-  if (itinerary) envelope.result = {...envelope.result, itinerary};
+  if (itinerary) {
+    envelope.result = {...envelope.result, itinerary};
+    envelope.instruction = "整程一次付款，各段分别出票；展示入口不等于付款，付款成功不等于全部出票。" + envelope.instruction;
+  }
   const plainResult = plainValueLines(envelope.result);
   if (!options.jsonOutput && platform === "terminal") {
     plainResult.push("qr:", await renderTerminalQR(checkoutURL, options.qrFormat ?? "terminal"));
@@ -1144,7 +1186,7 @@ export async function runServicesPage(
       [{ command: `itpay services page ${serviceExecutionID} ${resultItemID} --offset ${offset} --json`, reason: "用默认页大小重试" }],
     );
   }
-  const response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, resultItemID, offset, limit);
+  const response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, resultItemID, offset, limit, limit === 1 ? undefined : "summary");
   const page = response.page;
   const container = (page.result ?? page) as Record<string, unknown>;
   const exactCandidate = limit === 1 && Array.isArray(container.candidates) && container.candidates.length === 1
@@ -1190,6 +1232,8 @@ export async function runServicesPage(
       offset: catalogPage.offset ?? offset,
       limit: catalogPage.limit ?? limit,
       total: catalogPage.total ?? candidates.length,
+      requested_limit: limit,
+      truncated_reason: (container.journey_page as Record<string, unknown> | undefined)?.truncated_reason ?? null,
       count: catalogPage.count ?? candidates.length,
       next_offset: nextOffset,
       ...(journeys.length ? { journeys: journeys.map(value => compactRailJourney(value as RailJourneyCard, serviceExecutionID, resultItemID)) }
@@ -1277,6 +1321,7 @@ function writeSavedRailPage(envelope: CommandEnvelope, options: ServicesCommandO
           "这条已保存记录超过当前页面大小；事实仍保留，请读取该条详情。", rows[0]?.detail?.command ? [rows[0].detail] : []);
       }
       rows.pop();
+      result.truncated_reason = "cli_output_byte_budget";
       result.count = rows.length;
       if (key === "trains") result.read_count = rows.length;
       result.next_offset = offset + rows.length;
@@ -1363,13 +1408,14 @@ export async function runServicesReadResult(
     const journeys: Record<string, unknown>[] = [];
     let nextOffset: number | null = offset;
     let total = 0;
+    let truncatedReason: string | null = null;
     let qualificationCounts: { eligible: number; ineligible: number; unknown: number } | undefined;
     let planID: string | undefined;
     let queryRevision: number | undefined;
     while (nextOffset !== null) {
       let response: Awaited<ReturnType<BackendClient["getServiceExecutionResultItemPage"]>>;
       try {
-        response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, options.snapshot, nextOffset, limit);
+        response = await backend.getServiceExecutionResultItemPage(serviceExecutionID, options.snapshot, nextOffset, limit, "summary");
       } catch (error) {
         if (error instanceof HttpError && error.code === "result_not_pageable") {
           const committed = await backend.getRailPlanningCatalog(serviceExecutionID, options.snapshot);
@@ -1382,10 +1428,11 @@ export async function runServicesReadResult(
       queryRevision = response.query_revision;
       const container = (response.page.result ?? response.page) as Record<string, unknown>;
       const page = container.journey_page as { total?: number; next_offset?: number | null;
-        qualification_counts?: { eligible: number; ineligible: number; unknown: number } } | undefined;
+        truncated_reason?: string | null; qualification_counts?: { eligible: number; ineligible: number; unknown: number } } | undefined;
       const rows = Array.isArray(container.journeys) ? container.journeys as RailJourneyCard[] : [];
       total = typeof page?.total === "number" ? page.total : rows.length;
       qualificationCounts = page?.qualification_counts ?? qualificationCounts;
+      truncatedReason = page?.truncated_reason ?? truncatedReason;
       journeys.push(...rows.map((card) => compactRailJourney(card, serviceExecutionID, options.snapshot!)));
       const following = page?.next_offset;
       if (typeof following === "number" && following <= nextOffset) throw new Error("saved page cursor did not advance");
@@ -1401,6 +1448,8 @@ export async function runServicesReadResult(
         query_revision: queryRevision,
         total,
         qualification_counts: qualificationCounts,
+        requested_limit: limit,
+        truncated_reason: truncatedReason,
         offset,
         count: journeys.length,
         next_offset: nextOffset,
@@ -1410,7 +1459,7 @@ export async function runServicesReadResult(
         ? "此历史快照没有完整资格计数；线路仅供核对铁路事实，不能据此认定可购买。沿同快照 detail.command 查看详情。"
         : qualificationCounts.eligible === 0
         ? `查到 ${total} 个时刻组合，当前 0 条满足购票资格。请读取诊断线路的 detail.command 查看具体原因；修改条件须依据用户意愿。`
-        : "这是同一已保存快照的完整线路分页；合格线路已排在前面。若问题需要全部方案，沿 next.command 读完再一次回答；未知费用不能当免费。购票条件用合格线路的 detail.command，价格与余票在购买前实时报价。",
+        : `已查范围内合格时刻组合 ${qualificationCounts.eligible}；本次展示 ${journeys.length} 个方案（首屏优先既有主方案/代表，计数不是中转通道数）。最快/低价须按对应方案和比较范围说明；未全范围排序只能说已读方案中。更多条件优先同快照调整偏好或沿 next 有序读所需页，不随机翻页、不无条件读完组合。未知费用不能当免费；detail.command 读取席别和整程购买条件，购买前实时报价。`,
       next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${options.snapshot} --offset ${nextOffset} --limit ${limit} --json`, reason: "仅当前问题还需未读线路时继续；已有合格完整结果可答复或按委托继续" },
       recovery: [],
     }, {
@@ -1442,7 +1491,7 @@ export async function runServicesReadResult(
         ticket_plan_offset: planOffset,
         ticket_plans: selected.map(plan => compactRailTicketPlan(plan, detail.journey.qualification_status === "eligible")),
       },
-      instruction: "同一线路的完整车次与席别方案。已有所需席别和有效凭据即可按真实委托继续；只需比较则答复并停止，需要其他席别才读下一页。中转各段独立购买，无联合锁票或接续保证；购买前受保护 Checkout 实时报价。",
+      instruction: "同一线路的完整车次与席别方案。已有所需席别和有效凭据即可按真实委托继续；只需比较则答复并停止，需要其他席别才读下一页。使用所选 ticket_plan 的整程 booking_template：一个 booking、统一报价、一个官方付款入口，各段分别出票，无联合锁票或接续保证。未返回整程模板时不能拼不同方案的腿或退回逐腿付款，按同一执行恢复。身份资料只在受保护 Checkout 页面填写。",
       next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${detail.snapshot_id} --journey ${options.journey} --offset ${nextOffset} --limit ${planLimit} --json`, reason: "仅需要其他席别时读取；已满足用户条件则停止翻页" },
       ...(detail.journey?.booking_support === "single_leg" ? { interaction: {
         schema_version: "itpay.interaction.v1" as const, stage: "query_results_ready",
@@ -1529,6 +1578,8 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
     leg_index: leg.leg_index,
     state: leg.state,
     issued: leg.issued,
+    ...(leg.error_code ? { error_code: leg.error_code } : {}),
+    arrival_days: leg.arrival_days ?? 0,
     ...(leg.details_pending ? { details_pending: true } : {}),
     ...(leg.supplier_state ? { supplier_state: leg.supplier_state } : {}),
     ...(leg.train_code ? { train_code: leg.train_code } : {}),
@@ -1543,9 +1594,9 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
   const result: Record<string, unknown> = {
     service_execution_id: execution.service_execution_id,
     ...(orderID ? { order_id: orderID } : {}),
-    rail: { state: rail.state, issued_legs: rail.issued_legs, legs },
+    rail: { state: rail.state, issued_legs: rail.issued_legs, total_legs: rail.legs.length, message: rail.message, legs },
   };
-  if (rail.state === "issued") {
+  if (rail.state === "issued" && rail.issued_legs === rail.legs.length && rail.legs.length > 0) {
     const detailsPending = rail.legs.some((leg) => leg.details_pending);
     return {
       status: "issued",
@@ -1559,7 +1610,7 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
     return {
       status: "manual_review",
       result,
-      instruction: "告诉用户：付款已确认，订单需要人工核对；请勿重复付款或重新下单，已出票的车票会保留。不要承诺退款结果或时效。",
+      instruction: `告诉用户：付款已确认，已出票 ${rail.issued_legs}/${rail.legs.length}，其余需要人工核对；请勿重复付款或重新下单，已出票的车票会保留。未知结果先对账，退款按对应段处理，不承诺整笔退款或时效。`,
       next: orderID ? { command: `itpay order ${orderID} --json`, reason: "查看同一订单当前状态" } : null,
       recovery: [],
     };
@@ -1572,7 +1623,7 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
     return {
       status: "issuing",
       result,
-      instruction: "告诉用户：付款已确认，后台正在出票；付款成功不代表已出票，请勿重复购买或再次付款。稍后只读取同一任务。",
+      instruction: `告诉用户：付款已确认，已出票 ${rail.issued_legs}/${rail.legs.length}，后台继续处理；付款成功不代表整程出票，请勿重复购买或再次付款。稍后只读取同一任务。`,
       next: { command: `itpay services next ${execution.service_execution_id} --json`, reason: "稍后读取同一出票任务" },
       recovery: [],
     };
@@ -1626,6 +1677,9 @@ function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, s
         required_input: ["file", "真实席别选择及人数"]},
     } : {}),
     ...(ticketSeats.length ? { seats: ticketSeats } : {}),
+    ticket_plan_refs: (card.ticket_plans ?? []).map(plan => plan.ticket_plan_ref),
+    transfer_wait_minutes: card.transfer_wait_minutes ?? [],
+    ground_summary: card.ground_summary ?? null,
     passengers: card.passengers ?? offer?.ticket_offers?.[0]?.passengers ?? null,
     availability: card.availability ?? "unknown",
     qualification_status: card.qualification_status ?? "unknown",
@@ -1656,13 +1710,16 @@ function compactRailTicketPlan(raw: Record<string, unknown>, journeyEligible: bo
     rail_amount_fen: raw.rail_amount_fen ?? null,
     service_fee_fen: raw.service_fee_fen ?? null,
     price_verified: raw.rail_amount_verified === true,
+    ...(journeyEligible && raw.qualification_status === "eligible" && raw.booking_input && typeof raw.booking_input === "object" ? {
+      booking_template: {command: "itpay services run itpay-rail-booking --input-json <journey.json> --json", executable: false, ticket_plan_ref: raw.ticket_plan_ref, input_example: raw.booking_input, required_input: ["file", "passengers"]},
+    } : {}),
     legs: legs.map((leg, index) => ({
       leg_index: index,
       travel_date: leg.travel_date ?? tickets.find(ticket => ticket.leg_index === index)?.travel_date ?? null,
       ...(() => {
         const ticket = tickets.find(ticket => ticket.leg_index === index) ?? (tickets[index]?.leg_index === undefined ? tickets[index] : undefined);
         const offer = ticket?.booking_offer as {service_id?: string; selection_token?: string} | undefined;
-        return offer?.service_id && offer.selection_token && journeyEligible && raw.qualification_status === "eligible" ? {
+        return legs.length === 1 && offer?.service_id && offer.selection_token && journeyEligible && raw.qualification_status === "eligible" ? {
           booking_template: { command: `itpay services run ${offer.service_id} --input-json <购票.json> --json`, executable: false,
             ticket_plan_ref: raw.ticket_plan_ref, leg_index: index,
             seat_choices: [{seat_type: ticket?.seat_type, seat_name: ticket?.seat_name}],
@@ -1670,7 +1727,7 @@ function compactRailTicketPlan(raw: Record<string, unknown>, journeyEligible: bo
               passengers: ticket?.passengers ?? raw.passenger_count ?? "<真实人数>"},
             required_input: ["file", "真实人数", "该方案席别代码"],
           },
-        } : {booking_unavailable: "本段没有当前可用的服务端凭据；不能猜代码或例行重查。保留快照，按当前执行的恢复动作处理；过期凭据需真实新验证。"};
+        } : legs.length > 1 ? {} : {booking_unavailable: "本段没有当前可用的服务端凭据；不能猜代码或例行重查。保留快照，按当前执行的恢复动作处理；过期凭据需真实新验证。"};
       })(),
       train_code: leg.train_code ?? null,
       from_station: leg.from_station ?? null, from_station_code: leg.from_station_code ?? null,
@@ -2042,9 +2099,10 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       const code = workflowReason!;
       return {
         status: "awaiting_input",
-        result: { service_execution_id: id, service_id: execution.service_id, reason: code, affected_endpoint: model.workflow?.failure?.endpoint, failure: model.workflow?.failure,
+        result: { service_execution_id: id, service_id: execution.service_id, reason: code, affected_endpoint: model.workflow?.failure?.endpoint, failure: model.workflow?.failure, query: model.workflow?.query_input,
           ...(["address_required", "administrative_area_unresolved"].includes(code) ? {new_query_template: {
             command: `itpay services run ${execution.service_id} --input-json <补全原始需求.json> --json`, executable: false,
+            input: serviceInputTemplate(model.workflow_entry.input_schema, model.workflow?.query_input ?? {}),
             required_input: ["仅补受影响端点", "原始日期人数时限偏好"],
             instruction: "原执行输入已锁定；按原需求保留另一端与所有约束，只补缺失信息后提交新输入，不在旧执行伪造修改。"}} : {}) },
         instruction: code === "station_location_evidence_required"
@@ -2113,9 +2171,10 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           status: "confirmation_required",
           result: { service_execution_id: id, service_id: execution.service_id,
             human_action: { action_type: action.action_type, input_schema: action.input_schema },
-            required_fields: requiredFields, sides,
+            required_fields: requiredFields, sides, query: model.workflow?.query_input,
             ...(sides.some(side => side.status !== "resolved" && !side.candidates?.length && ["ADDRESS_REQUIRED", "ADMINISTRATIVE_AREA_UNRESOLVED"].includes(side.reason ?? "")) ? {
               new_query_template: {command: `itpay services run ${execution.service_id} --input-json <补全原始需求.json> --json`, executable: false,
+                input: serviceInputTemplate(model.workflow_entry.input_schema, model.workflow?.query_input ?? {}),
                 required_input: ["补缺失端点", "保留原始日期人数时限偏好及已确认端点"], instruction: "原执行锁定输入；补全原需求后用新查询，不提交不存在的候选。"},
             } : {}) },
           instruction: sides.some(side => side.status !== "resolved" && !side.candidates?.length)
@@ -2155,7 +2214,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
             action_type: action.action_type, required_fields: requiredFields,
             ...(requirementsRemaining ? { requirements_remaining: requirementsRemaining } : {}) },
           ...(reviewURL ? { handoff: { url: reviewURL, kind: "booking_review" } } : {}),
-          instruction: `${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。提交当前 draft_revision/notice_version 及必要字段，未得真实同意不能填 accept_non_guaranteed；座位请求不保证分配。身份信息只在官方 Checkout 页填写。`,
+          instruction: `${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。复制 interaction.input_template.input；自动分配使用该对象数组，不传 null 或字符串。仅已有真实同意后把 accept_non_guaranteed 改为 true 并提交；座位请求不保证分配。身份信息只在官方 Checkout 页填写。`,
           next: null,
           interaction: {
             schema_version: "itpay.interaction.v1",
@@ -2163,6 +2222,8 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
             input_template: {
               command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`,
               required_input: ["file", ...requiredFields],
+              input: review.input_template && typeof review.input_template === "object"
+                ? review.input_template as Record<string, unknown> : serviceInputTemplate(action.input_schema ?? {}, review),
               executable: false,
             },
           },
@@ -2194,11 +2255,15 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     const inputTemplate = state === "input_required"
       ? {
           command: `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`,
-          required_input: ["file"],
+          input: serviceInputTemplate(model.workflow_entry?.input_schema ?? {}, model.workflow?.query_input ?? {}),
+          required_input: ["file", ...requiredInputFields(model.workflow_entry?.input_schema)],
           executable: false as const,
         }
       : undefined;
     const guidance = railServiceGuidance(execution.service_id, model.workflow_entry?.input_schema);
+    if (state === "input_required" && execution.service_id === "itpay-rail-smart" && !guidance) {
+      return {status:"contract_unavailable",result:{service_execution_id:id,service_id:execution.service_id},instruction:"当前锁定合同缺失；读取一次同执行合同后仍缺失就停止，不猜新旧输入结构。",next:{command:`itpay services get ${id} --json`,reason:"获取锁定合同一次"},recovery:[]};
+    }
     const failedStep = recovery ? model.workflow?.failure?.step_id : undefined;
     const failedStepGuidance = failedStep ? WORKFLOW_STEP_GUIDANCE[failedStep] : undefined;
     const failedInvocation = recovery
@@ -2211,11 +2276,11 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       quote_seat_changed: "所选席别已变化；向用户说明并征询新的席别选择。",
       quote_seat_unavailable: "所选席别当前无足够余票；告知用户并由其决定是否换方案。",
       quote_refresh_expired: "实时报价过程超时；保留原选择，不把旧价当可付款价格。",
-    } as Record<string, string>)[providerErrorCode ?? ""] : undefined;
+    } as Record<string, string>)[model.workflow?.failure?.reason_code ?? providerErrorCode ?? ""] : undefined;
     const failureCode = model.workflow?.failure?.reason_code ?? providerErrorCode ?? model.workflow?.error_code;
     const failedInstruction = recovery
       ? quoteFailure
-        ? quoteFailure
+        ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg + 1}段报价失败。` : ""}${quoteFailure} 当前整程未取得完整有效报价，没有付款入口；保留同一购买和未变化的选择，按原执行核验，不能收取其余段款项或重复创建购买。`
         : failedStepGuidance
         ? `执行在「${failedStepGuidance.meaning}」步失败${failureCode ? `（错误码：${failureCode}）` : ""}：${failedStepGuidance.hint}。先核对原因和当前执行状态，不要盲目重放。`
         : state === "failed"
@@ -2793,6 +2858,18 @@ export async function runServicesRun(
     }
     await runServicesNext(backend, id, options);
   } catch (cause) {
+    if (cause instanceof HttpError && cause.code === "capability_input_invalid") {
+      const schema = cause.payload?.input_schema;
+      const executionID = cause.payload?.service_execution_id ?? id;
+      throw new CommandContractError(cause.code, cause.message,
+        "Agent按当前模板自行修正错误字段和JSON层级，保留原地点/日期/人数；不要向用户询问技术字段。只有真实业务歧义才问人；使用返回的执行身份恢复，未创建时用原服务。",
+        schema ? [] : [{command: executionID ? `itpay services get ${executionID} --json` : "itpay catalog list --json", reason: "获取当前锁定合同；仍缺合同则停止，不猜旧写法"}],
+        schema ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template: {
+          command: `itpay services run ${serviceID}${executionID ? ` --execution ${executionID}` : ""} --input-json <file> --json`,
+          input: serviceInputTemplate(schema, input), required_input: ["file", ...requiredInputFields(schema)], executable: false,
+        }} : undefined,
+        {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? Boolean(executionID), ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
+    }
     if (cause instanceof HttpError && cause.code === "rail_seat_code_invalid" && id) {
       throw new CommandContractError(
         cause.code,

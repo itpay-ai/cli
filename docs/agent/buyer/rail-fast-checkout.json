@@ -13,14 +13,16 @@
       "step": "read_full_flow",
       "command": "Use the rail-booking guide already read for this request",
       "notes": [
-        "Use the current query result and booking_template; this topic does not replace the railway guide."
+        "Use the current query result and booking_template; this topic does not replace the railway guide.",
+        "Before querying follow rail-booking: only clear reliable route knowledge can be used directly; merely probable routes require one short lookup, then the pre-query route brief."
       ]
     },
     {
       "step": "continue_delegated_booking",
       "command": "Use the current result’s booking_template and returned next action",
       "notes": [
-        "Select under the buyer’s unchanged rules. Required human terms still require real consent. Continue the same booking execution."
+        "Select under the buyer’s unchanged rules. Required human terms still require real consent. Continue the same booking execution.",
+        "Copy the complete plan template into one booking; one whole quote and official payment entry, separate issuance. Use the returned full review JSON; only missing real agreement requires asking."
       ]
     },
     {

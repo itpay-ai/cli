@@ -30,6 +30,7 @@
     "Normal buyer flow opens the ItPay Checkout page; itpay pay and buy --pay are operator escape hatches.",
     "Use only handoff fields returned for the current Host and make them actually visible to the human.",
     "Obtain only missing required agreement or material price/term changes. Reuse a valid explicit confirmation for unchanged terms; never invent it.",
+    "For a railway journey, show one official checkout for all legs: one total/payment, separate issuance. The page shares its authoritative payment_deadline_at/server_now/payment_remaining_seconds; reaching zero requires reading current status, not declaring cancellation.",
     "After presenting a Checkout, stop. Run the returned next.command only after the human completes the payment action or asks to query the same Checkout.",
     "Use only the handoff fields returned for the current Host. Load render-hosts if the official handoff is not visible.",
     "Payment is verified only by Backend Checkout or Order state, never by QR rendering, redirect, or user claim.",
