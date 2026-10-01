@@ -105,7 +105,7 @@ test('journey harness: endpoint recovery keeps area/place/station and untouched 
    const query={endpoints:{origin:{kind:origin,text:'甲原意'},destination:{kind:destination,text:'乙原意'}},travel_date:'2030-10-01',passengers:2};
    backend.getServiceExecution=async()=>({...base,workflow_entry:{capability_id:'itpay_service',input_schema:{type:'object',required:['endpoints','travel_date'],properties:{endpoints:{type:'object',required:['origin','destination'],properties:{origin:{type:'object',required:['text'],properties:{text:{type:'string'},kind:{type:'string'}}},destination:{type:'object',required:['text'],properties:{text:{type:'string'},kind:{type:'string'}}}}},travel_date:{type:'string'},passengers:{type:'integer'}}}},workflow:{query_input:query,status:'failed',current_step:'geo',revision:1,steps:{},failure:{step_id:'resolved',reason_code:'address_required',endpoint:'destination'}}});
    let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);
-   assert.deepEqual(result.result.query,query);assert.deepEqual(result.result.new_query_template.input,query);assert.doesNotMatch(result.instruction,/最近站/);
+   assert.deepEqual(result.result.query,query);assert.deepEqual(result.result.new_query_template.input.endpoints.origin,query.endpoints.origin);assert.equal(result.result.new_query_template.input.endpoints.destination.kind,destination);assert.notEqual(result.result.new_query_template.input.endpoints.destination.text,query.endpoints.destination.text);assert.equal(result.result.new_query_template.input.travel_date,query.travel_date);assert.equal(result.result.new_query_template.input.passengers,query.passengers);assert.doesNotMatch(result.instruction,/最近站/);
   }
  }finally{await mock.close();}
 });
@@ -141,5 +141,31 @@ test('journey harness: one official checkout carries all leg facts',async()=>{
    if(jsonOutput){const value=JSON.parse(output);assert.equal(value.result.itinerary.legs.length,2);assert.equal(value.result.itinerary.purchase_unit,'journey');assert.equal(value.handoff.agent_action.arguments.files.length,1);}
    if(process.env.ITPAY_EVIDENCE_DIR){const {writeFileSync}=await import('node:fs');writeFileSync(`${process.env.ITPAY_EVIDENCE_DIR}/k710-checkout.${jsonOutput?'json':'txt'}`,output);}
   }assert.equal(writes,2);
+ }finally{await mock.close();}
+});
+
+test('journey repair: raw multi-leg rejection points to saved complete plan',async()=>{
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  for(const code of ['rail_journey_selection_required','rail_selection_expired']) {
+   backend.startServiceExecution=async()=>{throw new HttpError(400,{code,message:'complete saved plan required'},'invalid');};
+   await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{legs:[{seat_type:'O'},{seat_type:'O'}]}),error=>{
+    assert.ok(error instanceof CommandContractError);assert.equal(error.code,code);assert.match(error.instruction,/手填 legs 只兼容单腿/);assert.ok(error.recovery.some(item=>item.command==='itpay services list --json'));return true;
+   });
+  }
+ }finally{await mock.close();}
+});
+
+test('journey repair: station coordinate system gap only offers Exact for complete locked station pair',async()=>{
+ const mock=await startMockBackend();try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+  for(const kind of ['station','place']) {
+   const query={endpoints:{origin:{kind:'station',text:'甲站',station_code:'AAA'},destination:{kind,text:'乙站',station_code:'BBB'}},travel_date:'2030-10-01',passengers:2,arrive_by:'20:00'};
+   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{query_input:query,status:'failed',current_step:'geo',revision:1,steps:{},failure:{step_id:'resolved',reason_code:'station_location_evidence_required',endpoint:'destination'}}});
+   let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const value=JSON.parse(output);
+   assert.equal(value.status,'system_evidence_required');assert.deepEqual(value.result.query,query);
+   if(kind==='station') {assert.deepEqual(value.result.new_query_template.input,{origin:'甲站',destination:'乙站',travel_date:'2030-10-01'});assert.match(value.result.new_query_template.command,/itpay-rail-exact/);}
+   else {assert.equal(value.result.new_query_template,undefined);assert.match(value.instruction,/当前无可执行恢复/);}
+  }
  }finally{await mock.close();}
 });

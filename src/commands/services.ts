@@ -2034,6 +2034,14 @@ function terminalExecutionEnvelope(model: ServiceExecutionReadModel): CommandEnv
   };
 }
 
+const RAIL_QUOTE_FAILURE_GUIDANCE: Record<string, string> = {
+      quote_source_unavailable: "实时车票数据暂不可用；保留原选择，稍后按用户意愿重新核验，不创建替代订单。",
+      quote_train_changed: "所选车次的时刻或运行信息已变化；向用户说明并征询是否重新查票。",
+      quote_seat_changed: "所选席别已变化；向用户说明并征询新的席别选择。",
+      quote_seat_unavailable: "所选席别当前无足够余票；告知用户并由其决定是否换方案。",
+      quote_refresh_expired: "实时报价过程超时；保留原选择，不把旧价当可付款价格。",
+    };
+
 function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope {
   const execution = model.execution;
   const currentDelivery = model.current_delivery ?? model.delivery_bindings.at(-1);
@@ -2044,7 +2052,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       next: refundState.next ? {command: `itpay refund get ${lockedRefund.refund_request_id} --json`, reason: "读取同一退款权威状态"} : null };
   }
   const latestRun = model.execution_requests?.filter((request) => request.execution_kind === "service.execution.run").at(-1);
-  if (latestRun && ["pending", "started"].includes(latestRun.status)) {
+  if (latestRun && ["pending", "started"].includes(latestRun.status) && model.workflow?.status !== "failed") {
     return {
       status: "running",
       result: { service_execution_id: execution.service_execution_id, execution_request_id: latestRun.execution_request_id },
@@ -2056,7 +2064,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
   // A terminal execution wins over the rail read model: a failed, cancelled,
   // or refunded run must not render as still issuing. Completed executions
   // keep the rail view so issued seats stay visible.
-  if (model.rail_booking && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
+  if (model.rail_booking && model.workflow?.human_action?.context?.quote_recovery !== true && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
     const terminal = terminalExecutionEnvelope(model);
     if (terminal) return terminal;
   }
@@ -2076,7 +2084,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     const workflowReason = model.workflow?.failure?.reason_code ?? model.workflow?.error_code;
     const paymentVerified = model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     const state = model.workflow?.status === "payment" && paymentVerified ? "running" : model.workflow?.status ?? "input_required";
-    if (["quota_paused", "failed"].includes(state) && workflowReason !== "area_scope_too_broad" && (model.workflow?.dependency ||
+    if (["quota_paused", "failed"].includes(state) && !["area_scope_too_broad", "address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"].includes(workflowReason ?? "") && (model.workflow?.dependency ||
       /^amap_/.test(workflowReason ?? ""))) {
       const dependency = model.workflow?.dependency;
       const resumable = state === "quota_paused" && dependency?.retryable === true;
@@ -2090,28 +2098,26 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         recovery: [],
       };
     }
-    if (state === "failed" && workflowReason === "area_scope_too_broad") {
-      return {status:"awaiting_input",result:{service_execution_id:id,reason:"area_scope_too_broad", failure:model.workflow?.failure, affected_endpoint:model.workflow?.failure?.endpoint ?? model.workflow?.dependency?.endpoint, input_template:{endpoints:{[model.workflow?.dependency?.endpoint ?? "<受影响侧>"]:{kind:"area",text:"<市县镇完整名称>"}}}},
-        instruction:"区域范围是省或国家。只补充受影响端点的市、县或镇；保留另一端、日期与用户约束。修正模板：endpoints.<受影响侧>={kind:area,text:<市县镇完整名称>}。",
-        next:null,recovery:[]};
-    }
-    if (state === "failed" && ["address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"].includes(workflowReason ?? "")) {
+    if (state === "failed" && ["area_scope_too_broad", "address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"].includes(workflowReason ?? "")) {
       const code = workflowReason!;
-      return {
-        status: "awaiting_input",
-        result: { service_execution_id: id, service_id: execution.service_id, reason: code, affected_endpoint: model.workflow?.failure?.endpoint, failure: model.workflow?.failure, query: model.workflow?.query_input,
-          ...(["address_required", "administrative_area_unresolved"].includes(code) ? {new_query_template: {
-            command: `itpay services run ${execution.service_id} --input-json <补全原始需求.json> --json`, executable: false,
-            input: serviceInputTemplate(model.workflow_entry.input_schema, model.workflow?.query_input ?? {}),
-            required_input: ["仅补受影响端点", "原始日期人数时限偏好"],
-            instruction: "原执行输入已锁定；按原需求保留另一端与所有约束，只补缺失信息后提交新输入，不在旧执行伪造修改。"}} : {}) },
-        instruction: code === "station_location_evidence_required"
-          ? "尚未查票。车站身份已知，Smart 缺少车站坐标证据；请说明此系统缺口，不要求用户换站。双锁站直达可另用 Exact。"
-          : code === "coordinate_identity_unverified"
-          ? "尚未查票。名称与提交坐标缺少一致证据；请核实受影响端点的准确地点，保留其余出行条件。"
-          : "尚未查票。地点缺少必要地址或行政归属；只请用户补充受影响端点，保留另一端及原条件。",
-        next: null, recovery: [],
-      };
+      const affected = model.workflow?.failure?.endpoint ?? model.workflow?.dependency?.endpoint;
+      const query = model.workflow?.query_input ?? {};
+      const endpoints = query.endpoints && typeof query.endpoints === "object" ? query.endpoints as Record<string, Record<string, unknown>> : {};
+      const stationPair = [endpoints.origin, endpoints.destination].every(endpoint => endpoint?.kind === "station" && typeof endpoint.text === "string" && endpoint.text.trim() && typeof endpoint.station_code === "string" && /^[A-Z]{3}$/.test(endpoint.station_code));
+      if (code === "station_location_evidence_required") {
+        const exactInput = stationPair && typeof query.travel_date === "string" ? {origin:endpoints.origin!.text, destination:endpoints.destination!.text, travel_date:query.travel_date} : undefined;
+        return {status: "system_evidence_required", result:{service_execution_id:id,service_id:execution.service_id,reason:code,affected_endpoint:affected,failure:model.workflow?.failure,query,
+          ...(exactInput ? {new_query_template:{command:"itpay services run itpay-rail-exact --input-json <双锁站直达.json> --json",input:exactInput,executable:false,required_input:["file"],instruction:"当前明确双锁站可核验直达；Exact只覆盖这一站对，仍按原人数、时限和偏好核对结果。"}} : {})},
+          instruction:"尚未查票。车站身份已知，但Smart缺车站坐标证据；这是系统证据缺口，不要求用户填技术坐标或换站。"+(exactInput ? "当前双锁站可按完整模板另用Exact核验直达，原需求见query。" : "本路线Smart暂受系统证据限制，当前无可执行恢复；停止并交由维护方补证据。"),next:null,recovery:[]};
+      }
+      if (affected !== "origin" && affected !== "destination") return {status:"input_evidence_required",result:{service_execution_id:id,reason:code,failure:model.workflow?.failure,query},instruction:"地点问题未明确受影响侧，当前无可提交修正模板；保留原需求，停止并核对服务端事实，不猜另一端或坐标。",next:null,recovery:[]};
+      const properties = model.workflow_entry.input_schema.properties as Record<string, unknown> | undefined;
+      const input = {...Object.fromEntries(Object.entries(query).filter(([key]) => properties?.[key] !== undefined)), ...serviceInputTemplate(model.workflow_entry.input_schema,query)};
+      const replacement = code === "area_scope_too_broad" ? {kind:"area",text:"<受影响端的市县镇完整名称>"} : {kind:endpoints[affected]?.kind ?? "place",text:code === "coordinate_identity_unverified" ? "<已核实与地点身份一致的完整地址或地点名>" : "<已补充行政归属的完整地址或地点名>"};
+      input.endpoints = {...endpoints,[affected]:replacement};
+      return {status:"awaiting_input",result:{service_execution_id:id,service_id:execution.service_id,reason:code,affected_endpoint:affected,failure:model.workflow?.failure,query,
+        new_query_template:{command:`itpay services run ${execution.service_id} --input-json <补全原始需求.json> --json`,input,executable:false,required_input:["file",`endpoints.${affected}.text`],instruction:"旧执行输入已锁定；补真实地点后将完整input写入JSON文件，按此命令提交新查询，保留另一端、日期、人数和所有原约束。"}},
+        instruction:`尚未查票。只补充${affected === "origin" ? "出发端" : "到达端"}${code === "area_scope_too_broad" ? "的市县镇范围" : code === "coordinate_identity_unverified" ? "的已核实地点身份；已移除未核实坐标，不猜坐标" : "的完整地点和行政归属"}。使用当前完整new_query_template；不能在旧执行伪造修改，也不能直接提交占位符。`,next:null,recovery:[]};
     }
     if (state === "failed" && ["login_required", "rate_limited"].includes(workflowReason ?? "")) {
       const login = workflowReason === "login_required";
@@ -2135,7 +2141,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
         recovery: [resume],
       };
     }
-    if (state === "human_action" && model.workflow?.human_action) {
+    if ((state === "human_action" || (state === "failed" && model.workflow?.human_action?.context?.quote_recovery === true)) && model.workflow?.human_action) {
       const action = model.workflow.human_action;
       const requiredFields = requiredInputFields(action.input_schema);
       const rawPlaces = action.context?.places;
@@ -2209,12 +2215,12 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
           ? review.requirements_remaining
           : undefined;
         return {
-          status: "booking_review_required",
-          result: { service_execution_id: id, service_id: execution.service_id, review,
+          status: state === "failed" ? "quote_recovery_required" : "booking_review_required",
+          result: { service_execution_id: id, service_id: execution.service_id, review, ...(state === "failed" ? {failure:model.workflow?.failure} : {}),
             action_type: action.action_type, required_fields: requiredFields,
             ...(requirementsRemaining ? { requirements_remaining: requirementsRemaining } : {}) },
           ...(reviewURL ? { handoff: { url: reviewURL, kind: "booking_review" } } : {}),
-          instruction: `${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。复制 interaction.input_template.input；自动分配使用该对象数组，不传 null 或字符串。仅已有真实同意后把 accept_non_guaranteed 改为 true 并提交；座位请求不保证分配。身份信息只在官方 Checkout 页填写。`,
+          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。复制 interaction.input_template.input；自动分配使用该对象数组，不传 null 或字符串。仅已有真实同意后把 accept_non_guaranteed 改为 true 并提交；座位请求不保证分配。身份信息只在官方 Checkout 页填写。`,
           next: null,
           interaction: {
             schema_version: "itpay.interaction.v1",
@@ -2270,17 +2276,11 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       ? [...model.provider_invocations].reverse().find((item) => typeof item.status === "string" && item.status.startsWith("failed"))
       : undefined;
     const providerErrorCode = typeof failedInvocation?.error_code === "string" && failedInvocation.error_code ? failedInvocation.error_code : undefined;
-    const quoteFailure = execution.service_id === "itpay-rail-booking" ? ({
-      quote_source_unavailable: "实时车票数据暂不可用；保留原选择，稍后按用户意愿重新核验，不创建替代订单。",
-      quote_train_changed: "所选车次的时刻或运行信息已变化；向用户说明并征询是否重新查票。",
-      quote_seat_changed: "所选席别已变化；向用户说明并征询新的席别选择。",
-      quote_seat_unavailable: "所选席别当前无足够余票；告知用户并由其决定是否换方案。",
-      quote_refresh_expired: "实时报价过程超时；保留原选择，不把旧价当可付款价格。",
-    } as Record<string, string>)[model.workflow?.failure?.reason_code ?? providerErrorCode ?? ""] : undefined;
-    const failureCode = model.workflow?.failure?.reason_code ?? providerErrorCode ?? model.workflow?.error_code;
+    const quoteFailure = execution.service_id === "itpay-rail-booking" ? RAIL_QUOTE_FAILURE_GUIDANCE[(model.workflow?.failure?.reason_code === "workflow_failed" ? providerErrorCode : model.workflow?.failure?.reason_code) ?? providerErrorCode ?? ""] : undefined;
+    const failureCode = model.workflow?.failure?.reason_code === "workflow_failed" && providerErrorCode && RAIL_QUOTE_FAILURE_GUIDANCE[providerErrorCode] ? providerErrorCode : model.workflow?.failure?.reason_code ?? providerErrorCode ?? model.workflow?.error_code;
     const failedInstruction = recovery
       ? quoteFailure
-        ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg + 1}段报价失败。` : ""}${quoteFailure} 当前整程未取得完整有效报价，没有付款入口；保留同一购买和未变化的选择，按原执行核验，不能收取其余段款项或重复创建购买。`
+        ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg + 1}段报价失败。` : ""}${quoteFailure} 当前整程未取得完整有效报价，没有付款入口；保留同一购买和未变化的选择，当前没有可提交恢复动作，停止；需要用户决定或系统处理，不能靠反复 get/next 重新报价，不能收取其余段款项或重复创建购买。`
         : failedStepGuidance
         ? `执行在「${failedStepGuidance.meaning}」步失败${failureCode ? `（错误码：${failureCode}）` : ""}：${failedStepGuidance.hint}。先核对原因和当前执行状态，不要盲目重放。`
         : state === "failed"
@@ -2869,6 +2869,11 @@ export async function runServicesRun(
           input: serviceInputTemplate(schema, input), required_input: ["file", ...requiredInputFields(schema)], executable: false,
         }} : undefined,
         {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? Boolean(executionID), ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
+    }
+    if (cause instanceof HttpError && ["rail_journey_selection_required", "rail_selection_expired"].includes(cause.code ?? "")) {
+      throw new CommandContractError(cause.code!, cause.message,
+        "整程必须使用原查询当前完整 ticket plan 的 selections 模板；手填 legs 只兼容单腿。选择过期时说明缺少当前有效凭据，按用户决定取得完整方案，不拆单、不拼腿、不擅自换站或日期。",
+        [{command:"itpay services list --json",reason:"找回原查询并读取其完整方案模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式整程输入合同"}],undefined,{service_id:serviceID,...(id?{service_execution_id:id}:{})});
     }
     if (cause instanceof HttpError && cause.code === "rail_seat_code_invalid" && id) {
       throw new CommandContractError(

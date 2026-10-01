@@ -71,7 +71,7 @@ link or QR genuinely visible using the actual host's handoff. Keep internal
 IDs, tokens, command lines, raw envelopes and diagnostics out of human-facing
 messages. Traveler names, ID numbers, phones, verification codes and payment
 details belong only in the protected official page, never chat or local query
-input. A railway ticket plan uses one booking and one official payment entry for the whole journey, with separate issuance per leg. A payment entry is not payment success; payment is not ticket issuance.
+input. A railway ticket plan uses one booking and one official payment entry for the whole journey, with separate issuance per leg. Raw legs support one-leg compatibility only; a multi-leg journey requires the returned complete selections template. A payment entry is not payment success; payment is not ticket issuance.
 Once the Order confirms payment, tell the human they must not pay again and
 continue from that same Order.
 

@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.30",
+  "version": "2.1.31",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -72,5 +72,9 @@
     "test:coverage": "c8 --all --src src --extension .ts --exclude=src/client/types.ts --exclude=tests/** --exclude=scripts/** --reporter=text --reporter=lcov --check-coverage --lines 85 --statements 85 --functions 90 --branches 70 npm test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "precheck": "node scripts/fetch-sell-runtime.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/itpay-ai/cli.git"
   }
 }

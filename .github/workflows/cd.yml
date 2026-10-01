@@ -1,54 +1,73 @@
 name: CD — Publish to npm
 
 on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Publish a new version, promote an existing version, or verify OIDC without moving a tag
+        type: choice
+        options: [publish, promote, verify]
+        default: publish
+      tag:
+        description: Distribution channel (latest is the general/stable release)
+        type: choice
+        options: [next, latest]
+        default: next
+      version:
+        description: Exact existing version for promote/verify; publish uses package.json
+        type: string
+        required: false
   push:
     branches: [main]
     paths:
       - package.json
       - .github/workflows/cd.yml
+      - scripts/npm-release.mjs
+      - scripts/npm-release.test.mjs
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    environment: npm-publish
+    timeout-minutes: 20
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          cache: npm
+          package-manager-cache: false
+
+      - name: Pin npm with OIDC publish and dist-tag support
+        run: npm install --global npm@11.21.0
+
+      - name: Verify release routing
+        run: node --test scripts/npm-release.test.mjs
 
       - name: Install dependencies
+        if: github.event_name == 'push' || inputs.action == 'publish'
         run: npm ci
 
       - name: Typecheck, test, and verify packed CLI
+        if: github.event_name == 'push' || inputs.action == 'publish'
         run: npm run check
 
-      - name: Publish to npm
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TAG=$(node -p "require('./package.json').publishConfig?.tag || 'latest'")
-          if [[ "$VERSION" == *-* ]]; then
-            TAG=next
-          fi
-          if npm view "@itpay/cli@$VERSION" version &>/dev/null; then
-            PUBLISHED_GIT_HEAD=$(npm view "@itpay/cli@$VERSION" gitHead)
-            if [[ "$PUBLISHED_GIT_HEAD" != "$GITHUB_SHA" ]]; then
-              echo "Version $VERSION belongs to $PUBLISHED_GIT_HEAD, not $GITHUB_SHA — bump package version" >&2
-              exit 1
-            fi
-            echo "Version $VERSION already published from this commit — skipping"
-          else
-            # npm run check above already verifies tests, coverage, build and packed assets.
-            # Avoid rerunning prepublishOnly and prepack inside the same timed job.
-            npm publish --ignore-scripts --access public --tag "$TAG"
-            echo "Published @itpay/cli@$VERSION with dist-tag $TAG"
-          fi
+      - name: Release through npm trusted publisher
+        run: node scripts/npm-release.mjs
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_ACTION: ${{ inputs.action || 'publish' }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
