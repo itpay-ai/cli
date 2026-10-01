@@ -89,7 +89,7 @@
     "Do not expose display tokens separately from the tokenized Checkout handoff.",
     "Do not print base64 images, mirror lists, renderer debug state, or provider QR URLs.",
     "Do not claim a desktop attachment exists when only a filesystem path was printed.",
-    "Do not use present_files for a local file, QR PNG, downloaded copy, or rebuilt URL in WorkBuddy."
+    "For Checkout Card Link, do not use present_files for a local file, QR PNG, downloaded copy or rebuilt URL. Auth login is separate: use its actual handoff capabilities and returned local QR when supported; never rebuild it."
   ],
   "next_docs": [
     {

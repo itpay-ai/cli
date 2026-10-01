@@ -3,8 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { OutputSink } from "../render/sink.js";
-import { resolveOutput } from "../render/sink.js";
-import { CommandContractError, plainValueLines, shellArgument, writeCommandEnvelope } from "./guidance.js";
+import { CommandContractError, shellArgument, writeCommandEnvelope } from "./guidance.js";
 
 const commandDir = dirname(fileURLToPath(import.meta.url));
 
@@ -59,15 +58,7 @@ export function runDocsShow(topic: string, options: DocsOptions = {}): void {
     next: null,
     recovery: [],
   };
-  if (options.jsonOutput) {
-    writeCommandEnvelope(envelope, options);
-    return;
-  }
-  const out = resolveOutput(options.output);
-  out("shown\n");
-  const { schema_version: _schema, product_scope: _scope, search_terms: _search, role: _role, ...body } = doc;
-  for (const line of plainValueLines(body)) out(`${line}\n`);
-  out(`instruction: ${envelope.instruction}\n`);
+  writeCommandEnvelope(envelope, options);
 }
 
 export function runDocsSearch(query: string, options: DocsOptions = {}): void {

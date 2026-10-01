@@ -27,7 +27,10 @@ for (let index = 0; index < options.length; index += 1) {
   }
 }
 
-const output = resolve(outputArg);
+const requestedOutput = resolve(outputArg);
+// Existing plugin launchers resolve the runtime inside skills/itpay.
+const output = existsSync(join(requestedOutput, "skills", "itpay", "scripts", "itpay.mjs"))
+  ? join(requestedOutput, "skills", "itpay") : requestedOutput;
 const vendor = join(output, bundleDirectory);
 const scratch = mkdtempSync(join(tmpdir(), "itpay-platform-bundle-"));
 

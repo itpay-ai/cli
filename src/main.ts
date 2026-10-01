@@ -216,10 +216,7 @@ function reportCLIError(
       command: "itpay skill show itpay --json",
       reason: "读取 ItPay 身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
     },
-    ...(deviceKeyResettable ? [{
-      command: "itpay device reset-key --confirm-key-reset --json",
-      reason: "服务端拒绝以当前私钥完成设备登记；生成全新 Ed25519 密钥并重新登记（旧设备身份在服务端保留为孤儿，不影响新身份和额度谱系）",
-    }] : []),
+
   ] : [];
   const stateRecovery: CommandAction[] = stateError ? [{
     command: "itpay skill show itpay --json",
@@ -240,7 +237,7 @@ function reportCLIError(
       : deviceError?.enrollmentFailed && deviceError.status === 500
         ? "服务端未能完成设备登记；保持原密钥和Agent Type，说明系统故障，待服务端恢复后继续原任务。不要重置身份。"
         : deviceKeyResettable
-          ? "服务端记录显示当前设备私钥已不再有效（已轮换或与既有登记冲突）。执行 itpay device reset-key --confirm-key-reset 生成全新密钥并重新登记。"
+          ? "服务端拒绝当前设备私钥登记（轮换或冲突）。停止自动恢复；换钥会放弃旧身份，旧执行访问不会迁移。仅用户或运营明确决定放弃旧身份后，按 device reset-key 帮助执行。"
           : deviceError
             ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
             : undefined;
@@ -520,7 +517,7 @@ deviceCmd
         throw new CommandContractError(
           "key_reset_confirmation_required",
           "--confirm-key-reset is required",
-          "仅当服务端拒绝以当前私钥完成设备登记（internal_error、agent_device_key_rotated 或 agent_device_key_conflict）时使用；会放弃本地设备身份并重新登记，旧设备在服务端保留为孤儿。",
+          "仅在用户或运营明确决定放弃旧身份后使用；会丢弃本地私钥，旧执行访问不会迁移。internal_error 需服务端恢复，不能换钥。",
           [{ command: "itpay docs show identity-and-sessions --json", reason: "检查适用边界" }],
         );
       }
@@ -1917,7 +1914,7 @@ services
   .command("read-result")
   .description("Read saved railway results or human-granted service content")
   .argument("<service_execution_id>")
-  .option("--snapshot <snapshot_id>", "rail.progressive.v2: read one journey from a committed planning snapshot")
+  .option("--snapshot <snapshot_id>", "Smart: saved snapshot catalog; add --journey for a journey detail. Exact: saved station-pair rows without --snapshot")
   .option("--journey <journey_id>", "rail.progressive.v2: journey id to read")
   .option("--offset <offset>", "saved journey offset", Number, 0)
   .option("--limit <limit>", "rows per page (1-20): Exact 20, Smart 3", Number)

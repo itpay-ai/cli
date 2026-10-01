@@ -76,7 +76,7 @@ function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelop
     ),
     next: {
       command: `itpay checkout --id ${options.checkoutID} --token ${options.displayToken} --json`,
-      reason: verified ? "读取权威订单和履约状态" : "读取同一 Checkout 的权威付款状态",
+      reason: verified ? "读取权威订单和履约状态" : "展示后停止；仅用户完成付款或要求核对时读取同一 Checkout",
     },
     recovery: [],
   };

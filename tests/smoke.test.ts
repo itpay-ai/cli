@@ -785,7 +785,7 @@ test("rail Exact normal return leads through saved rows to one bookable detail",
 	assert.equal(detail.result.candidate.seats[0]?.remaining, 8);
 	assert.equal(detail.result.candidate.seats[0]?.quoted_total_minor, 50000);
 	assert.equal(detail.result.booking_template.seat_choices[0]?.seat_type, "O");
-	assert.equal(detail.result.booking_template.input_example.selection.seat_type, "O");
+	assert.equal(detail.result.booking_template.input_example.selection.seat_type, "<用户授权席别对应代码>");
 	rows.push(...Array.from({ length: 87 }, (_, index) => ({ ...rows[0]!, candidate_id: `extra_${index}` })));
 	stdoutCapture = [];
 	await runServicesReadResult(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
@@ -827,12 +827,12 @@ test("rail Exact zero result stays scoped to the resolved station pair", async (
 	});
 	await runServicesNext(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { scope: string; total: number;
-		resolved_station_pair: { origin_name: string }; smart_template: { reuse_from: { execution_id: string } } }; instruction: string };
+		resolved_station_pair: { origin_name: string }; smart_template: { executable: boolean; input_example: { reuse_from: { execution_id: string } } } }; instruction: string };
 	assert.equal(envelope.status, "no_result");
 	assert.equal(envelope.result.scope, "station_pair");
 	assert.equal(envelope.result.total, 0);
 	assert.equal(envelope.result.resolved_station_pair.origin_name, "上海站");
-	assert.equal(envelope.result.smart_template.reuse_from.execution_id, "se_rail_paged");
+	assert.equal(envelope.result.smart_template.input_example.reuse_from.execution_id, "se_rail_paged");
 	assert.match(envelope.instruction, /不代表全城无车/);
 });
 
@@ -4152,7 +4152,8 @@ test("booking review human action guides --input-json submission", async () => {
   assert.equal(result.interaction.input_template.executable, false);
   assert.match(result.instruction, /不保证分配/);
   assert.match(result.instruction, /draft_revision/);
-  assert.match(result.instruction, /只询问 requirements_remaining/);
+  assert.match(result.instruction, /只补缺失选择或真实条款同意/);
+  assert.doesNotMatch(result.instruction, /requirements_remaining/);
   assert.doesNotMatch(result.instruction, /人数.*一次问清|每位乘客.*一次问清/);
   assert.doesNotMatch(result.interaction.input_template.command, /--input [a-z_]+=<值>/);
 });
@@ -5610,7 +5611,8 @@ test("rail endpoint confirmation asks only for candidate ids in the same executi
   assert.equal(result.result.sides[0].status,"resolved");
   assert.equal(result.result.sides[1].candidates[0].id,"destination_1");
   assert.equal(result.result.human_action.context, undefined);
-  assert.match(result.interaction.input_template.command,/--input choices=/);
+  assert.match(result.interaction.input_template.command,/--input-json/);
+  assert.ok(result.interaction.input_template.input.choices);
   assert.doesNotMatch(result.interaction.input_template.command,/origin_lng|destination_lat/);
 });
 
@@ -5688,14 +5690,15 @@ test("rail location guidance precedes invocation and confirmation survives next"
   await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
-  assert.match(envelope.interaction.input_template.command,/location_confirmation=.*plan_id/);
+  assert.match(envelope.interaction.input_template.command,/--input-json/);
+  assert.equal(envelope.interaction.input_template.input.location_confirmation.plan_id,confirmation.plan_id);
   assert.doesNotMatch(envelope.interaction.input_template.command,/\[object Object\]/);
   assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
   output.length=0;
   await runServicesNext(fake,base.execution.service_execution_id,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required");
-  assert.match(envelope.interaction.input_template.command,/origin=金尊府/);
+  assert.equal(envelope.interaction.input_template.input.origin,"金尊府");
 });
 
 
@@ -5756,7 +5759,7 @@ test("issued rail booking shows actual seats without requiring a ticket number",
   assert.equal(result.result.rail.legs[0].seats[0].seat,"03车10D");
   assert.match(result.instruction,/实际出票/);
   assert.match(result.instruction,/不提供 12306 票号/);
-  assert.match(result.next.command,/itpay order ord_rail/);
+  assert.equal(result.next,null);
 });
 
 test("terminal execution wins over rail booking status", async () => {

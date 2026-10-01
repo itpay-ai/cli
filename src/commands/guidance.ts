@@ -13,6 +13,7 @@ export interface CommandAction {
 // never appear in `next.command` or `recovery[].command`.
 export interface InputTemplate {
   command: string;
+  input?: Record<string, unknown>;
   required_input: string[];
   executable: false;
 }

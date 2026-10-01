@@ -42,7 +42,7 @@
     "Run one state-changing command at a time. Treat next.command as the preferred continuation: execute it unchanged only when its required values are already present; fill a non-executable input_template separately only when the current result has not already satisfied the user's goal.",
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
     "When testing sandbox, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://sandbox.itpay.ai prefix is preserved.",
-    "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
+    "Use --target only for a Host presentation destination. Use --input key=value only for simple scalars; nested objects use a small JSON file with the existing --input-json command.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",
     "Explain useful service facts in ordinary language; never ask the human to run commands or learn internal IDs.",
     "Normal payment uses the returned ItPay Checkout handoff.",

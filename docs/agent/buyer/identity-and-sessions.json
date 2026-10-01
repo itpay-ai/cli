@@ -23,7 +23,7 @@
     "When a previously unseen Agent Type is registered under an existing Device, the CLI skips locally known Agent Instances that the Backend reports as revoked and uses the first remaining valid Instance. It never reactivates a revoked Instance or replaces the Device; if none is valid, registration stops.",
     "When the Backend reports agent_device_not_found (HTTP 404) for a locally known registration — for example after the Backend registration database was rebuilt — the CLI drops only that Backend's registration and re-enrolls once with the same private key, re-attaching to the same device and quota lineage where the Backend still holds the key.",
     "A revoked v2 registration requires explicit operator recovery; it is never silently replaced.",
-    "Re-enrolling a public key the Backend already holds re-attaches to the existing device and quota lineage after proof-of-possession; it never creates a duplicate device. An internal_error is a server failure: preserve the key and wait for service recovery. Only if enrollment returns agent_device_key_rotated or agent_device_key_conflict, `itpay device reset-key --confirm-key-reset` is the supported way to start over with a fresh key."
+    "Re-enrolling a public key the Backend already holds re-attaches to the existing device and quota lineage after proof-of-possession; it never creates a duplicate device. An internal_error is a server failure: preserve the key and wait for service recovery. If enrollment returns agent_device_key_rotated or agent_device_key_conflict, stop automatic recovery. Only an explicit human/operator decision to abandon the old identity permits reset-key; old execution access does not migrate."
   ],
   "local_state_recovery": [
     "Device state uses an owner-only atomic file replacement and a lock that the CLI can inspect. On a stale lock, run the returned device repair-lock command; it only reclaims a proven stale owner.",
@@ -46,11 +46,6 @@
       "intent": "recover after an operator-confirmed reset of the selected official Backend registration database",
       "command": "itpay --agent-type <agent_type> device recover --confirm-backend-reset --json",
       "success_signal": "only the selected Backend registration is removed and the private key and other Backend registration remain"
-    },
-    {
-      "intent": "abandon the local device key after the Backend refuses to complete enrollment with it (agent_device_key_rotated or agent_device_key_conflict), after configuring the real supported Agent Type",
-      "command": "itpay device reset-key --confirm-key-reset --json",
-      "success_signal": "the local private key is discarded and the next command enrolls as a brand-new device"
     },
     {
       "intent": "repair only a proven stale local device lock",
@@ -103,5 +98,6 @@
     "missing": "auth_session_missing means the cached session is gone. An explicit auth login opens one fresh official session in that call; auth status stays read-only.",
     "completed_resume": "After login completes, execute the returned command to resume the same paused service execution. Login does not silently run that command.",
     "path_b": "A buyer who reaches checkout without a login completes identity inside the protected checkout page; never force a separate itpay auth login first."
-  }
+  },
+  "key_reset_decision": "Only after explicit user/operator acceptance of abandoning the old identity, consult device reset-key help; this is not automatic error recovery, and old execution access does not migrate."
 }

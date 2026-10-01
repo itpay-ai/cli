@@ -144,10 +144,6 @@ export async function runCheckoutPresentation(
     });
   }
   const envelope = pendingCheckoutEnvelope(presentation, checkoutURL, plan, nextCommand, options.agentType, options.target);
-  const plainResult = checkoutPlainResult(envelope.result);
-  if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
-    plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
-  }
 
   // W5: deterministic presentation plan — business state first, then declared
   // capabilities. `present` is the explicit display request; without it (or
@@ -207,6 +203,10 @@ export async function runCheckoutPresentation(
     wait_for: decision.communication.wait_for,
     must_convey: decision.communication.must_convey,
   };
+  const plainResult = checkoutPlainResult(envelope.result);
+  if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
+    plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
+  }
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
     ...(options.output ? { output: options.output } : {}),
@@ -286,7 +286,7 @@ function pendingCheckoutEnvelope(
     instruction: railPassengersPending
       ? `${presentationHandoff.instruction} 请用户在受保护网页填写乘车人并确认报价；姓名、证件和手机号只在网页填写，不要贴到对话中。座位偏好仅为购票请求、购票时才提交给供应商且不保证满足；无法逐人提交的偏好将自动分配座位，以实际出票为准。`
       : presentationHandoff.instruction,
-    next: { command: nextCommand, reason: "稍后只查询同一 Checkout" },
+    next: { command: nextCommand, reason: "展示后停止；仅用户完成操作或要求核对时读取同一 Checkout" },
     recovery: [],
   };
 }

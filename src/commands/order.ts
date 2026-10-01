@@ -1,3 +1,4 @@
+import { refundStateEnvelope } from "./refund.js";
 import type { BackendClient } from "../client/backend.js";
 import type { OrderDeliveryAccess, RefundRequest } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
@@ -34,7 +35,7 @@ function orderEnvelope(
   let instruction = "订单状态已读取；当前没有可用交付入口。";
   let next: CommandAction | null = null;
   if (lockedRefund) {
-    instruction = "告诉用户退款处理中，原交付已按政策冻结。然后读取同一退款的权威状态；Agent 不读取交付、不创建授权或重复申请退款。";
+    instruction = refundStateEnvelope(lockedRefund, "shown").instruction;
     if (!refundTerminal) {
       next = { command: `itpay refund get ${lockedRefund.refund_request_id} --json`, reason: "读取退款的服务器状态" };
     }
@@ -56,7 +57,7 @@ function orderEnvelope(
     instruction = remaining
       ? "付款时限已到，但订单权威状态仍为待付款；读取同一订单核对到账或终止结果。不要重复支付、重建订单或推测已取消，刷新不会延长期限。"
       : `先告诉用户订单正在等待付款${order.payment_deadline_at ? `，付款截止时间为 ${order.payment_deadline_at}` : ""}，超时未支付会被自动取消；不要创建替代订单，也不要重复发起支付授权。`;
-    next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单支付状态" };
+    next = { command: `itpay order ${order.order_id} --json`, reason: "展示后停止；仅用户说已付款或要求核对时读取同一订单，到期可核对原单" };
   } else if (!["delivered", "refunded", "failed", "cancelled"].includes(order.status)) {
     instruction = "先告诉用户订单仍在处理，已记录的付款和订单不需要重复创建；稍后查询同一订单，不要创建替代订单。";
     next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单状态" };

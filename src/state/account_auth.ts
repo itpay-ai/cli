@@ -280,7 +280,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
           status: terminal.status,
           result: { dashboard_auth_session_id: state.sessionID, stage: progress.status },
           instruction: terminal.instruction,
-          next: { command: 'itpay auth login --json', reason: '重新发起官方授权' },
+          next: ['denied', 'cancelled'].includes(progress.status) ? null : { command: 'itpay auth login --json', reason: '需要登录时重新发起官方授权' },
           recovery: [],
         };
       }
