@@ -2025,7 +2025,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       const resumable = state === "quota_paused" && dependency?.retryable === true;
       return {
         status: "dependency_unavailable",
-        result: { service_execution_id: id, service_id: execution.service_id, reason: workflowReason, ...(dependency ? {dependency} : {}) },
+        result: { service_execution_id: id, service_id: execution.service_id, reason: workflowReason, failure: model.workflow?.failure, affected_endpoint: model.workflow?.failure?.endpoint ?? dependency?.endpoint, ...(dependency ? {dependency} : {}) },
         instruction: resumable
           ? "地图服务暂时限流。保留原条件及已解析端点；到 retry_at 后执行下一步，继续同一任务，不重新提交地点。"
           : "地图服务本轮未完成解析，这是外部依赖故障，不要求用户换地址或自行找坐标。有界尝试已结束；保留原条件及已有结果，交由服务维护方处理该错误。",
@@ -2034,7 +2034,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       };
     }
     if (state === "failed" && workflowReason === "area_scope_too_broad") {
-      return {status:"awaiting_input",result:{service_execution_id:id,reason:"area_scope_too_broad", affected_endpoint:model.workflow?.failure?.endpoint ?? model.workflow?.dependency?.endpoint, input_template:{endpoints:{[model.workflow?.dependency?.endpoint ?? "<受影响侧>"]:{kind:"area",text:"<市县镇完整名称>"}}}},
+      return {status:"awaiting_input",result:{service_execution_id:id,reason:"area_scope_too_broad", failure:model.workflow?.failure, affected_endpoint:model.workflow?.failure?.endpoint ?? model.workflow?.dependency?.endpoint, input_template:{endpoints:{[model.workflow?.dependency?.endpoint ?? "<受影响侧>"]:{kind:"area",text:"<市县镇完整名称>"}}}},
         instruction:"区域范围是省或国家。只补充受影响端点的市、县或镇；保留另一端、日期与用户约束。修正模板：endpoints.<受影响侧>={kind:area,text:<市县镇完整名称>}。",
         next:null,recovery:[]};
     }

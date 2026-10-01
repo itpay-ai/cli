@@ -13,7 +13,7 @@ test('audit repair: saved geo reason, empty candidates and real choices', async 
     const backend = new BackendClient(new HttpClient({baseURL:mock.url}));
     const client: BackendClient = Object.create(backend);
     const base = await backend.getServiceExecution('se_mock_next');
-    for (const reason of ['address_required', 'station_location_evidence_required', 'coordinate_identity_unverified']) {
+    for (const reason of ['address_required', 'station_location_evidence_required', 'coordinate_identity_unverified', 'amap_request_failed']) {
       client.getServiceExecution = async () => ({...base, workflow_entry:{capability_id:"itpay_service",input_schema:{}}, workflow:{current_step:'failure',revision:1,steps:{},status:'failed', error_code:'condition_unmet', failure:{step_id:'resolved_after_confirm', source_step:'geo_confirm', reason_code:reason, endpoint:'destination'}}});
       let output=''; await runServicesNext(client,'se_check',{jsonOutput:true,output:s=>output+=s});
       const result=JSON.parse(output);
