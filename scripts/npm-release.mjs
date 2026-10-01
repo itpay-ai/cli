@@ -18,6 +18,34 @@ async function metadata(spec) {
   return response.json();
 }
 
+// npm dist-tag add skips PUT for an unchanged tag, so it cannot verify write permission.
+export async function verifyOidcTag(channel, version, request = fetch, env = process.env) {
+  if (!['next', 'latest'].includes(channel)) throw new Error('Invalid verification channel');
+  if (!env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) throw new Error('GitHub OIDC is required');
+  const json = async (url, options = {}) => {
+    const response = await request(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(30000) });
+    if (!response.ok) throw new Error(`OIDC verification failed: HTTP ${response.status}`);
+    return response.json();
+  };
+  const issuer = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
+  issuer.searchParams.set('audience', 'npm:registry.npmjs.org');
+  const identity = await json(issuer, { headers: { Authorization: `Bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } });
+  if (!identity.value) throw new Error('GitHub did not return an OIDC identity');
+  const exchanged = await json('https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/@itpay%2fcli', {
+    method: 'POST', headers: { Authorization: `Bearer ${identity.value}` },
+  });
+  if (!exchanged.token) throw new Error('npm did not return an OIDC exchange token');
+  const url = 'https://registry.npmjs.org/-/package/@itpay%2fcli/dist-tags';
+  const tags = await json(url);
+  if (tags[channel] !== version) throw new Error('Verify refuses to move a tag');
+  const response = await request(`${url}/${channel}`, {
+    method: 'PUT', redirect: 'error', signal: AbortSignal.timeout(30000),
+    headers: { Authorization: `Bearer ${exchanged.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(version),
+  });
+  if (!response.ok) throw new Error(`OIDC tag write failed: HTTP ${response.status}`);
+}
+
 async function main() {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
   if (pkg.name !== '@itpay/cli') throw new Error('Unexpected package');
@@ -53,7 +81,8 @@ async function main() {
       const current = await metadata(target.channel);
       if (current?.version !== target.version) throw new Error('Verify may only reassert the current tag, never move it');
     }
-    npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
+    if (target.action === 'verify') await verifyOidcTag(target.channel, target.version);
+    else npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
   }
   const actual = await metadata(target.channel);
   if (actual?.version !== target.version) throw new Error('Registry tag does not match; inspect the completed operation before retrying');
