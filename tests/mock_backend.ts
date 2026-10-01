@@ -10,6 +10,7 @@ import http from "node:http";
 import { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
 import { API_CONTRACT_REVISION, CLI_VERSION } from "../src/state/config.js";
+import { decodeRailCatalogJourneys } from "../src/commands/rail_catalog.js";
 
 // Real B-run (中山→万州 2026-09-25) committed recommend snapshot, replayed
 // offline and captured verbatim — the rail planning read-path fixture.
@@ -654,6 +655,38 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
     const resultItemPageMatch = path.match(/^\/v1\/service-executions\/([^/]+)\/result-items\/([^/]+)$/);
     if (method === "GET" && resultItemPageMatch) {
       const [serviceExecutionID, resultItemID] = [resultItemPageMatch[1]!, resultItemPageMatch[2]!];
+      if (serviceExecutionID === "se_rail_plan_future") {
+        respond(res, 400, { code: "result_not_pageable", message: "snapshot has no paged journey set" });
+        return;
+      }
+      if (["se_rail_plan_complete", "se_rail_plan_packed", "se_rail_plan_real"].includes(serviceExecutionID)) {
+        const offset = Number(url.searchParams.get("offset") ?? "0");
+        const limit = Number(url.searchParams.get("limit") ?? "3");
+        const packed = serviceExecutionID === "se_rail_plan_packed";
+        const rows = packed ? [
+          { journey_id: "jny_pack_a", route_text: "中山北 C7606 → 广州南换乘114分 → D1820 万州北", default_layer: "main",
+            passengers: 1, rides: [
+              { train_code: "C7606", from_station: "中山北", from_station_code: "ZGQ", departure: "2026-10-01 08:00", to_station: "广州南", to_station_code: "GZN", arrival: "2026-10-01 09:00" },
+              { train_code: "D1820", from_station: "广州南", from_station_code: "GZN", departure: "2026-10-01 10:54", to_station: "万州北", to_station_code: "WZE", arrival: "2026-10-01 15:00", wait_minutes: 114, minimum_connection_minutes: 30 }],
+            representative_offer: { fare_minor: 5000, service_fee_minor: 200, rail_payable_minor: 5200, currency: "CNY", ticket_offers: [] },
+            representative_metrics: { duration_basis: "rail", cost_basis: "rail_fare", estimated_total_cost: 27 },
+            booking_support: "separate_legs_only" },
+          { journey_id: "jny_pack_b", route_text: "中山北 G68 → 广州南换乘90分 → G1312 万州北", default_layer: "backup", rides: [] },
+        ] : serviceExecutionID === "se_rail_plan_real" ? decodeRailCatalogJourneys(RAIL_RECOMMEND_B.catalog).journeys.map((row) =>
+          row.ref === RAIL_RECOMMEND_B.journey_id ? RAIL_RECOMMEND_B.journey : {
+            journey_id: row.ref, route_text: row.route, default_layer: row.defaultLayer, rides: row.rides ?? [],
+            booking_support: "none", representative_metrics: row.calculation_scope,
+          }) : [
+          { journey_id: "jny_a", route_text: "中山北 C7606 → 广州南换乘114分 → D1820 万州北", rides: [] },
+          { journey_id: "jny_b", route_text: "中山北 G68 → 广州南换乘90分 → G1312 万州北", rides: [] },
+        ];
+        const slice = rows.slice(offset, offset + limit);
+        respond(res, 200, { service_execution_id: serviceExecutionID, snapshot_id: resultItemID,
+          plan_id: packed ? "rplan_packed" : "rplan_1", query_revision: packed ? 1 : 3,
+          page: { journeys: slice, journey_page: { offset, limit, total: rows.length, count: slice.length,
+            next_offset: offset + slice.length < rows.length ? offset + slice.length : null } } });
+        return;
+      }
       if (serviceExecutionID === "se_rail_plan_page" && resultItemID === "rsnap_1") {
         const offset = Number(url.searchParams.get("offset") ?? "0");
         const limit = Number(url.searchParams.get("limit") ?? "5");

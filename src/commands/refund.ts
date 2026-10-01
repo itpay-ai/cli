@@ -21,11 +21,11 @@ export async function runRefund(backend: BackendClient, config: CLIConfig, optio
 	});
 }
 
-function refundStateEnvelope(refund: RefundRequest, status: string): CommandEnvelope {
+export function refundStateEnvelope(refund: RefundRequest, status: string): CommandEnvelope {
 	const terminal = ["succeeded", "failed", "cancelled", "rejected"].includes(refund.status);
 	let instruction = refund.decision_mode === "manual"
 		? "先告诉用户退款已进入人工审核，原交付保持冻结；人工审核不等于拒绝，等待服务器决定，不要重复申请或承诺结果。"
-		: "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不要重复申请、reveal、授权或读取结果。";
+		: "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不读取交付、不创建授权或重复申请。";
 	if (!refund.access_locked) instruction = "先告诉用户退款当前没有锁定交付；按服务器事实解释当前状态，不要自行推断退款结果、到账时间或交付资格。";
 	if (refund.status === "succeeded") instruction = "先告诉用户退款已由 ItPay 确认成功，原交付永久关闭；不需要继续跟踪或重复申请。";
 	if (refund.status === "cancelled" || refund.status === "rejected") instruction = "先告诉用户退款没有执行，交付资格可以恢复；旧读取授权不会复活，需要用户重新授权。不要把取消或拒绝说成退款成功。";
@@ -75,7 +75,7 @@ export async function runListRefunds(backend: BackendClient, options: RefundList
 				: "该订单没有退款记录；确认用户确实要求退款后再创建。",
 		next: selected
 			? { command: `itpay refund get ${selected.refund_request_id} --json`, reason: active ? "读取活跃退款" : "读取最新退款" }
-			: { command: `itpay refund create --order ${options.orderID} --json`, reason: "为该订单创建退款" },
+			: null,
 		recovery: [],
 	};
 	writeCommandEnvelope(envelope, {
@@ -100,13 +100,13 @@ export async function runGetRefund(backend: BackendClient, refundID: string, opt
 export async function runCancelRefund(backend: BackendClient, refundID: string, reason?: string, options: RefundReadOptions = {}): Promise<void> {
 	const refund = await backend.cancelRefund(refundID, reason?.trim() || "buyer_cancelled");
 	const envelope: CommandEnvelope = {
-		status: "cancelled",
+		status: refund.status,
 		result: {
 			refund_request_id: refund.refund_request_id,
 			order_id: refund.order_id,
 			access_locked: refund.access_locked,
 		},
-		instruction: "退款已取消；如需交付，重新进入订单并取得新的授权。",
+		instruction: refund.status === "cancelled" ? "Backend确认退款已取消；如需交付，重新进入原订单核对当前权限，旧grant不自动复活；后端要求时取得新的授权。" : "Backend未确认取消；按返回的退款权威状态核对原订单，不重复提交取消。",
 		next: { command: `itpay order ${refund.order_id} --json`, reason: "确认订单访问状态" },
 		recovery: [],
 	};

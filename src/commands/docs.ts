@@ -3,8 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { OutputSink } from "../render/sink.js";
-import { resolveOutput } from "../render/sink.js";
-import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
+import { CommandContractError, shellArgument, writeCommandEnvelope } from "./guidance.js";
 
 const commandDir = dirname(fileURLToPath(import.meta.url));
 
@@ -47,7 +46,7 @@ export function runDocsShow(topic: string, options: DocsOptions = {}): void {
       "使用稳定 topic 名称；不要根据标题猜 topic。",
       [
         { command: "itpay docs list --json", reason: "列出全部 topic" },
-        { command: `itpay docs search ${shellWord(normalized || "topic")} --json`, reason: "按关键词重新搜索" },
+        { command: `itpay docs search ${shellArgument(normalized || "topic")} --json`, reason: "按关键词重新搜索" },
       ],
     );
   }
@@ -59,14 +58,7 @@ export function runDocsShow(topic: string, options: DocsOptions = {}): void {
     next: null,
     recovery: [],
   };
-  if (options.jsonOutput) {
-    writeCommandEnvelope(envelope, options);
-    return;
-  }
-  const out = resolveOutput(options.output);
-  out("shown\n");
-  out(`${JSON.stringify(doc, null, 2)}\n`);
-  out(`instruction: ${envelope.instruction}\n`);
+  writeCommandEnvelope(envelope, options);
 }
 
 export function runDocsSearch(query: string, options: DocsOptions = {}): void {
@@ -139,8 +131,4 @@ function parseDoc(raw: string, file: string): AgentDoc {
 
 function searchableText(doc: AgentDoc): string {
   return [doc.topic, doc.title, doc.purpose, ...(doc.search_terms ?? [])].join(" ").toLowerCase();
-}
-
-function shellWord(value: string): string {
-  return /^[a-zA-Z0-9._-]+$/.test(value) ? value : JSON.stringify(value);
 }

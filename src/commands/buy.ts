@@ -219,7 +219,7 @@ export async function runBuy(
   }
 
   // --- Output ---
-  if (options.jsonOutput) {
+  if (options.jsonOutput || platformKeyForHost(options.host) === "plain_chat") {
     const envelope = buildBuyEnvelope({
       cart,
       checkoutID,
@@ -232,7 +232,7 @@ export async function runBuy(
       ...(options.agentType ? { agentType: options.agentType } : {}),
       ...(options.target ? { target: options.target } : {}),
     });
-    writeCommandEnvelope(envelope, { jsonOutput: true, ...(options.output ? { output: options.output } : {}) });
+    writeCommandEnvelope(envelope, { jsonOutput: Boolean(options.jsonOutput), ...(options.output ? { output: options.output } : {}), ...(options.agentType ? { agentType: options.agentType } : {}) });
     return {
       kind: "checkout_rendered",
       plan,
@@ -317,7 +317,7 @@ function buildBuyEnvelope(input: {
     result,
     handoff: presentationHandoff.handoff,
     instruction: presentationHandoff.instruction,
-    next: { command: input.plan.afterActionCommand ?? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "稍后查询同一笔 Checkout 状态" },
+    next: { command: input.plan.afterActionCommand ?? `itpay checkout --id ${input.checkoutID} --token ${input.displayToken} --json`, reason: "仅用户完成付款或要求查询时，读取同一笔Checkout权威状态" },
     recovery: [],
   };
 }

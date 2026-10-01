@@ -16,14 +16,11 @@ export async function runCatalogList(
     status: empty ? "catalog_empty" : "listed",
     result: { catalog_version: manifest.version, services },
     instruction: empty
-      ? "当前没有已发布服务；稍后重试，不要猜测 service_id。"
+      ? "当前没有已发布服务；本次目录读取结束，不猜测服务或自动重试。"
       : "向用户解释主服务、辅助步骤和价格；得到用户意图后再启动对应 service_id。",
-    next: empty
-      ? { command: `itpay catalog list${jsonFlag}`, reason: "稍后重新读取已发布目录" }
-      : {
-          command: `itpay services start ${services.length === 1 && firstServiceID ? firstServiceID : "<service_id>"}${jsonFlag}`,
-          reason: "启动用户选择的服务",
-        },
+    next: services.length === 1 && firstServiceID
+      ? { command: `itpay services start ${firstServiceID}${jsonFlag}`, reason: "仅当当前服务符合用户请求时读取输入合同；不表示购买同意" }
+      : null,
     recovery: [],
   }, {
     ...options,
@@ -36,9 +33,10 @@ function summarizeService(item: CatalogItem): Record<string, unknown> {
   const offer = item.variants?.[0];
   return {
     service_id: item.service_id ?? null,
+    ...(item.service_id ? { entry: `itpay services start ${item.service_id} --json` } : {}),
     title: item.title,
     description: item.description ?? "",
-    ...(item.service_id?.startsWith("itpay-rail-") ? { guide: "itpay docs show rail-booking --json" } : {}),
+    ...(item.service_id?.startsWith("itpay-rail-") ? { guide: "itpay docs show rail-booking" } : {}),
     ...(flow ? {
       discovery: {
         title: flow.discovery.title,
@@ -71,6 +69,8 @@ function catalogPlainLines(version: string, services: Record<string, unknown>[])
   for (const service of services) {
     lines.push(`service: ${String(service.title)}`);
     lines.push(`  service_id: ${String(service.service_id ?? "unavailable")}`);
+    if (service.entry) lines.push(`  entry: ${String(service.entry)}`);
+    if (service.guide) lines.push(`  entry: ${String(service.guide)}`);
     if (service.description) lines.push(`  description: ${String(service.description)}`);
     const discovery = service.discovery as Record<string, unknown> | undefined;
     if (discovery) {

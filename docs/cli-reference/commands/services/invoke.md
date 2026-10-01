@@ -13,10 +13,10 @@
 
 ```bash
 itpay services invoke <service_execution_id> --capability <capability_id>
-  [--input <key=value> ...] [--json]
+  [--input <key=value> ... | --input-json <file>] [--json]
 ```
 
-`--input` 可重复；必填 key 来自 `input_schema.required`，值按 schema 类型解析。Agent 不猜字段名。
+`--input` 可重复；必填 key 来自 `input_schema.required`，值按 schema 类型解析。Agent 不猜字段名。嵌套对象使用已有 JSON 文件读取方式 `--input-json <file>`；文件必须是完整对象，与 `--input` 二选一，冲突或解析失败不会调用供应商。
 
 ## 有结果输出
 

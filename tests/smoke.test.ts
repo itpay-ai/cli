@@ -32,6 +32,7 @@ import {
 } from "../src/state/client_context.js";
 import { runBuy, buildCheckoutQRPlan } from "../src/commands/buy.js";
 import { CommandContractError, errorRecoveryActions } from "../src/commands/guidance.js";
+import { runVaultList, runVaultRead } from "../src/commands/vault.js";
 import { runReadyz } from "../src/commands/readyz.js";
 import { runCheckoutPresentation } from "../src/commands/checkout.js";
 import { buildCheckoutHandoff } from "../src/commands/checkout_handoff.js";
@@ -200,7 +201,7 @@ test("OpenClaw requires an explicit entry before starting a service", async () =
       HOME: mkdtempSync(join(tmpdir(), "itpay-openclaw-host-")),
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "host_required");
       return true;
     },
@@ -317,7 +318,7 @@ test("cart remove validates scope before HTTP and preserves locked handles", asy
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "cart_remove_scope_invalid");
       return true;
     },
@@ -504,7 +505,7 @@ test("cart add validates identifiers, quantity and JSON object before mutation",
         maxBuffer: 1024 * 1024,
       }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
         assert.equal(envelope.error.code, testCase.code);
         return true;
       },
@@ -568,7 +569,7 @@ test("cart next is compact across every Agent Type and has structured stale-hand
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? ""));
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || ""));
       assert.equal(envelope.status, "error");
       assert.equal(envelope.error.code, "not_found");
       assert.equal(envelope.recovery[0]?.command, "itpay --agent-type codex-cli services list --json");
@@ -765,9 +766,14 @@ test("rail Exact normal return leads through saved rows to one bookable detail",
 	const list = JSON.parse(stdoutCapture.join("")) as { result: { total: number; read_count: number;
 		trains: Array<{ from_station: string; detail: { command: string } }> } };
 	assert.equal(list.result.total, 37);
-	assert.equal(list.result.read_count, 37);
-	assert.equal(list.result.trains[22]?.from_station, "上海站");
-	assert.equal(list.result.trains[22]?.detail.command,
+	assert.ok(list.result.read_count > 0 && list.result.read_count <= 20);
+	assert.ok(Buffer.byteLength(stdoutCapture.join(""), "utf8") <= 12 * 1024);
+	stdoutCapture = [];
+	await runServicesReadResult(exact, "se_rail_paged", { offset: 20, limit: 3, jsonOutput: true, output: stdoutSink });
+	const second = JSON.parse(stdoutCapture.join("")) as typeof list;
+	assert.equal(second.result.read_count, 3);
+	assert.equal(second.result.trains[2]?.from_station, "上海站");
+	assert.equal(second.result.trains[2]?.detail.command,
 		"itpay services page se_rail_paged sri_rail_paged --offset 22 --limit 1 --json");
 	stdoutCapture = [];
 	await runServicesPage(exact, "se_rail_paged", "sri_rail_paged", { offset: 22, limit: 1, jsonOutput: true, output: stdoutSink });
@@ -779,14 +785,35 @@ test("rail Exact normal return leads through saved rows to one bookable detail",
 	assert.equal(detail.result.candidate.seats[0]?.remaining, 8);
 	assert.equal(detail.result.candidate.seats[0]?.quoted_total_minor, 50000);
 	assert.equal(detail.result.booking_template.seat_choices[0]?.seat_type, "O");
-	assert.equal(detail.result.booking_template.input_example.selection.seat_type, "O");
-	rows.push(...Array.from({ length: 68 }, (_, index) => ({ ...rows[0]!, candidate_id: `extra_${index}` })));
+	assert.equal(detail.result.booking_template.input_example.selection.seat_type, "<用户授权席别对应代码>");
+	rows.push(...Array.from({ length: 87 }, (_, index) => ({ ...rows[0]!, candidate_id: `extra_${index}` })));
 	stdoutCapture = [];
 	await runServicesReadResult(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
 	const capped = JSON.parse(stdoutCapture.join("")) as { result: { total: number; read_count: number }; next: { command: string } };
-	assert.equal(capped.result.total, 105);
-	assert.equal(capped.result.read_count, 100);
-	assert.equal(capped.next.command, "itpay services page se_rail_paged sri_rail_paged --offset 100 --limit 20 --json");
+	assert.equal(capped.result.total, 124);
+	assert.ok(capped.result.read_count > 0 && capped.result.read_count <= 20);
+	assert.ok(Buffer.byteLength(stdoutCapture.join(""), "utf8") <= 12 * 1024);
+	assert.equal(capped.next.command, `itpay services read-result se_rail_paged --offset ${capped.result.read_count} --limit 20 --json`);
+	stdoutCapture = [];
+	await runServicesReadResult(exact, "se_rail_paged", { offset: 123, limit: 3, jsonOutput: true, output: stdoutSink });
+	const last = JSON.parse(stdoutCapture.join(""));
+	assert.equal(last.result.offset, 123);
+	assert.equal(last.result.count, 1);
+	assert.equal(last.next, null);
+	assert.equal(last.result.trains[0].candidate_id, "extra_86");
+	const observed: string[] = [];
+	let cursor: number | null = 0;
+	while (cursor !== null) {
+		stdoutCapture = [];
+		await runServicesReadResult(exact, "se_rail_paged", { offset: cursor, limit: 20, jsonOutput: true, output: stdoutSink });
+		const page = JSON.parse(stdoutCapture.join(""));
+		assert.ok(Buffer.byteLength(stdoutCapture.join(""), "utf8") <= (cursor === 0 ? 12 : 32) * 1024);
+		observed.push(...page.result.trains.map((row: { candidate_id: string }) => row.candidate_id));
+		cursor = page.result.next_offset ?? null;
+	}
+	assert.deepEqual(observed, rows.map(row => row.candidate_id));
+
+	await assert.rejects(runServicesReadResult(exact, "se_rail_paged", { offset: -1 }), /offset must/);
 });
 
 test("rail Exact zero result stays scoped to the resolved station pair", async () => {
@@ -795,16 +822,17 @@ test("rail Exact zero result stays scoped to the resolved station pair", async (
 	exact.getServiceExecution = async () => ({ ...base,
 		execution: { ...base.execution, service_id: "itpay-rail-exact" },
 		current_result_items: [{ ...(base.current_result_items ?? [])[0]!, safe_payload: { result: {
-			candidates: [], catalog_total: 0, resolved_station_pair: { origin_name: "上海站", destination_name: "长沙南", scope: "station_pair" },
+			candidates: [], catalog_total: 0, resolved_station_pair: { origin_name: "上海站", origin_code: "SHH", destination_name: "长沙南", destination_code: "CWQ", travel_date: "2030-10-09", scope: "station_pair" },
 		} } }],
 	});
 	await runServicesNext(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { scope: string; total: number;
-		resolved_station_pair: { origin_name: string } }; instruction: string };
+		resolved_station_pair: { origin_name: string }; smart_template: { executable: boolean; input_example: { reuse_from: { execution_id: string } } } }; instruction: string };
 	assert.equal(envelope.status, "no_result");
 	assert.equal(envelope.result.scope, "station_pair");
 	assert.equal(envelope.result.total, 0);
 	assert.equal(envelope.result.resolved_station_pair.origin_name, "上海站");
+	assert.equal(envelope.result.smart_template.input_example.reuse_from.execution_id, "se_rail_paged");
 	assert.match(envelope.instruction, /不代表全城无车/);
 });
 
@@ -917,16 +945,12 @@ test("rail progressive complete planning emits the journey select command", asyn
 	assert.match(envelope.result.recommendation.select_user_chosen, /services action se_rail_plan_complete --action select_journey/);
 	assert.match(envelope.result.recommendation.select_delegated, /--actor-type agent.*selection_mode=delegated/);
 	assert.match(envelope.result.recommendation.select_user_chosen, /journey_id=journey_rec/);
-	// The booking continuation is a non-executable template carrying the real
-	// server-issued selection token — never a fake placeholder command.
-	const bookingTemplate = envelope.result.recommendation.booking_template;
-	assert.equal(bookingTemplate?.executable, false);
-	assert.equal(bookingTemplate?.input_example.selection.token, "rsel_rec");
-	assert.match(bookingTemplate?.command ?? "", /services run .*--input-json <file> --json/);
+	assert.equal(envelope.result.recommendation.booking_template, undefined);
+	assert.doesNotMatch(stdoutCapture.join(""), /rsel_rec|interaction.recipe|by_goal/);
 	assert.equal(envelope.result.recommendation.time, "09:00–13:30");
 	assert.deepEqual(envelope.result.recommendation.risk_notes, ["余票紧张"]);
 	assert.equal(envelope.next, null);
-	assert.match(envelope.instruction, /受保护 Checkout/);
+	assert.match(envelope.instruction, /身份信息.*官方页面/);
 });
 
 // §6.3.5: the real recorded B recommend snapshot (中山→万州) drives every
@@ -966,14 +990,15 @@ test("real recommend snapshot drives every CLI read command", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_real", { snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
 	const catalogEnv = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { snapshot_id: string; total: number; journeys: Array<{ ref: string; route: string }> };
+		result: { snapshot_id: string; total: number; journeys: Array<{ journey_ref: string; route: string }> };
 		next?: { command: string };
 	};
 	assert.equal(catalogEnv.status, "ready");
 	assert.equal(catalogEnv.result.snapshot_id, "rsnap_b_rec");
 	assert.equal(catalogEnv.result.total, 19);
-	assert.equal(catalogEnv.result.journeys.length, 19);
-	assert.ok(catalogEnv.result.journeys.every((row) => row.ref && row.route));
+	assert.equal(catalogEnv.result.journeys.length, 3);
+	assert.ok(catalogEnv.result.journeys.every((row) => row.journey_ref && row.route));
+	assert.match(catalogEnv.next?.command ?? "", /--offset 3/);
 
 	// 3) The pinned journey detail resolves through the same snapshot — the
 	// audit's --journey 404 regression stays dead.
@@ -981,14 +1006,14 @@ test("real recommend snapshot drives every CLI read command", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_real", { journey: "jny_01db23eedc", snapshot: "rsnap_b_rec", jsonOutput: true, output: stdoutSink });
 	const detail = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { journey: { journey_id: string; ticket_plans?: unknown[]; representative_offer?: unknown } };
+		result: { journey: { journey_ref: string; rail_payable_fen?: number | null }; ticket_plans?: unknown[] };
 		next: null;
 		interaction?: { select_delegated: string };
 	};
 	assert.equal(detail.status, "ready");
-	assert.equal(detail.result.journey.journey_id, "jny_01db23eedc");
-	assert.ok(Array.isArray(detail.result.journey.ticket_plans));
-	assert.ok(detail.result.journey.representative_offer);
+	assert.equal(detail.result.journey.journey_ref, "jny_01db23eedc");
+	assert.ok(Array.isArray(detail.result.ticket_plans));
+	assert.ok(detail.result.journey.rail_payable_fen);
 	assert.equal(detail.next, null);
 	assert.equal(detail.interaction?.select_delegated, undefined);
 });
@@ -1030,6 +1055,43 @@ test("rail ground evidence stop asks for missing place facts without expanding",
 	assert.doesNotMatch(envelope.instruction, /可授权继续扩大|重新发起查询/);
 });
 
+test("rail saved eligibility survives an empty summary and unchanged increment", async () => {
+  const base = await backend.getServiceExecution("se_rail_plan_complete");
+  const { recommendation: _recommendation, ...plan } = base.rail_planning!;
+  for (const unchanged of [false, true]) {
+    stdoutCapture.length = 0;
+    const client = Object.create(backend) as BackendClient;
+    client.getServiceExecution = async () => ({ ...base, rail_planning: {
+      ...plan, alternatives: [],
+      result_not_updated: unchanged,
+      search: { ...base.rail_planning!.search, expansion_status: "complete",
+        counts: { journeys_total: 20, journeys_eligible: 1 } },
+    } });
+    await runServicesNext(client, "se_rail_plan_complete", { jsonOutput: true, output: stdoutSink });
+    const out = JSON.parse(stdoutCapture.join(""));
+    assert.equal(out.status, "ready");
+    assert.ok(out.result.full_result.command);
+    assert.doesNotMatch(out.instruction, /没有当前合格线路/);
+    assert.match(out.instruction, unchanged ? /空增量不表示目录为空/ : /已保存1条合格线路/);
+  }
+});
+
+test("legacy rail plan stays readable but asks for a new search before more dispatch", async () => {
+	const base = await backend.getServiceExecution("se_rail_plan_paused");
+	const client = Object.create(backend) as BackendClient;
+	client.getServiceExecution = async () => ({ ...base, rail_planning: {
+		...base.rail_planning!, search: { ...base.rail_planning!.search,
+			expansion_status: "paused", reason: "legacy_plan_requires_new_search" },
+		available_actions: [],
+	} });
+	await runServicesNext(client, "se_rail_plan_paused", { jsonOutput: true, output: stdoutSink });
+	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: null; instruction: string };
+	assert.equal(envelope.status, "awaiting_input");
+	assert.equal(envelope.next, null);
+	assert.match(envelope.instruction, /已保存的结果仍可读取/);
+	assert.match(envelope.instruction, /新的 Smart 查询/);
+});
+
 test("rail progressive snapshot page returns journeys with an opaque cursor", async () => {
 	await runServicesPage(backend, "se_rail_plan_page", "rsnap_1", { offset: 0, limit: 5, jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
@@ -1049,7 +1111,7 @@ test("rail progressive journey detail reads committed evidence without the vault
 	await runServicesReadResult(backend, "se_rail_plan_complete", { journey: "journey_rec", snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { plan_id: string; snapshot_id: string; journey: { journey_id: string; booking_support: string } };
+		result: { plan_id: string; snapshot_id: string; journey: { journey_ref: string } };
 		next: null;
 		interaction?: { select_delegated: string };
 		instruction: string;
@@ -1057,7 +1119,7 @@ test("rail progressive journey detail reads committed evidence without the vault
 	assert.equal(envelope.status, "ready");
 	assert.equal(envelope.result.plan_id, "rplan_1");
 	assert.equal(envelope.result.snapshot_id, "rsnap_1");
-	assert.equal(envelope.result.journey.journey_id, "journey_rec");
+	assert.equal(envelope.result.journey.journey_ref, "journey_rec");
 	assert.equal(envelope.next, null);
 	assert.match(envelope.interaction?.select_delegated ?? "", /select_journey.*journey_id=journey_rec/);
 	assert.match(envelope.instruction, /受保护 Checkout/);
@@ -1069,7 +1131,7 @@ test("rail progressive read-result --snapshot returns compact rows once", async 
 		status: string;
 		result: {
 			plan_id: string; snapshot_id: string; query_revision: number;
-			total: number; journeys: Array<{ ref: string; route: string }>;
+			total: number; journeys: Array<{ journey_ref: string; route: string }>;
 			candidates?: unknown; catalog?: unknown;
 		};
 	};
@@ -1077,18 +1139,34 @@ test("rail progressive read-result --snapshot returns compact rows once", async 
 	assert.equal(envelope.result.snapshot_id, "rsnap_1");
 	assert.equal(envelope.result.total, 2);
 	assert.equal(envelope.result.journeys.length, 2);
-	assert.ok(envelope.result.journeys.every((row) => row.ref && row.route));
+	assert.ok(envelope.result.journeys.every((row) => row.journey_ref && row.route));
 	// The compact rows ship once without duplicating the raw catalog.
 	assert.equal(envelope.result.candidates, undefined);
 	assert.equal(envelope.result.catalog, undefined);
+});
+
+test("rail snapshot read pages whole journeys and keeps explicit all", async () => {
+	await runServicesReadResult(backend, "se_rail_plan_page", { snapshot: "rsnap_1", jsonOutput: true, output: stdoutSink });
+	const first = stdoutCapture.join("");
+	const page = JSON.parse(first) as { result: { total: number; count: number; journeys: Array<{ journey_ref: string }> }; next: { command: string } };
+	assert.equal(page.result.total, 8);
+	assert.equal(page.result.count, 3);
+	assert.match(page.next.command, /--snapshot rsnap_1 --offset 3 --limit 3/);
+	assert.ok(Buffer.byteLength(first, "utf8") <= 8192);
+	stdoutCapture.length = 0;
+	await runServicesReadResult(backend, "se_rail_plan_page", { snapshot: "rsnap_1", all: true, jsonOutput: true, output: stdoutSink });
+	const all = JSON.parse(stdoutCapture.join("")) as { result: { count: number; journeys: Array<{ journey_ref: string }> }; next: null };
+	assert.equal(all.result.count, 8);
+	assert.equal(new Set(all.result.journeys.map((row) => row.journey_ref)).size, 8);
+	assert.equal(all.next, null);
 });
 
 test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as {
 		status: string;
-		result: { snapshot_id: string; total: number; journeys: Array<{ ref: string; rides: Array<{ train_code: string; departure: string }>;
-			calculation_scope?: Record<string, unknown>; detail: { command: string } }> };
+		result: { snapshot_id: string; total: number; journeys: Array<{ journey_ref: string; rides: Array<{ train_code: string; departure: string; required_buffer_minutes?: number }>;
+			cost_basis?: string; estimated_trip_total?: number | null; detail: { command: string } }> };
 		next: null;
 	};
 	assert.equal(envelope.status, "ready");
@@ -1096,11 +1174,12 @@ test("rail read-result --snapshot decodes shared_rows.v1 positional catalogs", a
 	assert.equal(envelope.result.journeys.length, 2);
 	assert.equal(envelope.result.journeys[0]?.rides[0]?.train_code, "C7606");
 	assert.equal(envelope.result.journeys[0]?.rides[0]?.departure, "2026-10-01 08:00");
+	assert.equal(envelope.result.journeys[0]?.rides[1]?.required_buffer_minutes, 30);
 	assert.equal(envelope.result.journeys[0]?.detail.command,
 		"itpay services read-result se_rail_plan_packed --snapshot rsnap_packed --journey jny_pack_a --json");
-	assert.equal(envelope.result.journeys[0]?.calculation_scope?.cost_basis, "rail_fare");
-	assert.equal(envelope.result.journeys[0]?.calculation_scope?.estimated_total_cost, 27);
-	assert.equal(envelope.result.journeys[1]?.calculation_scope?.origin, "legacy_unknown");
+	assert.equal(envelope.result.journeys[0]?.cost_basis, "rail_fare");
+	assert.equal(envelope.result.journeys[0]?.estimated_trip_total, 27);
+	assert.equal(envelope.result.journeys[1]?.cost_basis, "unknown");
 	assert.equal(envelope.next, null);
 });
 
@@ -1150,8 +1229,28 @@ test("rail compact object and shared rows keep ride boundaries and plan facts", 
 test("rail read-result --snapshot plain output marks default layers and regenerates packed routes", async () => {
 	await runServicesReadResult(backend, "se_rail_plan_packed", { snapshot: "rsnap_packed", output: stdoutSink });
 	const out = stdoutCapture.join("");
-	assert.match(out, /\[主选择\] jny_pack_a\s+中山北 C7606 → 广州南换乘114分 → D1820 万州北/);
-	assert.match(out, /\[备选\] jny_pack_b\s+中山北 G68 → 广州南换乘90分 → G1312 万州北/);
+	assert.match(out, /journey_ref: jny_pack_a/);
+	assert.match(out, /中山北 C7606 → 广州南换乘114分 → D1820 万州北/);
+	assert.match(out, /default_layer: backup/);
+	assert.match(out, /中山北 G68 → 广州南换乘90分 → G1312 万州北/);
+	assert.match(out, /services read-result .*--journey jny_pack_a/);
+	assert.match(out, /历史快照没有完整资格计数/);
+});
+
+test("rail saved page with no qualified journey explains the evidence gap", async () => {
+	const diagnostic = { journey_id: "jny_diag", route_names: ["甲站", "乙站"],
+		rides: [{ train_code: "G1", departure: "2030-10-10 09:00", arrival: "2030-10-10 10:00" }],
+		qualification_status: "ineligible", qualification_reasons: ["INVENTORY_INSUFFICIENT"],
+		availability: "unavailable", booking_support: "none" };
+	const saved = { getServiceExecutionResultItemPage: async () => ({ snapshot_id: "rps_diag", plan_id: "rp_diag", query_revision: 1,
+		page: { result: { journey_page: { total: 1, next_offset: null,
+			qualification_counts: { eligible: 0, ineligible: 1, unknown: 0 } }, journeys: [diagnostic] } } }) } as unknown as BackendClient;
+	await runServicesReadResult(saved, "se_diag", { snapshot: "rps_diag", jsonOutput: true, output: stdoutSink });
+	const result = JSON.parse(stdoutCapture.join("")) as { instruction: string; result: { journeys: Array<{ qualification_status: string; qualification_reasons: string[]; detail: { reason: string } }> } };
+	assert.match(result.instruction, /查到 1 个时刻组合，当前 0 条满足购票资格/);
+	assert.equal(result.result.journeys[0]?.qualification_status, "ineligible");
+	assert.deepEqual(result.result.journeys[0]?.qualification_reasons, ["INVENTORY_INSUFFICIENT"]);
+	assert.match(result.result.journeys[0]?.detail.reason ?? "", /不可购买原因/);
 });
 
 test("rail read-result --snapshot rejects unknown catalog encodings with an upgrade hint", async () => {
@@ -1453,7 +1552,10 @@ test("services invoke validates required input before the provider request", asy
 		(error: unknown) => {
 			assert.ok(error instanceof CommandContractError);
 			assert.equal(error.code, "capability_input_invalid");
-			assert.match(error.recovery[0]?.command ?? "", /--input keyword=<value>/);
+			assert.deepEqual(error.recovery, []);
+      assert.equal(error.interaction?.input_template?.executable, false);
+      assert.match(error.interaction?.input_template?.command ?? "", /--input-json <file>/);
+      assert.ok(error.interaction?.input_template?.required_input.includes("keyword"));
 			return true;
 		},
 	);
@@ -1510,7 +1612,7 @@ test("services list recovers executions without a local cart handle", async () =
   assert.equal(envelope.next.command, `itpay services next ${firstID} --json`);
   assert.match(stdoutCapture.join(""), /只有一条可恢复记录/);
   assert.deepEqual(Object.keys(envelope.result.executions[0] ?? {}), [
-    "service_execution_id", "service_id", "status", "phase", "updated_at",
+    "service_execution_id", "service_id", "status", "phase", "updated_at", "reader",
   ]);
   assert.doesNotMatch(stdoutCapture.join(""), /capabilities|agent_guidance|result_items|client_context/);
 });
@@ -1532,20 +1634,23 @@ test("services list validates limit and handles an empty server list", async () 
 
 test("services list is compact, fact-stable, and preserves every Agent Type", async () => {
   await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
+  await backend.startServiceExecution({ service_id: "svc_qizhidao_company_lookup" });
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-services-list-types-"));
   const outputs: string[] = [];
   for (const agentType of AGENT_TYPES) {
     const result = await runCLI([
       "--agent-type", agentType, "services", "list", "--limit", "1", "--json",
     ], { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url });
-    outputs.push(result.stdout);
+    const envelope=JSON.parse(result.stdout);
+    for(const row of envelope.result.executions){assert.match(row.reader.command,new RegExp(`--agent-type ${agentType} services next`));delete row.reader;}
+    outputs.push(JSON.stringify(envelope).replace(/--agent-type [a-z-]+ /g, ""));
     assert.equal(result.stderr, "");
   }
   assert.equal(new Set(outputs).size, 1);
   const envelope = JSON.parse(outputs[0]!);
   assert.equal(envelope.status, "listed");
   assert.equal(envelope.next, null);
-  assert.match(envelope.instruction, /多个结果必须让用户选择/);
+  assert.match(envelope.instruction, /只有无法确定属于哪一笔任务时才询问用户/);
 });
 
 test("services get returns a bounded public timeline", async () => {
@@ -1562,7 +1667,7 @@ test("services get returns a bounded public timeline", async () => {
   assert.equal(envelope.result.timeline.at(-1)?.step, "delivery.issued");
   assert.equal(envelope.result.timeline_truncated, true);
   assert.match(envelope.next.command, /services invoke se_timeline/);
-  assert.equal(envelope.recovery[0]?.command, "itpay services get se_timeline --json");
+  assert.equal(envelope.recovery.some(action => action.command === "itpay services get se_timeline --json"), false);
   assert.doesNotMatch(stdoutCapture.join(""), /must_not_leak|service_execution_event_id|capabilities/);
 });
 
@@ -1588,7 +1693,7 @@ test("services get keeps facts stable across Agent Types and keeps not-found opa
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? ""));
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || ""));
       assert.equal(envelope.error.code, "not_found");
       assert.equal(envelope.recovery[0]?.command, "itpay --agent-type codex-cli services list --json");
       return true;
@@ -1620,7 +1725,7 @@ test("services events returns bounded public facts and strips event internals", 
   assert.deepEqual(Object.keys(envelope.result.events[0] ?? {}), [
     "sequence", "type", "status", "phase", "capability_id", "occurred_at",
   ]);
-  assert.equal(envelope.next.command, "itpay services next se_events --json");
+  assert.equal(envelope.next, null);
   assert.equal(envelope.recovery[0]?.command, "itpay services events se_events --after-sequence 3 --limit 2 --json");
   assert.doesNotMatch(stdoutCapture.join(""), /see_secret|must_not_leak|redacted_summary|provider_header|selected_candidate_hash/);
 });
@@ -1645,7 +1750,7 @@ test("services events keeps facts stable across Agent Types and validates before
       ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     }),
     (error: unknown) => {
-      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(failure.error.code, "events_parameter_invalid");
       return true;
     },
@@ -1818,7 +1923,7 @@ test("cart show keeps missing and stale canonical handles recoverable", async ()
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "not_found");
       return true;
     },
@@ -2003,7 +2108,7 @@ test("runBuy (markdown) renders a markdown block with a QR image and a link", as
   assert.match(text, /display_token=/);
 });
 
-test("runBuy (plain-chat) prints a short text + URL block", async () => {
+test("runBuy (plain-chat) prints the same payment facts and next action as JSON", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -2018,9 +2123,10 @@ test("runBuy (plain-chat) prints a short text + URL block", async () => {
     output: stdoutSink,
   });
   const text = stdoutCapture.join("");
-  assert.match(text, /open: https:\/\//);
-  assert.match(text, /open: .*display_token=/);
-  assert.match(text, /qr_image:/);
+  assert.match(text, /human_checkout_required/);
+  assert.match(text, /handoff.url: .*display_token=/);
+  assert.match(text, /next: itpay checkout --id/);
+  assert.match(text, /handoff.qr_image_url:/);
 });
 
 test("runBuy --pay sends display_token to payment intent creation", async () => {
@@ -2251,7 +2357,7 @@ test("commerce entrypoints fail closed when the Backend compatibility contract i
         ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}`,
       }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
           error: { code: string };
           instruction: string;
           next: unknown;
@@ -2297,7 +2403,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
       await assert.rejects(
         runCLI(args, { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}` }),
         (error: unknown) => {
-          const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
             error: { code: string; message: string };
             result: { current_cli_version: string; required_cli_version: string };
             instruction: string;
@@ -2354,7 +2460,7 @@ test("bundle distributions return platform updates instead of npm recovery", asy
           ITPAY_DISTRIBUTION: distribution,
         }),
         (error: unknown) => {
-          const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+          const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
             instruction: string;
             recovery: Array<{ command: string }>;
           };
@@ -2388,7 +2494,7 @@ test("compatibility-gated CLI never guesses an upgrade version from an invalid c
     await assert.rejects(
       runCLI(["catalog", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}` }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
           result?: unknown;
           instruction: string;
           recovery: unknown[];
@@ -2412,7 +2518,7 @@ test("CLI stops on Backend internal errors without identity or paid-path recover
         ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
       }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
           error: { code: string };
           instruction: string;
           next: unknown;
@@ -2446,7 +2552,7 @@ test("CLI distinguishes provider input, temporary, contract, and generic failure
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
           error: { code: string; message: string };
           result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
           instruction: string; next: unknown; recovery: unknown[];
@@ -2484,7 +2590,7 @@ test("CLI stops a known-no-effect provider connection failure without retry or p
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
           error: { code: string; message: string };
           result: { service_execution_id: string; provider_called: boolean; quota: { remaining: number; limit: number } };
           instruction: string;
@@ -2520,7 +2626,7 @@ test("CLI stops invalid capability input before recovery commands", async () => 
     await assert.rejects(
       runCLI(["--agent-type", "workbuddy", "services", "list", "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
           error: { code: string }; instruction: string; next: unknown; recovery: unknown[];
         };
         assert.equal(envelope.error.code, "capability_input_invalid");
@@ -2572,7 +2678,7 @@ test("forbidden Backend override fails before any request", async () => {
   await assert.rejects(
     runCLI(["readyz", "--json"], { ITPAY_BACKEND_URL: "https://evil.example" }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string; message: string }; instruction: string; next: unknown; recovery: unknown[];
       };
       assert.equal(envelope.error.code, "backend_override_forbidden");
@@ -2592,7 +2698,7 @@ test("device recover requires confirmation and remains Backend-scoped", async ()
       HOME: home,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "backend_reset_confirmation_required");
       return true;
     },
@@ -2619,14 +2725,14 @@ test("device reset-key requires confirmation and discards the local device key",
   await assert.rejects(
     runCLI(["device", "reset-key", "--json"], { HOME: home }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
-      assert.equal(envelope.error.code, "key_reset_confirmation_required");
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
+      assert.equal(envelope.error.code, "agent_type_required");
       return true;
     },
   );
 
   const envelope = JSON.parse((await runCLI([
-    "device", "reset-key", "--confirm-key-reset", "--json",
+    "--agent-type", "workbuddy", "device", "reset-key", "--confirm-key-reset", "--json",
   ], { HOME: home })).stdout) as {
     status: string;
     result: { removed_backend_registrations: string[]; private_key_preserved: boolean; server_side_device: string };
@@ -2645,7 +2751,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.equal(untyped.result.skill, "itpay");
   assert.match(untyped.result.content, /## Choose one entry/);
   assert.match(untyped.result.content, /## Follow one envelope/);
-  assert.match(untyped.result.content, /itpay docs show rail-booking --json/);
+  assert.match(untyped.result.content, /itpay docs show rail-booking/);
   assert.match(untyped.result.content, /itpay sell guide --json/);
   assert.equal(untyped.next.command, "itpay install --json");
 
@@ -2691,7 +2797,7 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
   await assert.rejects(
     runCLI(["skill", "show", "missing", "--json"], {}),
     (error: unknown) => {
-      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string }; recovery: Array<{ command: string }>;
       };
       assert.equal(failure.error.code, "skill_not_found");
@@ -2705,7 +2811,7 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
   await assert.rejects(
     runCLI(["skill", "show", "itpay", "--json"], { ITPAY_CLI_SKILLS_DIR: skillsDir }),
     (error: unknown) => {
-      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(failure.error.code, "skill_unavailable");
       return true;
     },
@@ -2782,7 +2888,7 @@ test("install lists supported types and rejects obsolete Host targets", async ()
       HOME: mkdtempSync(join(tmpdir(), "itpay-install-invalid-")),
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string };
         recovery: Array<{ command: string }>;
       };
@@ -2829,7 +2935,7 @@ test("docs show returns only one complete topic with structured recovery", async
   await assert.rejects(
     runCLI(["docs", "show", "missing-topic", "--json"], {}),
     (error: unknown) => {
-      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string };
         recovery: Array<{ command: string }>;
       };
@@ -2904,7 +3010,7 @@ test("docs reports a damaged packaged document without exposing its path", async
   await assert.rejects(
     runCLI(["docs", "list", "--json"], { ITPAY_CLI_DOCS_DIR: docsDir }),
     (error: unknown) => {
-      const failure = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string; message: string };
         recovery: Array<{ command: string }>;
       };
@@ -2988,10 +3094,7 @@ test("workbuddy checkout JSON returns one executable action for the rendered Car
   assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
   assert.match(envelope.instruction, /不要调用 pay/);
   assert.equal(envelope.next.command, "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json");
-  assert.deepEqual(envelope.recovery, [{
-    command: "itpay --agent-type workbuddy checkout --id chk_pending --token cdt_pending --json",
-    reason: "付款时限由服务端统一确定，刷新不会延长；到期未支付自动取消后须重新核价下单，不要重发旧付款动作",
-  }]);
+  assert.deepEqual(envelope.recovery, []);
   assert.equal(mock.requests.slice(before).some((request) => request.path.includes("/qr.png?display_token=")), false);
 });
 
@@ -3348,7 +3451,7 @@ test("buy rejects invalid source, contact and numeric parameters before mutation
     await assert.rejects(
       runCLI(["--agent-type", "codex-cli", "buy", ...entry.args, "--json"], { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home }),
       (error: unknown) => {
-        const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+        const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
         assert.equal(envelope.error.code, entry.code);
         return true;
       },
@@ -3400,7 +3503,7 @@ test("expired saved service checkout token returns an executable resume instruct
       ITPAY_IDE_IMAGE_ATTACH: "0",
     }),
     (error: unknown) => {
-      const stderr = String((error as { stderr?: string }).stderr ?? "");
+      const stderr = String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "");
       return stderr.includes("itpay services checkout se_expired --resume --json");
     },
   );
@@ -3495,7 +3598,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
       HOME: mkdtempSync(join(tmpdir(), "itpay-pay-invalid-")), ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "payment_method_invalid");
       return true;
     },
@@ -3550,7 +3653,7 @@ test("pay recovers only the display token saved for the same checkout", async ()
       HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "checkout_token_required");
       return true;
     },
@@ -3589,7 +3692,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   });
   const json = JSON.parse(stdoutCaptureJSON.join("")) as {
     status: string;
-    result: { checkout_id: string; capability_id: string; locked_input: Record<string, unknown>; amount: string };
+    result: { checkout_id: string; capability_id: string; locked_input?: Record<string, unknown>; items: unknown[]; amount: string };
     handoff: { url: string; mobile_url?: string; qr_local_path?: string; qr_image_url?: string; markdown?: string; agent_action?: unknown };
     instruction: string;
     next: { command: string };
@@ -3602,7 +3705,8 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.deepEqual(Object.keys(json.handoff), ["url", "mobile_url", "agent_action"]);
   assert.match(String(json.handoff.mobile_url), /\/checkout\/chk_\d+\?display_token=.*complete_exchange_token=/);
   assert.equal(json.result.capability_id, "precise_report");
-  assert.deepEqual(json.result.locked_input, {});
+  assert.equal(json.result.locked_input, undefined);
+  assert.ok(Array.isArray(json.result.items));
   assert.equal(json.result.amount, "0.50 CNY");
   assert.deepEqual(json.handoff.agent_action, {
     tool: "present_files",
@@ -3821,7 +3925,7 @@ test("services read-result returns structured user-action recovery when access i
         maxBuffer: 1024 * 1024,
       }),
       (error: unknown) => {
-        const stderr = String((error as { stderr?: string }).stderr ?? "");
+        const stderr = String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "");
         const envelope = JSON.parse(stderr) as {
           status: string;
           error: { code: string };
@@ -4020,8 +4124,8 @@ test("services action rejects non-object --input-json", async () => {
   ], {
     ITPAY_CLI_TEST_TRANSPORT_URL: mock.url,
     HOME: home,
-  }).then(() => assert.fail("expected non-zero exit"), (err) => err as { stderr: string });
-  const envelope = JSON.parse(error.stderr);
+  }).then(() => assert.fail("expected non-zero exit"), (err) => err as { stdout: string; stderr: string });
+  const envelope = JSON.parse(error.stdout);
   assert.equal(envelope.status, "error");
   assert.equal(envelope.error.code, "service_action_invalid");
   assert.match(envelope.instruction, /JSON 对象/);
@@ -4048,6 +4152,9 @@ test("booking review human action guides --input-json submission", async () => {
   assert.equal(result.interaction.input_template.executable, false);
   assert.match(result.instruction, /不保证分配/);
   assert.match(result.instruction, /draft_revision/);
+  assert.match(result.instruction, /只补缺失选择或真实条款同意/);
+  assert.doesNotMatch(result.instruction, /requirements_remaining/);
+  assert.doesNotMatch(result.instruction, /人数.*一次问清|每位乘客.*一次问清/);
   assert.doesNotMatch(result.interaction.input_template.command, /--input [a-z_]+=<值>/);
 });
 
@@ -4106,8 +4213,8 @@ test("catalog empty response does not invent a service id", async () => {
   const parsed = JSON.parse(output.join(""));
   assert.equal(parsed.status, "catalog_empty");
   assert.deepEqual(parsed.result.services, []);
-  assert.equal(parsed.next.command, "itpay catalog list --json");
-  assert.match(parsed.instruction, /不要猜测 service_id/);
+  assert.equal(parsed.next, null);
+  assert.match(parsed.instruction, /不猜测服务或自动重试/);
 });
 
 test("services start returns only the documented capability entrypoint", async () => {
@@ -4187,7 +4294,10 @@ test("services checkout rejects missing required input before creating checkout 
     (error: unknown) => {
       assert.ok(error instanceof CommandContractError);
       assert.equal(error.code, "capability_input_invalid");
-      assert.match(error.recovery[0]?.command ?? "", /--input keyword=<value>/);
+      assert.deepEqual(error.recovery, []);
+      assert.equal(error.interaction?.input_template?.executable, false);
+      assert.match(error.interaction?.input_template?.command ?? "", /--input.*keyword=<value>/);
+      assert.ok(error.interaction?.input_template?.required_input.includes("keyword"));
       return true;
     },
   );
@@ -4365,7 +4475,7 @@ test("feedback command maps ownership rejection without exposing identities", as
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string; message: string };
         instruction: string;
       };
@@ -4410,7 +4520,7 @@ test("feedback transport uncertainty makes exactly one write attempt", async () 
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         error: { code: string };
         instruction: string;
       };
@@ -4516,7 +4626,7 @@ test("order command accepts JSON and returns structured opaque not-found recover
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
         status: string; error: { code: string }; recovery: Array<{ command: string }>;
       };
       assert.equal(envelope.status, "error");
@@ -4699,8 +4809,10 @@ test("vault commands match the documented authorization and read contracts", asy
   assert.equal(listEnvelope.result.next_cursor, null);
 
   const plainListed = await runCLI(["--agent-type", "codex-cli", "vault", "list", "--limit", "1"], env);
-  assert.match(plainListed.stdout, /企业综合报告.*北京赢在未来科技有限公司.*2\.00 CNY.*2026-08-10T11:55:00Z.*IP-VAULT.*delivered/);
-  assert.doesNotMatch(plainListed.stdout, /var_company_report|artifact_ref/);
+  assert.match(plainListed.stdout, /企业综合报告/);
+  assert.match(plainListed.stdout, /2\.00 CNY/);
+  assert.match(plainListed.stdout, /vault read --artifact var_company_report/);
+
 
   const access = await runCLI(["--agent-type", "codex-cli", "vault", "access", "--artifact", "var_company_report", "--json"], env);
   const accessEnvelope = JSON.parse(access.stdout) as {
@@ -4813,7 +4925,7 @@ test("vault authorization validates an OpenClaw delivery target before creating 
       "--agent-type", "openclaw", "vault", "access", "--host", "telegram", "--json",
     ], { HOME: mkdtempSync(join(tmpdir(), "itpay-vault-openclaw-missing-target-")) }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "target_required");
       return true;
     },
@@ -4845,7 +4957,7 @@ test("vault commands stop on missing authorization and invalid limits without gu
   const requestCount = mock.requests.length;
   await assert.rejects(
     runCLI(["--agent-type", "workbuddy", "vault", "list", "--limit", "0", "--json"], env),
-    (error: unknown) => JSON.parse(String((error as { stderr?: string }).stderr ?? "")).error.code === "limit_invalid",
+    (error: unknown) => JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")).error.code === "limit_invalid",
   );
   assert.equal(mock.requests.length, requestCount);
 });
@@ -4878,7 +4990,7 @@ test("refund list handles an empty order without inventing a refund", async () =
   };
   assert.equal(envelope.status, "empty");
   assert.deepEqual(envelope.result.refunds, []);
-  assert.equal(envelope.next.command, "itpay refund create --order ord_delivery --json");
+  assert.equal(envelope.next, null);
 });
 
 test("refund list parser accepts child options for every supported Agent Type", async () => {
@@ -4907,7 +5019,7 @@ test("refund list rejects a missing order before HTTP", async () => {
       maxBuffer: 1024 * 1024,
     }),
     (error: unknown) => {
-      const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as { error: { code: string } };
+      const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
       assert.equal(envelope.error.code, "order_required");
       return true;
     },
@@ -4982,7 +5094,7 @@ test("refund create rejects a missing order before HTTP with structured recovery
 			maxBuffer: 1024 * 1024,
 		}),
 		(error: unknown) => {
-			const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+			const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
 				status: string; error: { code: string }; instruction: string;
 			};
 			assert.equal(envelope.status, "error");
@@ -5025,7 +5137,7 @@ test("refund get keeps missing and foreign refund IDs opaque", async () => {
 			maxBuffer: 1024 * 1024,
 		}),
 		(error: unknown) => {
-			const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+			const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
 				status: string; error: { code: string }; instruction: string;
 			};
 			assert.equal(envelope.status, "error");
@@ -5146,7 +5258,7 @@ test("refund cancel keeps a too-late refund locked and returns state recovery", 
 			maxBuffer: 1024 * 1024,
 		}),
 		(error: unknown) => {
-			const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
+			const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
 				status: string; error: { code: string }; recovery: Array<{ command: string }>;
 			};
 			assert.equal(envelope.status, "error");
@@ -5379,7 +5491,7 @@ test("services run reports published input schema without guessing or advancing"
  assert.deepEqual(result.result.input_schema,model.workflow_entry.input_schema);
  assert.match(result.interaction.input_template.command,/--execution .*--input-json <file>/);
  assert.equal(result.interaction.input_template.executable,false);
- assert.equal(result.next.command,`itpay services next ${model.execution.service_execution_id} --json`);
+ assert.equal(result.next,null);
 });
 
 test("services run resumes same execution and never retries uncertain provider", async () => {
@@ -5392,7 +5504,7 @@ test("services run resumes same execution and never retries uncertain provider",
  await runServicesRun(client,config,model.execution.service_id,undefined,{executionID:model.execution.service_execution_id,jsonOutput:true,output:stdoutSink});
  const result=JSON.parse(stdoutCapture.join(""));
  assert.equal(result.status,"recovery_required");assert.equal(result.next,null);
- assert.equal(result.result.workflow.current_step,"third");
+ assert.equal(result.result.current_step,"third");
 });
 
 test("services run submits input once and delegates payment to existing Checkout", async () => {
@@ -5430,8 +5542,8 @@ test("CLI preserves safe railway fulfillment status and workflow progress", asyn
   const output:string[]=[];
   await run(client,"se_demo",{jsonOutput:true,output:(value:string)=>{output.push(value);}});
   const result=JSON.parse(output.join(""));
-  assert.deepEqual(result.result.rail_booking,model.rail_booking);
-  assert.deepEqual(result.result.workflow,model.workflow);
+  if(run===runServicesGet){assert.deepEqual(result.result.rail_booking,model.rail_booking);assert.deepEqual(result.result.workflow,model.workflow);}
+  else {assert.equal(result.result.rail_booking,undefined);assert.equal(result.result.workflow,undefined);assert.equal(result.result.rail.issued_legs,1);assert.equal(result.result.rail.legs[0].issued,true);assert.equal(result.result.rail.legs[1].state,"manual_review");}
  }
 });
 
@@ -5489,6 +5601,21 @@ test("location confirmation retains the execution and does not invite checkout",
   assert.doesNotMatch(result.interaction.input_template.command,/checkout|services run/);
 });
 
+test("rail endpoint confirmation asks only for candidate ids in the same execution", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"human_action",current_step:"confirm_location",revision:3,steps:{},human_action:{action_type:"workflow:confirm_location",input_schema:{type:"object",required:["choices"]},context:{places:{origin:{query:"中山市古镇镇",resolution_status:"resolved",location:[113.2,22.5]},destination:{query:"某酒店",resolution_status:"needs_confirmation",resolution_candidates:[{poi_name:"某酒店东店",location:[113.3,22.6]}]}}}}}};
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  await runServicesNext(client,model.execution.service_execution_id,{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.result.sides[0].status,"resolved");
+  assert.equal(result.result.sides[1].candidates[0].id,"destination_1");
+  assert.equal(result.result.human_action.context, undefined);
+  assert.match(result.interaction.input_template.command,/--input-json/);
+  assert.ok(result.interaction.input_template.input.choices);
+  assert.doesNotMatch(result.interaction.input_template.command,/origin_lng|destination_lat/);
+});
+
 test("rail invocation preserves the entire catalog and recommendation metadata", async () => {
   await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: true, output: stdoutSink });
   const result = JSON.parse(stdoutCapture.join(""));
@@ -5510,8 +5637,10 @@ test("rail invocation preserves the entire catalog and recommendation metadata",
   stdoutCapture.length = 0;
   await runServicesInvoke(backend, config, "se_rail_catalog", "fuzzy_disambiguation", { keyword: "广州塔" }, { jsonOutput: false, output: stdoutSink });
   const plain = stdoutCapture.join("");
-  assert.match(plain, /journey_summary: .*"journey_count":10/);
-  assert.ok(plain.indexOf("journey_summary:") < plain.indexOf("items:"));
+  assert.match(plain, /journey_summary:/);
+  assert.match(plain, /\n\s+journey_count: 10\n/);
+  assert.match(plain, /candidate_id: rail_24/);
+  assert.doesNotMatch(plain, /journey_summary: \{/);
 });
 
 test("rail phone handoff stops without collecting identity or retrying provider", async () => {
@@ -5534,7 +5663,8 @@ test("rail empty transfer result preserves official guidance and stops", async (
   assert.equal(result.next, null);
   assert.match(result.instruction, /本次中转查询未完整完成/);
   assert.match(result.instruction, /最多两次枢纽同站中转/);
-  assert.match(result.instruction, /主要枢纽分段查询/);
+  assert.doesNotMatch(result.instruction, /主要枢纽分段查询/);
+  assert.match(result.instruction, /当前.*动作|范围|缺口/);
   assert.equal(result.result.catalog.notices[0].code, "RAIL_TRANSFER_SEARCH_INCOMPLETE");
   assert.equal(mock.requests.filter(r => r.path.endsWith("/invoke")).length, 1);
 });
@@ -5560,14 +5690,15 @@ test("rail location guidance precedes invocation and confirmation survives next"
   await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
-  assert.match(envelope.interaction.input_template.command,/location_confirmation=.*plan_id/);
+  assert.match(envelope.interaction.input_template.command,/--input-json/);
+  assert.equal(envelope.interaction.input_template.input.location_confirmation.plan_id,confirmation.plan_id);
   assert.doesNotMatch(envelope.interaction.input_template.command,/\[object Object\]/);
   assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
   output.length=0;
   await runServicesNext(fake,base.execution.service_execution_id,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required");
-  assert.match(envelope.interaction.input_template.command,/origin=金尊府/);
+  assert.equal(envelope.interaction.input_template.input.origin,"金尊府");
 });
 
 
@@ -5628,7 +5759,7 @@ test("issued rail booking shows actual seats without requiring a ticket number",
   assert.equal(result.result.rail.legs[0].seats[0].seat,"03车10D");
   assert.match(result.instruction,/实际出票/);
   assert.match(result.instruction,/不提供 12306 票号/);
-  assert.match(result.next.command,/itpay order ord_rail/);
+  assert.equal(result.next,null);
 });
 
 test("terminal execution wins over rail booking status", async () => {
@@ -5690,13 +5821,25 @@ test("rail input_required returns teaching guidance, not an empty schema", async
   assert.match(result.result.guidance.when_to_use,/站|Exact/);
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["origin","destination","travel_date"]);
   assert.match(result.result.guidance.input_fields[2].description,/travel_date/);
-  assert.equal(result.result.guidance.input_example.travel_date,"2026-09-19");
+  assert.equal(result.result.guidance.input_example.travel_date,"<用户出行日期 YYYY-MM-DD>");
   assert.match(result.instruction,/guidance/);
+});
+
+test("Smart endpoint guidance follows the published schema", async () => {
+  const base=await backend.getServiceExecution("se_mock_next");
+  const schema={type:"object",properties:{endpoints:{type:"object"},travel_date:{type:"string"}}};
+  const client=Object.create(backend) as BackendClient;
+  client.startServiceExecution=async()=>({execution:{...base.execution,service_id:"itpay-rail-smart"},capabilities:base.capabilities,workflow_entry:{capability_id:"itpay_service",input_schema:schema}});
+  await runServicesStart(client,"itpay-rail-smart",{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
+  assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"station");
+  assert.equal(result.result.guidance.optional_fields.some((f:{name:string})=>f.name==="origin_location"),false);
 });
 
 test("failed rail workflow reports the failed step, its meaning, and retry guidance", async () => {
   const base=await backend.getServiceExecution("se_demo");
-  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-smart"},provider_invocations:[{provider_invocation_id:"pvi_1",capability_id:"geo",status:"failed",error_code:"invalid_location",error_message:"无法解析目的地：广州南南站"}],workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object"}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",geo:"failure"},error_code:"invalid_location"}};
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-smart"},provider_invocations:[{provider_invocation_id:"pvi_1",capability_id:"geo",status:"failed",error_code:"invalid_location",error_message:"无法解析目的地：广州南南站"}],workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object"}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",geo:"failure"},failure:{step_id:"geo",reason_code:"invalid_location"},error_code:"invalid_location"}};
   const client=Object.create(backend) as BackendClient;
   client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5716,7 +5859,7 @@ test("failed rail workflow reports the failed step, its meaning, and retry guida
 
 test("failed rail workflow search step keeps the supplier cause", async () => {
   const base=await backend.getServiceExecution("se_demo");
-  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-exact"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",search:"failure"},error_code:"workflow_failed"}};
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-exact"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",search:"failure"},failure:{step_id:"search",reason_code:"workflow_failed"},error_code:"workflow_failed"}};
   const client=Object.create(backend) as BackendClient;
   client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5733,8 +5876,101 @@ test("failed workflow on an unmapped step keeps the generic failure guidance", a
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
-  assert.equal(result.result.failed_step,"unknown_step");
+  assert.equal(result.result.failed_step,undefined);
   assert.equal(result.result.failed_step_meaning,undefined);
   assert.match(result.instruction,/执行已失败（错误码：workflow_failed）且不可续用/);
   assert.doesNotMatch(result.instruction,/新建执行/);
+});
+
+test("map dependency wait exposes safe facts and resumes the same execution without login", async () => {
+  const base = await backend.getServiceExecution("se_mock_next");
+  const model: ServiceExecutionReadModel = {...base,
+    execution_requests: [], workflow_entry: {capability_id:"itpay_service",input_schema:{}},
+    workflow: {status:"quota_paused",current_step:"geo",revision:2,steps:{},error_code:"amap_rate_limited",
+      dependency:{infocode:"10004",error_code:"AMAP_RATE_LIMITED",retryable:true,retry_after:60,retry_at:1800000000}}};
+  delete model.rail_planning; delete model.rail_booking;
+  const client=Object.create(backend) as BackendClient;
+  client.getServiceExecution=async()=>model;
+  stdoutCapture.length=0;
+  await runServicesNext(client,model.execution.service_execution_id,{jsonOutput:true,output:stdoutSink});
+  const result=JSON.parse(stdoutCapture.join(""));
+  assert.equal(result.status,"dependency_unavailable");
+  assert.equal(result.result.dependency.infocode,"10004");
+  assert.match(result.next.command,new RegExp(`--execution ${model.execution.service_execution_id}`));
+  assert.doesNotMatch(result.instruction,/登录|换地址|确认地点/);
+  assert.ok(Buffer.byteLength(stdoutCapture.join(""))<=8192);
+});
+
+test("workflow failure uses the persisted second false source and legacy stays unknown", async () => {
+ const base = await backend.getServiceExecution("se_demo");
+ const client = Object.create(backend) as BackendClient;
+ const workflow = {status:"failed",current_step:"failure",revision:6,steps:{first:"false",second:"false",failure:"failure"},error_code:"condition_unmet"};
+ client.getServiceExecution = async () => ({...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{...workflow,failure:{step_id:"second",source_step:"geo_confirm",reason_code:"location_evidence_required",endpoint:"destination"}}});
+ for(let i=0;i<2;i++){stdoutCapture=[];await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});const out=JSON.parse(stdoutCapture.join(""));assert.equal(out.result.failed_step,"second");assert.equal(out.result.failure.endpoint,"destination");assert.doesNotMatch(out.instruction,/first/);}
+ client.getServiceExecution = async () => ({...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow});
+ stdoutCapture=[];await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});assert.equal(JSON.parse(stdoutCapture.join("")).result.failed_step,undefined);
+});
+
+test("service creation without an ID recovers read-only for ordinary errors", async () => {
+ const client = Object.create(backend) as BackendClient;
+ client.startServiceExecution = async () => { throw new Error("response incomplete"); };
+ await assert.rejects(runServicesRun(client,config,"itpay-rail-smart",undefined,{output:stdoutSink}), (error: unknown) => {
+  assert.ok(error instanceof CommandContractError);
+  assert.equal(error.code,"workflow_start_outcome_unknown");
+  assert.deepEqual(error.recovery,[{command:"itpay services list --json",reason:"查找可能已经创建的服务执行"}]);
+  assert.doesNotMatch(JSON.stringify(error.recovery),/undefined|null|--execution/);
+  return true;
+ });
+});
+
+test("expired payment countdown still pending only reads the original order", async () => {
+ const original=await backend.getOrder("ord_pending");
+ const client=Object.create(backend) as BackendClient;
+ client.getOrder=async()=>({...original,payment_remaining_seconds:0});
+ await runOrder(client,"ord_pending",{jsonOutput:true,output:stdoutSink});
+ const out=JSON.parse(stdoutCapture.join(""));
+ assert.equal(out.next.command,"itpay order ord_pending --json");
+ assert.match(out.instruction,/权威状态仍为待付款/);
+ assert.doesNotMatch(out.instruction,/重新核价下单|可能已被取消/);
+});
+
+test("Vault missing context stays a template and preparing keeps all sections", async () => {
+ await runVaultList(backend,{query:"needs-auth",limit:10,agentType:"openclaw",jsonOutput:true,output:stdoutSink});
+ const missing=JSON.parse(stdoutCapture.join(""));
+ assert.equal(missing.next,null);
+ assert.equal(missing.interaction.input_template.executable,false);
+ assert.deepEqual(missing.interaction.input_template.required_input,["host","target"]);
+ const client=Object.create(backend) as BackendClient;
+ client.readBuyerVaultArtifact=async()=>({status:"result_preparing",artifact_ref:"var_company_report"});
+ stdoutCapture=[];await runVaultRead(client,"var_company_report",["registration","finance","registration"],{host:"telegram",target:"chat with spaces",agentType:"openclaw",jsonOutput:true,output:stdoutSink});
+ const preparing=JSON.parse(stdoutCapture.join(""));assert.match(preparing.next.command,/--section registration --section finance/);assert.match(preparing.next.command,/--host telegram --target 'chat with spaces'/);assert.match(preparing.next.command,/--agent-type openclaw vault read/);
+});
+
+test("invoke accepts its input-json recovery template and rejects mixed input before HTTP", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-invoke-json-"));
+  const file = join(home, "input.json");
+  writeFileSync(file, JSON.stringify({ keyword: "广州塔" }));
+  const args = ["--agent-type", "workbuddy", "services", "invoke", "se_rail_catalog", "--capability", "fuzzy_disambiguation", "--input-json", file, "--json"];
+  const env = { ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, HOME: home };
+  const response = JSON.parse((await runCLI(args, env)).stdout);
+  assert.equal(response.status, "result_ready");
+  const before = mock.requests.filter(request => request.path.includes("/capabilities/")).length;
+  await assert.rejects(runCLI([...args, "--input", "keyword=other"], env), (error: unknown) => {
+    assert.equal(JSON.parse(String((error as { stdout?: string }).stdout)).error.code, "capability_input_invalid");
+    return true;
+  });
+  assert.equal(mock.requests.filter(request => request.path.includes("/capabilities/")).length, before);
+});
+
+test("multi-service catalog text keeps each real entry without a guessed top-level choice", async () => {
+  const client = Object.create(backend) as BackendClient;
+  const original = await backend.getCatalogManifest();
+  const first = original.manifest.items[0]!;
+  client.getCatalogManifest = async () => ({ ...original, manifest: { ...original.manifest, items: [first, { ...first, title: "另一服务", service_id: "itpay-rail-smart" }] } });
+  await runCatalogList(client, { output: stdoutSink });
+  const plain = stdoutCapture.join("");
+  assert.match(plain, /entry: itpay services start svc_qizhidao_company_lookup --json/);
+  assert.match(plain, /entry: itpay services start itpay-rail-smart --json/);
+  assert.match(plain, /entry: itpay docs show rail-booking/);
+  assert.doesNotMatch(plain, /\nnext:/);
 });

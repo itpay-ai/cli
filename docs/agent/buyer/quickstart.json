@@ -27,7 +27,7 @@
     "refund_or_paid_problem": "Resume the known Order or Refund before creating anything new.",
     "service_feedback": "Finish the original order outcome first, then submit one safe Agent postmortem; include a rating or comment only when the human explicitly gives it.",
     "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay.",
-    "railway": "Known railway intent: itpay docs show rail-booking --json. Read once, then follow its Exact/Smart route."
+    "railway": "Known railway intent: itpay docs show rail-booking. Read once, then follow its Exact/Smart route."
   },
   "commands": [
     {
@@ -39,10 +39,10 @@
   "agent_rules": [
     "Use the CLI as the control surface; infer the human's intent before the first command and never hardcode a service workflow.",
     "Treat result as current facts, instruction as how to use those facts, next as the preferred executable action, and recovery as exceptional paths.",
-    "Run one state-changing command at a time. Treat next.command as the preferred continuation: execute it unchanged after filling required user data only when the current result has not already satisfied the user's goal.",
+    "Run one state-changing command at a time. Treat next.command as the preferred continuation: execute it unchanged only when its required values are already present; fill a non-executable input_template separately only when the current result has not already satisfied the user's goal.",
     "Keep the same explicit Agent Type through next and recovery commands; same-type windows reuse one Backend Agent Instance.",
     "When testing sandbox, execute every returned command unchanged so its ITPAY_BACKEND_URL=https://sandbox.itpay.ai prefix is preserved.",
-    "Use --target only for a Host presentation destination. Put capability business values in --input key=value exactly as required by the schema.",
+    "Use --target only for a Host presentation destination. Use --input key=value only for simple scalars; nested objects use a small JSON file with the existing --input-json command.",
     "Ask the user for required email or contact values and explain their purpose; never invent them.",
     "Explain useful service facts in ordinary language; never ask the human to run commands or learn internal IDs.",
     "Normal payment uses the returned ItPay Checkout handoff.",
@@ -106,5 +106,6 @@
     "rating",
     "target",
     "input"
-  ]
+  ],
+  "reading_results": "Read normal CLI text directly, or parse the complete --json envelope with the host file reader. If saving stdout to a file, first check the command exit code, then read the whole file with cat or the existing file tool. Keep stderr separate; do not use head, tail, regex or a custom script to recover truncated results. Write complex input as a small JSON file and use --input-json."
 }

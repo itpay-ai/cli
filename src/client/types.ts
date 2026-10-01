@@ -459,7 +459,7 @@ export interface StartServiceExecutionRequest {
 
 export interface ServiceExecutionStarted {
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
-  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
+  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; failure?: { step_id: string; reason_code: string; endpoint?: "origin" | "destination"; source_step?: string }; dependency?: { endpoint?: "origin" | "destination"; error_code?: string; infocode?: string; retryable?: boolean; retry_after?: number; retry_at?: number }; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];
@@ -689,9 +689,11 @@ export interface RailBookingStatus {
 
 export interface RailPlanningProjection {
   schema_version?: string;
+  planner_behavior_version?: "rail.planner.v3" | string;
   plan_id?: string;
   service_execution_id?: string;
   query_revision?: number;
+  query_input?: Record<string, unknown>;
   snapshot_id?: string;
   /** The committed catalog snapshot detail/catalog reads resolve against —
    * distinct from snapshot_id, which tracks the newest committed snapshot. */
@@ -717,6 +719,7 @@ export interface RailPlanningProjection {
       pairs_total?: number;
       pairs_failed?: number;
       journeys_total?: number;
+      journeys_eligible?: number;
       journeys_direct?: number;
       journeys_one_transfer?: number;
       journeys_multi_transfer?: number;
@@ -738,6 +741,7 @@ export interface RailJourneyCard {
   tradeoff_codes?: string[];
   profile_ref?: string;
   recommended_profile?: Record<string, unknown>;
+  profile_refs?: Record<string, string | null>;
   representative_metrics?: Record<string, unknown>;
   journey_id: string;
   route_family_id: string;
@@ -746,6 +750,8 @@ export interface RailJourneyCard {
   route_text?: string;
   rides?: Array<Record<string, unknown>>;
   availability?: string;
+  qualification_status?: "eligible" | "ineligible" | "unknown";
+  qualification_reasons?: string[];
   passengers?: number;
   transfer_count?: number;
   transfer_wait_minutes?: number[];
@@ -756,6 +762,8 @@ export interface RailJourneyCard {
   // demoted (longer wait, worse connection, duplicate group member).
   default_layer?: "main" | "backup" | string;
   backup_reason?: string;
+  backup_baseline_min?: number | null;
+  backup_delta_min?: number | null;
   choice_group_representative?: string | null;
   representative_offer?: {
     offer_id: string;
@@ -795,7 +803,7 @@ export interface ServiceExecutionReadModel {
   rail_booking?: RailBookingStatus;
   rail_planning?: RailPlanningProjection;
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
-  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
+  workflow?: { status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; failure?: { step_id: string; reason_code: string; endpoint?: "origin" | "destination"; source_step?: string }; dependency?: { endpoint?: "origin" | "destination"; error_code?: string; infocode?: string; retryable?: boolean; retry_after?: number; retry_at?: number }; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];

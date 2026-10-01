@@ -21,20 +21,19 @@ Instance。CLI 只在原子更新 Device state 时使用短期本地锁；释放
 通过 rename 完成，不依赖 Host 删除文件，因此 WorkBuddy 等 sandbox 的
 safe-delete/trash shim 不应阻断正常命令。该锁不在 Backend，不会让另一台电脑或
 另一个 Buyer 等待。遇到本地锁错误时不得删除 `~/.itpay-v3/device`、切换 Agent
-Type 或执行 `device recover`；应保留身份并重试原命令一次，持续失败时报告
-`device_state_unwritable` 或 lock timeout。
+Type 或执行 `device recover`；锁忙用 `itpay device repair-lock --json` 检查，只回收已退出进程的锁。写盘权限错误按返回事实恢复宿主允许的持久写入权限后重试原命令，保持原身份。
 
 缺少确认参数返回 `backend_reset_confirmation_required`。普通 session 失效由 CLI 自动续期；revoked、quota、权限或未知 Backend 故障不得使用本命令。所有 Agent Type 使用相同输入和输出合同。
 
 ## `itpay device reset-key`
 
-仅在服务端拒绝以当前私钥完成设备登记时使用（登记阶段持续返回 `internal_error`，或返回 `agent_device_key_rotated` / `agent_device_key_conflict`）。这是本地操作，不访问 Backend：
+仅在确认当前密钥不可恢复，且服务端返回 `agent_device_key_rotated` / `agent_device_key_conflict` 时使用；`internal_error` 是服务端故障，不能据此重置身份。必须指定真实 Agent Type 并取得明确确认。这是本地操作，不访问 Backend：
 
 ```bash
-itpay device reset-key --confirm-key-reset --json
+itpay --agent-type <agent_type> device reset-key --confirm-key-reset --json
 ```
 
-命令删除本地 Ed25519 私钥并清空所有 Backend 的本地登记记录；下一次需要设备身份的命令会以全新密钥重新登记为新设备。服务端旧设备记录保留为孤儿，不会被删除或复用；原设备的额度谱系不迁移。先尝试普通重试——Backend 会把已验证私钥的重复登记幂等挂回原设备，只有在该修复不可用或私钥已被服务端轮换/冲突时才需要本命令。
+命令删除本地 Ed25519 私钥并清空所有 Backend 的本地登记记录；下一次需要设备身份的命令会以全新密钥重新登记为新设备。服务端旧设备记录保留为孤儿，不会被删除或复用；原设备的额度谱系不迁移。正常续期与登记由 CLI 既有逻辑处理；仅在用户或运营明确决定放弃旧身份后才可执行换钥，旧执行访问不会迁移。锁超时使用 repair-lock，不重复登记或换钥。
 
 缺少确认参数返回 `key_reset_confirmation_required`；本地文件操作失败返回 `device_key_reset_failed`。本命令不得删除 Cart、operation journal 或 `~/.itpay-v3` 的其他内容。
 

@@ -35,7 +35,7 @@
   "authorization_flow": [
     "Run the original list, orders, or read command.",
     "OpenClaw must pass its current trusted host and required target on the original command so the authorization continuation preserves the real presentation destination.",
-    "If it returns human_authorization_required, run only its next.command once.",
+    "If it returns human_authorization_required and context is complete, run its executable next.command once. If next is null or context/consent is missing, fill the returned interaction/input_template first; never invent host, target or consent.",
     "Make the returned handoff genuinely visible and stop.",
     "After the human says authorization is complete, rerun the original read command unchanged.",
     "Never rerun vault access as a status check."

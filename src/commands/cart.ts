@@ -38,7 +38,7 @@ export function runCartAdd(session: CartSession, options: CartAddOptions): void 
       offer_id: item.offerID,
       quantity: item.quantity,
     },
-    instruction: "仅写入本地兼容草稿，未验证目录、价格或服务合同；不要把它当作 canonical Cart。",
+    instruction: "仅写入本地兼容草稿，未验证目录、价格或服务合同；不要把它当作 服务端购物车。",
     next: { command: "itpay cart show --local", reason: "检查本地草稿" },
     recovery: [],
   };
@@ -102,10 +102,10 @@ export async function runCartAddServer(options: ServerCartAddOptions): Promise<C
     },
     instruction: serviceExecutionID
       ? "服务型项目已创建 Service Execution；先读取其当前步骤，不要直接进入普通 buy。"
-      : "普通项目已加入 canonical Cart；先检查购物车，再创建 Checkout。",
+      : "普通项目已加入 服务端购物车；先检查购物车，再创建 Checkout。",
     next: serviceExecutionID
       ? { command: `itpay services next ${serviceExecutionID} --json`, reason: "读取服务执行的当前步骤" }
-      : { command: "itpay cart next --json", reason: "检查 canonical Cart" },
+      : { command: "itpay cart next --json", reason: "检查 服务端购物车" },
     recovery: [],
   };
   writeCommandEnvelope(envelope, {
@@ -159,7 +159,7 @@ export async function runCartAddQuoteServer(options: {
       total: formatMoney(cart.amount_minor, cart.currency),
     },
     instruction: "付费服务报价已加入同一 Cart；每个项目仍保持独立 Execution 和交付。",
-    next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "确认项目齐全后创建一次合并付款" },
+    next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "仅已有购买授权且项目齐全时创建一次合并付款" },
     recovery: [{ command: "itpay cart show --json", reason: "检查当前合并 Cart" }],
   };
   writeCommandEnvelope(envelope, {
@@ -190,7 +190,7 @@ export function runCartRemove(session: CartSession, options: CartRemoveOptions):
       catalog_variant_id: options.catalogVariantID,
       offer_id: options.offerID,
     },
-    instruction: "本地兼容草稿已更新；这不代表任何 canonical Cart 或 Service Execution 已变更。",
+    instruction: "本地兼容草稿已更新；这不代表任何 服务端购物车 或 Service Execution 已变更。",
     next: { command: "itpay cart show --local --json", reason: "检查剩余本地草稿" },
     recovery: [],
   }, {
@@ -228,7 +228,7 @@ export async function runCartRemoveServer(
       cart_item_id: lineID,
       remaining_item_count: cart.items.length,
     },
-    instruction: "canonical Cart 已更新；被删除的最后一个 service-backed line 对应执行会由服务端一致性事务取消。",
+    instruction: "服务端购物车 已更新；被删除的最后一个 服务项目 对应执行会由服务端同时取消。",
     next: { command: "itpay cart next --json", reason: "检查剩余内容" },
     recovery: [],
   };
@@ -256,10 +256,10 @@ export function runCartShow(session: CartSession, options: CartShowOptions = {})
     status: items.length > 0 ? "shown_local" : "local_empty",
     result: { currency: snap.currency, items },
     instruction: items.length > 0
-      ? "这是未验证的本地兼容草稿，只能用于明确的普通商品流程；不要把它当作 canonical Cart。"
+      ? "这是未验证的本地兼容草稿，只能用于明确的普通商品流程；不要把它当作 服务端购物车。"
       : "本地兼容草稿为空；从已发布目录重新选择项目。",
     next: items.length > 0
-      ? { command: "itpay buy --json", reason: "将普通本地草稿提交为 canonical Cart" }
+      ? { command: "itpay buy --json", reason: "将普通本地草稿提交为 服务端购物车" }
       : { command: "itpay catalog list --json", reason: "读取已发布目录" },
     recovery: [],
   };
@@ -274,7 +274,7 @@ export async function runCartShowServer(backend: BackendClient, session: CartSes
     writeCommandEnvelope({
       status: "cart_handle_missing",
       result: {},
-      instruction: "本地没有 canonical Cart 句柄；不要把本地草稿默认为服务端 Cart。",
+      instruction: "本地没有 服务端购物车 句柄；不要把本地草稿默认为服务端 Cart。",
       next: { command: "itpay catalog list --json", reason: "读取已发布目录" },
       recovery: [{ command: "itpay cart show --local --json", reason: "仅在明确需要时检查本地兼容草稿" }],
     }, {
@@ -300,7 +300,7 @@ export async function runCartShowServer(backend: BackendClient, session: CartSes
     },
     instruction: items.length > 0
       ? "使用 line 或 execution 句柄继续；不要使用内部 quote lock ID。"
-      : "canonical Cart 当前为空；从已发布目录选择项目。",
+      : "服务端购物车 当前为空；从已发布目录选择项目。",
     next: items.length > 0
       ? { command: "itpay cart next --json", reason: "取得当前首选动作" }
       : { command: "itpay catalog list --json", reason: "读取已发布目录" },
@@ -348,7 +348,7 @@ export async function runCartAbandonServer(
     writeCommandEnvelope({
       status: "cart_handle_missing",
       result: {},
-      instruction: "本地没有 canonical Cart 句柄；未修改任何 Backend 或本地资源。",
+      instruction: "本地没有 服务端购物车 句柄；未修改任何 Backend 或本地资源。",
       next: { command: "itpay next --json", reason: "检查其他可恢复句柄" },
       recovery: [{ command: "itpay cart clear --local --json", reason: "仅在明确放弃本地草稿和句柄时执行" }],
     }, {
@@ -362,7 +362,7 @@ export async function runCartAbandonServer(
   const envelope: CommandEnvelope = {
     status: "abandoned",
     result: { cart_id: cart.cart_id, server_abandoned: true },
-    instruction: "canonical Cart 已放弃；Backend 已在同一事务中软删除 active lines，并取消其未付款 Service Execution。",
+    instruction: "服务端购物车 已放弃；服务端已清空有效项目，并取消关联的未付款服务执行。",
     next: { command: "itpay catalog list --json", reason: "仅在用户提出新需求时重新选择" },
     recovery: [],
   };
@@ -383,7 +383,7 @@ export async function runCartNext(
     writeCartNextEnvelope({
       status: "cart_handle_missing",
       result: {},
-      instruction: "本地没有 canonical Cart 句柄；先恢复已有资源，不要创建重复 Cart。",
+      instruction: "本地没有 服务端购物车 句柄；先恢复已有资源，不要创建重复 Cart。",
       next: { command: "itpay next --json", reason: "检查其他可恢复句柄" },
       recovery: [{ command: "itpay services list --json", reason: "从服务端恢复当前设备的执行" }],
     }, options);
@@ -401,7 +401,7 @@ export async function runCartNext(
         cart_status: cart.status,
         service_execution_id: unquotedServiceLine.service_execution_id,
       },
-      instruction: "该 Cart 包含 service-backed line；继续 Service Execution，不要从 Cart 猜 capability。",
+      instruction: "该 Cart 包含 服务项目；继续 Service Execution，不要从 Cart 猜 capability。",
       next: {
         command: `itpay services next ${unquotedServiceLine.service_execution_id} --json`,
         reason: "读取服务端最新执行状态",
@@ -429,7 +429,7 @@ export async function runCartNext(
     instruction: cart.items.some((item) => item.service_quote_lock_id)
       ? "服务报价已锁定输入和价格；确认项目齐全后使用同一 Cart 创建一次 Checkout。"
       : "该 Cart 是普通购买流程；使用同一 Cart 创建 Checkout，不要重复添加商品。",
-      next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "继续 canonical Cart 结算" },
+      next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "仅已有购买授权时继续服务端购物车结算" },
       recovery: [],
     };
   }

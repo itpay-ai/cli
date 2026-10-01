@@ -4,8 +4,8 @@ import type { CLIConfig } from "../state/config.js";
 import type { ClientHost } from "../state/client_context.js";
 import { formatMoney } from "../render/output.js";
 import { resolveOutput, type OutputSink } from "../render/sink.js";
-import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
-import { accessContextInstruction, vaultAccessCommand } from "./vault.js";
+import { CommandContractError, type CommandEnvelope, shellArgument, writeCommandEnvelope } from "./guidance.js";
+import { accessContextInstruction, vaultAccessGuidance } from "./vault.js";
 
 const ORDER_STATUSES = new Set([
   "pending_payment",
@@ -59,8 +59,8 @@ export async function runListOrders(
       writeCommandEnvelope({
         status: "human_authorization_required",
         result: { intent: "list_purchase_history" },
-        instruction: `需要用户确认一次身份和只读权限。执行 next.command 生成官方入口；用户完成后重新运行原始 orders 命令。${accessContextInstruction(options)}`,
-        next: { command: vaultAccessCommand(undefined, options), reason: "创建一次账号读取授权" },
+        instruction: `需要用户确认一次身份和只读权限。按当前动作或待填模板生成官方入口；用户完成后重新运行原始 orders 命令。${accessContextInstruction(options)}`,
+        ...vaultAccessGuidance(undefined, options),
         recovery: [],
       }, {
         ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -118,9 +118,4 @@ function ordersPageCommand(cursor: string, options: ListOrdersOptions): string {
   if (options.target) parts.push("--target", shellArgument(options.target));
   parts.push("--json");
   return parts.join(" ");
-}
-
-function shellArgument(value: string): string {
-  if (/^[\p{L}\p{N}._:=/-]+$/u.test(value)) return value;
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

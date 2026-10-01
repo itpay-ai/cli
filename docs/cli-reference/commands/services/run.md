@@ -48,6 +48,8 @@ itpay services run <service_id>
 
 Agent 必须展示 schema 所需信息并等待用户提供真实输入；不得猜值，也不得为补输入创建新 Execution。
 
+铁路 Smart 新版 schema 使用 `endpoints.origin` / `endpoints.destination`，每端独立填写区域 `area`、具体地点 `place` 或准确车站 `station` 与原文 `text`；类型未确定可省略 `kind`。区域、地点和车站的九种组合共用这一输入。以当前执行返回的 `input_schema` 为准：旧 v4 执行仍使用旧字段；新版不可混填旧 `origin` / `destination`、坐标或锁站布尔值。地点/日期实质变更发起关联新查询，沿已保存结果返回的 `new_query_template` 填写真实变化；偏好、人数和期限在相同端点/日期下使用已有 `refine_preferences` 动作。
+
 ## 执行与付款
 
 提供输入后，CLI 使用稳定 idempotency key 向同一 Execution 提交一次。`queued` 或 `running` 只轮询该 Execution。进入付款步骤时，CLI 调用现有 `services checkout`，返回其标准 `human_checkout_required` 输出和 Host handoff；不会实现第二套付款逻辑。

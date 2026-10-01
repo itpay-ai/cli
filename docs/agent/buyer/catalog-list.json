@@ -21,7 +21,7 @@
     "service_flow": "Explain discovery as an auxiliary identity-confirmation step, including free quota and paid continuation. Present primary_service as the actual paid outcome. Read all values from the manifest.",
     "variant_selection": "Internal IDs are for the Agent's next command only and are never shown or requested from the human.",
     "price_note": "amount_minor is in minor units (e.g., 10000 = 100.00 CNY). The CLI formats prices as XX.YY currency automatically.",
-    "railway": "Railway entries point to itpay docs show rail-booking --json; use its query and booking contracts instead of a generic start→invoke→cart sequence."
+    "railway": "Railway entries point to itpay docs show rail-booking; use its query and booking contracts instead of a generic start→invoke→cart sequence."
   },
   "agent_rules": [
     "Use catalog list only when the human asks for a new service, not when they want an earlier purchase.",

@@ -4,7 +4,7 @@ The official V3 CLI and the single ItPay entry point for services, purchases, ac
 
 ## One Entry Point, Several Human Intents
 
-`itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. The Agent first distinguishes a new service request, previously purchased content, order history, or a refund. Seller workflows will use the same entry point later and are not implemented yet.
+`itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. The Agent first distinguishes a new service request, previously purchased content, order history, or a refund. Seller workflows use the existing `itpay sell` entry point.
 
 ```bash
 npm install -g @itpay/cli
@@ -68,7 +68,7 @@ The local installation keeps one Ed25519 private key and a separate registration
 - `services start/invoke/action/checkout/next`: generic Service Execution flow.
 - `cart add/show/remove/clear/next`, `buy`: canonical Cart and ordinary Checkout flow.
 - `checkout`: authoritative payment and fulfillment recovery.
-- `services read-result`: read one human-granted protected result.
+- `services read-result`: read saved railway query pages or human-granted protected content.
 - `order`, `orders`: exact order and account order views.
 - `vault list/access/read`: find and read previously purchased content after time-limited human authorization.
 - `refund create/list/get/watch/cancel`: Refund Owner flow.
