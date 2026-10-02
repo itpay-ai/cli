@@ -141,7 +141,7 @@ function railServiceGuidance(serviceID: string, schema?: Record<string, unknown>
       { name: "reuse_from", description: "同 owner 的已保存 Exact result_item_id 或 Smart snapshot_id；端点/日期新查询可复用有效事实" },
     ]).filter(field => properties[field.name] !== undefined),
     input_example: { endpoints: { origin: { kind: "place", text: "<用户原始完整具体地点>" }, destination: { kind: "area", text: "<用户原始完整行政范围>" } }, travel_date: "<用户出行日期 YYYY-MM-DD>" },
-    notes: ["仅用当前 input_schema 支持的端点写法；不要与旧 origin/destination 混用", "唯一地点直接解析；真实歧义只询问有缺口的一端，外部故障按当前执行恢复"],
+    notes: ["仅用当前 input_schema 支持的端点写法；不要与旧 origin/destination 混用", "唯一地点直接解析；真实候选只确认有歧义一端；地图等待按可续用状态恢复，终态有新证据才用返回新查询模板，无动作则停止"],
   };
 }
 
@@ -296,10 +296,10 @@ function locationConfirmationEnvelope(executionID: string, capabilityID: string,
     ? reason === "STATION_LOCATION_EVIDENCE_REQUIRED"
       ? "尚未查票。车站身份已知，但 Smart 缺少该站地理坐标证据；请说明此系统缺口。若用户仅要双站直达，可按原站名使用 Exact；不要要求用户换站。"
       : reason === "ADDRESS_REQUIRED" || reason === "ADMINISTRATIVE_AREA_UNRESOLVED"
-      ? "尚未查票。请只向用户询问该端点缺少的具体地址或行政归属；保留另一端和已有条件，得到信息后发起关联新查询。"
+      ? "尚未查票。先用已有上下文、地图或浏览补该端地点证据；含义仍不清且影响范围才问用户一个关键问题。保留另一端和原条件；只有返回完整新查询模板且已有新证据才另查，没有模板则停止，不猜旧执行输入。"
       : reason === "COORDINATE_IDENTITY_UNVERIFIED" || reason === "COORDINATE_NAME_MISMATCH"
       ? "尚未查票。提交的地点名称和坐标尚未得到一致证据；请核实该端点的真实名称或位置，保留另一端，不要把坐标声明当成人工确认。"
-      : "尚未查票。地点证据不足；请说明返回的具体原因与受影响端点，不要把外部故障当作用户地点歧义。"
+      : "尚未查票。地点证据不足；说明返回的原因与受影响端，先补真实证据，不改kind绕过、不把外部故障当用户歧义。当前无候选确认或完整新查询模板则停止。"
     : "尚未查票。仅向用户确认真实地点歧义，展示候选名称、地址和高德链接。具体住宅仍是目的地，附近车站只作候选；不得把选地点改成锁车站。用户选择后保留原输入，回到同一服务。";
   return {
     status: "location_confirmation_required",

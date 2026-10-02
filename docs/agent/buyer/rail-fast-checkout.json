@@ -37,7 +37,7 @@
     "Never invent consent, identity or a seat code.",
     "Never duplicate a purchase or repeat an unknown-outcome payment.",
     "Never show an internal command to the human.",
-    "When a failure has no executable recovery, stop; never guess undeclared fields, duplicate a booking, split a journey into separate payments or claim an unverified cause."
+    "When a failure has no applicable next, interaction, recovery or complete new-query template, stop; never guess undeclared fields, duplicate a booking, split a journey into separate payments or claim an unverified cause."
   ],
   "search_terms": [
     "fast checkout",
