@@ -56,16 +56,17 @@ export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
   handoff: Record<string, unknown>;
   instruction: string;
 } {
-  const handoff: Record<string, unknown> = { url: input.url };
+  const url = input.plan?.localSimulation && input.mobileUrl && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : input.url;
+  const handoff: Record<string, unknown> = { url, ...(input.plan?.localSimulation ? {environment:"local_simulation",query:"live",transactions:"simulated"} : {}) };
   // mobile_url is only emitted when the link carries the complete token pair;
   // a display-token-only link cannot finish the same-device exchange after payment.
-  const mobileUrl = hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : undefined;
+  const mobileUrl = !input.plan?.localSimulation && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : undefined;
   if (mobileUrl) {
     handoff.mobile_url = mobileUrl;
   }
   const workBuddyAction = isWorkBuddyPlainChat(input.agentType, input.platform);
   if (workBuddyAction) {
-    handoff.agent_action = buildWorkBuddyPresentFilesAction(input.url);
+    handoff.agent_action = buildWorkBuddyPresentFilesAction(url);
   }
   if (input.platform === "markdown") {
     if (input.localPath) handoff.qr_local_path = input.localPath;
@@ -81,7 +82,9 @@ export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
 
   return {
     handoff,
-    instruction: checkoutHandoffInstruction(input.agentType, input.platform, input.amount, Boolean(mobileUrl)),
+    instruction: input.plan?.localSimulation
+      ? `本地实验：铁路与地图查询真实，授权、通知和交易模拟，不会扣款。在本机打开 handoff.url 模拟付款入口，金额 ${input.amount}；仅本机桌面可达。${workBuddyAction ? "按 handoff.agent_action 原样打开一次。" : "展示原入口。"}等待用户操作后读取同一 Checkout；不创建替代订单，用户声明不证明模拟付款已确认。`
+      : checkoutHandoffInstruction(input.agentType, input.platform, input.amount, Boolean(mobileUrl)),
   };
 }
 

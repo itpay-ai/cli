@@ -120,6 +120,7 @@ export async function runCheckoutPresentation(
   const localizedPNGURL = localizeCardURL(qrPNGURL, locale);
   const nextCommand = `itpay checkout --id ${options.checkoutID} --token ${options.displayToken}${locale === "en" ? " --locale en" : ""} --json`;
   const plan = buildCheckoutQRPlan({
+    localSimulation: backend.localSimulation,
     host,
     checkoutID: options.checkoutID,
     checkoutURL,

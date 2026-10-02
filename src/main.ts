@@ -248,7 +248,7 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(requiredCLIVersion ? {
+      ...(commandError?.result ? {result: commandError.result} : requiredCLIVersion ? {
         result: {
           current_cli_version: CLI_VERSION,
           required_cli_version: requiredCLIVersion,
@@ -287,7 +287,7 @@ function reportCLIError(
 		: providerRejected
 			? "告诉用户数据来源没有接受本次请求，但没有说明是输入错误，并按 result.quota 说明额度状态，然后停止。不要转述内部错误、修改输入、重试或创建新查询。"
 		: capabilityInputInvalid
-			? "告诉用户当前输入不完整或格式不正确；数据来源尚未调用，额度没有变化。不要转述技术错误或原样重试；用户提供修正信息后继续同一次服务。"
+			? "Agent按当前合同模板修正字段和JSON层级，保留用户原始需求，继续同一次服务。不要让用户修技术输入，只有真实业务歧义才询问。"
 		: transportError
           ? transportError.attempts > 1
             ? "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。"
@@ -1601,7 +1601,7 @@ services
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json), code: "workflow_run_failed",
-        instruction: "按服务输入声明补齐参数；已有 execution 时继续该执行。", recovery: [],
+        instruction: "本次操作失败；按已返回的具体原因和恢复动作处理。没有恢复动作时停止，不猜字段或重复创建购买。", recovery: [],
       });
     }
   });

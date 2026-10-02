@@ -2630,7 +2630,7 @@ test("CLI stops invalid capability input before recovery commands", async () => 
           error: { code: string }; instruction: string; next: unknown; recovery: unknown[];
         };
         assert.equal(envelope.error.code, "capability_input_invalid");
-        assert.match(envelope.instruction, /数据来源尚未调用，额度没有变化/);
+        assert.match(envelope.instruction, /Agent.*修正字段和JSON层级/);
         assert.match(envelope.instruction, /继续同一次服务/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
@@ -4150,8 +4150,8 @@ test("booking review human action guides --input-json submission", async () => {
   assert.equal(result.next, null);
   assert.match(result.interaction.input_template.command, /--input-json <file>/);
   assert.equal(result.interaction.input_template.executable, false);
-  assert.match(result.instruction, /不保证分配/);
-  assert.match(result.instruction, /draft_revision/);
+  assert.match(result.instruction, /座位\/卧铺偏好可能自动分配/);
+  assert.ok(result.interaction.input_template.required_input.includes("draft_revision"));
   assert.match(result.instruction, /只补缺失选择或真实条款同意/);
   assert.doesNotMatch(result.instruction, /requirements_remaining/);
   assert.doesNotMatch(result.instruction, /人数.*一次问清|每位乘客.*一次问清/);
@@ -5744,7 +5744,7 @@ test("rail booking issuing state never claims payment means a ticket", async () 
   assert.equal(result.status,"issuing");
   assert.equal(result.result.rail.legs[0].train_code,"G1");
   assert.equal(result.result.rail.legs[0].seat_preferences[0].preference,"window");
-  assert.match(result.instruction,/付款成功不代表已出票/);
+  assert.match(result.instruction,/付款成功不代表.*出票/);
   assert.match(result.next.command,/services next se_demo/);
 });
 
@@ -5789,7 +5789,7 @@ test("unrecognized rail state reports processing, not issuing", async () => {
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
   assert.equal(result.status,"processing");
-  assert.match(result.instruction,/付款成功不代表已出票/);
+  assert.match(result.instruction,/付款成功不代表.*出票/);
 });
 
 test("rail checkout presentation keeps passenger entry on the protected page", async () => {
@@ -5797,7 +5797,7 @@ test("rail checkout presentation keeps passenger entry on the protected page", a
     checkout:{checkout_id:"chk_rail",status:"payment_required",amount_minor:6400,currency:"CNY",next_action:"create_payment_intent"},
     items:[],payment_intents:[],buyer_session:{state:"active"},
     checkout_details:"rail_passengers",rail_passengers_confirmed:false,
-    rail_quote:{amount_minor:6400,currency:"CNY",expires_at:"2026-09-16T12:00:00Z",passengers:2,legs:[{train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",unit_fare_minor:3000,fare_minor:6000,service_fee_minor:400,seat_options:["auto","window","aisle"],seat_preferences:[{passenger_index:0,preference:"window"},{passenger_index:1,preference:"auto"}]}]},
+    rail_quote:{amount_minor:6400,currency:"CNY",expires_at:"2026-09-16T12:00:00Z",passengers:2,legs:[{arrival_days:0,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",unit_fare_minor:3000,fare_minor:6000,service_fee_minor:400,seat_options:["auto","window","aisle"],seat_preferences:[{passenger_index:0,preference:"window"},{passenger_index:1,preference:"auto"}]}]},
   };
   const client=Object.create(backend) as BackendClient;
   client.getCheckoutPresentation=async()=>presentation;
@@ -5833,7 +5833,9 @@ test("Smart endpoint guidance follows the published schema", async () => {
   await runServicesStart(client,"itpay-rail-smart",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
-  assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"station");
+  assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"area");
+  assert.equal(result.result.guidance.input_example.endpoints.destination.text,"<用户原始完整行政范围>");
+  assert.match(result.instruction,/端点理解摘要/);
   assert.equal(result.result.guidance.optional_fields.some((f:{name:string})=>f.name==="origin_location"),false);
 });
 
@@ -5853,8 +5855,8 @@ test("failed rail workflow reports the failed step, its meaning, and retry guida
   assert.match(result.instruction,/位置解析/);
   assert.doesNotMatch(result.instruction,/广州南南站/);
   assert.equal(result.next,null);
-  assert.equal(result.recovery[0].command,"itpay services get se_demo --json");
-  assert.equal(result.recovery.length,1);
+  assert.equal(result.recovery.length,0);
+  assert.doesNotMatch(result.instruction,/核对.*付款/);
 });
 
 test("failed rail workflow search step keeps the supplier cause", async () => {

@@ -36,8 +36,8 @@ export interface CLIConfig {
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
-export const CLI_VERSION = "2.1.29";
-export const API_CONTRACT_REVISION = "sha256:2f9fbcdc5cd0630910abb52671304cc019e348e9a778017ec92ddc3513b3639f";
+export const CLI_VERSION = "2.1.33";
+export const API_CONTRACT_REVISION = "sha256:80d69dbad36debbe4bdfbe468127a934c87b657e7795f369bb04de54863da476";
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -85,8 +85,8 @@ function stateFilename(filename: string, baseURL: string): string {
   return dot < 0 ? `${filename}.${suffix}` : `${filename.slice(0, dot)}.${suffix}${filename.slice(dot)}`;
 }
 
-function stateDir(env: NodeJS.ProcessEnv): string {
-  return resolve(env.HOME || homedir(), CART_SESSION_DEFAULT_DIR);
+export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ITPAY_STATE_DIR ? resolve(env.ITPAY_STATE_DIR) : resolve(env.HOME || homedir(), CART_SESSION_DEFAULT_DIR);
 }
 
 export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {

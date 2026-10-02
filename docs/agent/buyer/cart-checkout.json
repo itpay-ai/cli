@@ -35,7 +35,7 @@
     "The Backend Cart is business truth; the current backend-isolated local cart state file only stores local recovery handles and explicit drafts.",
     "Run the exact next.command returned by the CLI. Do not extract or invent a capability from a raw list.",
     "Railway query and booking use distinct Service Executions for one purchase journey. Start another execution for an independent intent.",
-    "Ask for email only when the selected capability requires protected delivery; never invent contact data.",
+    "Only non-rail capabilities explicitly requiring delivery email may ask its purpose and value. Railway notification contact belongs to the protected checkout page with verified account email reuse; the Agent must not guess or collect it in chat.",
     "A lost Checkout response is retried with the same Cart and persisted idempotency operation.",
     "A single railway service checkout normally follows its booking execution; Cart is used only when the returned flow calls for it."
   ],

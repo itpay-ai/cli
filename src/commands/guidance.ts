@@ -94,6 +94,7 @@ export class CommandContractError extends Error {
     readonly instruction: string,
     readonly recovery: CommandAction[],
     readonly interaction?: InteractionBlock,
+    readonly result?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "CommandContractError";

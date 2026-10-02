@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, rmSync } from 'node:fs';
 import { writeLocalPNG } from '../render/qr.js';
@@ -10,7 +9,7 @@ import type { CommandAction, CommandEnvelope } from '../commands/guidance.js';
 type BindingClient = { agentAccountStatus(): Promise<{status: string; phone_verified?: boolean}>; bindAgentAccount(input: {dashboard_auth_session_id: string; start_token: string}): Promise<{status: string; phone_verified?: boolean}> };
 type Login = { baseURL: string; sessionToken?: string; expiresAt?: string; sessionID?: string; pollToken?: string; startToken?: string; authURL?: string };
 export function sellerAuthPath(baseURL: string, env = process.env, purpose = "seller"): string {
-  return resolve(env.HOME || homedir(), '.itpay-v3', `${purpose}-${createHash('sha256').update(baseURL).digest('hex').slice(0, 16)}.json`);
+  return resolve(stateDir(env), `${purpose}-${createHash('sha256').update(baseURL).digest('hex').slice(0, 16)}.json`);
 }
 function read(baseURL: string, env = process.env, purpose = "seller"): Login | undefined {
   const path = sellerAuthPath(baseURL, env, purpose);
@@ -212,7 +211,10 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
     const url = new URL(result.start_url, baseURL);
     const sameOrigin = url.origin === new URL(baseURL).origin;
     const alipay = url.origin === 'https://openauth.alipay.com' && url.pathname === '/oauth2/publicAppAuthorize.htm' && !url.username && !url.password;
-    if (!sameOrigin && !alipay) throw new Error('Unexpected authorization origin');
+    const local = response.headers.get('X-ItPay-Environment') === 'local_simulation'
+      && new URL(baseURL).protocol === 'http:' && new URL(baseURL).hostname === '127.0.0.1'
+      && url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password;
+    if (!sameOrigin && !alipay && !local) throw new Error('Unexpected authorization origin');
     const fragment = new URLSearchParams(url.hash.replace(/^#dashboard-auth\?/, ''));
     const state = url.searchParams.get('state')?.split('.');
     const startToken = alipay
@@ -315,3 +317,5 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
   save({ baseURL, sessionToken: token, expiresAt: session.expires_at }, env);
   return { status: 'authenticated', base_url: baseURL, expires_at: session.expires_at };
 }
+
+import { stateDir } from "./config.js";

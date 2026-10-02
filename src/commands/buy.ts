@@ -189,6 +189,7 @@ export async function runBuy(
 
   // --- Build render plan (after payment if --pay) ---
   const planInput: Parameters<typeof buildCheckoutQRPlan>[0] = {
+    localSimulation: backend.localSimulation,
     host: options.host,
     checkoutID,
     checkoutURL,
@@ -359,6 +360,7 @@ async function waitForPaymentSSE(
 // --- checkout QR plan ---
 
 export function buildCheckoutQRPlan(input: {
+  localSimulation?: boolean;
   host: ClientHost;
   checkoutID: string;
   checkoutURL: string;
@@ -375,7 +377,7 @@ export function buildCheckoutQRPlan(input: {
   agentType?: string;
   locale?: CardLocale;
 }): RenderPlan {
-  const summary = `Scan the QR or open ${input.checkoutURL} to start the human checkout flow.`;
+  const summary = input.localSimulation ? "在本机打开模拟付款入口；铁路与地图查询真实，授权、通知和交易模拟，不会扣款。" : `Scan the QR or open ${input.checkoutURL} to start the human checkout flow.`;
   const isPayment = input.paymentIntentID != null;
   const afterCommand = qualifyItPayCommand(
     `itpay checkout --id ${input.checkoutID} --token ${input.displayToken}${input.locale === "en" ? " --locale en" : ""} --json`,
@@ -399,6 +401,7 @@ export function buildCheckoutQRPlan(input: {
 
   const plan: RenderPlan = {
     kind: isPayment ? "payment_qr" : "checkout_qr",
+    ...(input.localSimulation ? {localSimulation:true} : {}),
     host: input.host,
     summary,
     url: input.qrPayload,

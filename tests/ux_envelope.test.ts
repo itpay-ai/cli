@@ -262,7 +262,7 @@ test("rail planning ready envelope carries two-goal interaction, communication a
 
 test("generic service start uses input_template, never an executable placeholder command", async () => {
   const base = await backend.getServiceExecution("se_rail_plan_running");
-  const model = { ...base, workflow_entry: { capability_id: "itpay_service", input_schema: { type: "object" } } };
+  const model = { ...base, workflow_entry: { capability_id: "itpay_service", input_schema: { type: "object", required: ["endpoints", "travel_date"], properties: { endpoints: { type: "object", required: ["origin", "destination"], properties: { origin: { type: "object", properties: { text: { type: "string" } } }, destination: { type: "object", properties: { text: { type: "string" } } } } }, travel_date: { type: "string" } } } } };
   const client = Object.create(backend) as BackendClient;
   client.startServiceExecution = async () => ({
     execution: { ...model.execution, service_id: "itpay-rail-smart" },
