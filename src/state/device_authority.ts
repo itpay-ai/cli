@@ -17,7 +17,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 interface DeviceAuthorityOptions {
@@ -92,7 +91,7 @@ export class DeviceAuthority {
     this.backendKey = normalizeBackendKey(options.baseURL);
     this.requestedAgentType = options.requestedAgentType;
     this.compatibilityHeaders = options.compatibilityHeaders;
-    const root = resolve(homedir(), ".itpay-v3", "device");
+    const root = resolve(stateDir(), "device");
     this.statePath = options.statePath ?? resolve(root, "identity.json");
     this.privateKeyPath = options.privateKeyPath ?? resolve(root, "device-private.pem");
     this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
@@ -549,3 +548,5 @@ function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation)
   const code = (error as NodeJS.ErrnoException).code;
   return code === "EEXIST" ? new DeviceStateError(operation, code) : asDeviceStateError(error, operation);
 }
+
+import { stateDir } from "./config.js";

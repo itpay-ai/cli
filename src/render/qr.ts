@@ -31,7 +31,7 @@ export interface LocalQR {
 }
 
 export async function writeLocalPNG(url: string): Promise<LocalQR> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "itpay-v3-"));
+  const dir = await fs.mkdtemp(path.join(process.env.ITPAY_STATE_DIR || os.tmpdir(), "itpay-v3-"));
   const filePath = path.join(dir, `itpay-${randomUUID()}.png`);
   await QRCode.toFile(filePath, url, {
     type: "png",

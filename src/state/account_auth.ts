@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, rmSync } from 'node:fs';
 import { writeLocalPNG } from '../render/qr.js';
@@ -10,7 +9,7 @@ import type { CommandAction, CommandEnvelope } from '../commands/guidance.js';
 type BindingClient = { agentAccountStatus(): Promise<{status: string; phone_verified?: boolean}>; bindAgentAccount(input: {dashboard_auth_session_id: string; start_token: string}): Promise<{status: string; phone_verified?: boolean}> };
 type Login = { baseURL: string; sessionToken?: string; expiresAt?: string; sessionID?: string; pollToken?: string; startToken?: string; authURL?: string };
 export function sellerAuthPath(baseURL: string, env = process.env, purpose = "seller"): string {
-  return resolve(env.HOME || homedir(), '.itpay-v3', `${purpose}-${createHash('sha256').update(baseURL).digest('hex').slice(0, 16)}.json`);
+  return resolve(stateDir(env), `${purpose}-${createHash('sha256').update(baseURL).digest('hex').slice(0, 16)}.json`);
 }
 function read(baseURL: string, env = process.env, purpose = "seller"): Login | undefined {
   const path = sellerAuthPath(baseURL, env, purpose);
@@ -315,3 +314,5 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
   save({ baseURL, sessionToken: token, expiresAt: session.expires_at }, env);
   return { status: 'authenticated', base_url: baseURL, expires_at: session.expires_at };
 }
+
+import { stateDir } from "./config.js";

@@ -85,8 +85,8 @@ function stateFilename(filename: string, baseURL: string): string {
   return dot < 0 ? `${filename}.${suffix}` : `${filename.slice(0, dot)}.${suffix}${filename.slice(dot)}`;
 }
 
-function stateDir(env: NodeJS.ProcessEnv): string {
-  return resolve(env.HOME || homedir(), CART_SESSION_DEFAULT_DIR);
+export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ITPAY_STATE_DIR ? resolve(env.ITPAY_STATE_DIR) : resolve(env.HOME || homedir(), CART_SESSION_DEFAULT_DIR);
 }
 
 export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {
