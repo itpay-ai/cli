@@ -73,7 +73,7 @@
     }
   ],
   "agent_rules": [
-    "Agent Type is stable identity; Host is presentation and may be explicitly overridden.",
+    "Agent Type is stable identity; Host is presentation and may be explicitly overridden. Once the official handoff is available, show it on this host before optional memory/log work; retain necessary safety and permissions.",
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy Checkout handoff uses its returned Card Link and mobile URL; auth login may separately return a local QR path.",
     "For workbuddy with plain-chat, execute handoff.agent_action exactly once; it calls present_files with handoff.url as the only files element and opens the rendered Card Link in the right-side browser, then send handoff.mobile_url so phone users can tap straight into Alipay or WeChat Pay.",
     "For zcode with plain-chat, open handoff.url in the built-in browser and also send handoff.mobile_url as the phone entry; do not only paste text, download or rebuild a QR, or invent a private browser-tool payload; when the built-in browser is unavailable show both clickable links.",

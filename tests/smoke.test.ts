@@ -967,7 +967,7 @@ test("real recommend snapshot drives every CLI read command", async () => {
 				snapshot_id: string; catalog_snapshot_id?: string; readiness: string;
 				decision_source?: string; model_outcome?: string;
 			};
-			recommendation?: { journey_id: string; select?: string; booking_support?: string };
+			recommendation?: { journey_id: string; select?: string; booking_support?: string; purchase_recovery?: {command: string} };
 		};
 	};
     const disclosed = JSON.parse(stdoutCapture.join(""));
@@ -981,9 +981,10 @@ test("real recommend snapshot drives every CLI read command", async () => {
 	assert.equal(next.result.rail_planning.snapshot_id, "rsnap_b_rec");
 	assert.equal(next.result.rail_planning.decision_source, "jev");
 	assert.equal(next.result.recommendation?.journey_id, "jny_01db23eedc");
-	// The real winner is a same-train split (separate_legs_only): the select
-	// shortcut is only emitted for single_leg — read commands still resolve.
-	assert.equal(next.result.recommendation?.booking_support, "separate_legs_only");
+	// Historical same-train split has no complete purchase credentials:
+	// expose read-only facts and the original execution recovery, not split buying.
+	assert.equal(next.result.recommendation?.booking_support, "read_only");
+	assert.match(next.result.recommendation?.purchase_recovery?.command ?? "", /services next se_rail_plan_real/);
 
 	// 2) Full committed catalog read — the real rail.catalog.v3 verbatim.
 	stdoutCapture = [];
@@ -2757,9 +2758,14 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
 
   const typed = JSON.parse((await runCLI([
     "--agent-type", "codex-desktop", "skill", "show", "itpay", "--json",
-  ], {})).stdout) as { next: null; instruction: string };
+  ], {})).stdout) as { next: null; instruction: string; result: { content: string } };
   assert.equal(typed.next, null);
   assert.match(typed.instruction, /codex-desktop/);
+  assert.match(typed.result.content, /session_id.*write_stdin/);
+  assert.match(typed.result.content, /text\(await tools.exec_command/);
+  assert.match(typed.result.content, /若使用 functions.exec 包装/);
+  assert.match(typed.result.content, /没有该包装时按宿主实际工具操作/);
+  assert.match(untyped.result.content, /Empty output is not a business failure/);
 
   const workbuddy = JSON.parse((await runCLI([
     "--agent-type", "workbuddy", "skill", "show", "itpay", "--json",
@@ -2769,6 +2775,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(workbuddy.instruction, /同一 CLI launcher/);
   assert.match(workbuddy.instruction, /宿主允许的持久化权限/);
   assert.doesNotMatch(workbuddy.instruction, /dangerouslyDisableSandbox/);
+  assert.doesNotMatch(workbuddy.result.content, /tools.exec_command|session_id|functions.exec/);
 });
 
 test("skill show accepts a direct Skill root and the legacy parent directory", async () => {

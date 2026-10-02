@@ -10,7 +10,7 @@ import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "../
 
 test("device authority enrolls once, survives concurrent processes, and registers another agent type", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-"));
-  const statePath = join(root, "identity.json");
+  const statePath = join(root, "missing", "nested", "identity.json");
   const privateKeyPath = join(root, "private.pem");
   const server = new DeviceServer();
   const options = {
@@ -157,6 +157,7 @@ test("device authority returns a stable error when its state path is not writabl
       error.code === "device_state_unwritable" &&
       error.operation === "prepare_lock" &&
       error.causeCode === "EEXIST" &&
+      error.blockedPath === "/dev/null" &&
       error.message === "ItPay device state operation failed: prepare_lock (EEXIST)",
   );
 });
