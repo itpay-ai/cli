@@ -1601,7 +1601,7 @@ services
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json), code: "workflow_run_failed",
-        instruction: "按服务输入声明补齐参数；已有 execution 时继续该执行。", recovery: [],
+        instruction: "本次操作失败；按已返回的具体原因和恢复动作处理。没有恢复动作时停止，不猜字段或重复创建购买。", recovery: [],
       });
     }
   });

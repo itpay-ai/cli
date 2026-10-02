@@ -91,6 +91,7 @@ export interface RailSeatPreference {
 }
 
 export interface RailQuoteLegSummary {
+  arrival_days: number;
   train_code: string;
   travel_date: string;
   from: string;
@@ -327,6 +328,7 @@ export interface PlatformCompatibility {
 }
 
 export interface ErrorResponse {
+  reason?: string;
   input_schema?: Record<string, unknown>;
   input_errors?: string[];
   review?: Record<string, unknown>;

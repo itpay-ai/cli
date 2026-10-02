@@ -118,6 +118,7 @@ export interface IdeImageAttach {
 }
 
 export interface RenderPlan {
+  localSimulation?: boolean;
   kind: ActionKind;
   host: ClientHost;
   summary: string;

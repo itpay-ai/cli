@@ -211,7 +211,10 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
     const url = new URL(result.start_url, baseURL);
     const sameOrigin = url.origin === new URL(baseURL).origin;
     const alipay = url.origin === 'https://openauth.alipay.com' && url.pathname === '/oauth2/publicAppAuthorize.htm' && !url.username && !url.password;
-    if (!sameOrigin && !alipay) throw new Error('Unexpected authorization origin');
+    const local = response.headers.get('X-ItPay-Environment') === 'local_simulation'
+      && new URL(baseURL).protocol === 'http:' && new URL(baseURL).hostname === '127.0.0.1'
+      && url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password;
+    if (!sameOrigin && !alipay && !local) throw new Error('Unexpected authorization origin');
     const fragment = new URLSearchParams(url.hash.replace(/^#dashboard-auth\?/, ''));
     const state = url.searchParams.get('state')?.split('.');
     const startToken = alipay

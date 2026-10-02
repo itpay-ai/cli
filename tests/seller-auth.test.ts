@@ -74,3 +74,16 @@ test('Public CLI supports official dev and isolates its state from production', 
     assert.throws(() => resolveBackendURL({ ITPAY_BACKEND_URL: 'https://evil.invalid', ITPAY_CLI_DEV: '1' }));
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+ test('Local login accepts a separate loopback Web origin only with trusted simulation metadata', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'itpay-local-auth-'));
+  const base = 'http://127.0.0.1:18081';
+  const env = { HOME: home };
+  const response = (url: string, mode = true) => async () => Response.json({ dashboard_auth_session_id: 'local_auth', poll_token: 'fixture', start_url: url + '/signin?start_token=fixture' }, {headers: mode ? {'X-ItPay-Environment':'local_simulation'} : {}});
+  try {
+    assert.equal((await sellerAuth('login', base, env, response('http://127.0.0.1:15173')) as {status: string}).status, 'authorization_required');
+    await assert.rejects(sellerAuth('login', base, env, response('http://127.0.0.1:15173', false)), /origin/);
+    await assert.rejects(sellerAuth('login', base, env, response('https://evil.invalid')), /origin/);
+    await assert.rejects(sellerAuth('login', DEV_BASE_URL, env, response('http://127.0.0.1:15173')), /origin/);
+  } finally { rmSync(home, {recursive:true,force:true}); }
+ });

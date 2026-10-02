@@ -37,6 +37,7 @@ export interface HttpClientConfig {
 }
 
 export class HttpClient {
+  localSimulation = false;
   private static readonly MAX_TRANSPORT_RETRIES = 2;
   readonly baseURL: string;
   private readonly fetchImpl: typeof fetch;
@@ -92,6 +93,7 @@ export class HttpClient {
           ...(options.signal ? { signal: options.signal } : {}),
         });
         text = await response.text();
+        this.localSimulation = response.headers.get("X-ItPay-Environment") === "local_simulation";
       } catch (error) {
         if (options.signal?.aborted) throw error;
         const transportError = asTransientTransportError(error, transportRetries + 1);

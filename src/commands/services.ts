@@ -923,17 +923,19 @@ export async function runServicesCheckout(
     const booking = await backend.getServiceExecution(serviceExecutionID);
     if (booking.execution.service_id === "itpay-rail-booking") {
       const review = booking.workflow?.human_action?.context?.review as Record<string, unknown> | undefined;
-      const facts = booking.rail_booking?.legs ?? (Array.isArray(review?.legs) ? review.legs : []);
+      const presentation = await backend.getCheckoutPresentation(checkoutID, displayToken);
+      const quote = presentation.rail_quote;
+      const facts = quote?.legs ?? booking.rail_booking?.legs ?? (Array.isArray(review?.legs) ? review.legs : []);
       const legs = facts.filter(value=>value && typeof value==="object").map(value=>{
         const leg=value as Record<string,unknown>;
         return {travel_date:leg.travel_date,train_code:leg.train_code,
-          from_station:leg.from ?? leg.from_station ?? leg.from_station_code,
-          to_station:leg.to ?? leg.to_station ?? leg.to_station_code,
+          from_station:leg.from || leg.from_station || `站点代码 ${String(leg.from_station_code ?? "未知")}（名称暂缺）`,
+          to_station:leg.to || leg.to_station || `站点代码 ${String(leg.to_station_code ?? "未知")}（名称暂缺）`,
           departure:leg.departure ?? leg.departure_time,arrival:leg.arrival ?? leg.arrival_time,
-          arrival_days:leg.arrival_days,seat_name:leg.seat_name ?? leg.seat_type_name ?? leg.seat_type};
+          arrival_days:leg.arrival_days,seat_name:leg.seat_name || leg.seat_type_name || `席别代码 ${String(leg.seat_type ?? "未知")}（名称暂缺）`};
       });
       if(legs.length){
-        itinerary={legs,passengers:review?.passengers ?? null,purchase_unit:"journey"};
+        itinerary={legs,passengers:quote?.passengers ?? review?.passengers ?? null,purchase_unit:"journey"};
         itineraryTitle=legs.map(leg=>[leg.train_code,leg.from_station,"->",leg.to_station].filter(value=>typeof value==="string" && value.length).join(" ")).join(" / ");
       }
     }
@@ -941,6 +943,7 @@ export async function runServicesCheckout(
     // Checkout already exists; a display-only title lookup cannot hide its official handoff.
   }
   const plan = buildCheckoutQRPlan({
+    localSimulation: backend.localSimulation,
     host,
     checkoutID,
     checkoutURL,
@@ -2220,7 +2223,7 @@ function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
             action_type: action.action_type, required_fields: requiredFields,
             ...(requirementsRemaining ? { requirements_remaining: requirementsRemaining } : {}) },
           ...(reviewURL ? { handoff: { url: reviewURL, kind: "booking_review" } } : {}),
-          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。复制 interaction.input_template.input；自动分配使用该对象数组，不传 null 或字符串。仅已有真实同意后把 accept_non_guaranteed 改为 true 并提交；座位请求不保证分配。身份信息只在官方 Checkout 页填写。`,
+          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。复制 interaction.input_template.input；自动分配使用该对象数组，不传 null 或字符串。只有用户本人已接受当前条款，才把 accept_non_guaranteed 改为 true；选车或委托选票不等于条款同意，false是未同意保护而非模板错误。缺同意时仅用 review.consent_question 问一次；没有该文案时说明座位/卧铺偏好可能自动分配，并按当前notice补整程条款。已有充分同意且条件不变则不再问。身份信息只在官方 Checkout 页填写。`,
           next: null,
           interaction: {
             schema_version: "itpay.interaction.v1",
@@ -2869,6 +2872,17 @@ export async function runServicesRun(
           input: serviceInputTemplate(schema, input), required_input: ["file", ...requiredInputFields(schema)], executable: false,
         }} : undefined,
         {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? Boolean(executionID), ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
+    }
+    if (cause instanceof HttpError && ["invalid_selection", "selection_wrong_buyer"].includes(cause.code ?? "")) {
+      const reason = cause.payload?.reason;
+      const inputInvalid = reason === "input_constraint_invalid";
+      throw new CommandContractError(cause.code, cause.message,
+        inputInvalid ? "输入违反当前完整计划约束。读取原查询的完整购买模板，修正人数、完整段数和顺序；不要追加未声明字段或拆单。"
+          : cause.code === "selection_wrong_buyer" ? "当前身份无权使用这份购买凭据。停止；不要切换身份绕过，也不展示其他买家资料。"
+          : reason === "stored_selection_inconsistent" ? "服务端凭据与已存目录不一致，补参数无法修复。停止购买并提供诊断标识 stored_selection_inconsistent；不猜字段、不重新创建购买。"
+          : "购买凭据未通过校验，原因尚未确定且没有安全自动恢复。停止，不把推测报成原因或追加隐藏字段。",
+        inputInvalid ? [{command:"itpay services list --json",reason:"定位原查询并读取当前完整购买模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式输入约束"}] : [],
+        undefined,{service_id:serviceID, ...(id?{service_execution_id:id}:{}), ...(reason?{reason}:{}), execution_created:Boolean(id)});
     }
     if (cause instanceof HttpError && ["rail_journey_selection_required", "rail_selection_expired"].includes(cause.code ?? "")) {
       throw new CommandContractError(cause.code!, cause.message,

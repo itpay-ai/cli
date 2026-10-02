@@ -169,3 +169,42 @@ test('journey repair: station coordinate system gap only offers Exact for comple
   }
  }finally{await mock.close();}
 });
+
+test('local repair: selection errors distinguish input from server inconsistency without invented execution',async()=>{
+ const mock=await startMockBackend();try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  for(const reason of ['input_constraint_invalid','stored_selection_inconsistent']) {
+   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'invalid_selection',reason,message:reason},'invalid');};
+   await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:1,selections:[]}),error=>{
+    assert.ok(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);assert.equal(error.result?.service_execution_id,undefined);
+    if(reason==='stored_selection_inconsistent'){assert.equal(error.recovery.length,0);assert.match(error.instruction,/补参数无法修复/);}else assert.ok(error.recovery.length>0);
+    assert.doesNotMatch(error.instruction,/补齐参数|ticket_plan_ref|snapshot_id|journey_ref/);return true;
+   });
+  }
+ }finally{await mock.close();}
+});
+
+test('local repair: trusted local mode changes handoff, URL text alone does not',async()=>{
+ const {buildCheckoutHandoff}=await import('../src/commands/checkout_handoff.js');
+ const {buildCheckoutQRPlan}=await import('../src/commands/buy.js');
+ const url='http://127.0.0.1:15173/checkout/test?display_token=synthetic&complete_exchange_token=synthetic';
+ for(const localSimulation of [false,true]) {
+  const plan=buildCheckoutQRPlan({host:'plain-chat',checkoutID:'test',checkoutURL:url,displayToken:'synthetic',qrPayload:url,nextAction:'select_payment',localSimulation});
+  const out=buildCheckoutHandoff({platform:'plain_chat',url,mobileUrl:url,amount:'¥12.00',plan,agentType:'workbuddy'});
+  if(localSimulation){assert.match(out.instruction,/在本机打开/);assert.doesNotMatch(out.instruction,/手机端点开|直接跳转支付宝/);assert.equal(out.handoff.mobile_url,undefined);assert.equal(out.handoff.environment,'local_simulation');}
+  else {assert.match(out.instruction,/手机端点开/);assert.equal(out.handoff.environment,undefined);}
+ }
+});
+
+test('local repair: checkout itinerary uses the same quoted names as Web',async()=>{
+ const mock=await startMockBackend();try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');const presentation=await backend.getCheckoutPresentation('chk_mock','synthetic');
+  backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-booking'}});
+  backend.getCheckoutPresentation=async()=>({...presentation,rail_quote:{amount_minor:10000,currency:'CNY',expires_at:'2030-10-01T12:00:00Z',passengers:1,legs:[{arrival_days:0,train_code:'G1',travel_date:'2030-10-01',from:'宁波',to:'郑州东',departure:'09:00',arrival:'15:00',seat_name:'二等座',unit_fare_minor:10000,fare_minor:10000,service_fee_minor:0}]}});
+  for(const jsonOutput of [false,true]) {
+   let output='';await runServicesCheckout(backend,loadConfig({ITPAY_API_BASE_URL:mock.url}),'se_mock_next','itpay_service',{resume:true,host:'plain-chat',jsonOutput,output:s=>output+=s});
+   assert.match(output,/宁波/);assert.match(output,/郑州东/);assert.match(output,/二等座/);
+   if(process.env.ITPAY_EVIDENCE_DIR){const {writeFileSync}=await import('node:fs');writeFileSync(`${process.env.ITPAY_EVIDENCE_DIR}/n905-names.${jsonOutput?'json':'txt'}`,output);}
+  }
+ }finally{await mock.close();}
+});

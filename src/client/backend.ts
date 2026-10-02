@@ -50,6 +50,7 @@ import type {
 
 export class BackendClient {
   constructor(private readonly http: HttpClient) {}
+  get localSimulation(): boolean { return this.http.localSimulation; }
 
   // Called only through the fixed Sell operation contract, never arbitrary Agent URLs.
   sellRequest(request: {path:string; method:"GET"|"POST"|"PUT"|"DELETE"; body?:unknown}): Promise<unknown> {
