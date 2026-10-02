@@ -15,13 +15,14 @@ test('audit repair: saved geo reason, empty candidates and real choices', async 
     const backend = new BackendClient(new HttpClient({baseURL:mock.url}));
     const client: BackendClient = Object.create(backend);
     const base = await backend.getServiceExecution('se_mock_next');
-    for (const reason of ['address_required', 'station_location_evidence_required', 'coordinate_identity_unverified', 'amap_request_failed']) {
-      client.getServiceExecution = async () => ({...base, workflow_entry:{capability_id:"itpay_service",input_schema:{}}, workflow:{current_step:'failure',revision:1,steps:{},status:'failed', error_code:'condition_unmet', failure:{step_id:'resolved_after_confirm', source_step:'geo_confirm', reason_code:reason, endpoint:'destination'}}});
+    for (const reason of ['address_required', 'station_location_evidence_required', 'coordinate_identity_unverified', 'endpoint_kind_conflict', 'place_identity_uncertain', 'endpoint_adcode_name_conflict', 'endpoint_poi_name_conflict', 'endpoint_station_name_code_conflict', 'coordinate_name_mismatch', 'amap_request_failed']) {
+      client.getServiceExecution = async () => ({...base, workflow_entry:{capability_id:"itpay_service",input_schema:{properties:{endpoints:{type:"object"},travel_date:{type:"string"}}}}, workflow:{query_input:{endpoints:{origin:{kind:"area",text:"已知区域"},destination:{kind:"place",text:"已知具体地点"}},travel_date:"2030-10-09"},current_step:'failure',revision:1,steps:{},status:'failed', error_code:'condition_unmet', failure:{step_id:'resolved_after_confirm', source_step:'geo_confirm', reason_code:reason, endpoint:'destination'}}});
       let output=''; await runServicesNext(client,'se_check',{jsonOutput:true,output:s=>output+=s});
       const result=JSON.parse(output);
       assert.equal(result.result.reason,reason); assert.equal(result.result.affected_endpoint,'destination'); assert.equal(result.next,null);
       if(reason==='address_required') assert.equal(result.result.new_query_template.executable,false);
-      else assert.doesNotMatch(result.instruction,/补.*地址|换站查询/);
+      else if(reason==='amap_request_failed'||reason==='station_location_evidence_required') assert.doesNotMatch(result.instruction,/补.*地址|换站查询/);
+      else {assert.equal(result.result.classification,'location_evidence_required');assert.doesNotMatch(result.instruction,/订单|付款/);}
     }
     for (const candidates of [[], [{id:'poi_real',poi_name:'乙地点',formatted_address:'乙市某区'}]]) {
       client.getServiceExecution=async()=>({...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{current_step:'confirm_location',revision:1,steps:{},status:'human_action',human_action:{action_type:'workflow:confirm_location',input_schema:{required:['choices']},context:{places:{origin:{resolution_status:'resolved',query:'甲市'},destination:{resolution_status:'needs_confirmation',resolution_reason:'ADDRESS_REQUIRED',query:'乙地',resolution_candidates:candidates}}}}}});
@@ -213,5 +214,26 @@ test('local repair: checkout itinerary uses the same quoted names as Web',async(
   assert.ok(quoted.rail_quote);
   backend.getCheckoutPresentation=async()=>({...quoted,rail_quote:{...quoted.rail_quote!,legs:[quoted.rail_quote!.legs[0]!,{...quoted.rail_quote!.legs[0]!,train_code:'D2',from:'郑州东',to:'北京西',seat_name:'无座'}]}});
   for(const jsonOutput of [false,true]){let output='';await runServicesCheckout(backend,loadConfig({ITPAY_API_BASE_URL:mock.url}),'se_mock_next','itpay_service',{resume:true,host:'plain-chat',jsonOutput,output:s=>output+=s});assert.match(output,/二等座/);assert.match(output,/无座/);assert.match(output,/北京西/);}
+ }finally{await mock.close();}
+});
+
+
+test('place followup: oneOf input has complete brief/template; legacy and endpoint recovery stay separate',async()=>{
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+  const side={type:'object',required:['text'],properties:{text:{type:'string'},kind:{type:'string'},poi_id:{type:'string'}}};
+  const schema={type:'object',required:['travel_date'],oneOf:[{required:['endpoints']},{required:['origin','destination']}],properties:{endpoints:{type:'object',required:['origin','destination'],properties:{origin:side,destination:side}},origin:{type:'string'},destination:{type:'string'},travel_date:{type:'string'},passengers:{type:'integer'},priority:{type:'string'}}};
+  for(const query of [{},{origin:'原起点住宅',destination:'原目的区域',travel_date:'2030-10-09',passengers:2,priority:'fastest'},{endpoints:{origin:{kind:'place',text:'原起点住宅'},destination:{kind:'area',text:'原目的区域'}},travel_date:'2030-10-09',passengers:2,priority:'fastest'}]){
+   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'input_required',current_step:'input',revision:1,steps:{},query_input:query}});
+   let text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const entry=JSON.parse(text);assert.match(entry.instruction,/端点理解摘要/);
+   const input=entry.interaction.input_template.input;
+   if('origin' in query){assert.equal(input.endpoints,undefined);assert.equal(input.origin,query.origin);}else assert(input.endpoints.origin.text);
+   if(Object.keys(query).length){
+    backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'failed',current_step:'geo',revision:1,steps:{},query_input:query,failure:{step_id:'resolved',reason_code:'place_identity_uncertain',endpoint:'origin'}}});
+    text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const recovery=JSON.parse(text).result.new_query_template.input;
+    if('origin' in query){assert.equal(recovery.endpoints,undefined);assert.equal(recovery.destination,query.destination);}else{assert.ok(query.endpoints);assert.equal(recovery.origin,undefined);assert.deepEqual(recovery.endpoints.destination,query.endpoints.destination);}
+    assert.equal(recovery.passengers,2);assert.equal(recovery.priority,'fastest');
+   }
+  }
  }finally{await mock.close();}
 });

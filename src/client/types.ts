@@ -465,7 +465,7 @@ export interface StartServiceExecutionRequest {
 
 export interface ServiceExecutionStarted {
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
-  workflow?: { query_input?: Record<string, unknown>; status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; failure?: { affected_leg?: number; step_id: string; reason_code: string; endpoint?: "origin" | "destination"; source_step?: string }; dependency?: { endpoint?: "origin" | "destination"; error_code?: string; infocode?: string; retryable?: boolean; retry_after?: number; retry_at?: number }; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
+  workflow?: { query_input?: Record<string, unknown>; status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; failure?: { affected_leg?: number; step_id: string; reason_code: string; endpoint?: "origin" | "destination"; source_step?: string; resolved_scope?: string }; dependency?: { endpoint?: "origin" | "destination"; error_code?: string; infocode?: string; retryable?: boolean; retry_after?: number; retry_at?: number }; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];
@@ -812,7 +812,7 @@ export interface ServiceExecutionReadModel {
   rail_booking?: RailBookingStatus;
   rail_planning?: RailPlanningProjection;
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
-  workflow?: { query_input?: Record<string, unknown>; status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; failure?: { affected_leg?: number; step_id: string; reason_code: string; endpoint?: "origin" | "destination"; source_step?: string }; dependency?: { endpoint?: "origin" | "destination"; error_code?: string; infocode?: string; retryable?: boolean; retry_after?: number; retry_at?: number }; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
+  workflow?: { query_input?: Record<string, unknown>; status: string; current_step: string; revision: number; steps: Record<string,string>; error_code?: string; failure?: { affected_leg?: number; step_id: string; reason_code: string; endpoint?: "origin" | "destination"; source_step?: string; resolved_scope?: string }; dependency?: { endpoint?: "origin" | "destination"; error_code?: string; infocode?: string; retryable?: boolean; retry_after?: number; retry_at?: number }; human_action?: { action_type: string; input_schema: Record<string, unknown>; context: Record<string, unknown> } };
 
   execution: ServiceExecution;
   capabilities: ServiceCapability[];

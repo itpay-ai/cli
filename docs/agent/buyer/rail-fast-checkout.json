@@ -14,7 +14,7 @@
       "command": "Use the rail-booking guide already read for this request",
       "notes": [
         "Use the current query result and booking_template; this topic does not replace the railway guide.",
-        "Before querying follow rail-booking: only clear reliable route knowledge can be used directly; merely probable routes require one short lookup, then the pre-query route brief."
+        "Before first querying, follow the single endpoint-understanding brief in rail-booking (meaning/category/evidence/unknowns and Exact/Smart choice). Use reliable route knowledge or one short lookup if merely probable. With current results, continue from their facts; do not restart to backfill a brief."
       ]
     },
     {

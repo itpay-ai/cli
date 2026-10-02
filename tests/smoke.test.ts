@@ -5833,8 +5833,9 @@ test("Smart endpoint guidance follows the published schema", async () => {
   await runServicesStart(client,"itpay-rail-smart",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
-  assert.equal(result.result.guidance.input_example.endpoints.destination.kind,undefined);
-  assert.equal(result.result.guidance.input_example.endpoints.destination.text,"<用户原始目的地>");
+  assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"area");
+  assert.equal(result.result.guidance.input_example.endpoints.destination.text,"<用户原始完整行政范围>");
+  assert.match(result.instruction,/端点理解摘要/);
   assert.equal(result.result.guidance.optional_fields.some((f:{name:string})=>f.name==="origin_location"),false);
 });
 
@@ -5854,8 +5855,8 @@ test("failed rail workflow reports the failed step, its meaning, and retry guida
   assert.match(result.instruction,/位置解析/);
   assert.doesNotMatch(result.instruction,/广州南南站/);
   assert.equal(result.next,null);
-  assert.equal(result.recovery[0].command,"itpay services get se_demo --json");
-  assert.equal(result.recovery.length,1);
+  assert.equal(result.recovery.length,0);
+  assert.doesNotMatch(result.instruction,/核对.*付款/);
 });
 
 test("failed rail workflow search step keeps the supplier cause", async () => {
