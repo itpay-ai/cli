@@ -56,7 +56,8 @@ export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
   handoff: Record<string, unknown>;
   instruction: string;
 } {
-  const handoff: Record<string, unknown> = { url: input.url, ...(input.plan?.localSimulation ? {environment:"local_simulation",query:"live",transactions:"simulated"} : {}) };
+  const url = input.plan?.localSimulation && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl! : input.url;
+  const handoff: Record<string, unknown> = { url, ...(input.plan?.localSimulation ? {environment:"local_simulation",query:"live",transactions:"simulated"} : {}) };
   // mobile_url is only emitted when the link carries the complete token pair;
   // a display-token-only link cannot finish the same-device exchange after payment.
   const mobileUrl = !input.plan?.localSimulation && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : undefined;
@@ -65,7 +66,7 @@ export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
   }
   const workBuddyAction = isWorkBuddyPlainChat(input.agentType, input.platform);
   if (workBuddyAction) {
-    handoff.agent_action = buildWorkBuddyPresentFilesAction(input.url);
+    handoff.agent_action = buildWorkBuddyPresentFilesAction(url);
   }
   if (input.platform === "markdown") {
     if (input.localPath) handoff.qr_local_path = input.localPath;

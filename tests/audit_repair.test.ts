@@ -190,7 +190,10 @@ test('local repair: trusted local mode changes handoff, URL text alone does not'
  const url='http://127.0.0.1:15173/checkout/test?display_token=synthetic&complete_exchange_token=synthetic';
  for(const localSimulation of [false,true]) {
   const plan=buildCheckoutQRPlan({host:'plain-chat',checkoutID:'test',checkoutURL:url,displayToken:'synthetic',qrPayload:url,nextAction:'select_payment',localSimulation});
-  const out=buildCheckoutHandoff({platform:'plain_chat',url,mobileUrl:url,amount:'¥12.00',plan,agentType:'workbuddy'});
+  const cardURL='http://127.0.0.1:15173/v1/checkouts/test/card';
+  const out=buildCheckoutHandoff({platform:'plain_chat',url:cardURL,mobileUrl:url,amount:'¥12.00',plan,agentType:'workbuddy'});
+  assert.equal(out.handoff.url,localSimulation?url:cardURL);
+  assert.deepEqual(out.handoff.agent_action,{tool:'present_files',arguments:{files:[localSimulation?url:cardURL]}});
   if(localSimulation){assert.match(out.instruction,/在本机打开/);assert.doesNotMatch(out.instruction,/手机端点开|直接跳转支付宝/);assert.equal(out.handoff.mobile_url,undefined);assert.equal(out.handoff.environment,'local_simulation');}
   else {assert.match(out.instruction,/手机端点开/);assert.equal(out.handoff.environment,undefined);}
  }
