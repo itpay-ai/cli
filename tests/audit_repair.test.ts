@@ -209,5 +209,9 @@ test('local repair: checkout itinerary uses the same quoted names as Web',async(
    assert.match(output,/宁波/);assert.match(output,/郑州东/);assert.match(output,/二等座/);
    if(process.env.ITPAY_EVIDENCE_DIR){const {writeFileSync}=await import('node:fs');writeFileSync(`${process.env.ITPAY_EVIDENCE_DIR}/n905-names.${jsonOutput?'json':'txt'}`,output);}
   }
+  const quoted=await backend.getCheckoutPresentation('chk_mock','synthetic');
+  assert.ok(quoted.rail_quote);
+  backend.getCheckoutPresentation=async()=>({...quoted,rail_quote:{...quoted.rail_quote!,legs:[quoted.rail_quote!.legs[0]!,{...quoted.rail_quote!.legs[0]!,train_code:'D2',from:'郑州东',to:'北京西',seat_name:'无座'}]}});
+  for(const jsonOutput of [false,true]){let output='';await runServicesCheckout(backend,loadConfig({ITPAY_API_BASE_URL:mock.url}),'se_mock_next','itpay_service',{resume:true,host:'plain-chat',jsonOutput,output:s=>output+=s});assert.match(output,/二等座/);assert.match(output,/无座/);assert.match(output,/北京西/);}
  }finally{await mock.close();}
 });
