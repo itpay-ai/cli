@@ -56,7 +56,7 @@ export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
   handoff: Record<string, unknown>;
   instruction: string;
 } {
-  const url = input.plan?.localSimulation && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl! : input.url;
+  const url = input.plan?.localSimulation && input.mobileUrl && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : input.url;
   const handoff: Record<string, unknown> = { url, ...(input.plan?.localSimulation ? {environment:"local_simulation",query:"live",transactions:"simulated"} : {}) };
   // mobile_url is only emitted when the link carries the complete token pair;
   // a display-token-only link cannot finish the same-device exchange after payment.
