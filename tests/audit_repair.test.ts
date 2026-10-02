@@ -148,7 +148,7 @@ test('journey harness: one official checkout carries all leg facts',async()=>{
 test('journey repair: raw multi-leg rejection points to saved complete plan',async()=>{
  const mock=await startMockBackend();try{
   const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
-  for(const code of ['rail_journey_selection_required','rail_selection_expired']) {
+  for(const code of ['rail_journey_selection_required']) {
    backend.startServiceExecution=async()=>{throw new HttpError(400,{code,message:'complete saved plan required'},'invalid');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{legs:[{seat_type:'O'},{seat_type:'O'}]}),error=>{
     assert.ok(error instanceof CommandContractError);assert.equal(error.code,code);assert.match(error.instruction,/手填 legs 只兼容单腿/);assert.ok(error.recovery.some(item=>item.command==='itpay services list --json'));return true;
@@ -235,5 +235,47 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
     assert.equal(recovery.passengers,2);assert.equal(recovery.priority,'fastest');
    }
   }
+ }finally{await mock.close();}
+});
+
+ test('feedback expiry: fresh template versus existing purchase and missing facts',async()=>{
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const query={endpoints:{origin:{kind:'area',text:'甲区域'},destination:{kind:'place',text:'乙住宅'}},travel_date:'2030-10-01',passengers:2,arrive_before:'20:00',priority:'fastest'};
+  for(const mode of ['fresh','existing','unknown','wrong_owner']) {
+   backend.startServiceExecution=async()=>{throw new HttpError(409,mode==='wrong_owner'?{code:'selection_wrong_buyer',message:'foreign'}:{code:'rail_selection_expired',message:'expired',...(mode==='unknown'?{}:{selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',expired_at:'2030-10-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_purchase'}:{})}})},'expired');};
+   await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:2,selections:[]}),error=>{
+    assert.ok(error instanceof CommandContractError);
+    if(mode==='fresh'){assert.deepEqual(error.interaction?.input_template?.input,query);assert.equal(error.recovery.length,0);assert.match(error.instruction,/原条件刷新一次/);}
+    else {assert.equal(error.interaction,undefined);if(mode==='existing')assert.equal(error.recovery[0]?.command,'itpay services next se_purchase --json');else assert.equal(error.recovery.length,0);}
+    return true;
+   });
+  }
+ }finally{await mock.close();}
+ });
+
+test('feedback facts: rail fee and elapsed scopes do not invent door-to-door totals',async()=>{
+ const mock=await startMockBackend();try{
+ const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+ for(const fare of [61900,12345,null]){
+ const journey={journey_id:'j_fact',route_family_id:'rf',qualification_status:'eligible' as const,rides:[{departure:'2030-10-01 08:00',arrival:'2030-10-01 15:21'}],representative_metrics:{duration_basis:'rail',door_to_door_min:441,estimated_total_cost:null,cost_basis:'rail_fare'},representative_offer:fare===null?null:{offer_id:'o',fare_minor:fare,service_fee_minor:400,rail_payable_minor:fare+400,currency:'CNY'}};
+ backend.getRailJourneyDetail=async()=>({service_execution_id:'se',plan_id:'p',snapshot_id:'s',query_revision:1,journey});
+ let output='';await runServicesReadResult(backend,'se',{journey:'j_fact',snapshot:'s',jsonOutput:true,output:s=>output+=s});const facts=JSON.parse(output).result.journey;
+ assert.equal(facts.rail_fare_fen,fare);assert.equal(facts.service_fee_fen,fare===null?null:400);assert.equal(facts.rail_payable_fen,fare===null?null:fare+400);assert.equal(facts.rail_duration_minutes,441);assert.equal(facts.door_to_door_minutes,null);assert.equal(facts.estimated_trip_total,null);assert.match(facts.ground_time_note,/未完整核验/);
+ }
+ }finally{await mock.close();}
+});
+
+test('feedback states: saved ready pause, unchanged and ground limits have honest next steps',async()=>{
+ const mock=await startMockBackend();try{
+ const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+ for(const arrive_before of [undefined,'20:00']) {
+ backend.getServiceExecution=async()=>({...base,rail_planning:{readiness:'ready',snapshot_id:'s',query_input:{...(arrive_before?{arrive_before}:{})},search:{expansion_status:'complete',reason:'ground_evidence_required'}}});
+ let output='';await runServicesNext(backend,'se',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);assert.equal(result.next,null);if(arrive_before)assert.match(result.instruction,/用户要求的到达时限/);else assert.doesNotMatch(result.instruction,/到达时限/);
+ }
+ for(const result_not_updated of [false,true]) {
+ backend.getServiceExecution=async()=>({...base,rail_planning:{readiness:'ready',snapshot_id:'s_recommend',catalog_snapshot_id:'s_catalog',result_not_updated,search:{expansion_status:'paused',counts:{journeys_total:8,journeys_eligible:5,pairs_total:4,pairs_checked:2}}}});
+ let output='';await runServicesNext(backend,'se',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);assert.equal(result.next,null);assert.doesNotMatch(result.instruction,/重新查票|自动扩大/);assert.equal(result.result.rail_planning.readiness,'ready');assert.match(result.result.full_result.command,/--snapshot s_catalog/);
+ }
  }finally{await mock.close();}
 });

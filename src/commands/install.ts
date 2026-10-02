@@ -22,6 +22,8 @@ export interface InstallOptions {
   output?: OutputSink;
 }
 
+export const CODEX_WAIT_GUIDANCE = "Codex 宿主等待：保留完整工具返回，例如 text(await tools.exec_command(...))，不要只输出 r.output。有 session_id 时用 write_stdin 续读同一命令；外层 functions.exec 返回运行 cell 时才用 wait。先取得最终输出，再执行 CLI 的业务 next；不要重复提交。";
+
 const INSTRUCTIONS: Record<InstallAgentType, string> = {
   "codex-desktop": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "codex-cli": "在 Codex CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
@@ -66,7 +68,7 @@ export function runInstall(target: string | undefined, options: InstallOptions =
       ...installDefinition(normalized),
       default_api: DEFAULT_BASE_URL,
     },
-    instruction: INSTRUCTIONS[normalized],
+    instruction: INSTRUCTIONS[normalized] + (normalized.startsWith("codex-") ? ` ${CODEX_WAIT_GUIDANCE}` : ""),
     next: {
       command: `itpay --agent-type ${normalized} readyz --json`,
       reason: "验证当前官方 ItPay API 的可用性",

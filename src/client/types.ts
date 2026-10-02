@@ -328,6 +328,7 @@ export interface PlatformCompatibility {
 }
 
 export interface ErrorResponse {
+  selection_expiry?: { query_execution_id: string; query_service_id: string; expired_at: string; query_input?: Record<string, unknown>; safe_new_query: boolean; booking_execution_id?: string };
   reason?: string;
   input_schema?: Record<string, unknown>;
   input_errors?: string[];
@@ -776,9 +777,9 @@ export interface RailJourneyCard {
   choice_group_representative?: string | null;
   representative_offer?: {
     offer_id: string;
-    fare_minor: number;
-    service_fee_minor: number;
-    rail_payable_minor: number;
+    fare_minor?: number | null;
+    service_fee_minor?: number | null;
+    rail_payable_minor?: number | null;
     currency: string;
     ticket_offers?: Array<Record<string, unknown>>;
   } | null;

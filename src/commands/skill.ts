@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { OutputSink } from "../render/sink.js";
+import { CODEX_WAIT_GUIDANCE } from "./install.js";
 import { declaredAgentType } from "../state/agent_type.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 
@@ -33,6 +34,7 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
   }
   validateSkill(content);
   const agentType = options.agentType ?? declaredAgentType();
+  if (agentType?.startsWith("codex-")) content += `\n## Codex command continuation\n\n${CODEX_WAIT_GUIDANCE}\n`;
   const envelope = {
     status: "shown",
     result: { skill: ITPAY_SKILL, content },

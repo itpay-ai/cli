@@ -390,7 +390,7 @@ export class DeviceAuthorizationError extends Error {
 export class DeviceStateError extends Error {
   readonly code = "device_state_unwritable";
 
-  constructor(readonly operation: DeviceStateOperation, readonly causeCode: string) {
+  constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string) {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
   }
@@ -540,13 +540,13 @@ function moveLockAside(path: string, suffix: "released" | "stale", operation: De
 function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
   const code = (error as NodeJS.ErrnoException).code;
   return code === "EACCES" || code === "EPERM" || code === "EROFS" || code === "ENOTDIR" || code === "EISDIR"
-    ? new DeviceStateError(operation, code)
+    ? new DeviceStateError(operation, code, (error as NodeJS.ErrnoException).path)
     : undefined;
 }
 
 function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
   const code = (error as NodeJS.ErrnoException).code;
-  return code === "EEXIST" ? new DeviceStateError(operation, code) : asDeviceStateError(error, operation);
+  return code === "EEXIST" ? new DeviceStateError(operation, code, (error as NodeJS.ErrnoException).path) : asDeviceStateError(error, operation);
 }
 
 import { stateDir } from "./config.js";

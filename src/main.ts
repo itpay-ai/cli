@@ -227,7 +227,7 @@ function reportCLIError(
     reason: "检查锁持有者；只回收已退出进程留下的锁，不改变设备身份",
   }] : [];
   const authorizationInstruction = stateError
-    ? "当前运行环境无法写入 owner-only Device 状态；请保持同一 Node、CLI 和 Agent Type，在允许持久写入 ~/.itpay-v3 的执行环境中重试。不要手工创建 lock、删除 identity 或换运行时碰运气。"
+    ? `当前运行环境无法写入 owner-only Device 状态；受阻路径 ${stateError.blockedPath ?? "~/.itpay-v3"}，操作 ${stateError.operation}（${stateError.causeCode}）。保持同一 Node、CLI 和 Agent Type，修复该路径持久写权限后重试原命令；不要手工创建 lock、删除 identity、随意更换 HOME 或换运行时。`
     : lockError
     ? "另一个进程仍在更新本地身份。执行 recovery 检查；若持有者仍活跃，等待后继续原任务，不要删除锁或重建身份。"
     : error instanceof HttpError && error.code === "agent_device_session_required"

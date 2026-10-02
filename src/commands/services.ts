@@ -1642,6 +1642,30 @@ function railBookingEnvelope(model: ServiceExecutionReadModel): CommandEnvelope 
   };
 }
 
+// Public summaries and saved details use the same evidenced units and scopes.
+function railJourneyFacts(card: RailJourneyCard): Record<string, unknown> {
+  const offer = card.representative_offer;
+  const metrics = card.representative_metrics;
+  const minor = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+  const time = (value: unknown) => typeof value === "string" ? Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value.replace(" ", "T") : `${value.replace(" ", "T")}+08:00`) : NaN;
+  const start = time(card.rides?.[0]?.departure), end = time(card.rides?.at(-1)?.arrival);
+  return {
+    rail_fare_fen: minor(offer?.fare_minor), service_fee_fen: minor(offer?.service_fee_minor),
+    rail_payable_fen: minor(offer?.rail_payable_minor), currency: offer?.currency ?? null,
+    price_basis: "铁路应付参考额=铁路票价+各票段服务费；不含未知地面费用，以新报价为准。",
+    rail_duration_minutes: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end-start)/60000) : null,
+    door_to_door_minutes: metrics?.duration_basis === "door_to_door" ? minor(metrics.door_to_door_min) : null,
+    ...(metrics?.duration_basis !== "door_to_door" ? {ground_time_note: "接驳未完整核验，不能把铁路时长称为门到门时间。"} : {}),
+    estimated_trip_total: metrics?.estimated_total_cost ?? null,
+    estimate_basis: "仅是已核验费用范围的估算，不是含全部地面费用的实付额。",
+  };
+}
+
+function publicBookingSupport(card: RailJourneyCard): string | undefined {
+  if (card.booking_support !== "separate_legs_only") return card.booking_support;
+  return card.qualification_status === "eligible" && card.ticket_plans?.some(plan => plan.qualification_status === "eligible" && plan.booking_input) ? "journey" : "read_only";
+}
+
 function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, snapshotID: string): Record<string, unknown> {
   if (!card.journey_id) throw new Error("saved journey has no stable ID");
   const rides = (card.rides ?? []).map((ride) => ({
@@ -1659,13 +1683,6 @@ function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, s
     leg_index: raw.leg_index, seat_type: raw.seat_type, seat_name: raw.seat_name,
     availability: raw.availability_text, remaining: raw.inventory_exact === true ? raw.remaining : null,
   }));
-  const railwayTime = (value: unknown) => {
-    if (typeof value !== "string") return NaN;
-    const time = value.replace(" ", "T");
-    return Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(time) ? time : `${time}Z`);
-  };
-  const start = railwayTime(rides[0]?.departure);
-  const end = railwayTime(rides.at(-1)?.arrival);
   return {
     journey_ref: card.journey_id,
     ...(card.profile_refs?.balanced ? { profile_ref: card.profile_refs.balanced } : {}),
@@ -1682,6 +1699,8 @@ function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, s
         required_input: ["file", "真实席别选择及人数"]},
     } : {}),
     ...(ticketSeats.length ? { seats: ticketSeats } : {}),
+    booking_support: publicBookingSupport(card),
+    ...(publicBookingSupport(card) === "read_only" ? {purchase_recovery: {command: `itpay services next ${serviceExecutionID} --json`, reason: "历史快照无整程凭据；读取同一执行合法准备路径，不拆单"}} : {}),
     ticket_plan_refs: (card.ticket_plans ?? []).map(plan => plan.ticket_plan_ref),
     transfer_wait_minutes: card.transfer_wait_minutes ?? [],
     ground_summary: card.ground_summary ?? null,
@@ -1689,13 +1708,11 @@ function compactRailJourney(card: RailJourneyCard, serviceExecutionID: string, s
     availability: card.availability ?? "unknown",
     qualification_status: card.qualification_status ?? "unknown",
     ...(card.qualification_reasons?.length ? { qualification_reasons: card.qualification_reasons } : {}),
-    ...(offer ? { rail_payable_fen: offer.rail_payable_minor, currency: offer.currency } : { rail_payable_fen: null }),
-    estimated_trip_total: metrics?.estimated_total_cost ?? null,
+    ...railJourneyFacts(card),
     cost_basis: metrics?.cost_basis ?? "unknown",
     duration_basis: metrics?.duration_basis ?? "unknown",
     timezone: "Asia/Shanghai",
     ...(card.risk_notes?.length ? { risk_notes: card.risk_notes } : {}),
-    rail_duration_minutes: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 60000) : null,
     ...(card.observed_at ? { observed_at: card.observed_at } : {}),
     detail: { command: `itpay services read-result ${serviceExecutionID} --snapshot ${snapshotID} --journey ${card.journey_id} --json`,
       reason: card.qualification_status === "eligible" ? "读取此完整线路的席别、报价和购买条件" : "读取此线路的铁路事实和不可购买原因" },
@@ -1709,7 +1726,8 @@ function compactRailTicketPlan(raw: Record<string, unknown>, journeyEligible: bo
   return {
     ticket_plan_ref: raw.ticket_plan_ref,
     passengers: raw.passenger_count ?? (Array.isArray(raw.ticket_offers) ? (raw.ticket_offers[0] as Record<string, unknown> | undefined)?.passengers : null) ?? null,
-    purchase_support: raw.purchase_support ?? "none",
+    purchase_support: raw.purchase_support === "separate_legs_only" ? "read_only" : raw.purchase_support ?? "none",
+    ...(legs.length > 1 && !raw.booking_input ? {booking_unavailable: "这份快照只有历史铁路事实，没有完整整程购买凭据；不能拆腿或拼接其他快照凭据。读取同一执行当前状态，按其购买准备或过期恢复动作继续。"} : {}),
     qualification_status: raw.qualification_status ?? "unknown",
     qualification_reasons: raw.qualification_reasons ?? [],
     rail_amount_fen: raw.rail_amount_fen ?? null,
@@ -1759,21 +1777,23 @@ function railJourneySummary(card: RailJourneyCard, serviceExecutionID: string, s
     route: (card.route_names?.length ? card.route_names : card.route ?? []).join("→"),
     ...(trains.length ? { trains } : {}),
     ...(first?.departure || last?.arrival ? { time: `${first?.departure ?? ""}–${last?.arrival ?? ""}` } : {}),
-    ...(offer ? { price: formatMoney(offer.rail_payable_minor, offer.currency) } : { price: "unknown" }),
+    ...(offer && typeof offer.rail_payable_minor === "number" ? { price: formatMoney(offer.rail_payable_minor, offer.currency) } : { price: "unknown" }),
+    ...railJourneyFacts(card),
     ...(metrics ? { calculation_scope: {
       origin: metrics.origin_scope ?? "legacy_unknown", destination: metrics.destination_scope ?? "legacy_unknown",
       duration_basis: metrics.duration_basis ?? "legacy_unknown", arrival_basis: metrics.arrival_basis ?? "legacy_unknown",
       cost_basis: metrics.cost_basis ?? "legacy_unknown",
-      duration_minutes: metrics.door_to_door_min ?? null,
+      duration_minutes: metrics.duration_basis === "door_to_door" ? metrics.door_to_door_min ?? null : railJourneyFacts(card).rail_duration_minutes,
     } } : {}),
     ...(card.decision_role ? { decision_role: card.decision_role } : {}),
     ...(card.explanation?.length ? { explanation: card.explanation } : {}),
     ...(card.reason_codes?.length ? { reason_codes: card.reason_codes } : {}),
     ...(card.tradeoff_codes?.length ? { tradeoff_codes: card.tradeoff_codes } : {}),
     ...(card.recommended_profile ? { recommended_profile: card.recommended_profile,
-      price_basis: "price为默认购票方案参考价；推荐对应的席别、接驳及总价以recommended_profile为准，按其中ticket_plan_ref/offer_refs查看并确认后下单。" } : {}),
+      recommended_price_basis: "推荐席别及已核验接驳估算以recommended_profile为准；按其ticket_plan_ref/offer_refs读取完整方案，新报价确认后下单。" } : {}),
     availability: card.availability,
-    booking_support: card.booking_support,
+    booking_support: publicBookingSupport(card),
+    ...(publicBookingSupport(card) === "read_only" ? {purchase_recovery: {command: `itpay services next ${serviceExecutionID} --json`, reason: "历史快照无整程凭据；读取同一执行当前合法购买准备路径，不拆单"}} : {}),
     ...(card.observed_at ? { observed_at: card.observed_at } : {}),
     ...(card.risk_notes?.length ? { risk_notes: card.risk_notes } : {}),
     ...(card.booking_support === "single_leg"
@@ -1847,7 +1867,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
     ...(plan.notices?.length ? { notices: plan.notices } : {}),
     ...(plan.recommendation ? { recommendation: railJourneySummary(plan.recommendation, se, plan.catalog_snapshot_id ?? plan.snapshot_id) } : {}),
     ...(cards.length ? { journeys: cards } : {}),
-    ...(plan.snapshot_id ? { full_result: { command: `itpay services read-result ${se} --snapshot ${plan.snapshot_id} --json`, meaning: "读取已保存的完整目录；推荐和journeys仅是摘要" } } : {}),
+    ...((plan.catalog_snapshot_id ?? plan.snapshot_id) ? { full_result: { command: `itpay services read-result ${se} --snapshot ${plan.catalog_snapshot_id ?? plan.snapshot_id} --json`, meaning: "读取已保存的完整目录；推荐和journeys仅是摘要" } } : {}),
     ...(!hasEligible && ["paused", "complete", "expired"].includes(expansion) && plan.query_input && plan.catalog_snapshot_id ? { new_query_template: {
       command: "itpay services run itpay-rail-smart --input-json <file> --json",
       executable: false,
@@ -1865,7 +1885,7 @@ function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandEnvelope
       if (plan.search?.reason === "ground_evidence_required") {
         return {
           status: "awaiting_input", result,
-          instruction: "已查到铁路班次，但具体地址的接驳或出站证据不足，无法验证到达时限；剩余站对未继续查询，不能说没有车。向用户说明已查范围，并请其补充准确起终点地址或可验证的接驳/出站信息；取得新事实后再按其要求重新规划，不要默认扩大铁路搜索。",
+          instruction: `已查到铁路班次，但具体地址的接驳或出站证据不足，${plan.query_input?.arrive_before || plan.query_input?.arrive_by ? "无法验证用户要求的到达时限" : "尚不能核验相应地点条件或门到门时间"}；剩余站对未继续查询，不能说没有车。说明已查范围和缺失事实，请补充准确起终点地址或可验证的接驳/出站信息；补齐后按原要求规划，不默认扩大搜索。`,
           next: null, recovery: [],
         };
       }
@@ -2896,9 +2916,24 @@ export async function runServicesRun(
         inputInvalid ? [{command:"itpay services list --json",reason:"定位原查询并读取当前完整购买模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式输入约束"}] : [],
         undefined,{service_id:serviceID, ...(id?{service_execution_id:id}:{}), ...(reason?{reason}:{}), execution_created:Boolean(id)});
     }
-    if (cause instanceof HttpError && ["rail_journey_selection_required", "rail_selection_expired"].includes(cause.code ?? "")) {
+    if (cause instanceof HttpError && cause.code === "rail_selection_expired") {
+      const expiry = cause.payload?.selection_expiry;
+      const bookingID = expiry?.booking_execution_id ?? id;
+      const refreshInput = !bookingID && expiry?.safe_new_query && ["itpay-rail-smart", "itpay-rail-exact"].includes(expiry.query_service_id) ? expiry.query_input : undefined;
+      const refresh = refreshInput !== undefined;
+      throw new CommandContractError(cause.code, cause.message,
+        refresh ? "刚才余票信息已过时，按原条件刷新一次真实库存（可能消耗查询额度）；不需要重复批准同条件查票。有价格、库存或条款变化再确认；不复用旧库存、不换站或日期。"
+          : bookingID ? "保留原购买执行，先读取订单与付款事实；不要重新查票、创建替代购买或重复付款。"
+          : "旧选择凭据已过期，历史详情不能续期；缺少完整原查询条件或安全购买状态证据，停止自动刷新。",
+        bookingID ? [{command: `itpay services next ${bookingID} --json`, reason: "核对原购买执行和付款状态"}] : [],
+        refreshInput && expiry ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template: {
+          command: `itpay services run ${expiry.query_service_id} --input-json <file> --json`, input: refreshInput, required_input: ["file"], executable: false,
+        }} : undefined,
+        {service_id: serviceID, ...(bookingID ? {service_execution_id: bookingID} : {}), ...(expiry ? {selection_expiry: expiry} : {})});
+    }
+    if (cause instanceof HttpError && cause.code === "rail_journey_selection_required") {
       throw new CommandContractError(cause.code!, cause.message,
-        "整程必须使用原查询当前完整 ticket plan 的 selections 模板；手填 legs 只兼容单腿。选择过期时说明缺少当前有效凭据，按用户决定取得完整方案，不拆单、不拼腿、不擅自换站或日期。",
+        "整程必须使用原查询当前完整 ticket plan 的 selections 模板；手填 legs 只兼容单腿。缺少整程模板时读取原方案；不拆单、不拼腿、不擅自换站或日期。",
         [{command:"itpay services list --json",reason:"找回原查询并读取其完整方案模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式整程输入合同"}],undefined,{service_id:serviceID,...(id?{service_execution_id:id}:{})});
     }
     if (cause instanceof HttpError && cause.code === "rail_seat_code_invalid" && id) {
