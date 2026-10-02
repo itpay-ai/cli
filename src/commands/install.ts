@@ -22,7 +22,7 @@ export interface InstallOptions {
   output?: OutputSink;
 }
 
-export const CODEX_WAIT_GUIDANCE = "Codex 宿主等待：保留完整工具返回，例如 text(await tools.exec_command(...))，不要只输出 r.output。有 session_id 时用 write_stdin 续读同一命令；外层 functions.exec 返回运行 cell 时才用 wait。先取得最终输出，再执行 CLI 的业务 next；不要重复提交。";
+export const CODEX_WAIT_GUIDANCE = "Codex 宿主等待：保留完整工具返回，按实际返回的会话句柄及当前宿主续读工具收取最终输出，不要只取 stdout。若使用 functions.exec 包装，可用 text(await tools.exec_command(...))；内层有 session_id 时用 write_stdin，外层返回运行 cell 时才用 wait。没有该包装时按宿主实际工具操作。先收取最终输出，再执行 CLI 业务 next；不要重复提交。";
 
 const INSTRUCTIONS: Record<InstallAgentType, string> = {
   "codex-desktop": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",

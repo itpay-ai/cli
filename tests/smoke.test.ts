@@ -2763,6 +2763,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(typed.instruction, /codex-desktop/);
   assert.match(typed.result.content, /session_id.*write_stdin/);
   assert.match(typed.result.content, /text\(await tools.exec_command/);
+  assert.match(typed.result.content, /若使用 functions.exec 包装/);
+  assert.match(typed.result.content, /没有该包装时按宿主实际工具操作/);
   assert.match(untyped.result.content, /Empty output is not a business failure/);
 
   const workbuddy = JSON.parse((await runCLI([
