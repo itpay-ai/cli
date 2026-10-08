@@ -3,6 +3,10 @@ name: Sync platform CLI bundle
 on:
   workflow_call:
     inputs:
+      npm-channel:
+        description: Explicit npm distribution channel (never silently falls back to latest)
+        default: next
+        type: string
       bundle-format:
         description: Bundle format written to bundle.lock.json
         required: true
@@ -104,12 +108,14 @@ jobs:
         id: target
         working-directory: platform
         env:
+          NPM_CHANNEL: ${{ inputs.npm-channel }}
           BUNDLE_FORMAT: ${{ inputs.bundle-format }}
           BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
           SKILL_PATH: ${{ inputs.skill-path }}
         run: |
           set -euo pipefail
-          VERSION=$(npm view @itpay/cli dist-tags.latest)
+          case "$NPM_CHANNEL" in next|latest) ;; *) echo "Unsupported npm channel" >&2; exit 1 ;; esac
+          VERSION=$(npm view "@itpay/cli@$NPM_CHANNEL" version)
           CURRENT_VERSION=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").version)')
           CURRENT_FORMAT=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").format)')
           CURRENT_BUNDLE_DIRECTORY=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").bundleDirectory || "vendor/itpay-cli")')
@@ -200,6 +206,11 @@ jobs:
           fi
           NEW_SOURCE_GIT_SHA=$(node -e 'console.log(require(process.env.GITHUB_WORKSPACE + "/platform/" + process.env.SKILL_PATH + "/bundle.lock.json").sourceGitSha)')
           echo "NEW_SOURCE_GIT_SHA=$NEW_SOURCE_GIT_SHA" >> "$GITHUB_ENV"
+          if [[ "$CURRENT_SOURCE_GIT_SHA" == "undefined" || -z "$CURRENT_SOURCE_GIT_SHA" ]]; then
+            echo "SKILL_REVIEW_REQUIRED=true" >> "$GITHUB_ENV"
+            echo "Previous candidate has no sourceGitSha; review the platform Skill against the published source." > "$DIFF_FILE"
+            exit 0
+          fi
           git cat-file -e "$CURRENT_SOURCE_GIT_SHA^{commit}"
           git cat-file -e "$NEW_SOURCE_GIT_SHA^{commit}"
           git diff --no-ext-diff "$CURRENT_SOURCE_GIT_SHA" "$NEW_SOURCE_GIT_SHA" -- skills/itpay/SKILL.md > "$DIFF_FILE"
@@ -238,17 +249,24 @@ jobs:
           git diff --check
 
       - name: Push update branch
+        id: push
         if: steps.decision.outputs.update == 'true'
         working-directory: platform
         run: |
           set -euo pipefail
           git add -A
+          if git diff --cached --quiet; then
+            echo "No file changes; nothing committed or pushed."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
           git commit -m "chore: update bundled CLI to $VERSION"
           git push --force-with-lease --set-upstream origin "$BRANCH"
 
       - name: Open update pull request
         id: pull-request
-        if: steps.decision.outputs.update == 'true'
+        if: steps.push.outputs.changed == 'true'
         working-directory: platform
         env:
           GH_TOKEN: ${{ steps.bundle-app-token.outputs.token || github.token }}
@@ -307,7 +325,7 @@ jobs:
           echo "$PR_URL"
 
       - name: Close superseded bot-only sync pull requests
-        if: steps.decision.outputs.update == 'true'
+        if: steps.push.outputs.changed == 'true'
         working-directory: platform
         env:
           GH_TOKEN: ${{ steps.bundle-app-token.outputs.token || github.token }}
