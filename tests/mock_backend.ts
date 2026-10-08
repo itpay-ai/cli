@@ -700,6 +700,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         const slice = all.slice(offset, offset + limit);
         respond(res, 200, {
           service_execution_id: serviceExecutionID,
+        service_id:"itpay-rail-exact",service_contract_version_id:"scv_itpay_rail_exact_v1",
           snapshot_id: "rsnap_1",
           plan_id: "rplan_1",
           query_revision: 3,
@@ -728,6 +729,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       respond(res, 200, {
         service_capability_result_item_id: resultItemID,
         service_execution_id: serviceExecutionID,
+        service_id:"itpay-rail-exact",service_contract_version_id:"scv_itpay_rail_exact_v1",
         capability_id: "rail_search",
         page: {
           result: {
@@ -970,7 +972,14 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
 		if (method === "POST" && serviceActionMatch) {
 			const serviceExecutionID = serviceActionMatch[1]!;
 			const payload = (requests.at(-1)?.body ?? {}) as { action_type?: string; actor_type?: string; status?: string; result_item_id?: string };
-			const selected = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
+			if(payload.action_type==="approve_purchase") {
+ const current=serviceExecutions[serviceExecutionID] ?? mockServiceExecutionReadModel(serviceExecutionID,"create_checkout");
+ const previous=Array.isArray(current.actions)?current.actions:[];
+ current.actions=[...previous,{service_execution_action_id:"sea_purchase_fixture",service_execution_id:serviceExecutionID,action_type:"approve_purchase",status:payload.status,actor_type:"agent",input_snapshot:(requests.at(-1)?.body as {input_snapshot?:unknown})?.input_snapshot}];
+ serviceExecutions[serviceExecutionID]=current;
+ respond(res,201,{service_execution_action_id:"sea_purchase_fixture",service_execution_id:serviceExecutionID,action_type:"approve_purchase",status:payload.status,actor_type:"agent"});return;
+ }
+ const selected = mockServiceExecutionReadModel(serviceExecutionID, "create_checkout");
 			selected.execution = {
 				...(selected.execution as Record<string, unknown>),
 				status: "human_action_approved",
@@ -1011,7 +1020,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
 				capability_id: capabilityID,
 				amount_minor: amountMinor,
 				currency: "CNY",
-				expires_at: "2026-07-13T12:15:00Z",
+                approval_template:{service_quote_lock_id:quoteID,service_execution_id:serviceExecutionID,service_id:"svc_qizhidao_company_lookup",service_contract_version_id:"sdcv_mock",capability_id:capabilityID,owner_ref:"fixture_agent:fixture_buyer",material_hash:"fixture_material",subject_fingerprint:"fixture_subject",terms_version:"sdcv_mock",scope:"prepare_checkout",expires_at:"2099-07-13T12:15:00Z",user_approved:false,evidence_source:"agent_reported",price_policy:{mode:"exact",currency:"CNY",quote_id:quoteID,amount_minor:amountMinor}},
+				expires_at: "2099-07-13T12:15:00Z",
 			});
 			return;
 		}
@@ -1516,6 +1526,7 @@ function mockServiceExecutionReadModel(serviceExecutionID: string, nextAction: s
       service_execution_id: serviceExecutionID,
       service_id: "svc_qizhidao_company_lookup",
       service_contract_version_id: "sdcv_mock",
+      ...(serviceExecutionID.startsWith("se_rail_") ? {public_binding:{public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"}} : {}),
       agent_device_id: "agent_smoke",
 		status: agentVisible ? "completed" : vaultDelivery ? (grantActive ? "grant_available" : "delivery_issued") : checkoutRequired ? "quote_locked" : nextAction === "select_candidate" ? "human_action_required" : "running",
       phase: agentVisible ? "completed" : vaultDelivery ? "delivery" : checkoutRequired ? "quote" : "pre_purchase",

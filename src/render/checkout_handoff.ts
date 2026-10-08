@@ -1,0 +1,130 @@
+import { platformKeyForHost } from "./plan.js";
+import type { RenderPlan } from "./plan.js";
+import { buildOpenClawTelegramAction } from "./telegram.js";
+
+export type CheckoutPlatform = ReturnType<typeof platformKeyForHost>;
+
+interface CheckoutHandoffInput {
+  agentType?: string;
+  platform: CheckoutPlatform;
+  url: string;
+  mobileUrl?: string;
+  qrImageURL?: string;
+  localPath?: string;
+  markdown?: string;
+  amount: string;
+  plan?: RenderPlan;
+  target?: string;
+}
+
+export function shouldPrepareLocalCheckoutImage(platform: CheckoutPlatform): boolean {
+  return platform === "markdown";
+}
+
+export function isWorkBuddyPlainChat(agentType: string | undefined, platform: CheckoutPlatform): boolean {
+  return agentType?.trim().toLowerCase() === "workbuddy" && platform === "plain_chat";
+}
+
+export function isZCodePlainChat(agentType: string | undefined, platform: CheckoutPlatform): boolean {
+  return agentType?.trim().toLowerCase() === "zcode" && platform === "plain_chat";
+}
+
+export function isLinkOnlyBrowserAgent(agentType: string | undefined, platform: CheckoutPlatform): boolean {
+  return isWorkBuddyPlainChat(agentType, platform) || isZCodePlainChat(agentType, platform);
+}
+
+export function buildWorkBuddyPresentFilesAction(url: string): Record<string, unknown> {
+  return {
+    tool: "present_files",
+    arguments: { files: [url] },
+  };
+}
+
+function hasCompleteCheckoutTokens(url: string | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return Boolean(parsed.searchParams.get("display_token") && parsed.searchParams.get("complete_exchange_token"));
+  } catch {
+    return false;
+  }
+}
+
+export function buildCheckoutHandoff(input: CheckoutHandoffInput): {
+  handoff: Record<string, unknown>;
+  instruction: string;
+} {
+  const url = input.plan?.localSimulation && input.mobileUrl && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : input.url;
+  const handoff: Record<string, unknown> = { url, ...(input.plan?.localSimulation ? {environment:"local_simulation",query:"live",transactions:"simulated"} : {}) };
+  // mobile_url is only emitted when the link carries the complete token pair;
+  // a display-token-only link cannot finish the same-device exchange after payment.
+  const mobileUrl = !input.plan?.localSimulation && hasCompleteCheckoutTokens(input.mobileUrl) ? input.mobileUrl : undefined;
+  if (mobileUrl) {
+    handoff.mobile_url = mobileUrl;
+  }
+  const workBuddyAction = isWorkBuddyPlainChat(input.agentType, input.platform);
+  if (workBuddyAction) {
+    handoff.agent_action = buildWorkBuddyPresentFilesAction(url);
+  }
+  if (input.platform === "markdown") {
+    if (input.localPath) handoff.qr_local_path = input.localPath;
+    if (input.markdown) handoff.markdown = input.markdown;
+  } else if (input.platform === "plain_chat" && input.qrImageURL && !isLinkOnlyBrowserAgent(input.agentType, input.platform)) {
+    handoff.qr_image_url = input.qrImageURL;
+  } else if (input.platform === "telegram" && input.qrImageURL) {
+    handoff.qr_image_url = input.qrImageURL;
+  }
+  if (input.agentType?.trim().toLowerCase() === "openclaw" && input.platform === "telegram" && input.plan && input.target) {
+    handoff.agent_action = buildOpenClawTelegramAction(input.plan, input.target);
+  }
+
+  return {
+    handoff,
+    instruction: input.plan?.localSimulation
+      ? `本地实验：铁路与地图查询真实，授权、通知和交易模拟，不会扣款。在本机打开 handoff.url 模拟付款入口，金额 ${input.amount}；仅本机桌面可达。${workBuddyAction ? "按 handoff.agent_action 原样打开一次。" : "展示原入口。"}等待用户操作后读取同一 Checkout；不创建替代订单，用户声明不证明模拟付款已确认。`
+      : `先展示官方入口，再做非必要记忆或日志；保留必需安全检查和宿主权限。${checkoutHandoffInstruction(input.agentType, input.platform, input.amount, Boolean(mobileUrl))}`,
+  };
+}
+
+function checkoutHandoffInstruction(
+  agentType: string | undefined,
+  platform: CheckoutPlatform,
+  amount: string,
+  hasMobileLink: boolean,
+): string {
+  if (isWorkBuddyPlainChat(agentType, platform)) {
+    const mobileSentence = hasMobileLink
+      ? "，然后把 handoff.mobile_url 作为可点击链接发给用户，说明“手机端点开可直接跳转支付宝或微信支付；小程序内打不开时复制到手机浏览器打开即可”"
+      : "";
+    const failLinks = hasMobileLink ? "发送 handoff.url 与 handoff.mobile_url" : "发送原始 handoff.url";
+    return `Backend 尚未确认付款。立即严格按 handoff.agent_action.tool 和 handoff.agent_action.arguments 原样执行一次，在右侧打开 handoff.url；确认工具调用成功后说明金额 ${amount}${mobileSentence}，然后停止等待。若工具失败，只${failLinks}，报告未自动打开并停止。不要用 present_files 打开本地文件或二维码 PNG，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+  }
+  if (isZCodePlainChat(agentType, platform)) {
+    const mobileSentence = hasMobileLink
+      ? "，并把 handoff.mobile_url 发给用户备用（手机端点开可直接跳转支付宝或微信支付）"
+      : "";
+    const fallbackLinks = hasMobileLink ? "同一个可点击 handoff.url 与 handoff.mobile_url" : "同一个可点击 handoff.url";
+    return `Backend 尚未确认付款。立即用 ZCode 内置浏览器打开 handoff.url，让用户完成付款；确认已发起打开后说明金额 ${amount}${mobileSentence}，然后停止等待。不要只粘贴文字链接，不要下载、解析或重建二维码，不要创建新 Checkout、Payment Intent 或 Execution。只有内置浏览器明确不可用时，才展示${fallbackLinks}。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+  }
+  if (agentType?.trim().toLowerCase() === "doubao-work" && platform === "plain_chat") {
+    const directLink = hasMobileLink ? "handoff.mobile_url" : "handoff.url";
+    const directLabel = hasMobileLink ? "手机直接打开收银台（可跳转支付宝/微信）" : "手机直接打开收银台";
+    return `Backend 尚未确认付款。在当前豆包工作对话中展示两个有标签的官方入口：将 ${directLink} 标为“${directLabel}”，将 handoff.qr_image_url 标为“二维码图片（保存或用另一台设备扫码）”。说明金额 ${amount} 后停止等待。不要解析或单独输出 URL credential，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+  }
+  if (platform === "markdown") {
+    const mobileSentence = hasMobileLink ? "，并附 handoff.mobile_url 供手机端点击直达支付" : "";
+    return `Backend 尚未确认付款。把 handoff.markdown 原样发送到当前桌面对话，确认二维码、付款链接和金额 ${amount} 均已实际对用户可见${mobileSentence}，然后停止等待。不要创建新 Checkout、Payment Intent 或 Execution；只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+  }
+  if (platform === "terminal") {
+    const mobileSentence = hasMobileLink ? "，并展示 handoff.mobile_url 供手机端点击直达支付" : "";
+    return `Backend 尚未确认付款。在用户可见终端展示当前 Checkout 的二维码、handoff.url 和金额 ${amount}${mobileSentence}，然后停止等待。不要创建新 Checkout、Payment Intent 或 Execution；只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+  }
+  if (agentType?.trim().toLowerCase() === "openclaw" && platform === "telegram") {
+    const failLinks = hasMobileLink ? "handoff.qr_image_url、金额、handoff.url 与 handoff.mobile_url" : "handoff.qr_image_url、金额和 handoff.url";
+    return `Backend 尚未确认付款或授权状态。立即使用 OpenClaw 原生 message tool，严格按 handoff.agent_action.tool 和 handoff.agent_action.arguments 原样执行；它会发送金额 ${amount}、二维码、📱 手机点这儿支付和 📋 已授权给我读。不得改写 presentation、换用其他消息工具、拆开按钮发送或用普通回复声称按钮已经发送。确认 message tool 调用成功后停止等待。收到 callback_data "itp:grant_confirmed:<checkout_id>" 时，表示用户声明已在收银台授权读取；立即执行 next.command 查询同一 Checkout，再只执行 Backend 返回的 next.command 进入同一 Execution 的 grant 流程。该 callback 不证明付款成功或 grant 已生效；Backend 未返回 grant_active 前不得读取或猜测结果。若原生 message tool 明确失败或当前 Telegram 未启用 inline buttons，只发送现有 ${failLinks}，报告按钮不可用并停止；不要创建新的 Checkout、Payment Intent 或 Execution。`;
+  }
+  const urlList = hasMobileLink ? "handoff.url、handoff.mobile_url（手机端点击直达支付）和可用的 handoff.qr_image_url" : "handoff.url 和可用的 handoff.qr_image_url";
+  return `Backend 尚未确认付款。把 ${urlList} 实际发送到当前会话，说明金额 ${amount}，然后停止等待。不要创建新 Checkout、Payment Intent 或 Execution；只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。`;
+}

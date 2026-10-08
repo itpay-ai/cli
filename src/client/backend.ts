@@ -42,6 +42,7 @@ import type {
   ServiceExecutionEvents,
   ServiceExecutionReadModel,
   ServiceExecutionStarted,
+  ServiceStartResponse,
   ServiceResultItemPage,
   ServiceQuotePrepared,
   SSEEvent,
@@ -219,7 +220,7 @@ export class BackendClient {
 
   // --- Service Execution ---
 
-  startServiceExecution(input: StartServiceExecutionRequest): Promise<ServiceExecutionStarted> {
+  startServiceExecution(input: StartServiceExecutionRequest): Promise<ServiceStartResponse> {
     return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input);
   }
 

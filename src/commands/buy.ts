@@ -1,3 +1,4 @@
+import { buildCheckoutQRPlan } from "../render/checkout_plan.js";
 // V3 `buy` flow:
 //   1. validate client context (host/target)
 //   2. create cart via POST /v1/carts
@@ -24,8 +25,8 @@ import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
 import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
-import { buildCheckoutHandoff, isLinkOnlyBrowserAgent, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
-import { qualifyItPayCommand } from "../state/agent_type.js";
+import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
+
 
 export type ContactField = "email" | "phone";
 
@@ -357,69 +358,6 @@ async function waitForPaymentSSE(
   });
 }
 
-// --- checkout QR plan ---
-
-export function buildCheckoutQRPlan(input: {
-  localSimulation?: boolean;
-  host: ClientHost;
-  checkoutID: string;
-  checkoutURL: string;
-  displayToken: string;
-  qrPayload: string;
-  qrPNGURL?: string;
-  cardURL?: string;
-  nextAction: string;
-  orderItems?: { title: string; quantity: number; amountMinor: number; currency: string }[];
-  orderCurrency?: string;
-  paymentMethod?: string;
-  paymentStatus?: string;
-  paymentIntentID?: string;
-  agentType?: string;
-  locale?: CardLocale;
-}): RenderPlan {
-  const summary = input.localSimulation ? "在本机打开模拟付款入口；铁路与地图查询真实，授权、通知和交易模拟，不会扣款。" : `Scan the QR or open ${input.checkoutURL} to start the human checkout flow.`;
-  const isPayment = input.paymentIntentID != null;
-  const afterCommand = qualifyItPayCommand(
-    `itpay checkout --id ${input.checkoutID} --token ${input.displayToken}${input.locale === "en" ? " --locale en" : ""} --json`,
-    input.agentType,
-  );
-
-  const platform: RenderPlan["platform"] = {
-    text: summary,
-    links: [
-      { label: "打开付款页面", url: input.checkoutURL },
-    ],
-    buttons: [
-      { label: "打开收银台", kind: "url" as const, url: input.checkoutURL },
-      ...(input.checkoutID
-        ? [{ label: "查询 Checkout 状态", kind: "callback" as const, intent: "check_checkout_status", ref: input.checkoutID }]
-        : []),
-    ],
-    blocks: [],
-    ...(input.qrPNGURL ? { media: [{ url: input.qrPNGURL, label: "Branded QR", mimeType: "image/png" }] } : {}),
-  };
-
-  const plan: RenderPlan = {
-    kind: isPayment ? "payment_qr" : "checkout_qr",
-    ...(input.localSimulation ? {localSimulation:true} : {}),
-    host: input.host,
-    summary,
-    url: input.qrPayload,
-    ...(isLinkOnlyBrowserAgent(input.agentType, platformKeyForHost(input.host)) && input.cardURL ? { linkOnlyURL: input.cardURL } : {}),
-    preferredQRSources: [input.qrPNGURL ?? input.qrPayload],
-    checkoutID: input.checkoutID,
-    platform,
-    afterActionCommand: afterCommand,
-    afterActionLabel: "扫码或点击链接完成支付后，执行以下命令查询状态：",
-  };
-  if (input.orderItems) plan.orderItems = input.orderItems;
-  if (input.orderCurrency) plan.orderCurrency = input.orderCurrency;
-  if (input.paymentMethod) plan.paymentMethod = input.paymentMethod;
-  if (input.paymentStatus) plan.paymentStatus = input.paymentStatus;
-  if (input.paymentIntentID) plan.paymentIntentID = input.paymentIntentID;
-  return plan;
-}
-
 function fallbackCardURL(baseURL: string, checkoutID: string, displayToken: string): string {
   const root = baseURL.replace(/\/$/, "");
   return `${root}/v1/checkouts/${encodeURIComponent(checkoutID)}/card?display_token=${encodeURIComponent(displayToken)}`;
@@ -464,3 +402,5 @@ function absolutePublicURL(baseURL: string, value: string): string {
     return value;
   }
 }
+
+export { buildCheckoutQRPlan } from "../render/checkout_plan.js";

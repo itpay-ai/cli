@@ -718,7 +718,7 @@ test("rail exact read-result collects saved pages without another supplier query
 	const before = mock.requests.length;
 	const exact = Object.create(backend) as BackendClient;
 	const model = await backend.getServiceExecution("se_rail_paged");
-	exact.getServiceExecution = async () => ({ ...model, execution: { ...model.execution, service_id: "itpay-rail-exact" } });
+	exact.getServiceExecution = async () => ({ ...model, execution: { ...model.execution, service_id: "itpay-rail-exact", service_contract_version_id: "scv_itpay_rail_exact_v1" } });
 	await runServicesReadResult(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { total: number; read_count: number; trains: unknown[] }; next: null };
 	assert.equal(envelope.status, "ready");
@@ -739,17 +739,17 @@ test("rail Exact normal return leads through saved rows to one bookable detail",
 		arrival: "2026-10-06 15:00", purchase_supported: true,
 		seats: [{ seat_type: "O", seat_name: "二等座", purchase_supported: true,
 			availability_text: "有", remaining: 8, quoted_total_minor: 50000, price_status: "estimate" }],
-		booking_offer: { service_id: "itpay-rail-booking", selection_token: `synthetic_${index}` },
+		booking_offer: { service_id: "itpay-rail-booking", service_contract_version_id: "scv_itpay_rail_booking_v4", selection_token: `synthetic_${index}` },
 	}));
 	exact.getServiceExecution = async () => ({ ...base,
-		execution: { ...base.execution, service_id: "itpay-rail-exact" },
+		execution: { ...base.execution, service_id: "itpay-rail-exact", service_contract_version_id: "scv_itpay_rail_exact_v1" },
 		current_result_items: [{ ...(base.current_result_items ?? [])[0]!, safe_payload: { result: {
 			candidates: rows.slice(0, 5), catalog_total: rows.length,
 			resolved_station_pair: { origin: "上海站", destination: "长沙南" },
 		} } }],
 	});
 	exact.getServiceExecutionResultItemPage = async (_execution, _item, offset, limit) => ({
-		service_execution_id: "se_rail_paged", service_capability_result_item_id: "sri_rail_paged",
+		service_id:"itpay-rail-exact",service_contract_version_id:"scv_itpay_rail_exact_v1",service_execution_id: "se_rail_paged", service_capability_result_item_id: "sri_rail_paged",
 		capability_id: "rail_search", page: { result: {
 			candidates: rows.slice(offset, offset + limit), catalog_total: rows.length,
 			resolved_station_pair: { origin: "上海站", destination: "长沙南" },
@@ -820,20 +820,21 @@ test("rail Exact zero result stays scoped to the resolved station pair", async (
 	const exact = Object.create(backend) as BackendClient;
 	const base = await backend.getServiceExecution("se_rail_paged");
 	exact.getServiceExecution = async () => ({ ...base,
-		execution: { ...base.execution, service_id: "itpay-rail-exact" },
+		execution: { ...base.execution, service_id: "itpay-rail-exact", service_contract_version_id: "scv_itpay_rail_exact_v1" },
 		current_result_items: [{ ...(base.current_result_items ?? [])[0]!, safe_payload: { result: {
 			candidates: [], catalog_total: 0, resolved_station_pair: { origin_name: "上海站", origin_code: "SHH", destination_name: "长沙南", destination_code: "CWQ", travel_date: "2030-10-09", scope: "station_pair" },
 		} } }],
 	});
 	await runServicesNext(exact, "se_rail_paged", { jsonOutput: true, output: stdoutSink });
 	const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; result: { scope: string; total: number;
-		resolved_station_pair: { origin_name: string }; smart_template: { executable: boolean; input_example: { reuse_from: { execution_id: string } } } }; instruction: string };
+		resolved_station_pair: { origin_name: string }; smart_template: { executable: boolean; command:string; input_example: { input:{reuse_from: { execution_id: string }} } } }; instruction: string };
 	assert.equal(envelope.status, "no_result");
 	assert.equal(envelope.result.scope, "station_pair");
 	assert.equal(envelope.result.total, 0);
 	assert.equal(envelope.result.resolved_station_pair.origin_name, "上海站");
-	assert.equal(envelope.result.smart_template.input_example.reuse_from.execution_id, "se_rail_paged");
+	assert.equal(envelope.result.smart_template.input_example.input.reuse_from.execution_id, "se_rail_paged");
 	assert.match(envelope.instruction, /不代表全城无车/);
+ assert.match(envelope.result.smart_template.command,/itpay-rail --operation query_smart/);
 });
 
 test("rail progressive planning keeps polling the same execution while expanding", async () => {
@@ -1511,11 +1512,13 @@ test("independent service quotes aggregate into one cart and one checkout", asyn
 		});
 		const envelope = JSON.parse(stdoutCapture.join("")) as {
 			status: string;
-			result: { service_quote_lock_id: string };
-			next: { command: string };
+			result: { service_quote_lock_id: string; approval_template: Record<string, unknown> };
+			next: null;
 		};
 		assert.equal(envelope.status, "quote_ready");
-		assert.match(envelope.next.command, /^itpay cart add --quote /);
+		assert.equal(envelope.next, null);
+		assert.equal(envelope.result.approval_template.user_approved, false);
+		await backend.recordServiceExecutionAction(executionID, {action_type:"approve_purchase",status:"approved",actor_type:"agent",input_snapshot:{...envelope.result.approval_template,user_approved:true}});
 		quoteIDs.push(envelope.result.service_quote_lock_id);
 	}
 
@@ -3516,6 +3519,14 @@ test("expired saved service checkout token returns an executable resume instruct
   );
 });
 
+// These handoff cases explicitly include approval of the scoped quote. The
+// mock verifies transport/rendering; server authorization has separate tests.
+async function approvePreparationFixture(id:string,capabilityID="precise_report") {
+ const quote=await backend.prepareServiceQuote(id,{capability_id:capabilityID});
+ assert.ok(quote.approval_template);
+ await backend.recordServiceExecutionAction(id,{action_type:"approve_purchase",actor_type:"agent",status:"approved",input_snapshot:{...quote.approval_template,user_approved:true}});
+}
+
 test("progressive service instructions execute unchanged across CLI processes", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-cli-progressive-"));
   const env = {
@@ -3530,6 +3541,10 @@ test("progressive service instructions execute unchanged across CLI processes", 
   ], env);
   assert.match(invoked.stdout, /service_execution_id/);
 
+  const quoted=JSON.parse((await runCLI(["services","checkout","se_instruction","--capability","precise_report","--email","buyer@example.com","--json"],env)).stdout);
+  assert.equal(quoted.status,"quote_ready");assert.equal(quoted.result.approval_template.user_approved,false);
+  const approvalFile=join(home,"approval.json");writeFileSync(approvalFile,JSON.stringify({...quoted.result.approval_template,user_approved:true}));
+  await runCLI(["services","action","se_instruction","--action","approve_purchase","--actor-type","agent","--status","approved","--input-json",approvalFile,"--json"],env);
   const created = JSON.parse((await runCLI([
     "services", "checkout", "se_instruction", "--capability", "precise_report",
     "--email", "buyer@example.com", "--json",
@@ -3688,6 +3703,7 @@ test("pay never returns a payment handoff for verified or refunded intents", asy
 });
 
 test("services checkout JSON returns ItPay checkout handoff, not provider QR", async () => {
+ await approvePreparationFixture('se_demo','precise_report');
   const stdoutCaptureJSON: string[] = [];
   const before = mock.requests.length;
   await runServicesCheckout(backend, config, "se_demo", "precise_report", {
@@ -3751,6 +3767,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
 });
 
 test("checkout title lookup failure preserves an already created official handoff", async () => {
+ await approvePreparationFixture('se_demo','precise_report');
   const client = Object.create(backend) as BackendClient;
   let reads = 0;
   client.getServiceExecution = async (id) => {
@@ -3768,6 +3785,7 @@ test("checkout title lookup failure preserves an already created official handof
 });
 
 test("OpenClaw Telegram checkout returns one native message action in the standard envelope", async () => {
+ await approvePreparationFixture('se_openclaw','precise_report');
   const output: string[] = [];
   await runServicesCheckout(backend, config, "se_openclaw", "precise_report", {
     email: "buyer@example.com",
@@ -3813,6 +3831,7 @@ test("OpenClaw Telegram checkout returns one native message action in the standa
 });
 
 test("OpenClaw non-Telegram checkout uses the standard image and link handoff", async () => {
+ await approvePreparationFixture('se_openclaw_discord','precise_report');
   const output: string[] = [];
   await runServicesCheckout(backend, config, "se_openclaw_discord", "precise_report", {
     email: "buyer@example.com",
@@ -3846,6 +3865,7 @@ test("service checkout validates the Telegram target before creating Checkout", 
 });
 
 test("services checkout resume reissues the same checkout and persists before output", async () => {
+ await approvePreparationFixture('se_resume','precise_report');
   const firstOutput: string[] = [];
   await runServicesCheckout(backend, config, "se_resume", "precise_report", {
     email: "buyer@example.com",
@@ -4142,6 +4162,7 @@ test("services action rejects non-object --input-json", async () => {
 
 test("booking review human action guides --input-json submission", async () => {
   const base = await backend.getServiceExecution("se_mock_next");
+ base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"prepare_purchase",adapter_key:"rail.v1"};
   const model = { ...base, workflow_entry: { capability_id: "itpay_service", input_schema: {} },
     workflow: { status: "human_action", current_step: "confirm_booking", revision: 5, steps: {},
       human_action: { action_type: "workflow:confirm_booking",
@@ -4167,6 +4188,7 @@ test("booking review human action guides --input-json submission", async () => {
 
 test("payment pause with open review offers revision alongside checkout", async () => {
   const base = await backend.getServiceExecution("se_mock_next");
+ base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"prepare_purchase",adapter_key:"rail.v1"};
   const model = { ...base, execution: { ...base.execution, status: "started" },
     workflow_entry: { capability_id: "itpay_service", input_schema: {} },
     workflow: { status: "payment", current_step: "payment", revision: 6, steps: {},
@@ -4262,6 +4284,7 @@ test("services start command accepts --json after the subcommand", async () => {
 });
 
 test("services checkout renders the branded checkout QR by default", async () => {
+ await approvePreparationFixture('se_render','precise_report');
   await runServicesCheckout(backend, config, "se_render", "precise_report", {
     email: "buyer@example.com",
     host: "codex",
@@ -4284,6 +4307,7 @@ test("services checkout requires delivery email before QR handoff", async () => 
 });
 
 test("services checkout does not require email for an agent-visible paid result", async () => {
+ await approvePreparationFixture('se_paid_fuzzy','fuzzy_disambiguation_paid');
 	await runServicesCheckout(backend, config, "se_paid_fuzzy", "fuzzy_disambiguation_paid", {
 		lockedInput: { keyword: "京东" },
 		output: silent,
@@ -5515,6 +5539,7 @@ test("services run resumes same execution and never retries uncertain provider",
 });
 
 test("services run submits input once and delegates payment to existing Checkout", async () => {
+ await approvePreparationFixture('se_demo','precise_report');
  const base=await backend.getServiceExecution("se_demo");
  const capability={...base.capabilities.find(item=>item.requires_payment)!,delivery_email_required:false};
  let advanced=0;
@@ -5531,6 +5556,7 @@ test("services run submits input once and delegates payment to existing Checkout
 });
 
 test("workflow Checkout collects required email on the protected page", async () => {
+ await approvePreparationFixture('se_demo','precise_report');
  const base=await backend.getServiceExecution("se_demo");
  const capability={...base.capabilities.find(item=>item.requires_payment)!,delivery_email_required:true};
  const model:ServiceExecutionReadModel={...base,capabilities:[capability],workflow_entry:{capability_id:capability.capability_id,input_schema:{type:"object"}},workflow:{status:"payment",current_step:"payment",revision:2,steps:{input:"success"}}};
@@ -5543,6 +5569,7 @@ test("workflow Checkout collects required email on the protected page", async ()
 
 test("CLI preserves safe railway fulfillment status and workflow progress", async () => {
  const base=await backend.getServiceExecution("se_demo");
+ base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"prepare_purchase",adapter_key:"rail.v1"};
  const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{quote:"success",payment:"success"}},rail_booking:{state:"manual_review",message:"部分车票已出票，其余待核对",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true},{leg_index:1,state:"manual_review",issued:false}]}};
  const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
  for(const run of [runServicesGet,runServicesNext]) {
@@ -5610,6 +5637,7 @@ test("location confirmation retains the execution and does not invite checkout",
 
 test("rail endpoint confirmation asks only for candidate ids in the same execution", async () => {
   const base=await backend.getServiceExecution("se_mock_next");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
   const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"human_action",current_step:"confirm_location",revision:3,steps:{},human_action:{action_type:"workflow:confirm_location",input_schema:{type:"object",required:["choices"]},context:{places:{origin:{query:"中山市古镇镇",resolution_status:"resolved",location:[113.2,22.5]},destination:{query:"某酒店",resolution_status:"needs_confirmation",resolution_candidates:[{poi_name:"某酒店东店",location:[113.3,22.6]}]}}}}}};
   const client=Object.create(backend) as BackendClient;
   client.getServiceExecution=async()=>model;
@@ -5678,6 +5706,7 @@ test("rail empty transfer result preserves official guidance and stops", async (
 
 test("rail location guidance precedes invocation and confirmation survives next", async () => {
   const base = await backend.getServiceExecution("se_mock_next");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
   const capability = {...base.capabilities[0]!, capability_id: "plan", requires_payment: false,
     phase: base.execution.phase, input_schema: {required:["origin","destination","travel_date"], properties:{origin_location:{type:"object"},destination_location:{type:"object"},location_confirmation:{type:"object"}}}};
   const query = {origin:"金尊府",destination:"深圳",travel_date:"2026-09-10"};
@@ -5744,6 +5773,7 @@ test("queued capability invoke is waiting, not an empty search result", async ()
 
 test("rail booking issuing state never claims payment means a ticket", async () => {
   const base=await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
   const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{quote:"success",payment:"success"}},rail_booking:{state:"pending",message:"已付款，正在出票",issued_legs:0,legs:[{leg_index:0,state:"polling",issued:false,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",seat_preferences:[{passenger_index:0,preference:"window"}]}]}};
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5757,6 +5787,7 @@ test("rail booking issuing state never claims payment means a ticket", async () 
 
 test("issued rail booking shows actual seats without requiring a ticket number", async () => {
   const base=await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
   const model:ServiceExecutionReadModel={...base,rail_booking:{state:"issued",message:"全部车票已出票",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true,train_code:"G1",travel_date:"2026-09-20",from:"北京南",to:"上海虹桥",departure:"09:00",arrival:"13:30",seat_name:"二等座",seats:[{passenger_index:0,seat_type_name:"二等座",seat_label:"03车10D",confirmed:true},{passenger_index:1,seat_type_name:"二等座",seat_label:"03车10F",confirmed:true}]}]},current_delivery:{service_delivery_binding_id:"sdb_1",service_execution_id:"se_demo",order_id:"ord_rail",status:"completed"}};
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5771,6 +5802,7 @@ test("issued rail booking shows actual seats without requiring a ticket number",
 
 test("terminal execution wins over rail booking status", async () => {
   const base=await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"prepare_purchase",adapter_key:"rail.v1"};
   const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"failed"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"book",revision:3,steps:{}},rail_booking:{state:"pending",message:"已付款，正在出票",issued_legs:0,legs:[{leg_index:0,state:"polling",issued:false,train_code:"G1"}]},checkout_bindings:[{service_checkout_binding_id:"scb_1",service_execution_id:"se_demo",checkout_id:"chk_1",service_quote_lock_id:"sql_1",status:"payment_verified"}]};
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5781,6 +5813,7 @@ test("terminal execution wins over rail booking status", async () => {
 
 test("completed rail execution still surfaces issued seats", async () => {
   const base=await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"prepare_purchase",adapter_key:"rail.v1"};
   const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"completed"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"completed",current_step:"done",revision:3,steps:{}},rail_booking:{state:"issued",message:"全部车票已出票",issued_legs:1,legs:[{leg_index:0,state:"issued",issued:true,train_code:"G1",seats:[{passenger_index:0,seat_label:"03车10D",confirmed:true}]}]},current_delivery:{service_delivery_binding_id:"sdb_1",service_execution_id:"se_demo",order_id:"ord_rail",status:"completed"}};
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5791,6 +5824,7 @@ test("completed rail execution still surfaces issued seats", async () => {
 
 test("unrecognized rail state reports processing, not issuing", async () => {
   const base=await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"prepare_purchase",adapter_key:"rail.v1"};
   const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"running",current_step:"book",revision:3,steps:{}},rail_booking:{state:"future_state",message:"",issued_legs:0,legs:[{leg_index:0,state:"unknown",issued:false,train_code:"G1"}]}};
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5821,7 +5855,7 @@ test("rail input_required returns teaching guidance, not an empty schema", async
   const base=await backend.getServiceExecution("se_mock_next");
   const model={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object",additionalProperties:true}}};
   const client=Object.create(backend) as BackendClient;
-  client.startServiceExecution=async()=>({execution:{...model.execution,service_id:"itpay-rail-exact"},capabilities:model.capabilities,workflow_entry:model.workflow_entry});
+  client.startServiceExecution=async()=>({execution:{...model.execution,service_id:"itpay-rail-exact", service_contract_version_id: "scv_itpay_rail_exact_v1"},capabilities:model.capabilities,workflow_entry:model.workflow_entry});
   await runServicesStart(client,"itpay-rail-exact",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
   assert.equal(result.status,"input_required");
@@ -5836,7 +5870,7 @@ test("Smart endpoint guidance follows the published schema", async () => {
   const base=await backend.getServiceExecution("se_mock_next");
   const schema={type:"object",properties:{endpoints:{type:"object"},travel_date:{type:"string"}}};
   const client=Object.create(backend) as BackendClient;
-  client.startServiceExecution=async()=>({execution:{...base.execution,service_id:"itpay-rail-smart"},capabilities:base.capabilities,workflow_entry:{capability_id:"itpay_service",input_schema:schema}});
+  client.startServiceExecution=async()=>({execution:{...base.execution,service_id:"itpay-rail-smart", service_contract_version_id: "scv_itpay_rail_smart_v6"},capabilities:base.capabilities,workflow_entry:{capability_id:"itpay_service",input_schema:schema}});
   await runServicesStart(client,"itpay-rail-smart",{jsonOutput:true,output:stdoutSink});
   const result=JSON.parse(stdoutCapture.join(""));
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
@@ -5848,7 +5882,7 @@ test("Smart endpoint guidance follows the published schema", async () => {
 
 test("failed rail workflow reports the failed step, its meaning, and retry guidance", async () => {
   const base=await backend.getServiceExecution("se_demo");
-  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-smart"},provider_invocations:[{provider_invocation_id:"pvi_1",capability_id:"geo",status:"failed",error_code:"invalid_location",error_message:"无法解析目的地：广州南南站"}],workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object"}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",geo:"failure"},failure:{step_id:"geo",reason_code:"invalid_location"},error_code:"invalid_location"}};
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-smart", service_contract_version_id: "scv_itpay_rail_smart_v6"},provider_invocations:[{provider_invocation_id:"pvi_1",capability_id:"geo",status:"failed",error_code:"invalid_location",error_message:"无法解析目的地：广州南南站"}],workflow_entry:{capability_id:"itpay_service",input_schema:{type:"object"}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",geo:"failure"},failure:{step_id:"geo",reason_code:"invalid_location"},error_code:"invalid_location"}};
   const client=Object.create(backend) as BackendClient;
   client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5868,7 +5902,7 @@ test("failed rail workflow reports the failed step, its meaning, and retry guida
 
 test("failed rail workflow search step keeps the supplier cause", async () => {
   const base=await backend.getServiceExecution("se_demo");
-  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-exact"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",search:"failure"},failure:{step_id:"search",reason_code:"workflow_failed"},error_code:"workflow_failed"}};
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,service_id:"itpay-rail-exact", service_contract_version_id: "scv_itpay_rail_exact_v1"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",quota:"success",search:"failure"},failure:{step_id:"search",reason_code:"workflow_failed"},error_code:"workflow_failed"}};
   const client=Object.create(backend) as BackendClient;
   client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5881,6 +5915,7 @@ test("failed rail workflow search step keeps the supplier cause", async () => {
 
 test("failed workflow on an unmapped step keeps the generic failure guidance", async () => {
   const base=await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
   const model:ServiceExecutionReadModel={...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"failed",current_step:"failure",revision:6,steps:{failure:"failure",input:"success",unknown_step:"failure"},error_code:"workflow_failed"}};
   const client=Object.create(backend) as BackendClient;client.getServiceExecution=async()=>model;
   await runServicesNext(client,"se_demo",{jsonOutput:true,output:stdoutSink});
@@ -5893,6 +5928,7 @@ test("failed workflow on an unmapped step keeps the generic failure guidance", a
 
 test("map dependency wait exposes safe facts and resumes the same execution without login", async () => {
   const base = await backend.getServiceExecution("se_mock_next");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
   const model: ServiceExecutionReadModel = {...base,
     execution_requests: [], workflow_entry: {capability_id:"itpay_service",input_schema:{}},
     workflow: {status:"quota_paused",current_step:"geo",revision:2,steps:{},error_code:"amap_rate_limited",
@@ -5912,6 +5948,7 @@ test("map dependency wait exposes safe facts and resumes the same execution with
 
 test("workflow failure uses the persisted second false source and legacy stays unknown", async () => {
  const base = await backend.getServiceExecution("se_demo");
+  base.execution.public_binding={public_service_id:"itpay-rail",service_definition_version:"scv_itpay_rail_public_v1",operation_id:"query_smart",adapter_key:"rail.v1"};
  const client = Object.create(backend) as BackendClient;
  const workflow = {status:"failed",current_step:"failure",revision:6,steps:{first:"false",second:"false",failure:"failure"},error_code:"condition_unmet"};
  client.getServiceExecution = async () => ({...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{...workflow,failure:{step_id:"second",source_step:"geo_confirm",reason_code:"location_evidence_required",endpoint:"destination"}}});
@@ -5975,11 +6012,11 @@ test("multi-service catalog text keeps each real entry without a guessed top-lev
   const client = Object.create(backend) as BackendClient;
   const original = await backend.getCatalogManifest();
   const first = original.manifest.items[0]!;
-  client.getCatalogManifest = async () => ({ ...original, manifest: { ...original.manifest, items: [first, { ...first, title: "另一服务", service_id: "itpay-rail-smart" }] } });
+  client.getCatalogManifest = async () => ({ ...original, manifest: { ...original.manifest, items: [first, { ...first, title: "另一服务", service_id: "itpay-rail-smart", service_contract_version_id: "scv_itpay_rail_smart_v6" }] } });
   await runCatalogList(client, { output: stdoutSink });
   const plain = stdoutCapture.join("");
   assert.match(plain, /entry: itpay services start svc_qizhidao_company_lookup --json/);
   assert.match(plain, /entry: itpay services start itpay-rail-smart --json/);
-  assert.match(plain, /entry: itpay docs show rail-booking/);
+  assert.doesNotMatch(plain, /docs show rail-booking/, "an untyped legacy ID does not imply a railway contract");
   assert.doesNotMatch(plain, /\nnext:/);
 });

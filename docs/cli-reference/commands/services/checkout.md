@@ -2,6 +2,10 @@
 
 > **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The same entry point supports Buyer workflows and the existing `itpay sell` Seller workflow.
 
+## 服务报价的批准边界
+
+服务支持的 Quote/Cart/Checkout 共用服务端范围校验。缺少有效价格批准时返回完整 `approve_purchase` 模板，默认 `user_approved:false`；Agent 只在真实会话已同意当前主体、内容、价格或预算和条款时提交 true。选择候选或完成席别 review 不代替价格批准。同条件有效批准复用，已有 Checkout/未知付款先恢复原单，不补事后批准或创建替代订单。
+
 ## 范围与意义
 
 为单个 Service Execution 快速创建或恢复 Checkout，并按 Host 向人交接付款入口。它是 `services quote -> cart add --quote -> buy --cart` 的单项快捷方式，必须复用相同的 Quote、Cart 和 Checkout Use Case。

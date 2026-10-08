@@ -14,13 +14,10 @@ human the useful result or action, not the internal steps.
 
 ## Choose one entry
 
-- Railway planning or booking: read `itpay docs show rail-booking` once; preserve
-  the original endpoints and constraints, use only clear reliable route knowledge
-  directly, and make one targeted lookup if your judgment is merely probable.
-  Before the first railway query, record each endpoint’s original meaning,
-  category (station/area/place), evidence source and unknown facts, then the
-  constraints and Exact/Smart choice: one 2–4 line brief in conversation or
-  existing route-brief.txt. See rail-booking for the format; reuse unchanged notes.
+- Railway planning or booking: read `itpay docs show rail-booking` once, then
+  `itpay services start itpay-rail --json` for declared operations and templates.
+  Preserve the full original endpoints and constraints; the railway guide owns
+  reliable knowledge, targeted lookup, pre-query brief and Exact/Smart choice.
 - Other new services: `itpay catalog list --json`, then the chosen service's
   published input contract.
 - Existing execution: `itpay services next <execution_id> --json`.
@@ -83,7 +80,10 @@ Apply the human's existing choices and approvals within their scope. Ask only
 for missing choices, permissions or materially changed terms. Reuse an accepted original destination, no-seat option, overnight travel and incomplete coverage when unchanged; do not ask again or silently change the destination. Service-specific
 rules determine when delegated selection is allowed. Never invent human
 consent, identity data, payment, ticket issuance or refund success. An Agent
-may select under the human's delegation, but must not record itself as a human. Choosing a train is not acceptance of seat-request or whole-journey terms; when missing, ask the current review consent question once and leave the unaccepted default false.
+may select under the human's delegation, but must not record itself as a human. Candidate selection is not approval of price. Use the server scoped approve_purchase
+template only for genuine matching exact-price, capped-budget or explicitly authorized
+official-page confirmation; its default remains false. Restore an existing checkout first.
+Choosing a train is not acceptance of seat-request or whole-journey terms; when missing, ask the current review consent question once and leave the unaccepted default false.
 
 ## Show the human
 

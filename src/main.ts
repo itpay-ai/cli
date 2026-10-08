@@ -1572,7 +1572,8 @@ const services = program.command("services").description("Generic V3 Service Exe
 
 services
   .command("run")
-  .description("Run a published service and present Checkout when payment is required")
+  .description("Run a declared service operation; preparation approval is required before Checkout")
+  .option("--operation <operation_id>", "operation declared by the public service definition")
   .argument("<service_id>")
   .option("--input-json <file>", "JSON object containing the service input")
   .option("--execution <execution_id>", "resume the same execution")
@@ -1583,16 +1584,29 @@ services
   .action(async (serviceID: string, options) => {
     const config = loadConfig();
     try {
-      const input = options.inputJson
+      let input = options.inputJson
         ? readInputJsonObject(options.inputJson, "workflow_input_invalid", [
             { command: `itpay services run ${serviceID} --json`, reason: "重新读取服务输入声明" },
           ])
         : undefined;
+      let continuation: {service_execution_id:string;snapshot_id:string}|undefined;
+      if(options.operation && input!==undefined){
+        const parameters=input.input;
+        if(typeof parameters!=="object"||parameters===null||Array.isArray(parameters)) throw new CommandContractError("operation_input_invalid","operation JSON must include an input object","使用公开操作返回的完整JSON模板，顶层input是业务输入；保留服务端continuation。",[]);
+        const reference=input.continuation;
+        if(reference!==undefined){
+          if(typeof reference!=="object"||reference===null||Array.isArray(reference)||!("service_execution_id" in reference)||!("snapshot_id" in reference)||typeof reference.service_execution_id!=="string"||typeof reference.snapshot_id!=="string") throw new CommandContractError("operation_input_invalid","invalid continuation reference","保留结果详情返回的continuation，不猜执行或snapshot。",[]);
+          continuation={service_execution_id:reference.service_execution_id,snapshot_id:reference.snapshot_id};
+        }
+        input=Object.fromEntries(Object.entries(parameters));
+      }
       if (!Number.isFinite(options.timeout) || options.timeout < 0 || options.timeout > 600) {
         throw new Error("timeout must be between 0 and 600 seconds");
       }
       await runServicesRun(newBackendClient(config), config, serviceID, input, {
         ...(options.execution ? { executionID: options.execution } : {}),
+ ...(options.operation ? {operationID:options.operation}:{}),
+ ...(continuation ? {continuation}:{}),
         jsonOutput: Boolean(options.json),
         host: withHost(options.host, config.agentType, options.target),
         ...(options.target ? { target: options.target } : {}),

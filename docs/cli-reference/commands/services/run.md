@@ -124,23 +124,19 @@ itpay services run <service_id> --execution <execution_id> --json
 
 限流不是收费、不是试用耗尽、不需要重新登录。等待中不得重复扣试用或发起新的供应商请求。
 
-## 已选车次的购票输入（selection）
+## 公开操作与完整购买承接
 
-对 `itpay-rail-booking`，输入支持两种等价方式。优先使用查询结果里服务端签发的购买承接：
+铁路是一项 `itpay-rail` 服务，`query_exact`、`query_smart`、`prepare_purchase` 是固定定义内的操作。查询输入按返回模板填写 `{ "input": { ... } }`；不要把内部实现当三项公开服务重新发现。
 
-```json
-{
-  "passengers": 1,
-  "selection": {
-    "token": "<查询结果项中的 booking_offer.selection_token>",
-    "seat_type": "O"
-  }
-}
+```sh
+itpay services run itpay-rail --operation query_exact --input-json query.json --json
 ```
 
-`selection.token` 绑定一次具体查询结果快照与其中的班次/方案；服务端校验归属、快照版本、时效后推导权威 `legs` 并实时核价。Agent 只提交用户选定的承接、`seat_type`（必要时）与乘客人数，**绝不手工拼装 `legs`、站码、时刻或供应商形状**。显式 `legs` 输入仍然有效，字段即购票服务发布的 `input_schema`（`passengers` 为 1–5 整数人数，不是乘客身份数组）。
+所选行程详情返回完整准备购买模板，含 `continuation.service_execution_id`、`continuation.snapshot_id` 和 `input.selections`。原样保留当前 owner、快照、完整段数、席别代码和人数，写入文件并执行其命令。不要手拼腿、站码、时刻、付款批准或缺失的 snapshot。一次整程对应一个 booking、一个官方付款入口，各段分别出票。
 
-相同 selection 重复提交恢复同一购票执行，不会重复核价或建单。
+旧 `itpay-rail-exact/smart/booking` ID 仅用于已有执行和历史模板的兼容恢复；新公共模板与旧凭据共用原购买去重。存在或未知购买先恢复，过期库存不等于能新建购买。
+
+候选选择和席别条款确认不等于价格批准。实时报价返回完整有范围的 `approve_purchase` JSON，默认 `user_approved:false`。仅已有真实、匹配价格/上限/条款/主体同意才改 true；内容未变可复用。付款与出票事实仍由后端及官方页确认。
 
 ## 终态和异常
 
