@@ -1,3 +1,4 @@
+import {railOverviewInstruction} from "../../services/rail/guide.js";
 import {railShouldWait,railPollAfter} from "../../services/rail/wait.js";
 import {railInvocationProjection} from "../../services/rail/invocation.js";
 import { railInputRecoveryInstruction, railRunError } from "../../services/rail/recovery.js";
@@ -35,7 +36,7 @@ export async function runServicesStart(
   if (response.workflow_entry) {
     const guidance = serviceAdapterKey(response.execution) === "rail.v1" ? railServiceGuidance(response.execution.service_id, response.workflow_entry.input_schema) : undefined;
     if (serviceAdapterKey(response.execution) === "rail.v1" && serviceID === "itpay-rail-smart" && !guidance) {
-      writeCommandEnvelope({status:"contract_unavailable",result:{service_execution_id:response.execution.service_execution_id,service_id:serviceID},instruction:"当前执行缺少可用输入合同；只读取一次同执行合同，仍缺失则报告系统缺口并停止，不猜旧Smart写法。",next:{command:`itpay services get ${response.execution.service_execution_id} --json`,reason:"读取当前执行锁定的输入合同一次"},recovery:[]},options);
+      writeCommandEnvelope({status:"contract_unavailable",result:{service_execution_id:response.execution.service_execution_id,service_id:serviceID},instruction:"当前执行缺少可用输入合同；只读取一次同执行合同，仍缺失则报告系统缺口并停止，不猜缺失字段或旧输入写法。",next:{command:`itpay services get ${response.execution.service_execution_id} --json`,reason:"读取当前执行锁定的输入合同一次"},recovery:[]},options);
       return;
     }
     writeCommandEnvelope({
@@ -470,5 +471,5 @@ export function writeServiceOverview(definition: import("../../client/types.js")
  const adapter=serviceAdapterKey({service_id:definition.service_id,service_contract_version_id:definition.definition_version,public_binding:{public_service_id:definition.service_id,service_definition_version:definition.definition_version,operation_id:"overview",adapter_key:definition.adapter_key}});
  const operations=definition.operations.map(op=>({operation_id:op.id,title:op.display_names["zh-CN"],role:op.role,billing_mode:op.billing_mode,requires_continuation:op.requires_continuation ?? false,...(!op.requires_continuation?{input_schema:op.input_schema,input_template:{command:`itpay services run ${shellArgument(definition.service_id)} --operation ${shellArgument(op.id)} --input-json <file> --json`,input:{input:adapter==="rail.v1"?railInputTemplate(op.input_schema):serviceInputTemplate(op.input_schema)},executable:false}}:{instruction:"使用已有结果详情返回的完整准备购买模板、输入合同和continuation；不自行拼凭据或重新发现购买服务。"})}));
  const result={service_id:definition.service_id,title:definition.display_names["zh-CN"],definition_version:definition.definition_version,...(definition.guide?{guide:`itpay docs show ${definition.guide.topic}`} : {}),operations};
- writeCommandEnvelope({status:"service_overview",result,instruction:definition.guide && definition.adapter_key === "rail.v1"?`尚未创建执行或查询。先读 ${definition.guide.topic} 服务指南、理解用户完整地点与约束，形成简短路线摘要后选择操作；查询结果不是价格同意。`:"尚未创建执行。按用户请求选择返回的操作并填写完整输入；不猜未声明的操作。",next:definition.guide?{command:`itpay docs show ${definition.guide.topic}`,reason:"首次操作前读取服务的完整指导"}:null,recovery:[]},{...options,plainResult:plainValueLines(result)});
+ writeCommandEnvelope({status:"service_overview",result,instruction:definition.guide && definition.adapter_key === "rail.v1"?railOverviewInstruction(definition.guide.topic):"尚未创建执行。按用户请求选择返回的操作并填写完整输入；不猜未声明的操作。",next:definition.guide?{command:`itpay docs show ${definition.guide.topic}`,reason:"首次操作前读取服务的完整指导"}:null,recovery:[]},{...options,plainResult:plainValueLines(result)});
 }

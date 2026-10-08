@@ -80,7 +80,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 				})),
 			},
 			instruction: paidCapability
-				? "付费搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload 或自动购买后续报告。"
+				? "付费搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload 或自动购买后续服务。"
 				: "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时才提交对应编号；不要提及 safe_payload、Execution 或内部 ID。",
 			next: {
 				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,

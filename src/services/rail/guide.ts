@@ -118,3 +118,7 @@ export function railInputTemplate(schema: Record<string, unknown>, known: Record
  if (properties?.accept_non_guaranteed) result.accept_non_guaranteed=false;
  return result;
 }
+
+export function railOverviewInstruction(topic:string):string {
+ return `尚未创建执行或查询。先读 ${topic} 服务指南、理解用户完整地点与约束，形成简短路线摘要后选择操作；查询结果不是价格同意。`;
+}
