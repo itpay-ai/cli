@@ -160,6 +160,7 @@ export interface CreatePaymentIntentRequest {
 }
 
 export interface Order {
+ service_identities?: Array<Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">>;
   order_id: string;
   order_code?: string;
   checkout_id: string;
@@ -907,4 +908,36 @@ export interface SSEEvent {
   type: string;
   sequence: number;
   payload: Record<string, unknown>;
+}
+
+export interface RailAftercareTarget { leg_index: number; passenger_index: number }
+export interface RailAftercareInput {
+ operation: "refund" | "change";
+ targets: RailAftercareTarget[];
+ reason: string;
+ scope_revision: number;
+ user_confirmed_scope: boolean;
+ change?: { travel_date?: string; departure_after?: string; arrival_before?: string; seat_type?: string; train_code?: string; constraints: string };
+}
+export interface RailChangedTicket extends RailAftercareTarget {
+ train_code: string; travel_date: string; from_station_code: string; to_station_code: string; departure_time: string; arrival_time: string; seat_type: string;
+}
+export interface RailChangeProposal { changes: RailChangedTicket[]; difference_minor: number; currency: string; fee_handling: "manual_coordination"; conditions: string }
+export interface RailAftercareCase {
+ case_id: string; order_id: string; status: "requested"|"needs_input"|"awaiting_confirmation"|"processing"|"completed"|"rejected"|"cancelled"; revision: number;
+ request: RailAftercareInput; refund_request_id?: string; proposal?: RailChangeProposal; proposal_revision: number; confirmed_proposal_revision: number;
+ supplier_result?: { completed: boolean; source: string; changes: RailChangedTicket[]; reference?: string; fee_status: string; fee_evidence?: string };
+ history: Array<{ action: string; actor_type: string; actor_id?: string; note?: string; revision: number; at: string }>;
+ created_at: string; updated_at: string;
+}
+export interface RailAftercareJourney {
+ passengers: number; fact_rule: string;
+ legs: Array<{ leg_index: number; train_code: string; travel_date: string; from: string; to: string; departure_time: string; arrival_time: string; seat_name: string; tickets: Array<RailAftercareTarget & { issuance_state: string; change_state?: string; verified_change?: RailChangedTicket; financial_refund_state?: string; supplier_refund_state?: string }> }>;
+}
+export interface RailAftercareView { can_cancel: boolean; refund_amount_basis?: string; execution_identity: Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">; case: RailAftercareCase; journey: RailAftercareJourney; refund?: RefundRequest; instruction: string }
+export interface RailAftercareDirectory { execution_identity: Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">; order_id: string; journey: RailAftercareJourney; cases: RailAftercareView[]; available_targets: RailAftercareTarget[]; input_templates: Record<"refund"|"change",RailAftercareInput>; instruction: string }
+export interface RailAftercareResponseInput { expected_revision: number; proposal_revision?: number; user_approved?: boolean; additional_information?: string; reason?: string }
+export interface RailAftercareAdminInput {
+ expected_revision: number; action: "needs_input"|"reject"|"start"|"propose_change"|"complete_change"|"confirm_refund"|"note";
+ note: string; proposal?: RailChangeProposal; supplier_result?: NonNullable<RailAftercareCase["supplier_result"]>; rail_refund?: {supplier_completed:boolean;tickets:Array<{leg_index:number;passenger_index:number;fare_minor:number;source:string; supplier_refund_ref?:string}>};
 }

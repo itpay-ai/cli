@@ -137,6 +137,7 @@ try {
     ["sell pull", "commands/sell.md"],
     ["sell mcp", "commands/sell.md"],
   ]);
+  for(const path of ["aftercare","aftercare list","aftercare create","aftercare get","aftercare respond","aftercare cancel"]) commandDocs.set(path,"commands/aftercare.md");
   const commandPaths = discoverCommandPaths(entry, env);
   assert.deepEqual(
     [...commandPaths].map((path) => path.join(" ")).sort(),

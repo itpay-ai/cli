@@ -1,3 +1,4 @@
+import {railAftercareOrder,railAftercareList,railAftercareEnvelope,railAftercareCreate,railAftercareRespond} from "./aftercare.js";
 import type { ServiceAdapter } from "../adapter.js";
 import { railInputTemplate, railServiceGuidance, RAIL_ENDPOINT_BRIEF, locationInputInstruction, railOverviewInstruction } from "./guide.js";
 import { railShouldWait, railPollAfter } from "./wait.js";
@@ -11,6 +12,7 @@ import { railCheckoutItinerary } from "./checkout.js";
 import { renderRailResultPage } from "./page.js";
 import { readSavedResult } from "./reading.js";
 export const railAdapter: ServiceAdapter = {
+ aftercare:{order:railAftercareOrder,directory:railAftercareList,present:railAftercareEnvelope,create:railAftercareCreate,respond:railAftercareRespond},
  entryInstruction: RAIL_ENDPOINT_BRIEF + "按 result.guidance 逐项填写输入（when_to_use 说明本服务适用场景、input_fields 是必填契约、input_example 是待填示意，必须替换用户真实值），然后继续同一服务执行。不要臆造字段名。",
  supported:true, inputTemplate:railInputTemplate, inputInstruction:railInputRecoveryInstruction,
  guidance:railServiceGuidance, requiresGuidance: id => id === "itpay-rail-smart",

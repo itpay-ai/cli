@@ -95,3 +95,5 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
 - [Sell: create, test and submit services](commands/sell.md)
 
 - [Run a published service](commands/services/run.md)
+
+- [`itpay aftercare`](commands/aftercare.md)

@@ -1,3 +1,4 @@
+import {runAftercareList,runAftercareCreate,runAftercareGet,runAftercareRespond} from "./commands/aftercare.js";
 import { agentAuth } from "./state/account_auth.js";
 import {registerSell} from "./sell/commands.js";
 import { readFileSync as readWorkflowInputFile, statSync as statWorkflowInputFile } from "node:fs";
@@ -1339,6 +1340,22 @@ feedback
       });
     }
   });
+
+const aftercare = program.command("aftercare").description("Railway manual refund/change requests; never automatic supplier operations");
+aftercare.command("list").requiredOption("--order <order_id>").option("--json").action(async(options)=>{
+ try{const config=loadConfig();writeCommandEnvelope(await runAftercareList(newBackendClient(config),options.order),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_read_failed",instruction:"核对原订单与当前身份；铁路人工售后不改变平台内容授权，不换身份绕过。",recovery:[{command:"itpay services list --json",reason:"找回当前身份原订单"}]});}
+});
+aftercare.command("create").requiredOption("--order <order_id>").requiredOption("--input-json <file>").option("--json").action(async(options)=>{
+ const recovery=[{command:`itpay aftercare list --order ${options.order} --json`,reason:"读取原订单当前行程与完整申请模板"}];
+ try{const config=loadConfig();const input=readInputJsonObject(options.inputJson,"rail_aftercare_input_invalid",recovery);writeCommandEnvelope(await runAftercareCreate(newBackendClient(config),config,options.order,input),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_create_failed",instruction:"保留原申请与用户范围，按实际错误读取当前模板或办理状态；不猜金额/身份，不重复未知操作。",recovery});}
+});
+aftercare.command("get").argument("<case_id>").option("--json").action(async(id,options)=>{
+ try{const config=loadConfig();writeCommandEnvelope(await runAftercareGet(newBackendClient(config),id),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_read_failed",instruction:"核对当前身份的原申请，不换身份或探测其他申请。",recovery:[]});}
+});
+for(const action of ["respond","cancel"]){aftercare.command(action).argument("<case_id>").requiredOption("--input-json <file>").option("--json").action(async(id,options)=>{
+ const recovery=[{command:`itpay aftercare get ${id} --json`,reason:"读取原申请当前版本与明确下一步"}];
+ try{const config=loadConfig();const input=readInputJsonObject(options.inputJson,"rail_aftercare_input_invalid",recovery);writeCommandEnvelope(await runAftercareRespond(newBackendClient(config),id,input,action==="cancel"),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_response_failed",instruction:"按原申请当前版本处理；取消不撤回供应商操作，未知资金不重试。",recovery});}
+});}
 
 const refund = program
   .command("refund")

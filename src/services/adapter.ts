@@ -1,9 +1,16 @@
 import type { BackendClient } from "../client/backend.js";
-import type { ServiceExecutionReadModel, ServiceCapabilityInvoked, ServiceCapability } from "../client/types.js";
+import type { ServiceExecutionReadModel, ServiceCapabilityInvoked, ServiceCapability,RailAftercareDirectory,RailAftercareView } from "../client/types.js";
 import type { CommandEnvelope } from "./shared/envelope.js";
 import type { ServicesCommandOptions } from "./shared/platform.js";
 export type ResultReadOptions = ServicesCommandOptions & { jsonOutput?: boolean; snapshot?: string; journey?: string; offset?: number; limit?: number; all?: boolean };
 export interface ServiceAdapter {
+ aftercare?: {
+  order(backend:BackendClient,order:import("../client/types.js").Order,envelope:CommandEnvelope):Promise<CommandEnvelope>;
+  directory(value:RailAftercareDirectory,orderID:string):CommandEnvelope;
+  present(value:RailAftercareView):CommandEnvelope;
+  create(backend:BackendClient,config:import("../state/config.js").CLIConfig,orderID:string,input:unknown):Promise<CommandEnvelope>;
+  respond(backend:BackendClient,id:string,input:unknown,cancel:boolean):Promise<CommandEnvelope>;
+ };
   supported: boolean;
   inputTemplate(schema: Record<string, unknown>, known?: Record<string, unknown>): Record<string, unknown>;
   inputInstruction: string;

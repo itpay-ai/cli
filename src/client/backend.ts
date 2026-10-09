@@ -3,6 +3,7 @@
 
 import type { HttpClient } from "./http.js";
 import type {
+  RailAftercareInput, RailAftercareView, RailAftercareDirectory, RailAftercareResponseInput,
   Cart,
   AddCartItemRequest,
   CheckoutCreated,
@@ -189,6 +190,12 @@ export class BackendClient {
   readBuyerVaultArtifact(artifactRef: string, sections: string[]): Promise<BuyerVaultRead> {
     return this.http.post<BuyerVaultRead>(`/v1/vault/artifacts/${encodeURIComponent(artifactRef)}/reads`, sections.length ? { sections } : {});
   }
+
+  listRailAftercare(orderID:string):Promise<RailAftercareDirectory>{return this.http.get(`/v1/orders/${encodeURIComponent(orderID)}/rail-aftercare`);}
+  createRailAftercare(orderID:string,input:RailAftercareInput,idempotencyKey:string):Promise<RailAftercareView>{return this.http.post(`/v1/orders/${encodeURIComponent(orderID)}/rail-aftercare`,input,{idempotencyKey});}
+  getRailAftercare(id:string):Promise<RailAftercareView>{return this.http.get(`/v1/rail-aftercare/${encodeURIComponent(id)}`);}
+  respondRailAftercare(id:string,input:RailAftercareResponseInput):Promise<RailAftercareView>{return this.http.post(`/v1/rail-aftercare/${encodeURIComponent(id)}/respond`,input);}
+  cancelRailAftercare(id:string,input:RailAftercareResponseInput):Promise<RailAftercareView>{return this.http.post(`/v1/rail-aftercare/${encodeURIComponent(id)}/cancel`,input);}
 
   // --- Refund ---
 

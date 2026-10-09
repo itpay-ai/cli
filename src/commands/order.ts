@@ -1,3 +1,5 @@
+import {HttpError} from "../client/http.js";
+import {serviceAdapter} from "../services/registry.js";
 import { refundStateEnvelope } from "./refund.js";
 import type { BackendClient } from "../client/backend.js";
 import type { OrderDeliveryAccess, RefundRequest } from "../client/types.js";
@@ -14,11 +16,16 @@ export interface OrderOptions {
 export async function runOrder(backend: BackendClient, orderID: string, options: OrderOptions = {}): Promise<void> {
   const order = await backend.getOrder(orderID);
   const [delivery, refundResponse] = await Promise.all([
-    order.status === "delivered" ? backend.getOrderDeliveryAccess(orderID) : Promise.resolve(undefined),
+    order.status === "delivered" ? backend.getOrderDeliveryAccess(orderID).catch(error=>{
+      // Metadata ownership never grants account-protected delivery access.
+      if(error instanceof HttpError && ["not_found","account_scope_required","access_denied"].includes(error.code))return undefined;
+      throw error;
+    }) : Promise.resolve(undefined),
     backend.listOrderRefunds(orderID),
   ]);
   const lockedRefund = refundResponse.refunds.find((refund) => refund.access_locked);
-  const envelope = orderEnvelope(order, delivery, lockedRefund);
+  let envelope = orderEnvelope(order, delivery, lockedRefund);
+ for(const identity of order.service_identities??[]){const capability=serviceAdapter(identity).aftercare;if(capability){envelope=await capability.order(backend,order,envelope);break;}}
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
     ...(options.output ? { output: options.output } : {}),
@@ -63,6 +70,7 @@ function orderEnvelope(
     next = { command: `itpay order ${order.order_id} --json`, reason: "刷新订单状态" };
   }
 
+  if(order.status==="partially_refunded"){instruction="订单已部分退款；核对本次退款金额及其他履约事实，不能推断整单全部退款。平台交付访问按返回权限保持锁定，不恢复旧授权。";next=null;}
   return {
     status: order.status,
     result: {

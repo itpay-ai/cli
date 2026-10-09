@@ -132,7 +132,7 @@
   "continue_and_aftercare": {
     "same_execution": "Read the same booking/checkout/order. Report issued only when every leg is confirmed issued; partial or unknown outcomes keep the same order and successful tickets, reconcile before retry, and explain the affected leg. No automatic rebuy or full-refund promise.",
     "saved_vs_live": "A saved snapshot remains historical evidence after expiry. Real-time booking or quote credentials may expire and require the documented fresh validation path; rereading an old token does not renew it.",
-    "refund": "Read itpay docs show orders-refunds --json and the current order policy. Railway supplier cancellation/return and platform refund have separate facts; a refund request is not completed railway return."
+    "refund": "For railway refund/change use itpay aftercare list --order <order_id> --json. Select returned leg/passenger targets from the user’s request, explain scope and manual processing, submit the complete current template. Request acceptance is not supplier success or money returned. Read the same case; concrete change proposals need current-revision consent and actual fee facts. No automatic change payment or replacement purchase."
   },
   "exceptional_branches": {
     "login_required": "Use itpay auth login --json, complete the official handoff, then execute the returned recovery command for the same paused query. Login returning a command does not execute it.",
@@ -166,7 +166,7 @@
   ],
   "reading_and_writing": "Use the formal Skill Follow one envelope rules for direct text/file reading, truncation and small JSON input; no parsing scripts.",
   "restore_old_execution": "Only when resuming an existing v4 execution, follow its own declared legacy schema; new queries use the current three-endpoint contract.",
-  "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Follow next_offset exactly; byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee.",
+  "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Page limit is 1-20; follow next_offset exactly, never infer full-catalog optimality from the visible page. Byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee.",
   "actor_conventions": {
     "location_confirmation": "Use the returned human template only for the user's real place choice; no delegated human action.",
     "journey_terms": "workflow:confirm_booking and booking_review_invalid recovery accept agent-reported genuine consent; default false, never infer from purchase delegation.",

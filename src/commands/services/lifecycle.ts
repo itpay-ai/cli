@@ -399,6 +399,11 @@ export async function runServicesRun(
     if (!serviceAdapter(model.execution).supported) {
       writeCommandEnvelope(servicesNextEnvelope(model),options);return;
     }
+    if (isTerminalServiceExecutionStatus(model.execution.status)) {
+      // A restored terminal purchase cannot advance or obtain a new checkout.
+      writeCommandEnvelope(servicesNextEnvelope(model),options);
+      return;
+    }
     if (input !== undefined) {
       model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`);
     } else if (model.workflow?.status === "quota_paused") {

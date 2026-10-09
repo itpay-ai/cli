@@ -15,7 +15,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
       next: refundState.next ? {command: `itpay refund get ${lockedRefund.refund_request_id} --json`, reason: "读取同一退款权威状态"} : null };
   }
   const unsettledPayment = model.payment_bindings.some(binding=>typeof binding.status === "string" && ["pending","outcome_unknown","unknown","processing"].includes(binding.status));
-  if(unsettledPayment) return {status:"payment_outcome_pending",result:{service_execution_id:execution.service_execution_id,payment_state:"unsettled",checkout_ids:model.checkout_bindings.map(binding=>binding.checkout_id)},instruction:"原付款结果尚未确认。保留同一执行、Checkout和订单，只核对权威事实；不创建新报价、购物车、付款入口或购买，也不宣称已付款或出票。",next:null,recovery:[{command:`itpay services get ${execution.service_execution_id} --json`,reason:"仅用户要求或平台恢复后核对同一付款事实"}]};
+  if(unsettledPayment) return {status:"payment_outcome_pending",result:{service_execution_id:execution.service_execution_id,payment_state:"unsettled",checkout_ids:model.checkout_bindings.map(binding=>binding.checkout_id)},instruction:"原付款结果尚未确认。保留同一执行、Checkout和订单，只核对权威事实；不创建新报价、购物车、付款入口或购买，也不宣称已付款或服务已完成。",next:null,recovery:[{command:`itpay services get ${execution.service_execution_id} --json`,reason:"仅用户要求或平台恢复后核对同一付款事实"}]};
   // Terminal facts take priority unless the locked adapter supports same-execution recovery.
   if (!(adapter.preservesTerminalRecovery(model)) && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
     const terminal = terminalExecutionEnvelope(model);

@@ -216,7 +216,9 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
     const quoteFailure = execution.service_id === "itpay-rail-booking" ? RAIL_QUOTE_FAILURE_GUIDANCE[(model.workflow?.failure?.reason_code === "workflow_failed" ? providerErrorCode : model.workflow?.failure?.reason_code) ?? providerErrorCode ?? ""] : undefined;
     const failureCode = model.workflow?.failure?.reason_code === "workflow_failed" && providerErrorCode && RAIL_QUOTE_FAILURE_GUIDANCE[providerErrorCode] ? providerErrorCode : model.workflow?.failure?.reason_code ?? providerErrorCode ?? model.workflow?.error_code;
     const failedInstruction = recovery
-      ? quoteFailure
+      ? failureCode === "http_503"
+        ? "上游服务返回 HTTP 503，本次查询未完成；这不代表没有班次，也不能认定地点输入有误。保留原地点与约束，当前没有可执行恢复动作，停止读取失败终态；待服务恢复后再按原需求查询。具体基础设施原因未确认。"
+        : quoteFailure
         ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg + 1}段报价失败。` : ""}${quoteFailure} 当前整程未取得完整有效报价，没有付款入口；保留同一购买和未变化的选择，当前没有可提交恢复动作，停止；需要用户决定或系统处理，不能靠反复 get/next 重新报价，不能收取其余段款项或重复创建购买。`
         : failedStepGuidance
         ? `执行在「${failedStepGuidance.meaning}」步失败${failureCode ? `（错误码：${failureCode}）` : ""}：${failedStepGuidance.hint}。先核对原因和当前执行状态，不要盲目重放。`

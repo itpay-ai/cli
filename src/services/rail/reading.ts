@@ -18,7 +18,7 @@ export async function readSavedResult(backend: BackendClient, model: import("../
       const startOffset = options.offset ?? 0;
       const limit = options.limit ?? 20;
       if (!Number.isInteger(startOffset) || startOffset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 20) {
-        throw new CommandContractError("page_invalid", "offset must be non-negative and limit 1-20", "页码无效；请按返回的 next.command 读取。", []);
+        throw new CommandContractError("page_invalid", "offset must be non-negative and limit 1-20", "offset 必须是非负整数，limit 为 1–20。保留同一已保存结果，按当前模板修正技术参数；不重新查询。", [], {schema_version:"itpay.interaction.v1",stage:"input_required",input_template:{command:`itpay services read-result ${serviceExecutionID} --offset <offset> --limit 20 --json`,required_input:["offset"],executable:false}});
       }
       let offset = startOffset;
       let total = 0;
@@ -45,7 +45,7 @@ export async function readSavedResult(backend: BackendClient, model: import("../
     const offset = options.offset ?? 0;
     const limit = options.limit ?? 3;
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 20) {
-      throw new CommandContractError("page_invalid", "offset must be non-negative and limit 1-20", "目录页码无效；请按返回的 next.command 读取。", []);
+      throw new CommandContractError("page_invalid", "offset must be non-negative and limit 1-20", "offset 必须是非负整数，limit 为 1–20。保留同一快照，按当前模板修正技术参数；不重新查询。", [], {schema_version:"itpay.interaction.v1",stage:"input_required",input_template:{command:`itpay services read-result ${serviceExecutionID} --snapshot ${options.snapshot} --offset <offset> --limit 20 --json`,required_input:["offset"],executable:false}});
     }
     const journeys: Record<string, unknown>[] = [];
     let nextOffset: number | null = offset;

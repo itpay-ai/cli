@@ -102,3 +102,7 @@ outcome or actionable failure requires stopping, state the exact fact and the
 next human step. Keep the same execution while waiting; follow a terminal location query’s explicit new-query template only with new evidence or required consent; changing a human-locked station or expanding the authorized area requires new consent.
 An evidence-based station pair within the original authorized area does not need another permission question. Keep an existing paid order unchanged. Human ratings and comments require
 actual human input; safe Agent feedback follows the completed order outcome.
+
+### Railway aftercare
+
+Use `itpay aftercare list --order <order_id> --json` for the safe original itinerary, ticket targets and complete refund/change templates. Apply explicit user leg/passenger scope without asking it again; ask only for missing scope or genuine intent. Explain manual handling before submitting. Acceptance is not supplier completion or platform refund success. Current concrete change terms and fees need their own real consent; no automatic change payment exists. Read the same case and remaining-ticket facts without consuming locked delivery or promising validity from historical issuance.
