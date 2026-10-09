@@ -18,6 +18,9 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
   if(unsettledPayment) return {status:"payment_outcome_pending",result:{service_execution_id:execution.service_execution_id,payment_state:"unsettled",checkout_ids:model.checkout_bindings.map(binding=>binding.checkout_id)},instruction:"原付款结果尚未确认。保留同一执行、Checkout和订单，只核对权威事实；不创建新报价、购物车、付款入口或购买，也不宣称已付款或服务已完成。",next:null,recovery:[{command:`itpay services get ${execution.service_execution_id} --json`,reason:"仅用户要求或平台恢复后核对同一付款事实"}]};
   // Terminal facts take priority unless the locked adapter supports same-execution recovery.
   if (!(adapter.preservesTerminalRecovery(model)) && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
+    // Preserve the registered adapter's safe failure facts even at execution terminal.
+    const failedWorkflow = execution.status === "failed" && model.workflow?.status === "failed" ? adapter.workflow(model) : undefined;
+    if (failedWorkflow) return {...failedWorkflow,next:null};
     const terminal = terminalExecutionEnvelope(model);
     if (terminal) return terminal;
   }

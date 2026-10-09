@@ -299,7 +299,7 @@ test('aftercare feedback: HTTP503 has a reason and never becomes no trains or an
  const mock=await startMockBackend();try {
   const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
   base.execution.public_binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:'query_smart',adapter_key:'rail.v1'};
-  backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'failed',current_step:'failure',revision:1,steps:{},failure:{step_id:'failure',reason_code:'http_503'}}});
+  backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart',status:'failed'},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'failed',current_step:'failure',revision:1,steps:{},failure:{step_id:'failure',reason_code:'http_503'}}});
   let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);
   assert.equal(result.next,null);assert.equal(result.result.failure.reason_code,'http_503');assert.match(result.instruction,/HTTP 503/);assert.match(result.instruction,/不代表没有班次/);
   if(process.env.ITPAY_EVIDENCE_DIR){const fs=await import('node:fs/promises');await fs.writeFile(`${process.env.ITPAY_EVIDENCE_DIR}/A1405-smart-failure.json`,output);}
