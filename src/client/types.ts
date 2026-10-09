@@ -920,7 +920,7 @@ export interface RailAftercareInput {
  change?: { travel_date?: string; departure_after?: string; arrival_before?: string; seat_type?: string; train_code?: string; constraints: string };
 }
 export interface RailChangedTicket extends RailAftercareTarget {
- train_code: string; travel_date: string; from_station_code: string; to_station_code: string; departure_time: string; arrival_time: string; seat_type: string;
+ train_code: string; travel_date: string; from_station_code: string; to_station_code: string; departure_time: string; arrival_time: string; arrival_days: number; seat_type: string;
 }
 export interface RailChangeProposal { changes: RailChangedTicket[]; difference_minor: number; currency: string; fee_handling: "manual_coordination"; conditions: string }
 export interface RailAftercareCase {
@@ -932,7 +932,7 @@ export interface RailAftercareCase {
 }
 export interface RailAftercareJourney {
  passengers: number; fact_rule: string;
- legs: Array<{ leg_index: number; train_code: string; travel_date: string; from: string; to: string; departure_time: string; arrival_time: string; seat_name: string; tickets: Array<RailAftercareTarget & { issuance_state: string; change_state?: string; verified_change?: RailChangedTicket; financial_refund_state?: string; supplier_refund_state?: string }> }>;
+ legs: Array<{ leg_index: number; train_code: string; travel_date: string; from: string; to: string; departure_time: string; arrival_time: string; arrival_days: number; seat_name: string; tickets: Array<RailAftercareTarget & { issuance_state: string; change_state?: string; verified_change?: RailChangedTicket; financial_refund_state?: string; supplier_refund_state?: string }> }>;
 }
 export interface RailAftercareView { can_cancel: boolean; refund_amount_basis?: string; execution_identity: Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">; case: RailAftercareCase; journey: RailAftercareJourney; refund?: RefundRequest; instruction: string }
 export interface RailAftercareDirectory { execution_identity: Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">; order_id: string; journey: RailAftercareJourney; cases: RailAftercareView[]; available_targets: RailAftercareTarget[]; input_templates: Record<"refund"|"change",RailAftercareInput>; instruction: string }
