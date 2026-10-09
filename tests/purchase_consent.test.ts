@@ -133,6 +133,8 @@ test('same error codes and result selectors cannot cross a locked service bounda
  for(const identity of [{service_id:'ordinary',service_contract_version_id:'v1'},{service_id:'itpay-rail-smart',service_contract_version_id:'unknown'}]) {
   backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'invalid_selection',message:'bad candidate',reason:'input_constraint_invalid'},'invalid');};
   await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{endpoints:{},review:{},search:{}}),error=>{assert(error instanceof HttpError);return true;});
+  backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'capability_input_invalid',message:'missing endpoints',input_schema:{type:'object',properties:{endpoints:{type:'string'}},required:['endpoints']}},'invalid');};
+  await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{}),error=>{assert(error instanceof Error);const recovery=error as import('../src/services/shared/envelope.js').CommandContractError;assert.doesNotMatch(JSON.stringify({instruction:recovery.instruction,interaction:recovery.interaction}),/铁路|席别|rail-booking/);if(identity.service_contract_version_id==='unknown'){assert.equal(recovery.code,'presentation_contract_unavailable');assert.equal(recovery.interaction,undefined);}return true;});
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,...identity}});
   backend.recordServiceExecutionAction=async()=>{throw new HttpError(400,{code:'booking_review_invalid',message:'bad generic review'},'invalid');};
   await assert.rejects(runServicesAction(backend,'se_fixture','accept_document',{}),error=>{assert(error instanceof HttpError);return true;});

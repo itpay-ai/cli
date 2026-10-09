@@ -28,7 +28,7 @@ export async function runServicesStart(
     },
   });
   if ("overview_only" in response) { writeServiceOverview(response.service_definition,options);return; }
-  if (!serviceAdapter(response.execution).supported) {writeCommandEnvelope(servicesNextEnvelope({...response,result_items:[],provider_invocations:[],execution_requests:[],events:[],actions:[],payment_bindings:[],checkout_bindings:[],delivery_bindings:[],refunds:[]}),options);return;}
+  if (!serviceAdapter(response.execution).supported) {writeCommandEnvelope({status:"presentation_contract_unavailable",result:{service_execution_id:response.execution.service_execution_id,service_id:response.execution.service_id,service_contract_version_id:response.execution.service_contract_version_id},instruction:"当前锁定合同不受支持；保留原执行与已有结果并停止，使用兼容CLI，不猜模式或输入。",next:null,recovery:[]},options);return;}
   if (response.workflow_entry) {
     const guidance = serviceAdapter(response.execution).guidance(response.execution.service_id, response.workflow_entry.input_schema);
     if (serviceAdapter(response.execution).requiresGuidance(serviceID) && !guidance) {
@@ -434,6 +434,7 @@ export async function runServicesRun(
       const schema = cause.payload?.input_schema;
       const executionID = cause.payload?.service_execution_id ?? id;
       const errorAdapter = cause.payload?.service_id && cause.payload?.service_contract_version_id ? serviceAdapter({service_id:cause.payload.service_id, service_contract_version_id:cause.payload.service_contract_version_id}) : adapter;
+      if (!errorAdapter.supported) throw new CommandContractError("presentation_contract_unavailable",cause.message,"当前锁定合同不受此CLI支持；保留原输入和执行并停止，使用兼容CLI，不猜业务或提交修正模板。",[],undefined,{service_id:serviceID,...(executionID?{service_execution_id:executionID}:{}),original_error_code:cause.code});
       throw new CommandContractError(cause.code, cause.message,
         errorAdapter.inputInstruction,
         schema ? [] : [{command: executionID ? `itpay services get ${executionID} --json` : "itpay catalog list --json", reason: "获取当前锁定合同；仍缺合同则停止，不猜旧写法"}],
