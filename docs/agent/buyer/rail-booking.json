@@ -166,5 +166,11 @@
   ],
   "reading_and_writing": "Use the formal Skill Follow one envelope rules for direct text/file reading, truncation and small JSON input; no parsing scripts.",
   "restore_old_execution": "Only when resuming an existing v4 execution, follow its own declared legacy schema; new queries use the current three-endpoint contract.",
-  "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Follow next_offset exactly; byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee."
+  "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Follow next_offset exactly; byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee.",
+  "actor_conventions": {
+    "location_confirmation": "Use the returned human template only for the user's real place choice; no delegated human action.",
+    "journey_terms": "workflow:confirm_booking and booking_review_invalid recovery accept agent-reported genuine consent; default false, never infer from purchase delegation.",
+    "ordinary_human_action": "Use its published actor rule; do not generalize railway permission.",
+    "price_approval": "approve_purchase uses actor-type agent with the unchanged server-scoped approval template and genuine matching approval; candidate choice is not price approval."
+  }
 }

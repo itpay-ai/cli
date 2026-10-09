@@ -79,7 +79,7 @@ consent, identity data, payment, ticket issuance or refund success. An Agent
 may select under the human's delegation, but must not record itself as a human. Candidate selection is not approval of price. Use the server scoped approve_purchase
 template only for genuine matching exact-price, capped-budget or explicitly authorized
 official-page confirmation; its default remains false. Restore an existing checkout first.
-Choosing a candidate is not acceptance of additional material terms. Ask the current service consent question once when genuinely missing, leaving an unaccepted default false. Submit conversation consent as actor-type agent; this reports the human answer and does not prove an official-page confirmation.
+Choosing a candidate is not acceptance of additional material terms. Ask the current service consent question once when genuinely missing, leaving an unaccepted default false. For railway workflow:confirm_booking (including its recovery) and scoped approve_purchase, submit conversation approval as actor-type agent: it reports the human answer and does not prove official-page confirmation. Location-confirmation workflow actions retain the returned human template, only after a real user choice; ordinary human_action actions retain their published actor rule and must not be converted to agent. Actor values never create missing consent.
 
 ## Show the human
 
