@@ -1,19 +1,12 @@
-import { serviceAdapterKey } from "./registry.js";
-import { workflowEnvelope as genericWorkflowEnvelope } from "./shared/workflow.js";
-import { railWorkflowEnvelope } from "./rail/review.js";
+import { serviceAdapter } from "./registry.js";
 import { type ServiceExecutionReadModel } from "../client/types.js";
 import { refundStateEnvelope } from "./shared/refund.js";
 import { appendFeedbackPostmortemInstruction, type CommandEnvelope, isTerminalServiceExecutionStatus } from "./shared/envelope.js";
 import { terminalExecutionEnvelope, serviceDeliveryMode, normalizeGrantStatus, paidContinuation, purchaseConfirmationInstruction, serviceAllowedActionCommand } from "./shared/platform.js";
-import { railPlanningEnvelope } from "./rail/results.js";
-import { railSavedResultEnvelope, railSavedDeliveryGuidance } from "./rail/saved.js";
-import { railBookingEnvelope } from "./rail/fulfillment.js";
-import { locationInputInstruction } from "./rail/guide.js";
 
 export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandEnvelope {
   const execution = model.execution;
-  const adapter = serviceAdapterKey(execution);
-  const isRail = adapter === "rail.v1";
+  const adapter = serviceAdapter(execution);
   const currentDelivery = model.current_delivery ?? model.delivery_bindings.at(-1);
   const lockedRefund = model.refunds.find((refund) => refund.access_locked);
   if (lockedRefund) {
@@ -23,10 +16,8 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
   }
   const unsettledPayment = model.payment_bindings.some(binding=>typeof binding.status === "string" && ["pending","outcome_unknown","unknown","processing"].includes(binding.status));
   if(unsettledPayment) return {status:"payment_outcome_pending",result:{service_execution_id:execution.service_execution_id,payment_state:"unsettled",checkout_ids:model.checkout_bindings.map(binding=>binding.checkout_id)},instruction:"原付款结果尚未确认。保留同一执行、Checkout和订单，只核对权威事实；不创建新报价、购物车、付款入口或购买，也不宣称已付款或出票。",next:null,recovery:[{command:`itpay services get ${execution.service_execution_id} --json`,reason:"仅用户要求或平台恢复后核对同一付款事实"}]};
-  // A terminal execution wins over the rail read model: a failed, cancelled,
-  // or refunded run must not render as still issuing. Completed executions
-  // keep the rail view so issued seats stay visible.
-  if (!(isRail && model.workflow?.human_action?.context?.quote_recovery === true) && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
+  // Terminal facts take priority unless the locked adapter supports same-execution recovery.
+  if (!(adapter.preservesTerminalRecovery(model)) && isTerminalServiceExecutionStatus(execution.status) && !["completed", "delivery_completed"].includes(execution.status)) {
     const terminal = terminalExecutionEnvelope(model);
     if (terminal) return terminal;
   }
@@ -40,8 +31,8 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
       recovery: [],
     };
   }
-  if (isRail && model.rail_booking) return railBookingEnvelope(model);
-  if (isRail && model.rail_planning) return railPlanningEnvelope(model);
+  const businessState = adapter.projectState(model);
+  if (businessState) return businessState;
   if (latestRun && ["failed", "cancelled"].includes(latestRun.status) && !model.workflow_entry) {
     return {
       status: latestRun.status,
@@ -51,14 +42,14 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
       recovery: [{ command: `itpay services events ${execution.service_execution_id} --json`, reason: "读取同一任务的处理记录" }],
     };
   }
-  if (adapter === "unsupported") return {status:"presentation_contract_unavailable",result:{service_execution_id:execution.service_execution_id,service_id:execution.service_id,service_contract_version_id:execution.service_contract_version_id,public_binding:execution.public_binding},instruction:"当前锁定呈现合同不受本候选支持；保留执行与已有结果并停止，取得兼容CLI后读取同一执行，不猜模式或启动新购买。",next:null,recovery:[]};
-  const workflowEnvelope = isRail ? railWorkflowEnvelope(model) : genericWorkflowEnvelope(model);
+  if (!adapter.supported) return {status:"presentation_contract_unavailable",result:{service_execution_id:execution.service_execution_id,service_id:execution.service_id,service_contract_version_id:execution.service_contract_version_id,public_binding:execution.public_binding},instruction:"当前锁定呈现合同不受本候选支持；保留执行与已有结果并停止，取得兼容CLI后读取同一执行，不猜模式或启动新购买。",next:null,recovery:[]};
+  const workflowEnvelope = adapter.workflow(model);
   if (workflowEnvelope) return workflowEnvelope;
 
 	const terminalEnvelope = terminalExecutionEnvelope(model);
 	if (terminalEnvelope) return terminalEnvelope;
 	const currentItems = model.current_result_items ?? [];
-  const savedRailResult = isRail ? railSavedResultEnvelope(model) : null;
+  const savedRailResult = adapter.savedResult(model);
   if (savedRailResult) return savedRailResult;
   const delivery = currentDelivery;
   const deliveryMode = serviceDeliveryMode(model);
@@ -80,12 +71,10 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 				})),
 			},
 			instruction: paidCapability
-				? "付费搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload 或自动购买后续服务。"
+				? "付费搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才提交 interaction 中的对应编号；不要提及 safe_payload 或自动购买后续服务。"
 				: "用编号、名称和可公开字段向用户说明候选；若候选列表已满足目标就停止。只有用户明确选择并希望继续时才提交对应编号；不要提及 safe_payload、Execution 或内部 ID。",
-			next: {
-				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
-				reason: paidCapability ? "仅在用户明确选择候选并要求继续时执行" : "仅在用户明确选择后锁定来源候选",
-			},
+            next: null,
+            interaction: candidateInteraction(execution.service_execution_id),
 			recovery: [],
 		};
 	}
@@ -96,19 +85,19 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
       safe_payload: item.safe_payload,
     }));
 		const selection = model.allowed_actions?.find((action) => action.type === "select_candidate");
-    const railDelivery = isRail ? railSavedDeliveryGuidance(model) : null;
+    const deliveryGuidance = adapter.deliveryGuidance(model);
 		const instruction = (delivery?.order_id
 			? appendFeedbackPostmortemInstruction(items.length > 0
 				? selection
-					? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
+					? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才提交 interaction 中的对应编号；不要提及 safe_payload。"
 					: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
 				: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。", "delivered")
 			: items.length > 0
 			? selection
-				? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才执行 next.command；不要提及 safe_payload。"
+				? "搜索已完成。用编号、名称和可公开字段向用户说明结果，然后停止。只有用户明确选择候选并要求继续时才提交 interaction 中的对应编号；不要提及 safe_payload。"
 				: "这一步的结果已经可用。用普通语言解释可公开字段并停止；不要提及 Arazzo、safe_payload 或内部 ID。"
 			: "告诉用户本次查询得到 0 个结果并停止。Agent 不读取其他交付、不重放当前查询、修改输入或创建新查询。")
-			+ (railDelivery?.instruction && items.length > 0 ? ` ${railDelivery.instruction}` : "");
+			+ (deliveryGuidance?.instruction && items.length > 0 ? ` ${deliveryGuidance.instruction}` : "");
 		return {
       status: items.length > 0 ? "result_ready" : "no_result",
 			result: {
@@ -119,11 +108,9 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 				items,
 			},
 			instruction,
-			next: selection ? {
-				command: `itpay services action ${execution.service_execution_id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,
-				reason: "仅在用户明确选择后锁定来源候选",
-			} : null,
-			recovery: railDelivery?.recovery ?? [],
+            next: null,
+            ...(selection ? {interaction: candidateInteraction(execution.service_execution_id)} : {}),
+			recovery: deliveryGuidance?.recovery ?? [],
     };
   }
   if (deliveryMode === "vault_artifact") {
@@ -199,8 +186,12 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 				? "告诉用户付款和订单已经确认，结果仍在同一笔服务中处理，不需要再次付款；如果最终无法交付，将从原订单检查退款路径。稍后只执行 next.command；Agent 不创建新服务、付款页面或数据请求，也不承诺退款结果。"
 				: preferred?.requires_human
 			? "当前下一步需要用户明确选择；先展示必要信息并等待确认。"
-				: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" + (isRail ? locationInputInstruction(model.capabilities.find((item) => item.capability_id === preferred.capability_id)?.input_schema) : "") : "当前没有后续动作。",
+				: preferred ? "执行服务端返回的唯一首选动作；不要猜测其他 capability。" + adapter.locationInstruction(model.capabilities.find((item) => item.capability_id === preferred.capability_id)?.input_schema) : "当前没有后续动作。",
 		next,
 		recovery: [{ command: `itpay services get ${execution.service_execution_id} --json`, reason: "仅在当前动作异常时检查时间线" }],
 	};
+}
+
+function candidateInteraction(id: string): NonNullable<CommandEnvelope["interaction"]> {
+ return {schema_version:"itpay.interaction.v1", stage:"candidate_selection_required", input_template:{command:`itpay services action ${id} --action select_candidate --actor-type human --status approved --candidate <rank> --json`,required_input:["rank"],executable:false}};
 }

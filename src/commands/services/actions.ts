@@ -1,7 +1,7 @@
-import {railActionError} from "../../services/rail/recovery.js";
+import { serviceAdapter } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { type RecordServiceExecutionActionRequest } from "../../client/types.js";
-import { writeCommandEnvelope } from "../../services/shared/envelope.js";
+import { CommandContractError, writeCommandEnvelope } from "../../services/shared/envelope.js";
 import { ServicesCommandOptions, normalizeServiceActionStatus, paidContinuation, serviceAllowedActionCommand, purchaseConfirmationInstruction, actionInputError } from "../../services/shared/platform.js";
 import { servicesNextEnvelope } from "../../services/presentation.js";
 
@@ -35,7 +35,9 @@ export async function runServicesAction(
 	try {
 		response = await backend.recordServiceExecutionAction(serviceExecutionID, request);
 	} catch (error) {
-        railActionError(error,serviceExecutionID,actionType);
+        // A failed write is never replayed. Only the locked execution identifies its adapter.
+        try { const model = await backend.getServiceExecution(serviceExecutionID); serviceAdapter(model.execution).actionError(error,serviceExecutionID,actionType); }
+        catch (recoveryError) { if (recoveryError instanceof CommandContractError) throw recoveryError; }
 		throw error;
 	}
   if (actionType === "approve_purchase" && "status" in response && response.status === "approved") {

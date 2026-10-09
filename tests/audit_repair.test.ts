@@ -38,6 +38,8 @@ test('journey harness: one plan has one whole booking entry; single leg stays co
   const mock=await startMockBackend();
   try {
     const backend:BackendClient=Object.create(new BackendClient(new HttpClient({baseURL:mock.url})));
+    const base=await backend.getServiceExecution('se_mock_next');
+    backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6'}});
     const leg={train_code:'G_CHECK',travel_date:'2030-01-01',from_station:'甲站',to_station:'乙站',departure:'2030-01-01 09:00',arrival:'2030-01-01 10:00'};
     const secondLeg={...leg,train_code:'D_CHECK',from_station:'乙站',to_station:'丙站',departure:'2030-01-01 11:00',arrival:'2030-01-01 12:00'};
     const journey={journey_id:'j_check',route_family_id:'rf_check',booking_support:'separate_legs_only' as const,qualification_status:'eligible' as const,rides:[leg,secondLeg],ticket_plans:[{ticket_plan_ref:'tp_check',qualification_status:'eligible',booking_input:{selections:[{token:'rsel_check_0',seat_type:'O'},{token:'rsel_check_1',seat_type:'O'}],passengers:2},legs:[leg,secondLeg],ticket_offers:[0,1].map(leg_index=>({leg_index,ticket_plan_ref:'tp_check',passengers:2,seat_type:'O',seat_name:'二等座',booking_offer:{service_id:'itpay-rail-booking',selection_token:`rsel_check_${leg_index}`}}))}]};
@@ -86,7 +88,7 @@ test('journey harness: current template and structural repair preserve query bef
   const schema={type:'object',required:['endpoints','travel_date'],properties:{endpoints:{type:'object',required:['origin','destination'],properties:{origin:{type:'object',required:['text'],properties:{text:{type:'string'}}},destination:{type:'object',required:['text'],properties:{text:{type:'string'}}}}},travel_date:{type:'string'},passengers:{type:'integer'}}};
   backend.startServiceExecution=async()=>({execution:{...base.execution,service_id:'itpay-rail-smart'},capabilities:base.capabilities,workflow_entry:{capability_id:'itpay_service',input_schema:schema}});
   let output='';await runServicesStart(backend,'itpay-rail-smart',{jsonOutput:true,output:s=>output+=s});
-  const entry=JSON.parse(output);assert.equal(typeof entry.interaction.input_template.input.endpoints.origin.text,'string');assert.equal(entry.interaction.input_template.executable,false);
+  const entry=JSON.parse(output);assert.equal(typeof entry.interaction.input_template.input.input.endpoints.origin.text,'string');assert.equal(entry.interaction.input_template.executable,false);
   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'capability_input_invalid',service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6',message:'$.endpoints is required',input_schema:schema,input_errors:['$.endpoints is required'],execution_created:false,provider_called:false},'invalid');};
   await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-smart',{origin:'甲区域',destination:'乙住宅',travel_date:'2030-10-01',passengers:2}),error=>{
    assert.ok(error instanceof CommandContractError); const e=error;
@@ -156,7 +158,7 @@ test('journey repair: raw multi-leg rejection points to saved complete plan',asy
  const mock=await startMockBackend();try{
   const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
   for(const code of ['rail_journey_selection_required']) {
-   backend.startServiceExecution=async()=>{throw new HttpError(400,{code,message:'complete saved plan required'},'invalid');};
+   backend.startServiceExecution=async()=>{throw new HttpError(400,{code,service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',message:'complete saved plan required'},'invalid');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{legs:[{seat_type:'O'},{seat_type:'O'}]}),error=>{
     assert.ok(error instanceof CommandContractError);assert.equal(error.code,code);assert.match(error.instruction,/手填 legs 只兼容单腿/);assert.ok(error.recovery.some(item=>item.command==='itpay services list --json'));return true;
    });
@@ -183,7 +185,7 @@ test('local repair: selection errors distinguish input from server inconsistency
  const mock=await startMockBackend();try {
   const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
   for(const reason of ['input_constraint_invalid','stored_selection_inconsistent']) {
-   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'invalid_selection',reason,message:reason},'invalid');};
+   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'invalid_selection',service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',reason,message:reason},'invalid');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:1,selections:[]}),error=>{
     assert.ok(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);assert.equal(error.result?.service_execution_id,undefined);
     if(reason==='stored_selection_inconsistent'){assert.equal(error.recovery.length,0);assert.match(error.instruction,/补参数无法修复/);}else assert.ok(error.recovery.length>0);
@@ -236,7 +238,7 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
   for(const query of [{},{origin:'原起点住宅',destination:'原目的区域',travel_date:'2030-10-09',passengers:2,priority:'fastest'},{endpoints:{origin:{kind:'place',text:'原起点住宅'},destination:{kind:'area',text:'原目的区域'}},travel_date:'2030-10-09',passengers:2,priority:'fastest'}]){
    backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'input_required',current_step:'input',revision:1,steps:{},query_input:query}});
    let text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const entry=JSON.parse(text);assert.match(entry.instruction,/端点理解摘要/);
-   const input=entry.interaction.input_template.input;
+   const input=entry.interaction.input_template.input.input;
    if('origin' in query){assert.equal(input.endpoints,undefined);assert.equal(input.origin,query.origin);}else assert(input.endpoints.origin.text);
    if(Object.keys(query).length){
     backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'failed',current_step:'geo',revision:1,steps:{},query_input:query,failure:{step_id:'resolved',reason_code:'place_identity_uncertain',endpoint:'origin'}}});
@@ -253,7 +255,7 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
   const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
   const query={endpoints:{origin:{kind:'area',text:'甲区域'},destination:{kind:'place',text:'乙住宅'}},travel_date:'2030-10-01',passengers:2,arrive_before:'20:00',priority:'fastest'};
   for(const mode of ['fresh','existing','unknown','wrong_owner']) {
-   backend.startServiceExecution=async()=>{throw new HttpError(409,mode==='wrong_owner'?{code:'selection_wrong_buyer',message:'foreign'}:{code:'rail_selection_expired',message:'expired',...(mode==='unknown'?{}:{selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',expired_at:'2030-10-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_purchase'}:{})}})},'expired');};
+   backend.startServiceExecution=async()=>{throw new HttpError(409,mode==='wrong_owner'?{service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',code:'selection_wrong_buyer',message:'foreign'}:{service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',code:'rail_selection_expired',message:'expired',...(mode==='unknown'?{}:{selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',expired_at:'2030-10-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_purchase'}:{})}})},'expired');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:2,selections:[]}),error=>{
     assert.ok(error instanceof CommandContractError);
     if(mode==='fresh'){assert.deepEqual(error.interaction?.input_template?.input,query);assert.equal(error.recovery.length,0);assert.match(error.instruction,/原条件刷新一次/);}
@@ -267,6 +269,8 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
 test('feedback facts: rail fee and elapsed scopes do not invent door-to-door totals',async()=>{
  const mock=await startMockBackend();try{
  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+ const base=await backend.getServiceExecution('se_mock_next');
+ backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6'}});
  for(const fare of [61900,12345,null]){
  const journey={journey_id:'j_fact',route_family_id:'rf',qualification_status:'eligible' as const,rides:[{departure:'2030-10-01 08:00',arrival:'2030-10-01 15:21'}],representative_metrics:{duration_basis:'rail',door_to_door_min:441,estimated_total_cost:null,cost_basis:'rail_fare'},representative_offer:fare===null?null:{offer_id:'o',fare_minor:fare,service_fee_minor:400,rail_payable_minor:fare+400,currency:'CNY'}};
  backend.getRailJourneyDetail=async()=>({service_execution_id:'se',plan_id:'p',snapshot_id:'s',query_revision:1,journey});

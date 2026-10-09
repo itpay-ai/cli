@@ -1,3 +1,6 @@
+import { railAdapter } from "./rail/adapter.js";
+import { schemaAdapter, unsupportedAdapter } from "./schema.js";
+import type { ServiceAdapter } from "./adapter.js";
 import type { ServiceExecution } from "../client/types.js";
 
 // Published identities are frozen compatibility contracts. Fields named
@@ -22,4 +25,9 @@ export function serviceAdapterKey(execution: Pick<ServiceExecution, "service_id"
 export function serviceClientFeatures(): string[] {
  // Negotiation advertises supported wire formats, not a service identity.
  return ["rail.progressive.v2"];
+}
+
+export function serviceAdapter(execution: Parameters<typeof serviceAdapterKey>[0]): ServiceAdapter {
+ const key = serviceAdapterKey(execution);
+ return key === "rail.v1" ? railAdapter : key === "schema.v1" ? schemaAdapter : unsupportedAdapter;
 }

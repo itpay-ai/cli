@@ -1,5 +1,5 @@
 import { type ServiceExecutionReadModel } from "../../client/types.js";
-import { serviceInputTemplate } from "./input.js";
+import { executionInputContext, operationInputTemplate, serviceInputTemplate } from "./input.js";
 import { requiredInputFields } from "./platform.js";
 import { type CommandEnvelope } from "./envelope.js";
 
@@ -24,6 +24,6 @@ export function workflowEnvelope(model: ServiceExecutionReadModel): CommandEnvel
  return {status:dependency?"dependency_unavailable":state,result:{service_execution_id:id,service_id:model.execution.service_id,...(model.workflow?{current_step:model.workflow.current_step,workflow_revision:model.workflow.revision,error_code:model.workflow.error_code}:{}),...(model.workflow?.failure?{failure:model.workflow.failure}:{}),...(dependency?{dependency}:{}),...(inputRequired?{input_schema:model.workflow_entry.input_schema}:{})},
   instruction:dependency?"服务返回外部依赖故障；保留原输入及已有结果，只按返回的重试条件恢复。不猜供应商或错误原因，也不要求用户更改业务条件。":failed?"本执行未完成；核对返回原因和已有付款事实。没有明确恢复动作时停止，不重建购买。":inputRequired?"按当前锁定合同写入完整输入文件，继续同一执行，不猜字段。":state==="payment"?"已到准备付款入口步骤；报价与当前范围批准仍需核对，实际付款由用户在官方页面完成。":"继续读取同一执行的当前状态。",
   next:failed||inputRequired||dependency?null:{command:state==="payment"?`itpay services checkout ${id} --json`:`itpay services next ${id} --json`,reason:"继续同一执行"},recovery:[],
-  ...(inputRequired?{interaction:{schema_version:"itpay.interaction.v1" as const,stage:"input_required",input_template:{command:`itpay services run ${model.execution.service_id} --execution ${id} --input-json <file> --json`,input:serviceInputTemplate(model.workflow_entry.input_schema,model.workflow?.query_input),required_input:["file",...requiredInputFields(model.workflow_entry.input_schema)],executable:false as const}}}:{}),
+  ...(inputRequired?{interaction:{schema_version:"itpay.interaction.v1" as const,stage:"input_required",input_template:operationInputTemplate(executionInputContext(model.execution),serviceInputTemplate(model.workflow_entry.input_schema,model.workflow?.query_input),requiredInputFields(model.workflow_entry.input_schema))}}:{}),
  };
 }

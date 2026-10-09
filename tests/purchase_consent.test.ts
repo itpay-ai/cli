@@ -75,3 +75,80 @@ test('public overview uses complete rail endpoints and structured actions never 
  assert.doesNotMatch(JSON.stringify(actions),/curl|rm -rf/);
  assert.deepEqual(serviceInputTemplate({required:['count','priority'],properties:{count:{type:'integer',minimum:1,default:1},priority:{type:'string',enum:['fastest','cheapest']}}}),{count:'<count>',priority:'<priority>'});
 });
+
+test('public operation recovery executes through main with the original operation and continuation', async()=>{
+ const {createServer}=await import('node:http');
+ const {mkdtempSync,writeFileSync,rmSync,readFileSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os'); const {join,resolve}=await import('node:path');
+ const {execFile}=await import('node:child_process'); const {promisify}=await import('node:util');
+ const mock=await startMockBackend(); const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+ const base=await backend.getServiceExecution('se_mock_next'); const evidence=[];
+ const work=mkdtempSync(join(tmpdir(),'itpay-operation-recovery-'));
+ try {for(const operation of ['query_exact','query_smart','prepare_purchase','legacy']) for(const mode of ['new','execution','continuation']) {
+  if(operation==='legacy' && mode!=='new')continue;
+  const serviceID=operation==='legacy'?'legacy-service':'itpay-rail';
+  const id='se_recovery';const continuation={service_execution_id:'se_original',snapshot_id:'snapshot_original'};
+  const binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:operation,adapter_key:'rail.v1',...(mode==='continuation'?{source_execution_id:continuation.service_execution_id,source_snapshot_id:continuation.snapshot_id}:{})};
+  const model={...base,execution:{...base.execution,service_execution_id:id,service_id:serviceID,...(operation!=='legacy'?{public_binding:binding}:{})},execution_requests:[],workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'human_action',current_step:'review',revision:1,steps:{},human_action:{action_type:'accept_document',input_schema:{properties:{accepted:{type:'boolean'}},required:['accepted']}}}};
+  let failed=false;const calls:Array<{path:string;body:Record<string,unknown>}>=[];
+  const schema={type:'object',properties:{travel_date:{type:'string'},passengers:{type:'integer'},user_approved:{type:'boolean'},owner_ref:{type:'string'}},required:['travel_date','passengers','user_approved','owner_ref']};
+  const server=createServer(async(req,res)=>{const chunks=[];for await(const chunk of req)chunks.push(chunk);const raw=Buffer.concat(chunks).toString();const body=raw?JSON.parse(raw):{};const path=req.url!;
+   if(path==='/v1/service-executions' || path===`/v1/service-executions/${id}/advance`) {
+    calls.push({path,body});res.setHeader('content-type','application/json');
+    if(!failed){failed=true;res.statusCode=400;res.end(JSON.stringify({code:'capability_input_invalid',message:'travel_date required',service_id:'itpay-rail-exact',service_contract_version_id:'scv_itpay_rail_exact_v1',input_schema:schema,...(mode==='execution'?{service_execution_id:id}:{}),execution_created:mode==='execution',provider_called:false}));return;}
+    res.end(JSON.stringify(path.endsWith('/advance')?model:{execution:model.execution,capabilities:[],workflow_entry:model.workflow_entry}));return;
+   }
+   if(path===`/v1/service-executions/${id}`){res.setHeader('content-type','application/json');res.end(JSON.stringify(model));return;}
+   const forwarded=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(raw?{body:raw}:{})});res.statusCode=forwarded.status;res.setHeader('content-type','application/json');res.end(await forwarded.text());
+  }); await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve)); const address=server.address();assert(address&&typeof address!=='string');const url=`http://127.0.0.1:${address.port}`;
+  let entry=resolve('tests/cli_test_entry.ts');
+  if(process.env.ITPAY_REWORK_MAIN){entry=join(work,'packed-entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8').replace('await import("../src/main.js");',`await import(${JSON.stringify(process.env.ITPAY_REWORK_MAIN)});`));}
+  const executable=entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath;
+  const run=async(args:string[])=>{try{return await promisify(execFile)(executable,[entry,...args],{env:{...process.env,NODE_ENV:'test',ITPAY_AGENT_TYPE:'codex-cli',HOME:work,ITPAY_CLI_TEST_TRANSPORT_URL:url},timeout:15000});}catch(error){const output=error as {stdout:string;stderr:string};return output;}};
+  try {
+   const file=join(work,'input.json');const known={passengers:2,user_approved:false,owner_ref:'fixture-owner'};writeFileSync(file,JSON.stringify(operation==='legacy'?known:{input:known,...(mode==='continuation'?{continuation}:{})}));
+   const first=await run(['services','run',serviceID,...(operation!=='legacy'?['--operation',operation]:[]),...(mode==='execution'?['--execution',id]:[]),'--input-json',file,'--timeout','0','--json']);
+   const failure=JSON.parse(first.stdout || first.stderr);assert(failure.interaction,JSON.stringify(failure));const template=failure.interaction.input_template;
+   if(operation!=='legacy')assert.match(template.command,new RegExp(`--operation ${operation}`));else assert.doesNotMatch(template.command,/--operation/);
+   const parameters=operation==='legacy'?template.input:template.input.input;assert.deepEqual(parameters, {...known,travel_date:'<travel_date>'});
+   const returnedTemplate=JSON.parse(JSON.stringify(template));
+   if(mode==='continuation')assert.deepEqual(template.input.continuation,continuation);
+   parameters.travel_date='2030-10-09';writeFileSync(file,JSON.stringify(template.input));
+   const args=template.command.replace(/^itpay /,'').replace('<file>',file).split(' ');args.push('--timeout','0');
+   const second=await run(args);const result=JSON.parse(second.stdout);assert.notEqual(result.status,'service_overview');
+   const retry=calls.find((call,index)=>index>0&&!call.path.endsWith('/advance')) ?? calls.at(-1)!;
+   if(!retry.path.endsWith('/advance')){if(operation!=='legacy')assert.equal(retry.body.operation_id,operation);else assert.equal(retry.body.operation_id,undefined);if(mode==='continuation')assert.deepEqual(retry.body.continuation,continuation);}
+   assert.deepEqual(retry.body.input,{...known,travel_date:'2030-10-09'});
+   evidence.push({operation,mode,template:returnedTemplate,result,calls});
+  } finally {await new Promise<void>(resolve=>server.close(()=>resolve()));}
+ }} finally {await mock.close();rmSync(work,{recursive:true,force:true});}
+ if(process.env.ITPAY_REWORK_EVIDENCE)writeFileSync(process.env.ITPAY_REWORK_EVIDENCE,JSON.stringify({scope:'Actual main entry and synthetic HTTP facts; no real services or transaction',cases:evidence},null,2));
+});
+
+test('same error codes and result selectors cannot cross a locked service boundary',async()=>{
+ const {runServicesRun,runServicesReadResult}=await import('../src/commands/services.js');
+ const {HttpError}=await import('../src/client/http.js');const {loadConfig}=await import('../src/state/config.js');
+ const mock=await startMockBackend();try{
+ const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+ for(const identity of [{service_id:'ordinary',service_contract_version_id:'v1'},{service_id:'itpay-rail-smart',service_contract_version_id:'unknown'}]) {
+  backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'invalid_selection',message:'bad candidate',reason:'input_constraint_invalid'},'invalid');};
+  await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{endpoints:{},review:{},search:{}}),error=>{assert(error instanceof HttpError);return true;});
+  backend.getServiceExecution=async()=>({...base,execution:{...base.execution,...identity}});
+  backend.recordServiceExecutionAction=async()=>{throw new HttpError(400,{code:'booking_review_invalid',message:'bad generic review'},'invalid');};
+  await assert.rejects(runServicesAction(backend,'se_fixture','accept_document',{}),error=>{assert(error instanceof HttpError);return true;});
+  let businessReads=0;backend.getRailJourneyDetail=async()=>{businessReads++;throw new Error('must not read');};
+  await assert.rejects(runServicesReadResult(backend,'se_fixture',{journey:'j_fixture'}));assert.equal(businessReads,0);
+ }
+ }finally{await mock.close();}
+});
+
+test('candidate selection is a non-executable interaction for one or many free or paid candidates',async()=>{
+ const {servicesNextEnvelope}=await import('../src/services/presentation.js');const mock=await startMockBackend();try{
+ const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+ for(const count of [1,2])for(const paid of [false,true]){
+ const model={...base,execution_requests:[],current_result_items:Array.from({length:count},(_,index)=>({...base.result_items[0]!,rank:index+1,display_title:`candidate ${index+1}`})),allowed_actions:[{type:'select_candidate',requires_human:true}],capabilities:base.capabilities.map(cap=>({...cap,requires_payment:paid}))};
+ delete model.workflow_entry;
+ const value=servicesNextEnvelope(model);assert.equal(value.next,null);assert.equal(value.interaction?.input_template?.executable,false);assert.doesNotMatch(JSON.stringify(value.recovery),/<rank>|approve_purchase/);
+ }
+ }finally{await mock.close();}
+});

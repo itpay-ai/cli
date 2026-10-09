@@ -1,3 +1,4 @@
+import { executionInputContext, operationInputTemplate } from "../shared/input.js";
 import { type ServiceExecutionReadModel } from "../../client/types.js";
 import { type CommandEnvelope } from "../shared/envelope.js";
 import { requiredInputFields } from "../shared/platform.js";
@@ -197,12 +198,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
     // a non-executable input_template, not a fake `next.command`.
     const guidance = railServiceGuidance(execution.service_id, model.workflow_entry?.input_schema);
     const inputTemplate = state === "input_required"
-      ? {
-          command: `itpay services run ${execution.service_id} --execution ${id} --input-json <file> --json`,
-          input: serviceInputTemplate(model.workflow_entry?.input_schema ?? {}, Object.keys(model.workflow?.query_input ?? {}).length ? (model.workflow?.query_input ?? {}) : guidance?.input_example ?? {}),
-          required_input: ["file", ...requiredInputFields(model.workflow_entry?.input_schema)],
-          executable: false as const,
-        }
+      ? operationInputTemplate(executionInputContext(execution), serviceInputTemplate(model.workflow_entry?.input_schema ?? {}, Object.keys(model.workflow?.query_input ?? {}).length ? (model.workflow?.query_input ?? {}) : guidance?.input_example ?? {}), requiredInputFields(model.workflow_entry?.input_schema))
       : undefined;
     if (state === "input_required" && execution.service_id === "itpay-rail-smart" && !guidance) {
       return {status:"contract_unavailable",result:{service_execution_id:id,service_id:execution.service_id},instruction:"当前锁定合同缺失；读取一次同执行合同后仍缺失就停止，不猜新旧输入结构。",next:{command:`itpay services get ${id} --json`,reason:"获取锁定合同一次"},recovery:[]};

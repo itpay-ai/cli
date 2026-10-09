@@ -1244,7 +1244,7 @@ test("rail saved page with no qualified journey explains the evidence gap", asyn
 		rides: [{ train_code: "G1", departure: "2030-10-10 09:00", arrival: "2030-10-10 10:00" }],
 		qualification_status: "ineligible", qualification_reasons: ["INVENTORY_INSUFFICIENT"],
 		availability: "unavailable", booking_support: "none" };
-	const saved = { getServiceExecutionResultItemPage: async () => ({ snapshot_id: "rps_diag", plan_id: "rp_diag", query_revision: 1,
+	const saved = { getServiceExecution: async () => ({execution:{service_id:"itpay-rail-smart",service_contract_version_id:"scv_itpay_rail_smart_v6"}}), getServiceExecutionResultItemPage: async () => ({ snapshot_id: "rps_diag", plan_id: "rp_diag", query_revision: 1,
 		page: { result: { journey_page: { total: 1, next_offset: null,
 			qualification_counts: { eligible: 0, ineligible: 1, unknown: 0 } }, journeys: [diagnostic] } } }) } as unknown as BackendClient;
 	await runServicesReadResult(saved, "se_diag", { snapshot: "rps_diag", jsonOutput: true, output: stdoutSink });
@@ -1280,7 +1280,10 @@ test("services next restores candidate items on the source execution", async () 
 	});
 	assert.match(envelope.instruction, /候选列表已满足目标就停止/);
 	assert.match(envelope.instruction, /不要提及 safe_payload/);
-	assert.match(envelope.next.command, /services action se_candidate_recovery/);
+	assert.equal(envelope.next, null);
+	const interaction = JSON.parse(stdoutCapture.join("" )).interaction;
+	assert.equal(interaction.input_template.executable,false);
+	assert.match(interaction.input_template.command,/services action se_candidate_recovery/);
 	assert.doesNotMatch(stdoutCapture.join(""), /service_capability_result_item_id|stable_hash|invocation/);
 });
 
@@ -4110,6 +4113,8 @@ test("planning action returns the original execution and a usable continuation",
 
 test("booking review invalid seat label recovers the same execution", async () => {
   const client = Object.create(backend) as BackendClient;
+  const locked = await backend.getServiceExecution("se_mock_next");
+  client.getServiceExecution = async () => ({...locked, execution:{...locked.execution,service_id:"itpay-rail-booking",service_contract_version_id:"scv_itpay_rail_booking_v4"}});
   client.recordServiceExecutionAction = async () => {
     throw new HttpError(400, { code: "booking_review_invalid", message: "booking review values must match offered codes" }, "HTTP 400");
   };

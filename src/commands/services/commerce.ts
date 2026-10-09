@@ -1,5 +1,4 @@
-import { serviceAdapterKey } from "../../services/registry.js";
-import { railCheckoutItinerary } from "../../services/rail/checkout.js";
+import { serviceAdapter } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { type CLIConfig } from "../../state/config.js";
@@ -132,10 +131,7 @@ export async function runServicesCheckout(
   let itinerary: Record<string, unknown> | undefined;
   try {
     const booking = await backend.getServiceExecution(serviceExecutionID);
-    if (serviceAdapterKey(booking.execution) === "rail.v1") {
-      const presentation = await backend.getCheckoutPresentation(checkoutID, displayToken);
-      ({itinerary,itineraryTitle} = railCheckoutItinerary(booking,presentation));
-    }
+    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken));
   } catch {
     // Checkout already exists; a display-only title lookup cannot hide its official handoff.
   }
