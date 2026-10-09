@@ -79,7 +79,7 @@ consent, identity data, payment, ticket issuance or refund success. An Agent
 may select under the human's delegation, but must not record itself as a human. Candidate selection is not approval of price. Use the server scoped approve_purchase
 template only for genuine matching exact-price, capped-budget or explicitly authorized
 official-page confirmation; its default remains false. Restore an existing checkout first.
-Choosing a candidate is not acceptance of additional material terms. Ask the current service consent question once when genuinely missing, leaving an unaccepted default false.
+Choosing a candidate is not acceptance of additional material terms. Ask the current service consent question once when genuinely missing, leaving an unaccepted default false. Submit conversation consent as actor-type agent; this reports the human answer and does not prove an official-page confirmation.
 
 ## Show the human
 

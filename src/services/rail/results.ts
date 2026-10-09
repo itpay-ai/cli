@@ -13,7 +13,8 @@ export function railJourneyFacts(card: RailJourneyCard): Record<string, unknown>
   return {
     rail_fare_fen: minor(offer?.fare_minor), service_fee_fen: minor(offer?.service_fee_minor),
     rail_payable_fen: minor(offer?.rail_payable_minor), currency: offer?.currency ?? null,
-    price_basis: "铁路应付参考额=铁路票价+各票段服务费；不含未知地面费用，以新报价为准。",
+    price_basis: "以上票价与服务费均为本次人数的整程合计（非每人）；整程铁路应付=票价+各段服务费，不含未知地面费用，以新报价为准。",
+    availability_basis: "本次库存观测可用不代表余票数量充足；只以明确的 remaining 数量判断。",
     rail_duration_minutes: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end-start)/60000) : null,
     door_to_door_minutes: metrics?.duration_basis === "door_to_door" ? minor(metrics.door_to_door_min) : null,
     ...(metrics?.duration_basis !== "door_to_door" ? {ground_time_note: "接驳未完整核验，不能把铁路时长称为门到门时间。"} : {}),
@@ -152,6 +153,7 @@ export function railJourneySummary(card: RailJourneyCard, serviceExecutionID: st
     ...(card.reason_codes?.length ? { reason_codes: card.reason_codes } : {}),
     ...(card.tradeoff_codes?.length ? { tradeoff_codes: card.tradeoff_codes } : {}),
     ...(card.recommended_profile ? { recommended_profile: card.recommended_profile,
+      profile_comparison: {scope:"within_journey",earliest_arrival_label:"本路线较早到达配置",arrival_basis:metrics?.arrival_basis ?? "unknown",rule:"profile角色不是全目录排序；不能据此宣称全局最早。"},
       recommended_price_basis: "推荐席别及已核验接驳估算以recommended_profile为准；按其ticket_plan_ref/offer_refs读取完整方案，新报价确认后下单。" } : {}),
     availability: card.availability,
     booking_support: publicBookingSupport(card),

@@ -103,7 +103,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 			result: {
 				service_execution_id: execution.service_execution_id,
 				...(delivery?.capability_id ? { capability_id: delivery.capability_id } : {}),
-				...(delivery?.order_id ? { order_id: delivery.order_id } : {}),
+				...(delivery?.order_id ? { order_id: delivery.order_id, aftercare:{optional:true,command:`itpay feedback submit --order ${delivery.order_id} --json`,reason:"结果答复后按需复盘；不猜评分"} } : {}),
 				delivery_mode: deliveryMode,
 				items,
 			},

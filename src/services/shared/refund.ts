@@ -28,8 +28,8 @@ export function refundStateEnvelope(refund: RefundRequest, status: string): Comm
 			access_locked: refund.access_locked,
 			can_cancel: refund.can_cancel,
 		},
-		instruction,
-		next: terminal ? null : { command: `itpay refund watch ${refund.refund_request_id} --json`, reason: "跟踪同一退款" },
+		instruction: instruction + " consumption_state是平台交付内容的消费事实，access_locked是交付访问锁；不能据此推断线下服务是否已使用或退款资格。",
+		next: terminal ? null : { command: `itpay refund get ${refund.refund_request_id} --json`, reason: "按需读取同一退款；不自动循环等待" },
 		recovery: [],
 	};
 }

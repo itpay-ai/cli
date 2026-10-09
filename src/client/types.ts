@@ -58,6 +58,7 @@ export interface CreateCartRequest {
 }
 
 export interface Checkout {
+  cart_id?: string;
   checkout_id: string;
   order_code?: string;
   status: string;
@@ -131,7 +132,7 @@ export interface CheckoutPresentation {
   account_phone_option?: { source?: string; masked_recipient?: string };
   payment_deadline_at?: string;
   server_now?: string;
-  payment_remaining_seconds?: number;
+  payment_remaining_seconds?: number | null;
   qr_png_url?: string;
   card_url?: string;
   card_png_url?: string;
@@ -169,7 +170,7 @@ export interface Order {
   paid_at?: string;
   payment_deadline_at?: string;
   server_now?: string;
-  payment_remaining_seconds?: number;
+  payment_remaining_seconds?: number | null;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
 }
@@ -616,6 +617,7 @@ export interface ServiceExecutionCheckoutCreated {
 }
 
 export interface ServiceQuotePrepared {
+ purchase_summary?:{title:string;subject?:string|null;included_sections:string[];quantity:number;amount_minor:number;currency:string};
  approval_template?: {
  public_service_id?:string;service_definition_version?:string;operation_id?:string;
  service_quote_lock_id: string; service_execution_id: string; service_id: string; service_contract_version_id: string;
@@ -771,7 +773,7 @@ export interface RailPlanningProjection {
   notices?: Array<Record<string, unknown>>;
   recommendation?: RailJourneyCard;
   alternatives?: RailJourneyCard[];
-  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string; target?: {service_execution_id:string;query_revision:number;snapshot_id?:string;journey_id?:string}; input?:Record<string,unknown>; input_example?: Record<string, unknown> }>;
+  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string; target?: {service_execution_id:string;query_revision:number;snapshot_id?:string;journey_id?:string}; input?:Record<string,unknown>; input_example?: Record<string, unknown>; input_schema?: Record<string, unknown> }>;
   result_not_updated?: boolean;
 }
 

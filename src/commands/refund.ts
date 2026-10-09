@@ -83,33 +83,27 @@ export async function runCancelRefund(backend: BackendClient, refundID: string, 
 
 export async function runWatchRefund(backend: BackendClient, refundID: string, options: RefundWatchOptions = {}): Promise<void> {
 	const intervalSeconds = options.intervalSeconds ?? 2;
-	const timeoutSeconds = options.timeoutSeconds ?? 120;
+	const timeoutSeconds = options.timeoutSeconds ?? 20;
 	if (!Number.isFinite(intervalSeconds) || intervalSeconds < 1) throw new Error("--interval must be at least 1 second");
 	if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new Error("--timeout must be a positive number");
 	const deadline = Date.now() + timeoutSeconds * 1000;
 	let refund: RefundRequest;
+	let initialState: string | undefined;
 	for (;;) {
 		refund = await backend.getRefund(refundID);
-		if (["succeeded", "failed", "cancelled", "rejected"].includes(refund.status)) {
+		const state = JSON.stringify([refund.status,refund.decision_mode,refund.failure_class,refund.access_locked,refund.can_cancel]);
+		if (["succeeded", "failed", "cancelled", "rejected"].includes(refund.status) || refund.decision_mode === "manual" || refund.failure_class === "outcome_unknown" || (initialState !== undefined && state !== initialState)) {
 			writeRefundEnvelope(refundStateEnvelope(refund, "watch_complete"), options);
 			return;
 		}
+		initialState ??= state;
 		const remaining = deadline - Date.now();
 		if (remaining <= 0) break;
 		await new Promise((resolve) => setTimeout(resolve, Math.min(intervalSeconds * 1000, remaining)));
 	}
-	writeRefundEnvelope({
-		status: "watch_timeout",
-		result: {
-			refund_request_id: refund.refund_request_id,
-			last_status: refund.status,
-			access_locked: refund.access_locked,
-			can_cancel: refund.can_cancel,
-		},
-		instruction: "先告诉用户退款仍在处理，Timeout 只表示本次等待结束，并不表示退款失败；稍后继续跟踪同一退款，不要重复申请或承诺结果。",
-		next: { command: `itpay refund watch ${refund.refund_request_id} --json`, reason: "恢复轮询" },
-		recovery: [],
-	}, options);
+	const latest = refundStateEnvelope(refund,"watch_timeout");
+	writeRefundEnvelope({...latest, result:{...latest.result,last_status:refund.status,wait_ended:true},
+		instruction:`本次等待结束，并不表示退款失败。${latest.instruction} 稍后按需读取同一退款，不自动重启等待，不要重复申请。`},options);
 }
 
 function writeRefundEnvelope(envelope: CommandEnvelope, options: RefundReadOptions): void {

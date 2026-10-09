@@ -66,8 +66,9 @@ export function railActionError(error:unknown,serviceExecutionID:string,actionTy
 						: "当前购买已有付款尝试；读取同一booking及订单状态，不创建新订单或重做付款。",
 				error.payload?.review ? [] : [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取同一booking的当前状态与review" }],
                 error.payload?.review?.input_template ? {
-                  schema_version: "itpay.interaction.v1", stage: "booking_review_required",
-                  input_template: {command: `itpay services action ${serviceExecutionID} --action ${actionType} --actor-type human --status approved --input-json <file> --json`, input: error.payload?.review.input_template as Record<string, unknown>, required_input: ["file"], executable: false},
+                  schema_version: "itpay.interaction.v1", stage: "consent_required",
+                  consent_rule: "没有用户明确条款回答或等价已存同意时保持 false，展示 review.consent_question 后等待。技术修正不产生同意；Agent提交是转述。",
+                  input_template: {command: `itpay services action ${serviceExecutionID} --action ${actionType} --actor-type agent --status approved --input-json <file> --json`, input: error.payload?.review.input_template as Record<string, unknown>, required_input: ["file"], executable: false},
                 } : undefined,
                 {service_execution_id: serviceExecutionID, review: error.payload?.review, input_errors: error.payload?.input_errors},
 			);

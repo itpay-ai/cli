@@ -189,7 +189,7 @@ export function terminalExecutionEnvelope(model: ServiceExecutionReadModel): Com
       service_execution_id: execution.service_execution_id,
       service_id: execution.service_id,
       phase: execution.phase,
-      ...(currentDelivery?.order_id ? { order_id: currentDelivery.order_id } : {}),
+      ...(currentDelivery?.order_id ? { order_id: currentDelivery.order_id, aftercare: { optional: true, command: `itpay feedback submit --order ${shellArgument(currentDelivery.order_id)} --json`, reason: "告知原单结果后按需复盘，不猜评分或上传隐私" } } : {}),
     },
     instruction: execution.status === "refunded"
       ? "告诉用户这笔服务已经退款并永久结束。Agent 不重放服务步骤、不创建付款页面或尝试读取旧交付。"
@@ -265,7 +265,7 @@ export function grantedResultEnvelope(response: GrantedServiceResult, orderID?: 
     status: "granted_result_ready",
     result: {
       service_execution_id: response.service_execution_id,
-      ...(orderID ? { order_id: orderID } : {}),
+      ...(orderID ? { order_id: orderID, aftercare:{optional:true,command:`itpay feedback submit --order ${shellArgument(orderID)} --json`,reason:"交付答复后按需复盘，不猜评分或上传隐私"} } : {}),
       ...(response.expires_at ? { grant_expires_at: response.expires_at } : {}),
       granted_fields: Object.keys(response.result),
       payload: response.result,
@@ -421,7 +421,7 @@ export function tokenizedCheckoutURL(checkoutURL: string, displayToken: string, 
 
 export function publicPurchaseTemplate(value:unknown):Record<string,unknown>|undefined {
  if (value === undefined) return undefined;
- const invalid=()=>new CommandContractError("public_operation_contract_invalid","incomplete public purchase operation","服务返回的准备购买合同不完整；保留当前快照与已有购买并停止，不能退回旧入口拼接凭据。",[]);
+ const invalid=()=>new CommandContractError("public_operation_contract_invalid","incomplete public purchase operation","服务返回的准备购买合同不完整；保留当前快照与已有购买并停止，不能退回旧入口拼接凭据。",[],undefined,{reason:"purchase_contract_missing"});
  if(typeof value!=="object"||value===null||Array.isArray(value)||!("service_id" in value)||typeof value.service_id!=="string"||!("operation_id" in value)||typeof value.operation_id!=="string"||!("input" in value)||typeof value.input!=="object"||value.input===null||Array.isArray(value.input)||!("continuation" in value)) throw invalid();
  const ref=value.continuation;
  if(typeof ref!=="object"||ref===null||Array.isArray(ref)||!("service_execution_id" in ref)||typeof ref.service_execution_id!=="string"||!("snapshot_id" in ref)||typeof ref.snapshot_id!=="string")throw invalid();

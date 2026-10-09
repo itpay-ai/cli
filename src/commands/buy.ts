@@ -25,7 +25,7 @@ import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
 import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
-import { buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
+import { assertCheckoutPayable, buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 
 
 export type ContactField = "email" | "phone";
@@ -129,6 +129,15 @@ export async function runBuy(
     ...(options.contact ? { delivery_contact: options.contact } : {}),
   };
   const checkout = await backend.createCheckout(checkoutRequest, idempotencyKey);
+
+  const authoritative = checkout.display_token
+    ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id, checkout.display_token)
+    : undefined;
+  assertCheckoutPayable(checkout, authoritative, cart.cart_id, latestLine?.service_execution_id);
+  const current = authoritative?.checkout ?? checkout.checkout;
+  // Only the returned checkout's items are authoritative for the handoff.
+  if (!authoritative) throw new Error("checkout presentation unavailable");
+  cart = {...cart, items:authoritative.items, amount_minor:current.amount_minor, currency:current.currency};
 
   options.cartSession.rememberCheckout({
     checkoutID: checkout.checkout.checkout_id,

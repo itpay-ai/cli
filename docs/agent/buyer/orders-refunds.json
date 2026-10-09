@@ -45,7 +45,7 @@
     "Read this order’s current refund policy. Railway return depends on supplier ticket facts and may require manual review; platform refund status alone does not prove a train ticket was returned.",
     "A refund request freezes all delivery paths and revokes existing grants immediately.",
     "Cancellation or rejection follows the returned order policy and never reactivates an old grant automatically.",
-    "Use get or watch after interruption; do not infer success from elapsed time.",
+    "Use get after interruption; explicit watch defaults to a bounded 20-second window and returns on change or manual attention. Do not restart watch automatically or infer success from elapsed time.",
     "Never switch CLI/MCP lanes or identities to recover an order or refund error.",
     "A read-only MCP Agent may explain policy and order facts, but directs refund actions to the ItPay Dashboard or a full Local CLI Agent."
   ],
@@ -99,5 +99,6 @@
     "status_read": "Use the current returned reader for ticket state; order summaries do not expose per-leg notification delivery records. Do not infer a sent or delivered notification.",
     "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
     "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
-  }
+  },
+  "consumption_and_access": "Platform content consumption is not train usage; access_locked freezes platform delivery and does not prove ticket validity. Read actual refund/ticket facts; a future departure does not guarantee eligibility."
 }

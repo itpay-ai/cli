@@ -104,8 +104,10 @@ export async function runServicesAction(
       service_execution_id: response.service_execution_id,
       action_type: response.action_type,
       action_status: response.status,
+      evidence_source: "agent_reported",
+      reported_actor_type: response.actor_type,
     },
-    instruction: "动作已记录，读取服务端计算的新状态；不要自行假设下一 capability。",
+    instruction: "动作已记录（Agent转述；actor_type并非官方页面真人确认的证明）。读取服务端计算的新状态；不要自行假设下一 capability。",
     next: {
       command: `itpay services next ${response.service_execution_id} --json`,
       reason: "取得更新后的首选动作",

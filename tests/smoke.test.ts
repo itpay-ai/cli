@@ -4177,15 +4177,16 @@ test("booking review human action guides --input-json submission", async () => {
   client.getServiceExecution = async () => model;
   await runServicesNext(client, model.execution.service_execution_id, { jsonOutput: true, output: stdoutSink });
   const result = JSON.parse(stdoutCapture.join(""));
-  assert.equal(result.status, "booking_review_required");
+  assert.equal(result.status, "consent_required");
   // The review submission needs a real input file — it lives in the
   // interaction template, not as an executable next command.
   assert.equal(result.next, null);
   assert.match(result.interaction.input_template.command, /--input-json <file>/);
   assert.equal(result.interaction.input_template.executable, false);
-  assert.match(result.instruction, /座位\/卧铺偏好可能自动分配/);
+  assert.match(result.interaction.consent_rule, /只有用户本人明确接受/);
   assert.ok(result.interaction.input_template.required_input.includes("draft_revision"));
-  assert.match(result.instruction, /只补缺失选择或真实条款同意/);
+  assert.match(result.instruction, /只补缺失同意/);
+  assert.match(result.interaction.input_template.command, /--actor-type agent/);
   assert.doesNotMatch(result.instruction, /requirements_remaining/);
   assert.doesNotMatch(result.instruction, /人数.*一次问清|每位乘客.*一次问清/);
   assert.doesNotMatch(result.interaction.input_template.command, /--input [a-z_]+=<值>/);
@@ -5083,7 +5084,7 @@ test("refund issues a refund request with Idempotency-Key", async () => {
   assert.equal(envelope.result.can_cancel, true);
   assert.match(envelope.instruction, /只有最终 succeeded 才能确认退款成功/);
   assert.doesNotMatch(envelope.instruction, /一定退款|无条件退款|立即到账/);
-  assert.match(envelope.next.command, /^itpay refund watch rr_/);
+  assert.match(envelope.next.command, /^itpay refund get rr_/);
   const req = mock.requests.at(-1)!;
   assert.equal(req.method, "POST");
   assert.equal(req.path, "/v1/orders/ord_42/refunds");
@@ -5157,7 +5158,7 @@ test("refund get returns one compact authoritative snapshot for every Agent Type
 		assert.equal(envelope.result.access_locked, true);
 		assert.match(envelope.instruction, /退款申请已经记录/);
 		assert.doesNotMatch(envelope.instruction, /一定退款|无条件退款|立即到账/);
-		assert.equal(envelope.next.command, `itpay --agent-type ${agentType} refund watch rr_1 --json`);
+		assert.equal(envelope.next.command, `itpay --agent-type ${agentType} refund get rr_1 --json`);
 		assert.equal(result.stderr, "");
 	}
 });
@@ -5252,7 +5253,7 @@ test("refund watch timeout is a resumable state, not a refund failure", async ()
 	assert.equal(envelope.status, "watch_timeout");
 	assert.equal(envelope.result.last_status, "accepted");
 	assert.match(envelope.instruction, /不要重复申请/);
-	assert.equal(envelope.next.command, "itpay --agent-type codex-cli refund watch rr_pending --json");
+	assert.equal(envelope.next.command, "itpay --agent-type codex-cli refund get rr_pending --json");
 	assert.equal(result.stderr, "");
 });
 
@@ -5380,7 +5381,7 @@ test("runBuy disables desktop IDE attach when ITPAY_IDE_IMAGE_ATTACH=0", async (
   assert.equal(attach!.localPath, "");
   // did not hit the backend's card.png endpoint
   const lastReq = mock.requests.at(-1)!;
-  assert.equal(lastReq.path, "/v1/checkouts");
+  assert.match(lastReq.path, /^\/v1\/checkouts\/[^/]+\/presentation\?/);
 });
 
 test("runBuy surfaces desktop attach failure when the brand QR HTTP fails", async () => {

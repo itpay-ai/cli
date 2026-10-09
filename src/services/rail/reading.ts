@@ -2,6 +2,7 @@ import {renderExactRows,renderJourneyPage,renderJourneyDetail,exactSavedPage,sav
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { decodeRailCatalogJourneys } from "./catalog.js";
+import {publicPurchaseTemplate} from "../shared/platform.js";
 import { CommandContractError } from "../shared/envelope.js";
 
 export async function readSavedResult(backend: BackendClient, model: import("../../client/types.js").ServiceExecutionReadModel, serviceExecutionID: string, options: import("../adapter.js").ResultReadOptions): Promise<"handled" | "state" | undefined> {
@@ -76,7 +77,33 @@ export async function readSavedResult(backend: BackendClient, model: import("../
     return "handled";
   }
   if (options.journey) {
-    const detail = await backend.getRailJourneyDetail(serviceExecutionID, options.journey, options.snapshot);
+    let detail = await backend.getRailJourneyDetail(serviceExecutionID, options.journey, options.snapshot);
+    const validate = () => {
+      if (!model.execution.public_binding || detail.journey.qualification_status !== "eligible") return;
+      for (const plan of detail.journey.ticket_plans ?? []) {
+        if (plan.qualification_status === "eligible" && plan.booking_input) {
+          if (!plan.purchase_operation) throw new CommandContractError("public_operation_contract_invalid", "missing public purchase operation", "购买合同缺失", []);
+          publicPurchaseTemplate(plan.purchase_operation);
+        }
+      }
+      if (detail.journey.booking_support === "single_leg" && detail.journey.booking_offer) {
+        if (!detail.journey.purchase_operation) throw new CommandContractError("public_operation_contract_invalid", "missing public purchase operation", "购买合同缺失", []);
+        publicPurchaseTemplate(detail.journey.purchase_operation);
+      }
+    };
+    try { validate(); }
+    catch (error) {
+      if (!(error instanceof CommandContractError) || error.code !== "public_operation_contract_invalid") throw error;
+      // One bounded owner-validated read, pinned to the returned snapshot. No provider or purchase call.
+      detail = await backend.getRailJourneyDetail(serviceExecutionID, options.journey, detail.snapshot_id);
+      try { validate(); }
+      catch (repeated) {
+        if (!(repeated instanceof CommandContractError) || repeated.code !== "public_operation_contract_invalid") throw repeated;
+        throw new CommandContractError(repeated.code,repeated.message,
+          "同一详情只读重取一次后购买合同仍不完整，停止。保留原执行和快照，需平台修复；不要重查、换候选、拼凭据或退旧入口。",[],undefined,
+          {reason:"purchase_contract_missing",service_execution_id:serviceExecutionID,snapshot_id:detail.snapshot_id,journey_id:options.journey,readonly_recovery_attempts:1});
+      }
+    }
     renderJourneyDetail(serviceExecutionID,detail,options);
     return "handled";
   }

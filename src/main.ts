@@ -1409,7 +1409,7 @@ refund.command("get").argument("<refund_request_id>").option("--json", "output J
 		});
 	}
 });
-refund.command("watch").argument("<refund_request_id>").option("--interval <seconds>", "poll interval", Number, 2).option("--timeout <seconds>", "timeout", Number, 120).option("--json", "output JSON instead of terminal text").action(async (id, options) => {
+refund.command("watch").argument("<refund_request_id>").option("--interval <seconds>", "poll interval", Number, 2).option("--timeout <seconds>", "bounded wait; returns on change/manual attention", Number, 20).option("--json", "output JSON instead of terminal text").action(async (id, options) => {
 	const config = loadConfig();
 	try {
 		await runWatchRefund(newBackendClient(config), id, {

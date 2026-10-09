@@ -50,7 +50,7 @@
       "step": "review",
       "command": "itpay services next <booking_execution_id> --json",
       "returns": "current review revision, material terms and a non-executable confirm_booking input_template",
-      "next": "submit the returned actor-type human template only after genuine consent; reuse an unchanged explicit consent for code-only correction"
+      "next": "submit the returned actor-type agent template only after genuine consent; reuse an unchanged explicit consent for code-only correction"
     },
     {
       "step": "checkout",
@@ -165,5 +165,6 @@
     "rail-booking"
   ],
   "reading_and_writing": "Use the formal Skill Follow one envelope rules for direct text/file reading, truncation and small JSON input; no parsing scripts.",
-  "restore_old_execution": "Only when resuming an existing v4 execution, follow its own declared legacy schema; new queries use the current three-endpoint contract."
+  "restore_old_execution": "Only when resuming an existing v4 execution, follow its own declared legacy schema; new queries use the current three-endpoint contract.",
+  "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Follow next_offset exactly; byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee."
 }

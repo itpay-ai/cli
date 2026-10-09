@@ -28,6 +28,6 @@ export function railAvailableActions(plan:NonNullable<ServiceExecutionReadModel[
     case "stop_search":command=`itpay services action ${se} --action workflow:stop_search --actor-type human --status approved --json`;break;
    }
   }
-  return {type:action.type,provider_effect:action.provider_effect,...(action.when?{when:action.when}:{}),...(command?{command,...(input?{input_template:{input,executable:false},instruction:"仅有匹配的真实意图或授权时填写并提交；不把示例偏好当用户选择。"}:{})}:{instruction:"缺少当前动作的结构化合同事实；保留原执行，不执行服务器命令文本。"})};
+  return {type:action.type,provider_effect:action.provider_effect,...(action.when?{when:action.when}:{}),...(command?{command,...(input?{input_template:{input,executable:false},...(action.input_schema?{input_schema:action.input_schema}:{}),...(action.type==="refine_preferences"?{instruction:"仅填用户改变的偏好，保留 expected_query_revision；rerank 复用已存事实，不新增查车。示例不是用户选择，端点/日期改变须新查询。"}:{})}:{})}:{instruction:"缺少当前动作的结构化合同事实；保留原执行，不执行服务器命令文本。"})};
  });
 }

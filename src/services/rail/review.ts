@@ -153,18 +153,22 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
           ? review.requirements_remaining
           : undefined;
         return {
-          status: state === "failed" ? "quote_recovery_required" : "booking_review_required",
+          status: state === "failed" ? "quote_recovery_required" : "consent_required",
           result: { service_execution_id: id, service_id: execution.service_id, review, ...(state === "failed" ? {failure:model.workflow?.failure} : {}),
+            consent_question: review.consent_question, notice_version: review.notice_version, draft_revision: review.draft_revision,
+            acceptance: "Agent须核对当前聊天明确回答或已存等价同意；委托选票不是条款同意",
+            recorded_acceptance: model.actions.filter(record=>record.action_type===action.action_type && record.status==="approved" && record.input_snapshot?.accept_non_guaranteed===true).map(record=>({notice_version:record.input_snapshot?.notice_version,draft_revision:record.input_snapshot?.draft_revision,accepted:true,recorded_actor_type:record.actor_type,evidence_source:"stored_caller_reported"})),
             action_type: action.action_type, required_fields: requiredFields,
             ...(requirementsRemaining ? { requirements_remaining: requirementsRemaining } : {}) },
           ...(reviewURL ? { handoff: { url: reviewURL, kind: "booking_review" } } : {}),
-          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 对照对话只补缺失选择或真实条款同意；无字母偏好自动分配，不默认问字母。仅代码修正且车次、实际席别、人数、价格及条款不变，沿用已有明确确认；实质变化只核对变化。复制 interaction.input_template.input；自动分配使用该对象数组，不传 null 或字符串。只有用户本人已接受当前条款，才把 accept_non_guaranteed 改为 true；选车或委托选票不等于条款同意，false是未同意保护而非模板错误。缺同意时仅用 review.consent_question 问一次；没有该文案时说明座位/卧铺偏好可能自动分配，并按当前notice补整程条款。已有充分同意且条件不变则不再问。身份信息只在官方 Checkout 页填写。`,
+          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 先展示 consent_question，只补缺失同意；代码修正且车次、实际席别、人数、价格及条款未变时沿用已有明确确认（真实同意），实质变化只确认差异。复制模板对象，不额外套 input；身份信息只在官方 Checkout 页填写。`,
           next: null,
           interaction: {
             schema_version: "itpay.interaction.v1",
-            stage: "booking_review_required",
+            stage: "consent_required",
+            consent_rule: "只有用户本人明确接受当前条款才将 false 改为 true。没有回答时问 consent_question 一次后等待；不要执行模板。Agent 提交只代表转述，不是官方页确认。",
             input_template: {
-              command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`,
+              command: `itpay services action ${id} --action ${action.action_type} --actor-type agent --status approved --input-json <file> --json`,
               required_input: ["file", ...requiredFields],
               input: review.input_template && typeof review.input_template === "object"
                 ? review.input_template as Record<string, unknown> : serviceInputTemplate(action.input_schema ?? {}, review),

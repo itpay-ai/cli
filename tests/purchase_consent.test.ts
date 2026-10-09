@@ -154,3 +154,69 @@ test('candidate selection is a non-executable interaction for one or many free o
  }
  }finally{await mock.close();}
 });
+
+test('buy refuses original unpayable checkout before rendering or payment',async()=>{
+ const {runBuy}=await import('../src/commands/buy.js');
+ const {loadConfig}=await import('../src/state/config.js');
+ const {CartSession}=await import('../src/state/cart_session.js');
+ const {CommandContractError}=await import('../src/services/shared/envelope.js');
+ const mock=await startMockBackend();
+ try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const cart={cart_id:'cart_original',status:'active',amount_minor:500,currency:'CNY',items:[{title:'server original journey',quantity:1,amount_minor:500,currency:'CNY',service_execution_id:'se_original',service_quote_lock_id:'q_original'}]};
+  backend.getCart=async()=>cart;
+  let creates=0,payments=0;
+  backend.createPaymentIntent=async()=>{payments++;throw new Error('must not pay');};
+  for(const status of ['expired','failed','payment_pending','payment_succeeded','payment_required']) {
+   backend.createCheckout=async()=>{creates++;return {checkout:{checkout_id:'chk_original',cart_id:cart.cart_id,status,next_action:'none',amount_minor:500,currency:'CNY',expires_at:'2026-10-09T01:00:00Z'},display_token:'test_only',checkout_url:'http://localhost/checkout/chk_original',qr_payload:''};};
+   backend.getCheckoutPresentation=async()=>({checkout:{checkout_id:'chk_original',cart_id:cart.cart_id,status,next_action:'none',amount_minor:500,currency:'CNY',expires_at:'2026-10-09T01:00:00Z'},items:cart.items,payment_intents:[],buyer_session:{state:'account'},server_now:'2026-10-09T01:00:01Z',payment_remaining_seconds:0});
+   await assert.rejects(runBuy(backend,loadConfig({}),{cartSession:new CartSession('CNY'),cartID:cart.cart_id,host:'plain-chat',pay:true,jsonOutput:true}),error=>{
+    assert(error instanceof CommandContractError);assert.equal(error.code,'checkout_not_payable');return true;
+   });
+  }
+  assert.equal(creates,5); // replay requests only; Backend tests assert no new purchase/tokens
+  assert.equal(payments,0);
+ }finally{await mock.close();}
+});
+
+test('missing public continuation retries only the pinned detail once and then stops',async()=>{
+ const {readSavedResult}=await import('../src/services/rail/reading.js');
+ const {CommandContractError}=await import('../src/services/shared/envelope.js');
+ const mock=await startMockBackend();
+ try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const model=await backend.getServiceExecution('se_fixture');
+  model.execution.public_binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:'query_smart',adapter_key:'rail.v1'};
+  const broken={service_id:'itpay-rail',operation_id:'prepare_purchase',input:{selections:[]}};
+  const plan={ticket_plan_ref:'tp',qualification_status:'eligible',booking_input:{selections:[]},purchase_operation:broken};
+  const detail:Awaited<ReturnType<BackendClient['getRailJourneyDetail']>>={service_execution_id:'se_fixture',plan_id:'p',snapshot_id:'snap',query_revision:1,journey:{journey_id:'journey',route_family_id:'rf',qualification_status:'eligible',ticket_plans:[plan]}};
+  let reads=0;
+  backend.getRailJourneyDetail=async(_id,_journey,snapshot)=>{reads++; if(reads===2)assert.equal(snapshot,'snap');return detail;};
+  await assert.rejects(readSavedResult(backend,model,'se_fixture',{journey:'journey',jsonOutput:true,output:()=>{}}),error=>{assert(error instanceof CommandContractError);assert.equal(error.code,'public_operation_contract_invalid');assert.equal(error.recovery.length,0);return true;});
+  assert.equal(reads,2);
+  reads=0;let output='';
+  backend.getRailJourneyDetail=async()=>{reads++;return reads===1?detail:{...detail,journey:{...detail.journey,ticket_plans:[{...plan,purchase_operation:{...broken,continuation:{service_execution_id:'se_fixture',snapshot_id:'snap'}}}]}};};
+  await readSavedResult(backend,model,'se_fixture',{journey:'journey',jsonOutput:true,output:s=>output+=s});
+  assert.equal(reads,2);assert.equal(JSON.parse(output).result.snapshot_id,'snap');
+  assert.match(output,/--operation/);
+ }finally{await mock.close();}
+});
+
+test('refund manual and unknown watches return immediately with all owner facts',async()=>{
+ const {runWatchRefund}=await import('../src/commands/refund.js');
+ const {refundStateEnvelope}=await import('../src/services/shared/refund.js');
+ const mock=await startMockBackend();
+ try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getRefund('rr_pending');
+  const patches:Partial<Awaited<ReturnType<BackendClient['getRefund']>>>[]=[{decision_mode:'manual'},{status:'failed',failure_class:'outcome_unknown'}];
+  for(const patch of patches) {
+   backend.getRefund=async()=>({...base,...patch});let output='';const start=Date.now();
+   await runWatchRefund(backend,'rr_pending',{jsonOutput:true,output:s=>output+=s});
+   assert.ok(Date.now()-start<1000);const envelope=JSON.parse(output);
+   assert.equal(envelope.result.access_locked,base.access_locked);
+   assert.doesNotMatch(String(envelope.next?.command),/watch/);
+   if(patch.failure_class)assert.equal(envelope.result.failure_class,'outcome_unknown');
+  }
+  for(const status of ['succeeded','cancelled','rejected'])assert.equal(refundStateEnvelope({...base,status},'shown').next,null);
+ }finally{await mock.close();}
+});

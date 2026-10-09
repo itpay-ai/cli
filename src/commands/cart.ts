@@ -155,6 +155,8 @@ export async function runCartAddQuoteServer(options: {
     status: "quote_added",
     result: {
       cart_id: cart.cart_id,
+      service_quote_lock_id: options.serviceQuoteLockID,
+      service_execution_id: line.service_execution_id,
       item_count: cart.items.length,
       total: formatMoney(cart.amount_minor, cart.currency),
     },

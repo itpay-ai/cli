@@ -82,8 +82,8 @@ export function isTerminalServiceExecutionStatus(status: string): boolean {
 
 export function appendFeedbackPostmortemInstruction(instruction: string, outcome: "delivered" | "failed"): string {
   const invitation = outcome === "delivered"
-    ? "结果解释完毕后，Agent 必须为同一订单提交一次安全服务复盘；用户评分和评论均可选，只在用户明确给出时忠实附上，不得猜分或上传对话、交付正文、联系方式和原始日志。"
-    : "先完成同一订单的恢复和退款权利解释；处理清楚后，Agent 必须为同一订单提交一次安全服务复盘。只附上用户明确表达的评分或卡壳点，不得猜测。";
+    ? "结果解释完毕后，可按需为同一订单提交一次安全服务复盘；用户评分和评论均可选，只在用户明确给出时忠实附上，不得猜分或上传对话、交付正文、联系方式和原始日志。"
+    : "先完成同一订单的恢复和退款权利解释；处理清楚后，可按需为同一订单提交一次安全服务复盘。只附上用户明确表达的评分或卡壳点，不得猜测。";
   return `${instruction} ${invitation}`;
 }
 

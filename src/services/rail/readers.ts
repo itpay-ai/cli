@@ -45,7 +45,7 @@ export function renderJourneyPage(serviceExecutionID:string,planID:string|undefi
         ? "此历史快照没有完整资格计数；线路仅供核对铁路事实，不能据此认定可购买。沿同快照 detail.command 查看详情。"
         : qualificationCounts.eligible === 0
         ? `查到 ${total} 个时刻组合，当前 0 条满足购票资格。请读取诊断线路的 detail.command 查看具体原因；修改条件须依据用户意愿。`
-        : `已查范围内合格时刻组合 ${qualificationCounts.eligible}；本次展示 ${journeys.length} 个方案（首屏优先既有主方案/代表，计数不是中转通道数）。最快/低价须按对应方案和比较范围说明；未全范围排序只能说已读方案中。更多条件优先同快照调整偏好或沿 next 有序读所需页，不随机翻页、不无条件读完组合。未知费用不能当免费；detail.command 读取席别和整程购买条件，购买前实时报价。`,
+        : `已查范围内合格时刻组合 ${qualificationCounts.eligible}；本次展示 ${journeys.length} 个方案（首屏优先既有主方案/代表，计数不是中转通道数）。最快/低价须按对应方案和比较范围说明；未全范围排序只能说已读方案中。更多条件优先同执行 refine_preferences 复用已存事实；页大小受字节预算限制，每页可能不满，只沿 next_offset/next 读取，不计算偏移或无收益并行，不随机翻页、不无条件读完组合。未知费用不能当免费；detail.command 读取席别和整程购买条件，购买前实时报价。`,
       next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${options.snapshot} --offset ${nextOffset} --limit ${limit} --json`, reason: "仅当前问题还需未读线路时继续；已有合格完整结果可答复或按委托继续" },
       recovery: [],
     }, {
