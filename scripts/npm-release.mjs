@@ -1,11 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { releaseSource, checkPackage } from './npm-release-source.mjs';
 
 export function releaseTarget({ event, action = 'publish', tag, version, declaredTag, previousVersion }) {
-  if (!['publish', 'promote', 'verify'].includes(action)) throw new Error('Unsupported release action');
+  if (!['publish', 'stage', 'promote', 'verify'].includes(action)) throw new Error('Unsupported release action');
   const channel = event === 'push' ? declaredTag : tag;
-  if (!['next', 'latest'].includes(channel)) throw new Error('Choose next or latest explicitly');
+  if (!(action === 'stage' ? ['candidate-dev', 'candidate-prod'] : ['next', 'latest']).includes(channel)) throw new Error('Choose the release channel explicitly');
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('An exact package version is required');
   if (channel === 'latest' && version.includes('-')) throw new Error('Prerelease versions cannot target latest');
   return { action, channel, version, skip: event === 'push' && previousVersion === version };
@@ -16,6 +20,26 @@ async function metadata(spec) {
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Registry lookup failed: ${response.status}; publication was not attempted`);
   return response.json();
+}
+
+export async function verifyPublishedArtifact(existing, approved, request = fetch) {
+  if (existing.gitHead !== approved.sha || existing.version !== approved.version) throw new Error('Promotion does not match approved source');
+  const url = new URL(existing.dist?.tarball || 'https://invalid.example');
+  if (url.protocol !== 'https:' || url.hostname !== 'registry.npmjs.org' || url.username || url.password) throw new Error('Unexpected registry artifact origin');
+  const response = await request(url, { redirect:'error', signal:AbortSignal.timeout(30000) });
+  if (!response.ok || Number(response.headers.get('content-length') || 0) > 50 * 1024 * 1024) throw new Error('Registry artifact could not be verified');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > 50 * 1024 * 1024 || createHash('sha256').update(bytes).digest('hex') !== approved.sha256) throw new Error('Registry artifact does not match approved hash');
+  if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== existing.dist.integrity) throw new Error('Registry artifact integrity mismatch');
+  const directory = mkdtempSync(join(tmpdir(), 'itpay-registry-proof-'));
+  try {
+    const file = join(directory, 'package.tgz');
+    writeFileSync(file, bytes, { mode:0o600 });
+    const pkg = JSON.parse(execFileSync('tar', ['-xOf', file, 'package/package.json'], { encoding:'utf8' }));
+    const config = execFileSync('tar', ['-xOf', file, 'package/dist/src/state/config.js'], { encoding:'utf8' });
+    if (pkg.gitHead !== approved.sha) throw new Error('Published package source mismatch');
+    checkPackage(pkg, config, approved);
+  } finally { rmSync(directory, { recursive:true, force:true }); }
 }
 
 // npm dist-tag add skips PUT for an unchanged tag, so it cannot verify write permission.
@@ -55,10 +79,27 @@ async function main() {
     if (!event.before || /^0+$/.test(event.before)) throw new Error('No previous main revision; use manual publish');
     previousVersion = JSON.parse(execFileSync('git', ['show', `${event.before}:package.json`], { encoding: 'utf8' })).version;
   }
-  const action = process.env.RELEASE_ACTION || 'publish';
+  const action = process.env.RELEASE_ACTION || 'stage';
+  let artifact;
+  let publishFile;
+  const approvals = JSON.parse(readFileSync(new URL('./npm-release-sources.json', import.meta.url), 'utf8'));
+  if (action === 'stage') {
+    const source = releaseSource({ source: process.env.RELEASE_SOURCE || 'main', mainSha: process.env.GITHUB_SHA, approvals });
+    artifact = JSON.parse(readFileSync('release-artifact/manifest.json', 'utf8'));
+    if (!/^2\.\d+\.\d+$/.test(artifact.version) || !/^sha256:[a-f0-9]{64}$/.test(artifact.api)
+      || artifact.source !== source.sha || artifact.workflow !== process.env.GITHUB_SHA || artifact.channel !== source.channel
+      || artifact.file !== `itpay-cli-${artifact.version}.tgz` || !/^[a-f0-9]{64}$/.test(artifact.sha256)) throw new Error('Artifact source does not match approved workflow');
+    publishFile = resolve('release-artifact', artifact.file);
+    if (createHash('sha256').update(readFileSync(publishFile)).digest('hex') !== artifact.sha256) throw new Error('Artifact checksum mismatch');
+    if (source.sha256 && artifact.sha256 !== source.sha256) throw new Error('Artifact differs from approved hash');
+    const packed = JSON.parse(execFileSync('tar', ['-xOf', publishFile, 'package/package.json'], { encoding: 'utf8' }));
+    if (packed.gitHead !== source.sha || packed.version !== artifact.version) throw new Error('Packed source identity mismatch');
+    const compiled = execFileSync('tar', ['-xOf', publishFile, 'package/dist/src/state/config.js'], { encoding: 'utf8' });
+    if (checkPackage(packed, compiled, source) !== artifact.api) throw new Error('Packed API does not match recorded artifact');
+  }
   const target = releaseTarget({ event: process.env.GITHUB_EVENT_NAME, action,
-    tag: process.env.RELEASE_TAG, declaredTag: pkg.publishConfig?.tag,
-    version: action === 'publish' ? pkg.version : process.env.RELEASE_VERSION, previousVersion });
+    tag: artifact?.channel || process.env.RELEASE_TAG, declaredTag: artifact?.channel || pkg.publishConfig?.tag,
+    version: artifact?.version || (action === 'publish' ? pkg.version : process.env.RELEASE_VERSION), previousVersion });
   const record = message => {
     console.log(message);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${message}\n`);
@@ -66,15 +107,16 @@ async function main() {
   if (target.skip) return record(`No version change (${pkg.version}); nothing published or retagged.`);
   const existing = await metadata(target.version);
   const npm = args => execFileSync('npm', args, { stdio: 'inherit' });
-  if (target.action === 'publish') {
+  if (target.action === 'publish' || target.action === 'stage') {
+    const sourceSha = artifact?.source || process.env.GITHUB_SHA;
     if (existing) {
-      if (existing.gitHead !== process.env.GITHUB_SHA) throw new Error('Version exists from another revision; do not overwrite it. Use promote for an existing release.');
+      if (existing.gitHead !== sourceSha) throw new Error('Version exists from another revision; do not overwrite it. Use promote for an existing release.');
       const pointed = await metadata(target.channel);
       if (pointed?.version !== target.version) throw new Error('Version exists but tag differs; use explicit promote');
       return record(`Already published ${target.version} from this revision to ${target.channel}; no mutation.`);
     }
-    // npm run check ran in this job; preserve the existing checked-build publishing path.
-    npm(['publish', '--ignore-scripts', '--access', 'public', '--tag', target.channel]);
+    // Publish only the checked artifact; candidate scripts never run with OIDC permissions.
+    npm(['publish', ...(publishFile ? [publishFile] : []), '--ignore-scripts', '--access', 'public', '--tag', target.channel]);
   } else {
     if (!existing) throw new Error('Selected version does not exist');
     if (target.action === 'verify') {
@@ -82,10 +124,15 @@ async function main() {
       if (current?.version !== target.version) throw new Error('Verify may only reassert the current tag, never move it');
     }
     if (target.action === 'verify') await verifyOidcTag(target.channel, target.version);
-    else npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
+    else {
+      const approved = releaseSource({ source: target.channel === 'latest' ? 'prod' : 'dev', mainSha: process.env.GITHUB_SHA, approvals });
+      await verifyPublishedArtifact(existing, approved);
+      npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
+    }
   }
   const actual = await metadata(target.channel);
   if (actual?.version !== target.version) throw new Error('Registry tag does not match; inspect the completed operation before retrying');
+  if (artifact && actual.gitHead !== artifact.source) throw new Error('Registry source does not match the staged artifact; inspect without republishing');
   record(`${target.action}: @itpay/cli@${actual.version} → ${target.channel}; registry verified.`);
 }
 

@@ -50,3 +50,6 @@ bin/*/itpay-sell*
 
 .turbo/
 .itpay-sell/
+
+# Exact CI publication artifact; never source.
+/release-artifact/
