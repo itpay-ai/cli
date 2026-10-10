@@ -118,9 +118,9 @@ function loadDocs(): AgentDoc[] {
 
 function findDocsDir(): string {
   if (process.env.ITPAY_CLI_DOCS_DIR) return resolve(process.env.ITPAY_CLI_DOCS_DIR);
-  const packagePath = resolve(commandDir, "..", "..", "..", "docs", "agent", "buyer");
-  if (existsSync(packagePath)) return packagePath;
-  return resolve(commandDir, "..", "..", "docs", "agent", "buyer");
+  const sourcePath = resolve(commandDir, "..", "..", "docs", "agent", "buyer");
+  if (existsSync(sourcePath)) return sourcePath;
+  return resolve(commandDir, "..", "..", "..", "docs", "agent", "buyer");
 }
 
 function parseDoc(raw: string, file: string): AgentDoc {
