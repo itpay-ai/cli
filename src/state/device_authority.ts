@@ -126,6 +126,17 @@ export class DeviceAuthority {
     return this.pending;
   }
 
+  async status(): Promise<{ agent_type: string; expires_at: string }> {
+    // Readiness needs a current server proof, not an unexpired cached token.
+    return withFileLock(`${this.statePath}.lock`, async () => {
+      const auth = await this.prepareAuthorization(true);
+      if (!auth.session.token || !(Date.parse(auth.session.expiresAt) > Date.now())) {
+        throw new Error('Device verification returned an invalid session');
+      }
+      return { agent_type: auth.agentType, expires_at: auth.session.expiresAt };
+    });
+  }
+
   async recoverAuthorization(): Promise<void> {
     await withFileLock(`${this.statePath}.lock`, async () => {
       const state = this.readState();
@@ -149,7 +160,7 @@ export class DeviceAuthority {
     });
   }
 
-  private async prepareAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
+  private async prepareAuthorization(forceSession = false): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
     let state = this.readState() ?? emptyDeviceState();
     const agentType = this.requestedAgentType;
     if (!agentType) {
@@ -177,7 +188,7 @@ export class DeviceAuthority {
       registration = await this.enroll(agentType, privateKey);
     }
     state.registrations[this.backendKey] = registration;
-    const session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+    const session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, forceSession);
     this.writeState(state);
     return { state: registration, agentType, session, privateKey };
   }

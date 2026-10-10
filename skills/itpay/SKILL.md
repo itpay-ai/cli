@@ -13,6 +13,10 @@ Use the `itpay` CLI as the only ItPay control surface. Infer the human's goal,
 choose one first command, then follow each returned envelope. Run technology
 for the human; never ask them to run commands or learn internal concepts.
 
+## Installation readiness
+
+Read this installed package Skill before network checks. Select the actual Agent Type from `itpay install --json`, retain the same executable and Backend, then check readyz. If already read in this session, do not reread the same Skill. For this production package, `itpay device status --json` verifies the current device with the Backend; it may enroll once and then reuses the same identity. `device_ready` does not establish account binding, which this version cannot query. Do not infer login_required from a missing route or launch login for setup. Compatibility/network failure ends this round; minimum_cli_version is a protocol floor, never a verified matching package recommendation. Do not guess versions, delete identity, or start business to prove readiness.
+
 ## Route The Human's Intent
 
 | Human intent | First action |

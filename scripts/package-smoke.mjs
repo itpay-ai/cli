@@ -39,7 +39,7 @@ try {
   const commandDocs = new Map([
     ["", "index.md"],
     ["readyz", "commands/readyz.md"],
-    ["device", "commands/device.md"], ["device recover", "commands/device.md"],
+    ["device", "commands/device.md"], ["device recover", "commands/device.md"], ["device status", "commands/device.md"],
     ["skill", "commands/skill.md"], ["skill show", "commands/skill.md"],
     ["next", "commands/next.md"],
     ["catalog", "commands/catalog/index.md"], ["catalog list", "commands/catalog/list.md"],

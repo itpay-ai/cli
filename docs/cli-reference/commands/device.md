@@ -55,3 +55,9 @@ Type 或执行 `device recover`；应保留身份并重试原命令一次，持�
 当前 Backend 已无本地登记时，`status` 为 `backend_registration_absent`、`removed_agent_types=[]`，其余合同不变。文本输出只包含 Backend、registration 状态、私钥保留和其他 Backend 保留四项，不输出私钥、公钥、Device ID、Agent Instance ID、session、token 或本地文件内容。
 
 缺少 Agent Type 返回 `agent_type_required`；缺少确认返回 `backend_reset_confirmation_required`。其他本地恢复失败返回 `device_recovery_failed`。所有失败都必须发生在删除 registration 前；本命令不得删除整把 Device identity、Cart、operation journal 或其他 Backend 登记。
+
+## `itpay device status --json`
+
+先核验当前 Backend 合同，再通过既有设备挑战与签名验证获取当前认证事实。首次可能登记设备及该宿主，后续复用同一私钥和登记，强制验证当前服务端状态而非只读取缓存。成功返回 `device_ready`、agent_type、expires_at、backend_url 与 account_binding=unavailable；不返回 token/私钥/签名，不读取业务或订单。不支持账号绑定读取不等于未登录，也不提供不存在的 auth login。
+
+--json 输出标准 envelope；普通文本直接可读。合同、身份或网络故障停止本轮，next=null，不自动重建身份、登录或交易。
