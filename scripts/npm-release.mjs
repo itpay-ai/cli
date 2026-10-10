@@ -65,7 +65,8 @@ async function main() {
   if (action === 'stage') {
     const source = releaseSource({ source: process.env.RELEASE_SOURCE || 'main', mainSha: process.env.GITHUB_SHA, approvals });
     artifact = JSON.parse(readFileSync('release-artifact/manifest.json', 'utf8'));
-    if (artifact.source !== source.sha || artifact.workflow !== process.env.GITHUB_SHA || artifact.channel !== source.channel
+    if (!/^2\.\d+\.\d+$/.test(artifact.version) || !/^sha256:[a-f0-9]{64}$/.test(artifact.api)
+      || artifact.source !== source.sha || artifact.workflow !== process.env.GITHUB_SHA || artifact.channel !== source.channel
       || artifact.file !== `itpay-cli-${artifact.version}.tgz` || !/^[a-f0-9]{64}$/.test(artifact.sha256)) throw new Error('Artifact source does not match approved workflow');
     publishFile = resolve('release-artifact', artifact.file);
     if (createHash('sha256').update(readFileSync(publishFile)).digest('hex') !== artifact.sha256) throw new Error('Artifact checksum mismatch');
@@ -109,6 +110,7 @@ async function main() {
   }
   const actual = await metadata(target.channel);
   if (actual?.version !== target.version) throw new Error('Registry tag does not match; inspect the completed operation before retrying');
+  if (artifact && actual.gitHead !== artifact.source) throw new Error('Registry source does not match the staged artifact; inspect without republishing');
   record(`${target.action}: @itpay/cli@${actual.version} → ${target.channel}; registry verified.`);
 }
 
