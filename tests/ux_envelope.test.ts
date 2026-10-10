@@ -339,3 +339,10 @@ test("setup: binding probe retains a real saved session and preserves definite e
     await assert.rejects(agentAuth("status", mock.url, { ...unavailable, agentAccountStatus: async () => { throw failure; } }, env), (error) => error === failure);
   }
 });
+
+
+test("setup: a saved authorization rejected with HTTP401 preserves the definite error", async () => {
+  seedOpenAuthSession();
+  await assert.rejects(agentAuth("status", mock.url, backend, env, async () => new Response("unauthorized", {status:401})), (error: unknown) => error instanceof Error && error.name === "AuthRequestError");
+  assert.ok(existsSync(sellerAuthPath(mock.url, env, "agent-login")));
+});

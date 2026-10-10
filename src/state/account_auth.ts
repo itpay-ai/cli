@@ -87,6 +87,7 @@ function authStatusUnknown(sessionID: string | undefined, error?: unknown): Comm
   // These errors have definite compatibility/identity/state facts. Let the
   // command boundary report them rather than turning them into polling.
   if ((error instanceof HttpError && error.status < 500)
+    || (error instanceof AuthRequestError && error.httpStatus < 500)
     || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError
     || error instanceof DeviceLockBusyError) throw error;
   const failure = error instanceof HttpTransportError
