@@ -148,13 +148,15 @@ test("AUTH01: distinct pending stages are reported, never compressed into generi
   const envelope = await agentAuth("status", mock.url, backend, env) as { status: string; result: Record<string, unknown>; instruction: string };
   assert.equal(envelope.status, "auth_pending");
   assert.equal(envelope.result.stage, "email_verification_required");
-  assert.match(envelope.instruction, /联系方式验证/);
+  assert.match(envelope.instruction, /显式或历史身份验证/);
+  assert.match(envelope.instruction, /不要求补齐邮箱和手机/);
 
   mock.setAuthSessionStage("merge_confirmation_required");
   const merged = await agentAuth("status", mock.url, backend, env) as { status: string; result: Record<string, unknown>; instruction: string };
   assert.equal(merged.status, "auth_pending");
   assert.equal(merged.result.stage, "merge_confirmation_required");
-  assert.match(merged.instruction, /账号合并/);
+  assert.match(merged.instruction, /两侧账号证明及主账号/);
+  assert.match(merged.instruction, /不要替用户同意/);
 });
 
 test("AUTH02: a completed open session binds in place instead of creating a new auth request", async () => {
