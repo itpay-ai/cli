@@ -5,7 +5,7 @@ on:
     inputs:
       npm-channel:
         description: Explicit npm distribution channel (never silently falls back to latest)
-        default: next
+        default: latest
         type: string
       bundle-format:
         description: Bundle format written to bundle.lock.json
@@ -170,7 +170,12 @@ jobs:
           git config user.name "itpay-bundle-bot"
           git config user.email "itpay-bundle-bot@users.noreply.github.com"
           git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
-          git switch -C "$BRANCH" "$GITHUB_SHA"
+          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+            git switch -c "$BRANCH" --track "origin/$BRANCH"
+            git merge --no-edit "$GITHUB_SHA"
+          else
+            git switch -c "$BRANCH" "$GITHUB_SHA"
+          fi
 
       - name: Rebuild bundle
         if: steps.decision.outputs.update == 'true'
@@ -262,7 +267,7 @@ jobs:
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
           git commit -m "chore: update bundled CLI to $VERSION"
-          git push --force-with-lease --set-upstream origin "$BRANCH"
+          git push --set-upstream origin "$BRANCH"
 
       - name: Open update pull request
         id: pull-request

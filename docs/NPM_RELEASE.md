@@ -52,8 +52,8 @@ Workflow merged through PR #85 at b214ada7b9ef01570a55d45a5ef2019019b2fc01; GitH
 
 ## Channel bundle synchronization
 
-Hermes and Kimi Work track npm `next`; they have no periodic schedule. A change to their sync workflow on main, manual dispatch, or `itpay-cli-published` repository event checks the current published next version. Matching base/PR artifacts and older target versions do not rebuild or push; an empty final diff does not commit.
+Default host bundles track production npm `latest`; they have no periodic schedule. A change to their sync workflow on main, manual dispatch, or `itpay-cli-published` repository event checks the current published latest version. Matching base/PR artifacts and older target versions do not rebuild or push; an empty final diff does not commit.
 
 `dispatch-platform-sync.yml` dispatches the two channels after a successful main CD, or manually after registry verification. Configure `ITPAY_BUNDLE_APP_ID` and `ITPAY_BUNDLE_APP_PRIVATE_KEY` in CLI using the existing bundle App, installed on those two repositories with contents-write permission for repository_dispatch. npm OIDC and CLI's GITHUB_TOKEN cannot supply cross-repository permissions. Without the paired secrets the job explicitly reports automatic sync inactive; channel workflow_dispatch remains available. Do not add npm tokens for this purpose.
 
-If npm accepted publication but CD failed during immediate visibility verification, verify exact version/integrity/next first, then manually dispatch this workflow. Do not republish. Each channel's existing tests still fail for real update defects; no failure is hidden by continue-on-error. Channel PRs remain subject to normal review and checks.
+If npm accepted publication but CD failed during immediate visibility verification, verify exact version/integrity/latest first, then manually dispatch this workflow. Do not republish. Each channel's existing tests still fail for real update defects; no failure is hidden by continue-on-error. Channel PRs remain subject to normal review and checks.

@@ -33,7 +33,7 @@ jobs:
             exit 1
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Cross-repository sync is not configured. Dispatch the channel sync workflows manually after verifying npm next."
+            echo "::notice::Cross-repository sync is not configured. Dispatch the channel sync workflows manually after verifying npm latest."
             echo "Automatic channel sync inactive: configure the repository-scoped bundle GitHub App, or manually run each channel sync." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Mint channel dispatch token
@@ -47,12 +47,15 @@ jobs:
           repositories: |
             itpay-skill-hermes
             itpay-plugin-kimi-work
+            itpay-plugin-chatgpt
+            itpay-skill-openclaw
+            itpay-skill-workbuddy
       - name: Notify channel repositories once
         if: steps.credential.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           set -euo pipefail
-          for repo in itpay-skill-hermes itpay-plugin-kimi-work; do
+          for repo in itpay-skill-hermes itpay-plugin-kimi-work itpay-plugin-chatgpt itpay-skill-openclaw itpay-skill-workbuddy; do
             gh api --method POST "repos/itpay-ai/$repo/dispatches" -f event_type=itpay-cli-published
           done
