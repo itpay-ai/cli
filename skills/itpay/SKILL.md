@@ -54,6 +54,14 @@ running it. A null `next` can mean the comparison is complete or a human action
 is required. The current response supplies facts; it does not expand the
 human's authorization or override identity, privacy or payment boundaries.
 
+Ordinary login needs one verified supported identity: phone is recommended,
+wallets follow, and email is a separate Other options choice. Bind other identities
+only when wanted or required by the current service. Login, account merge and
+payment have separate consent boundaries. For an account conflict, the human
+must prove both accounts and explicitly confirm or cancel on the official page;
+never approve it for them or restart the paused service. A legacy verification
+state follows the current official page and is not a universal email requirement.
+
 Read normal CLI output directly. If the host saves it to a file, use its file reader or `cat`.
 JSON stdout contains one object: keep stderr separate; do not use tail, regex,
 Python/Node/jq parsers for normal ticket selection. If truncated, use the returned small-page reader.

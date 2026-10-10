@@ -42,10 +42,10 @@ const ACTIVE_SESSION_STAGES = ['created', 'waiting_provider', 'email_verificatio
 
 function stageInstruction(stage: string): string {
   if (stage === 'email_verification_required') {
-    return '钱包授权已完成，官方页还需要完成联系方式验证（邮箱或手机，以页面实际提供的方式为准）。完成后继续原查询，不用重说行程。';
+    return '官方页返回显式或历史身份验证状态；按页面当前要求完成验证。普通登录只需一种有效身份，不要求补齐邮箱和手机。完成后恢复原执行。';
   }
   if (stage === 'merge_confirmation_required') {
-    return '官方页需要用户确认账号合并决定后才能完成登录；不要替用户选择，也不要新建授权请求。';
+    return '官方页需要用户核对两侧账号证明及主账号，再明确确认或取消合并；这不是付款确认。不要替用户同意，不自动重启原服务或授权请求。';
   }
   return '用户仍在官方页面完成登录；保留当前 handoff，不要生成新二维码或新请求。';
 }

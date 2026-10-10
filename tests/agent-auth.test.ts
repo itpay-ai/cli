@@ -8,7 +8,7 @@ import {agentAuth, sellerAuthPath, sellerSessionToken} from '../src/state/accoun
 test('Agent login binds the signed device after Web completion without storing an account bearer', async () => {
   const home=mkdtempSync(join(tmpdir(),'itpay-agent-login-'));
   const base='https://dev.itpay.ai', env={HOME:home};
-  let completed=false, bound=false, binds=0;
+  let completed=false, bound=false, binds=0,stage="email_verification_required";
   const backend={
     async agentAccountStatus() {return {status:bound?'authenticated':'login_required'};},
     async bindAgentAccount(input: {dashboard_auth_session_id:string;start_token:string}) {
@@ -20,7 +20,7 @@ test('Agent login binds the signed device after Web completion without storing a
     const url=String(input);
     assert.equal(url.includes('/claim'),false);
     if (init?.method==='POST') return Response.json({dashboard_auth_session_id:'das',poll_token:'poll',start_url:base+'/auth/start?start_token=start'});
-    return Response.json({status:completed?'completed':'email_verification_required'});
+    return Response.json({status:completed?'completed':stage});
   };
   try {
     assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'login_required');
@@ -28,6 +28,13 @@ test('Agent login binds the signed device after Web completion without storing a
     const path=sellerAuthPath(base,env,'agent-login');
     assert.equal(statSync(path).mode&0o777,0o600);
     assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'auth_pending');
+    const historical=await agentAuth('status',base,backend,env,fetcher) as any;
+    assert.match(historical.instruction,/普通登录只需一种有效身份/);
+    stage='merge_confirmation_required';
+    const merge=await agentAuth('status',base,backend,env,fetcher) as any;
+    assert.match(merge.instruction,/这不是付款确认/);
+    assert.equal(merge.status,'auth_pending');
+    assert.equal(existsSync(path),true);
     assert.equal(binds,0);
     completed=true;
     assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'authenticated');

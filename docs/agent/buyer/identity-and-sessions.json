@@ -92,12 +92,13 @@
     "chat"
   ],
   "auth_session_states": {
-    "stages": "The CLI now reports the auth session stage exactly as the server returns it: waiting_provider (show the handoff and wait), email_verification_required (the human must verify the emailed code on the auth page), merge_confirmation_required (an existing account matches — the human must confirm the merge on the auth page), provider_pending/pending (generic wait), completed (session done — bind it, do not restart).",
+    "stages": "Report the actual server stage: waiting_provider (show the official handoff), email_verification_required (explicit or legacy identity verification; follow the current official page), merge_confirmation_required (the human must prove both accounts and explicitly confirm or cancel the frozen merge), provider_pending/pending (wait), completed (bind the original session and resume the same service). Ordinary login needs one verified supported identity; do not require both phone and email.",
     "terminal_states": "auth_expired/auth_denied/auth_cancelled/auth_failed mean this session is over; say so plainly and respect denial or cancellation. Start a new session only on an explicit login request; never keep polling a dead one.",
     "transport_unknown": "auth_status_unknown means a network error while polling — the outcome is unknown. Keep waiting on the SAME session (it may still complete); do NOT restart auth, and do not assume denial.",
     "missing": "auth_session_missing means the cached session is gone. An explicit auth login opens one fresh official session in that call; auth status stays read-only.",
     "completed_resume": "After login completes, execute the returned command to resume the same paused service execution. Login does not silently run that command.",
-    "path_b": "A buyer who reaches checkout without a login completes identity inside the protected checkout page; never force a separate itpay auth login first."
+    "path_b": "A buyer who reaches checkout without a login completes identity inside the protected checkout page; never force a separate itpay auth login first.",
+    "identity_binding": "Phone is recommended first, wallets next, email is a separate Other options choice. Extra identities are optional bindings. A phone conflict does not prove account ownership: independent target authentication and explicit human merge confirmation are required. Never use the same SMS proof twice, approve a merge for the user, or treat login/identity binding as payment consent. Service-specific contact requirements stay in the service."
   },
   "key_reset_decision": "Only after explicit user/operator acceptance of abandoning the old identity, consult device reset-key help; this is not automatic error recovery, and old execution access does not migrate."
 }
