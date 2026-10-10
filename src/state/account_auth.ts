@@ -1,3 +1,6 @@
+import { HttpError } from '../client/http.js';
+import { HttpTransportError } from '../client/transport.js';
+import { DeviceAuthorizationError, DeviceStateError, DeviceLockBusyError } from './device_authority.js';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, rmSync } from 'node:fs';
@@ -80,12 +83,23 @@ class AuthRequestError extends Error {
 
 // AUTH03: transport/read uncertainty never maps to "denied" or a new session —
 // the stored session stays on disk and the caller retries the same poll.
-function authStatusUnknown(sessionID: string | undefined): CommandEnvelope {
+function authStatusUnknown(sessionID: string | undefined, error?: unknown): CommandEnvelope {
+  // These errors have definite compatibility/identity/state facts. Let the
+  // command boundary report them rather than turning them into polling.
+  if ((error instanceof HttpError && error.status < 500)
+    || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError
+    || error instanceof DeviceLockBusyError) throw error;
+  const failure = error instanceof HttpTransportError
+    ? { category: error.code, attempts: error.attempts }
+    : { category: 'authorization_status_unavailable' };
+
   return {
     status: 'auth_status_unknown',
-    result: sessionID ? { dashboard_auth_session_id: sessionID } : {},
-    instruction: '读取官方授权状态时遇到网络或服务端临时故障；原授权请求已保留。稍后重读同一状态，不要新建授权、不要清除本地登记。',
-    next: { command: 'itpay auth status --json', reason: '稍后重读同一授权状态', poll_after_ms: 5000 } as CommandAction,
+    result: { ...failure, ...(sessionID ? { dashboard_auth_session_id: sessionID } : {}) },
+    instruction: sessionID
+      ? '读取官方授权状态失败；原授权请求已保留。稍后重读同一状态，不要新建授权、不要清除本地登记。'
+      : '本轮账号绑定检查未完成，设备与绑定状态尚未确认；没有保存的授权请求。结束本轮，网络或服务恢复后可重新检查，不发起登录。',
+    next: sessionID ? { command: 'itpay auth status --json', reason: '稍后重读同一授权状态', poll_after_ms: 5000 } : null,
     recovery: [],
   };
 }
@@ -137,7 +151,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
       if (error instanceof AuthRequestError) throw error;
       // AUTH03: even the binding-status probe can hit transport failure; the
       // truthful state is "unknown", never an implicit unbound or a fresh login.
-      return authStatusUnknown(undefined);
+      return authStatusUnknown(read(baseURL, env, purpose)?.sessionID, error);
     }
   }
   async function request(path: string, init: RequestInit = {}) {
@@ -201,7 +215,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
             // The explicit login call may open one fresh session now. Status
             // remains read-only and still reports the missing old session.
           } else {
-            return authStatusUnknown(open.sessionID);
+            return authStatusUnknown(open.sessionID, error);
           }
         }
       }
@@ -271,7 +285,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
     if (error instanceof AuthRequestError && (error.httpStatus === 404 || error.httpStatus === 410)) {
       return sessionGone(env, purpose, baseURL, state.sessionID);
     }
-    return authStatusUnknown(state.sessionID);
+    return authStatusUnknown(state.sessionID, error);
   }
   if (progress.status !== 'completed') {
     if (backend) {
@@ -307,7 +321,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
       if (error instanceof AuthRequestError) throw error;
       // Binding outcome unknown: keep the session so a retry can still bind
       // the same completed login instead of creating a new one.
-      return authStatusUnknown(state.sessionID);
+      return authStatusUnknown(state.sessionID, error);
     }
   }
   const claimed = await request(`/v1/dashboard/auth-sessions/${encodeURIComponent(state.sessionID)}/claim?start_token=${encodeURIComponent(state.startToken)}`, { method: 'POST' });

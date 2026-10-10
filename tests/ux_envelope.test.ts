@@ -11,7 +11,8 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { HttpClient } from "../src/client/http.js";
+import { HttpTransportError } from "../src/client/transport.js";
+import { HttpError, HttpClient } from "../src/client/http.js";
 import { BackendClient } from "../src/client/backend.js";
 import { agentAuth, sellerAuthPath } from "../src/state/account_auth.js";
 import { TaskJournal } from "../src/state/task_journal.js";
@@ -311,4 +312,30 @@ test("post-v3 shell arguments preserve literal user text and plain objects stay 
  }
  const text = plainValueLines({rides:[{train_code:"G1",departure:"2026-10-08 09:00"}],detail:{command:"itpay services page se ri --limit 1 --json"}}).join("\n");
  assert.match(text,/train_code: G1/); assert.match(text,/command: itpay services page/); assert.doesNotMatch(text,/\{\"/);
+});
+
+
+test("setup: failed binding probe without a session stops and does not invent authorization", async () => {
+  const unavailable = { agentAccountStatus: async () => { throw new HttpTransportError("network_timeout", 3, "ETIMEDOUT", undefined); }, bindAgentAccount: backend.bindAgentAccount.bind(backend) };
+  const response = await agentAuth("status", mock.url, unavailable, env) as { status: string; result: Record<string, unknown>; instruction: string; next: unknown };
+  assert.equal(response.status, "auth_status_unknown");
+  assert.equal(response.next, null);
+  assert.equal(response.result.attempts, 3);
+  assert.equal(response.result.dashboard_auth_session_id, undefined);
+  assert.doesNotMatch(response.instruction, /原授权请求已保留/);
+  assert.match(response.instruction, /结束本轮/);
+  assert.equal(mock.requests.length, 0);
+});
+
+test("setup: binding probe retains a real saved session and preserves definite errors", async () => {
+  seedOpenAuthSession();
+  const unavailable = { agentAccountStatus: async () => { throw new HttpTransportError("network_timeout", 3, "ETIMEDOUT", undefined); }, bindAgentAccount: backend.bindAgentAccount.bind(backend) };
+  const response = await agentAuth("status", mock.url, unavailable, env) as { result: Record<string, unknown>; next: unknown };
+  assert.equal(response.result.dashboard_auth_session_id, "dash_mock");
+  assert.ok(response.next);
+  assert.ok(existsSync(sellerAuthPath(mock.url, env, "agent-login")));
+  for (const status of [401, 403, 404, 426]) {
+    const failure = new HttpError(status, undefined, "definite backend failure");
+    await assert.rejects(agentAuth("status", mock.url, { ...unavailable, agentAccountStatus: async () => { throw failure; } }, env), (error) => error === failure);
+  }
 });

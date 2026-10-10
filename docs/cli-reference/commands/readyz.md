@@ -45,7 +45,7 @@ itpay readyz [--json]
 
 ## 异常处理
 
-已收到 Backend 不可用响应等非传输异常时返回 `backend_unavailable`。尚未收到完整 HTTP 响应的临时传输失败使用 conventions 中对应的稳定 `network_*` 错误码；`readyz` 是 GET，按全局安全传输合同最多自动重试两次。两类错误都要求等待当前官方 Backend 恢复后重试同一完整命令，不得在失败时切换环境或继续下单。
+已收到 Backend 不可用响应等非传输异常时返回 `backend_unavailable`。尚未收到完整 HTTP 响应的临时传输失败使用 conventions 中对应的稳定 `network_*` 错误码；`readyz` 是 GET，按全局安全传输合同最多自动重试两次。有限尝试结束后本轮检查未完成，next=null、recovery=[]；网络恢复后可以重新检查，不得在失败时切换环境或继续下单。
 
 非官方 URL 返回 `backend_override_forbidden`，且不提供自动 recovery：
 
@@ -62,55 +62,7 @@ itpay readyz [--json]
 }
 ```
 
-CLI 已取得 Backend 的兼容性合同、但当前版本或 contract hash 不匹配时，返回一个可执行且版本固定的分发专属恢复动作。npm CLI 示例：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "backend_contract_incompatible",
-    "message": "CLI 2.0.15 contract sha256:client is incompatible with platform v3.example contract sha256:server (minimum CLI 2.0.16, maximum major 2)"
-  },
-  "result": {
-    "current_cli_version": "2.0.15",
-    "required_cli_version": "2.0.16"
-  },
-  "instruction": "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "npm install -g @itpay/cli@2.0.16",
-      "reason": "安装 Backend 指定的兼容 CLI 版本"
-    }
-  ]
-}
-```
-
-OpenClaw bundle 的同一错误改为：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "backend_contract_incompatible",
-    "message": "<same compatibility fact>"
-  },
-  "result": {
-    "current_cli_version": "2.0.15",
-    "required_cli_version": "2.0.16"
-  },
-  "instruction": "当前 OpenClaw Skill bundle 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，更新 Skill 后启动新会话并确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要运行 npm、切换 Agent Type 或删除 Device 身份。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "openclaw skills update itpay",
-      "reason": "更新包含 Backend 指定 CLI 版本的 ItPay Skill bundle"
-    }
-  ]
-}
-```
-
-Kimi bundle 使用其 plugin 更新入口，不返回 npm 命令。只允许使用 Backend 返回的 `minimum_cli_version` 生成精确版本要求；兼容性合同不可用、缺少合法版本或仅有无法验证的错误文本时，仍须停止且不得猜测安装版本。
+业务命令取得兼容性合同但不匹配时，返回 `backend_contract_incompatible`；readyz 本身只证明存活。输出保留 `current_cli_version`、`current_api_contract_revision`、`platform_api_contract_revision`、`minimum_cli_version`、`maximum_cli_major`。minimum 是协议门槛，不是推荐制品。所有分发渠道均停止本轮、next=null、recovery=[]，由维护方提供已核验的配套制品；不要猜版本、降级或改变身份。
 
 ## Agent Type / Host
 

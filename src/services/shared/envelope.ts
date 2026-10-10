@@ -6,6 +6,7 @@ import { qualifyBackendCommand } from "../../state/config.js";
 export interface CommandAction {
   command: string;
   reason: string;
+  poll_after_ms?: number;
 }
 
 // input_template carries a command shape that is NOT directly executable —

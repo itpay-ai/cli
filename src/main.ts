@@ -8,7 +8,7 @@ import { runServicesRun } from "./commands/services.js";
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { BackendOverrideError, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceLockBusyError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
@@ -178,7 +178,7 @@ function resolveCheckoutPresentationArgs(input: {
 
 function reportCLIError(
   error: unknown,
-  contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[] },
+  contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[]; initialization?: boolean },
 ): void {
   const commandError = error instanceof CommandContractError ? error : undefined;
   const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
@@ -198,9 +198,6 @@ function reportCLIError(
 		error.code === "platform_release_unavailable" ||
 		(error.status === 404 && error.code === "unknown_error")
 	);
-  const requiredCLIVersion = incompatible && error instanceof HttpError && /^\d+\.\d+\.\d+$/.test(error.payload?.minimum_cli_version ?? "")
-    ? error.payload!.minimum_cli_version
-    : undefined;
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const providerConnectionUnavailable = error instanceof HttpError && error.code === "provider_connection_unavailable";
   const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
@@ -249,10 +246,13 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(commandError?.result ? {result: commandError.result} : requiredCLIVersion ? {
+      ...(commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
         result: {
           current_cli_version: CLI_VERSION,
-          required_cli_version: requiredCLIVersion,
+          current_api_contract_revision: API_CONTRACT_REVISION,
+          platform_api_contract_revision: error.payload?.api_contract_revision ?? null,
+          minimum_cli_version: error.payload?.minimum_cli_version ?? null,
+          maximum_cli_major: error.payload?.maximum_cli_major ?? null,
         },
       } : transportError ? {
         result: {
@@ -272,9 +272,7 @@ function reportCLIError(
         },
       } : {}),
       instruction: incompatible
-		? requiredCLIVersion
-      ? distributionUpgradeInstruction()
-      : "告诉用户 ItPay 当前版本信息无法验证，因此本次服务不能安全继续。停止所有 ItPay 和 npm 操作；不要转述技术错误、猜版本、切换 Agent Type 或删除 Device 身份。"
+        ? "当前 CLI 与 Backend 合约不兼容或无法核验。minimum_cli_version 仅是协议门槛，不是已验证的推荐安装包。停止本轮，请维护方提供与当前 Backend 配套的制品；不要猜版本、降级、切换 Agent Type 或删除 Device 身份。"
 		: backendInternal
 			? "告诉用户 ItPay 当前暂时无法完成这项服务并停止。不要转述内部错误、重试、修改身份、创建替代服务或进入任何付费路径。"
 		: providerConnectionUnavailable
@@ -290,7 +288,9 @@ function reportCLIError(
 		: capabilityInputInvalid
 			? "Agent按当前合同模板修正字段和JSON层级，保留用户原始需求，继续同一次服务。不要让用户修技术输入，只有真实业务歧义才询问。"
 		: transportError
-          ? transportError.attempts > 1
+          ? contract?.initialization
+            ? "本轮初始化检查未完成；CLI 已结束有限的网络尝试，尚未确认后端或设备就绪。结束本轮，网络恢复后可重新检查；不要继续登录或业务操作。"
+            : transportError.attempts > 1
             ? "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。"
             : "网络在完整响应前中断；当前写操作没有安全重放合同，因此 CLI 未自动重试。按 recovery 查询权威状态；不要原样重放或创建替代 Checkout、Execution、Payment 或 Refund。"
 		: backendOverrideError
@@ -298,10 +298,8 @@ function reportCLIError(
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
     ...(commandError?.interaction ? { interaction: commandError.interaction } : {}),
-      recovery: incompatible
-        ? requiredCLIVersion
-          ? [distributionUpgradeAction(requiredCLIVersion)]
-          : []
+      recovery: incompatible || (transportError && contract?.initialization)
+        ? []
         : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
           ? []
           : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : lockError ? lockRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
@@ -355,16 +353,10 @@ function distributionUpgradeAction(version: string): CommandAction {
         reason: `更新包含 ItPay CLI ${version} 的 Kimi plugin`,
       };
     default:
-      return { command: `npm install -g @itpay/cli@${version}`, reason: "安装 Backend 指定的兼容 CLI 版本" };
+      return { command: `npm install -g @itpay/cli@${version}`, reason: "恢复当前 CLI 版本的完整安装包" };
   }
 }
 
-function distributionUpgradeInstruction(): string {
-  if (cliDistribution() === "npm") {
-    return "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。";
-  }
-  return "当前平台 bundle 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，更新平台 Skill/plugin 后启动新会话，确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要运行 npm、猜测版本、切换 Agent Type 或删除 Device 身份。";
-}
 
 program
   .command("readyz")
@@ -382,10 +374,9 @@ program
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "backend_unavailable",
+        initialization: true,
         instruction: `当前官方 Backend ${config.baseURL} 不可用；恢复前不要继续下单，也不要切换环境。`,
-        recovery: [
-          { command: "itpay readyz", reason: "重试当前官方 Backend 的可用性检查" },
-        ],
+        recovery: [],
       });
     }
   });
@@ -408,7 +399,7 @@ for (const action of ["login", "status"] as const) {
         recovery: (result.recovery ?? []) as Array<{ command: string; reason: string }>,
       };
       writeCommandEnvelope(envelope, { jsonOutput: Boolean(options.json) });
-    } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", instruction: "完成官方网页登录后重试 itpay auth status；不要清除设备登记。"}); }
+    } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", initialization: true, instruction: "本轮授权检查未完成；保留设备及已有授权状态，按明确错误原因恢复。不要自动发起新的登录。"}); }
   });
 }
 

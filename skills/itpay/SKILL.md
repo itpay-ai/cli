@@ -12,6 +12,10 @@ choosing an entry. Keep the actual Agent Type for the current runtime; use the
 presentation method returned for that host. Run commands yourself and tell the
 human the useful result or action, not the internal steps.
 
+## Installation readiness
+
+Read this installed package Skill before network checks. Select the actual Agent Type from `itpay install --json` and retain the same executable and Backend. readyz proves liveness only; after success, `itpay auth status --json` checks device access and binding. A successful authenticated or login_required response proves the device request worked; login_required does not require login during setup. Preserve any existing authorization. Unknown, missing-command, compatibility or exhausted network checks end this round without guessing commands/versions or reporting ready. minimum_cli_version is a protocol floor, not a verified artifact recommendation. Do not use services, orders or paid operations to prove installation. Already read same-version Skill needs no repeat.
+
 ## Choose one entry
 
 - Railway planning or booking: read `itpay docs show rail-booking` once, then

@@ -11,6 +11,11 @@
   ],
   "commands": [
     {
+      "intent": "read this installed package Skill before network checks",
+      "command": "itpay skill show itpay --json",
+      "success_signal": "complete packaged Skill is read; the same version need not be read twice"
+    },
+    {
       "intent": "list supported Agent Types",
       "command": "itpay install --json",
       "success_signal": "status is install_targets and exactly nine supported Agent Type definitions are returned"
@@ -32,12 +37,12 @@
     }
   ],
   "agent_rules": [
-    "For first setup or a runtime change, identify the real Agent Type once, run itpay install <agent_type> --json yourself, and follow its setup continuation until the packaged Skill is loaded. Ordinary service requests start from the Skill's service command, without repeating install or readyz.",
+    "For first setup, read the complete Skill from this installed package before network checks. Select the actual Agent Type once through install and retain the same launcher and Backend. Do not reread the same version Skill, repeat initialization for ordinary tasks, or start login or business to prove setup.",
     "After setup, tell the human only that ItPay is ready; never ask them to run setup commands or explain technical setup steps.",
     "Use the CLI distribution already provided by the current npm package, Skill, or plugin; update only through that distribution's own instructions.",
     "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL the configured official test Backend only when explicitly requested; follow the CLI allowlist.",
-    "If backend_contract_incompatible includes result.required_cli_version, stop all ItPay business commands and use only the exact distribution-specific update recovery returned by the CLI; never replace its version with latest.",
-    "After upgrading, require itpay --version to equal result.required_cli_version before running readyz again; never change Agent Type or Device identity to recover compatibility.",
+    "If Backend compatibility cannot be verified, stop this round. minimum_cli_version is a protocol floor, not a verified matching artifact. Ask the maintainer for the matching distribution; do not guess a version or downgrade.",
+    "Only install a replacement when its exact artifact and Backend contract have been verified; then reread that package Skill. Never change Agent Type or Device identity to recover compatibility.",
     "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, zcode, doubao-work, kimi-code, or openclaw.",
     "For compatibility, a global --agent-type codex declaration is normalized immediately to codex-desktop; all registration, output, and returned commands use codex-desktop. Never generate the alias, and do not use codex as an install target.",
     "One local private key is reused, while Device registrations and quota lineage remain separate for app.itpay.ai, sandbox.itpay.ai and dev.itpay.ai.",
