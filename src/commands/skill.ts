@@ -60,9 +60,9 @@ function findSkillPath(): string {
     if (existsSync(directPath)) return directPath;
     return resolve(configuredRoot, ITPAY_SKILL, "SKILL.md");
   }
-  const packagePath = resolve(commandDir, "..", "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
-  if (existsSync(packagePath)) return packagePath;
-  return resolve(commandDir, "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
+  const sourcePath = resolve(commandDir, "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
+  if (existsSync(sourcePath)) return sourcePath;
+  return resolve(commandDir, "..", "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
 }
 
 function validateSkill(content: string): void {
