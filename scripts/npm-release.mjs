@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { releaseSource, checkPackage } from './npm-release-source.mjs';
 
@@ -19,6 +20,26 @@ async function metadata(spec) {
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Registry lookup failed: ${response.status}; publication was not attempted`);
   return response.json();
+}
+
+export async function verifyPublishedArtifact(existing, approved, request = fetch) {
+  if (existing.gitHead !== approved.sha || existing.version !== approved.version) throw new Error('Promotion does not match approved source');
+  const url = new URL(existing.dist?.tarball || 'https://invalid.example');
+  if (url.protocol !== 'https:' || url.hostname !== 'registry.npmjs.org' || url.username || url.password) throw new Error('Unexpected registry artifact origin');
+  const response = await request(url, { redirect:'error', signal:AbortSignal.timeout(30000) });
+  if (!response.ok || Number(response.headers.get('content-length') || 0) > 50 * 1024 * 1024) throw new Error('Registry artifact could not be verified');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > 50 * 1024 * 1024 || createHash('sha256').update(bytes).digest('hex') !== approved.sha256) throw new Error('Registry artifact does not match approved hash');
+  if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== existing.dist.integrity) throw new Error('Registry artifact integrity mismatch');
+  const directory = mkdtempSync(join(tmpdir(), 'itpay-registry-proof-'));
+  try {
+    const file = join(directory, 'package.tgz');
+    writeFileSync(file, bytes, { mode:0o600 });
+    const pkg = JSON.parse(execFileSync('tar', ['-xOf', file, 'package/package.json'], { encoding:'utf8' }));
+    const config = execFileSync('tar', ['-xOf', file, 'package/dist/src/state/config.js'], { encoding:'utf8' });
+    if (pkg.gitHead !== approved.sha) throw new Error('Published package source mismatch');
+    checkPackage(pkg, config, approved);
+  } finally { rmSync(directory, { recursive:true, force:true }); }
 }
 
 // npm dist-tag add skips PUT for an unchanged tag, so it cannot verify write permission.
@@ -70,6 +91,7 @@ async function main() {
       || artifact.file !== `itpay-cli-${artifact.version}.tgz` || !/^[a-f0-9]{64}$/.test(artifact.sha256)) throw new Error('Artifact source does not match approved workflow');
     publishFile = resolve('release-artifact', artifact.file);
     if (createHash('sha256').update(readFileSync(publishFile)).digest('hex') !== artifact.sha256) throw new Error('Artifact checksum mismatch');
+    if (source.sha256 && artifact.sha256 !== source.sha256) throw new Error('Artifact differs from approved hash');
     const packed = JSON.parse(execFileSync('tar', ['-xOf', publishFile, 'package/package.json'], { encoding: 'utf8' }));
     if (packed.gitHead !== source.sha || packed.version !== artifact.version) throw new Error('Packed source identity mismatch');
     const compiled = execFileSync('tar', ['-xOf', publishFile, 'package/dist/src/state/config.js'], { encoding: 'utf8' });
@@ -104,7 +126,7 @@ async function main() {
     if (target.action === 'verify') await verifyOidcTag(target.channel, target.version);
     else {
       const approved = releaseSource({ source: target.channel === 'latest' ? 'prod' : 'dev', mainSha: process.env.GITHUB_SHA, approvals });
-      if (existing.gitHead !== approved.sha || existing.version !== approved.version) throw new Error('Promotion does not match approved source');
+      await verifyPublishedArtifact(existing, approved);
       npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
     }
   }

@@ -11,7 +11,8 @@ export function releaseSource({ source, mainSha, approvals }) {
   const approved = approvals[source];
   if (!approved || !/^[a-f0-9]{40}$/.test(approved.sha)
     || !/^2\.\d+\.\d+$/.test(approved.version)
-    || !/^sha256:[a-f0-9]{64}$/.test(approved.api)) throw new Error('Source has not been approved on main');
+    || !/^sha256:[a-f0-9]{64}$/.test(approved.api)
+    || !/^[a-f0-9]{64}$/.test(approved.sha256)) throw new Error('Source has not been approved on main');
   return { ...approved, channel: `candidate-${source}` };
 }
 
@@ -45,6 +46,7 @@ function main() {
   execFileSync('npm', ['pack', '--ignore-scripts', '--pack-destination', output], { cwd, stdio: 'inherit' });
   const file = `itpay-cli-${pkg.version}.tgz`;
   const sha256 = createHash('sha256').update(readFileSync(resolve(output, file))).digest('hex');
+  if (source.sha256 && source.sha256 !== sha256) throw new Error('Packed artifact differs from its approved hash');
   const manifest = { source: source.sha, workflow: process.env.GITHUB_SHA, version: pkg.version, api, file, sha256, channel: source.channel };
   writeFileSync(resolve(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   console.log(JSON.stringify(manifest));
