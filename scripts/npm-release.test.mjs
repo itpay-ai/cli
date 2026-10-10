@@ -15,6 +15,13 @@ test('explicit channel, stable promotion, unchanged pushes and invalid targets',
   ]) assert.throws(() => releaseTarget(input));
 });
 
+test('staged publication cannot move final tags or accept a final-channel artifact', () => {
+  assert.equal(releaseTarget({event:'workflow_dispatch',action:'stage',tag:'candidate-prod',version:'2.1.41'}).channel,'candidate-prod');
+  assert.equal(releaseTarget({event:'push',action:'stage',declaredTag:'candidate-dev',version:'2.1.34',previousVersion:'2.1.34'}).skip,true);
+  assert.throws(() => releaseTarget({event:'workflow_dispatch',action:'stage',tag:'next',version:'2.1.41'}));
+  assert.throws(() => releaseTarget({event:'workflow_dispatch',action:'promote',tag:'candidate-prod',version:'2.1.41'}));
+});
+
 
 test('OIDC verification requires exchange and a real same-value write, failing closed', async () => {
   const env = { ACTIONS_ID_TOKEN_REQUEST_URL: 'https://issuer.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-test' };
