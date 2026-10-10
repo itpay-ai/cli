@@ -369,3 +369,21 @@ class DeviceServer {
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
+
+
+test("device status verifies again despite a cached session and never replaces identity", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-device-status-"));
+  const server = new DeviceServer();
+  const options = { baseURL: "https://test.itpay.ai", requestedAgentType: "codex-cli", compatibilityHeaders: {}, statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch };
+  const authority = new DeviceAuthority(options);
+  const first = await authority.status();
+  const count = server.requestCount;
+  const key = readFileSync(options.privateKeyPath, "utf8");
+  const second = await authority.status();
+  assert.equal(first.agent_type, "codex-cli");
+  assert.ok(Date.parse(second.expires_at) > Date.now());
+  assert.equal(server.requestCount, count + 2, "fresh challenge and verify are required");
+  assert.equal(server.enrollmentCount, 1);
+  assert.equal(readFileSync(options.privateKeyPath, "utf8"), key);
+  assert.doesNotMatch(JSON.stringify(second), /token|signature|private|device_id/);
+});

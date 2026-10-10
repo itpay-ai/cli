@@ -43,7 +43,7 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { CLI_VERSION, DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
+import { API_CONTRACT_REVISION, CLI_VERSION, DEV_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -1709,7 +1709,7 @@ test("readyz probes /v1/readyz", async () => {
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
     status: "ready",
     result: { backend: "available", backend_url: "https://app.itpay.ai", environment: "production" },
-    instruction: "ItPay 可用。先完整读取内置 Skill，再根据用户意图选择新服务、已购内容、订单或退款入口；不要默认开始购买。",
+    instruction: "ItPay 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；不自动登录或开始业务。",
     next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
     recovery: [],
   });
@@ -1741,8 +1741,8 @@ test("commerce entrypoints fail closed when the Backend compatibility contract i
           recovery: unknown[];
         };
         assert.equal(envelope.error.code, "backend_contract_incompatible");
-        assert.match(envelope.instruction, /版本信息无法验证/);
-        assert.match(envelope.instruction, /不要转述技术错误/);
+        assert.match(envelope.instruction, /不兼容或无法核验/);
+        assert.match(envelope.instruction, /不要猜版本/);
         assert.equal(envelope.next, null);
         assert.deepEqual(envelope.recovery, []);
         return true;
@@ -1782,7 +1782,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
         (error: unknown) => {
           const envelope = JSON.parse(String((error as { stderr?: string }).stderr ?? "")) as {
             error: { code: string; message: string };
-            result: { current_cli_version: string; required_cli_version: string };
+            result: { current_cli_version: string; minimum_cli_version: string };
             instruction: string;
             next: unknown;
             recovery: Array<{ command: string; reason: string }>;
@@ -1791,17 +1791,17 @@ test("catalog and top-level next fail before guidance when the contract hash dif
           assert.match(envelope.error.message, /sha256:old-contract/);
           assert.deepEqual(envelope.result, {
             current_cli_version: CLI_VERSION,
-            required_cli_version: "2.0.16",
+            current_api_contract_revision: API_CONTRACT_REVISION,
+            platform_api_contract_revision: "sha256:old-contract",
+            minimum_cli_version: "2.0.16",
+            maximum_cli_major: 2,
           });
           assert.equal(
             envelope.instruction,
-            "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。",
+            "当前 CLI 与 Backend 合约不兼容或无法核验。minimum_cli_version 仅是协议门槛，不是已验证的推荐安装包。停止本轮，请维护方提供与当前 Backend 配套的制品；不要猜版本、降级、切换 Agent Type 或删除 Device 身份。",
           );
           assert.equal(envelope.next, null);
-          assert.deepEqual(envelope.recovery, [{
-            command: "npm install -g @itpay/cli@2.0.16",
-            reason: "安装 Backend 指定的兼容 CLI 版本",
-          }]);
+          assert.deepEqual(envelope.recovery, []);
           return true;
         },
       );
@@ -1812,7 +1812,7 @@ test("catalog and top-level next fail before guidance when the contract hash dif
   }
 });
 
-test("bundle distributions return platform updates instead of npm recovery", async () => {
+test("bundle distributions stop without guessing compatible updates", async () => {
   const server = http.createServer((_request, response) => {
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify({
@@ -1827,7 +1827,7 @@ test("bundle distributions return platform updates instead of npm recovery", asy
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
   try {
-    for (const [distribution, command] of [
+    for (const [distribution] of [
       ["openclaw-skill-bundle", "openclaw skills update itpay"],
       ["kimi-plugin-bundle", "/plugins install https://github.com/itpay-ai/itpay-plugin-kimi-work"],
     ] as const) {
@@ -1841,8 +1841,8 @@ test("bundle distributions return platform updates instead of npm recovery", asy
             instruction: string;
             recovery: Array<{ command: string }>;
           };
-          assert.equal(envelope.recovery[0]?.command, command);
-          assert.match(envelope.instruction, /不要运行 npm/);
+          assert.deepEqual(envelope.recovery, []);
+          assert.match(envelope.instruction, /minimum_cli_version/);
           assert.doesNotMatch(JSON.stringify(envelope), /npm install/);
           return true;
         },
@@ -1876,8 +1876,8 @@ test("compatibility-gated CLI never guesses an upgrade version from an invalid c
           instruction: string;
           recovery: unknown[];
         };
-        assert.equal(envelope.result, undefined);
-        assert.match(envelope.instruction, /版本信息无法验证/);
+        assert.equal((envelope.result as {minimum_cli_version: string}).minimum_cli_version, "latest");
+        assert.match(envelope.instruction, /不兼容或无法核验/);
         assert.deepEqual(envelope.recovery, []);
         return true;
       },

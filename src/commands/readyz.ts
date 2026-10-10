@@ -20,8 +20,8 @@ export async function runReadyz(backend: BackendClient, options: RunOptions = {}
     status: response.status,
     result: { backend: "available", backend_url: backendURL, environment, ...(options.agentType ? { agent_type: options.agentType } : {}) },
     instruction: environment === "development"
-      ? "ItPay dev 可用。先完整读取内置 Skill，再根据用户意图选择新服务、已购内容、订单或退款入口；后续必须执行返回的完整命令并保持同一 dev Backend。"
-      : "ItPay 可用。先完整读取内置 Skill，再根据用户意图选择新服务、已购内容、订单或退款入口；不要默认开始购买。",
+      ? "ItPay dev 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；后续必须执行返回的完整命令并保持同一 dev Backend。"
+      : "ItPay 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；不自动登录或开始业务。",
     next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
     recovery: [],
   }, options);
