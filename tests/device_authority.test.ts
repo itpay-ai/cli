@@ -609,3 +609,32 @@ test("release waits for a competing live-owner inspection without taking its gua
   assert.equal(existsSync(`${statePath}.lock`), false);
   assert.equal(existsSync(`${statePath}.lock.transition.fixture-inspection`), true);
 });
+
+
+test("case-level aftercare requests carry device proof for read, respond and cancel", async () => {
+ const root=mkdtempSync(join(tmpdir(),"itpay-aftercare-device-proof-"));const server=new DeviceServer();
+ const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath:join(root,"identity.json"),privateKeyPath:join(root,"private.pem"),fetchImpl:server.fetch});
+ for(const [method,path] of [["GET","/v1/rail-aftercare/case_fixture"],["POST","/v1/rail-aftercare/case_fixture/respond"],["POST","/v1/rail-aftercare/case_fixture/cancel"]] as const) {
+ const headers=await authority.authorizationHeaders({method,path,body:method==="GET"?"":"{}"});
+ assert.ok(headers.Authorization);assert.match(headers.Authorization,/^ItPayDevice /);assert.ok(headers["X-ItPay-Agent-Signature"]);
+ }
+ assert.equal(server.enrollmentCount,1);
+});
+
+for(const phase of ["choosing","ready","linked"] as const) test(`interrupted transition ${phase} ticket does not block recovery`,async()=>{
+ const root=mkdtempSync(join(tmpdir(),"itpay-transition-crash-"));const statePath=join(root,"identity.json");
+ const script=`import {mkdirSync,writeFileSync,linkSync} from 'node:fs';import {randomUUID} from 'node:crypto';const own=${JSON.stringify(statePath+".lock.transition-owners/")}+process.pid+'-'+randomUUID();mkdirSync(own,{recursive:true,mode:0o700});${phase!=="choosing" ? "writeFileSync(own+'/ticket','1',{mode:0o600});" : ""}${phase==="linked" ? "writeFileSync(own+'/owner',process.pid+':'+randomUUID(),{mode:0o600});linkSync(own+'/owner',"+JSON.stringify(statePath+".lock.transition")+");" : ""}process.exit(17);`;
+ await assert.rejects(promisify(execFile)(process.execPath,["--input-type=module","-e",script]),(error:unknown)=>typeof error==="object" && error!==null && "code" in error && error.code===17);
+ const pool=statePath+".lock.transition-owners";const entries=readdirSync(pool).filter(name=>name!=="archives");
+ const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl:new DeviceServer().fetch});
+ assert.equal(authority.repairLock(),"absent");await authority.authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
+ assert.deepEqual(readdirSync(pool).filter(name=>name!=="archives"),entries);assert.equal(existsSync(statePath+".lock"),false);
+});
+
+
+test("transition recovery never steals an old active published owner",()=>{
+ const root=mkdtempSync(join(tmpdir(),"itpay-transition-live-"));const statePath=join(root,"identity.json"),guard=statePath+".lock.transition";
+ const token=process.pid+":deadbeef";writeFileSync(guard,token,{mode:0o600});utimesSync(guard,new Date(0),new Date(0));
+ const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
+ assert.equal(authority.repairLock(),"active");assert.equal(readFileSync(guard,"utf8"),token);
+});

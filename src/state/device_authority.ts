@@ -13,7 +13,9 @@ import {
   existsSync,
   mkdirSync,
   lstatSync,
+  linkSync,
   readFileSync,
+  readdirSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -76,7 +78,7 @@ interface SessionVerified {
   expires_at: string;
 }
 
-const PROTECTED_PATHS = ["/v1/agent-device-account-bindings", "/v1/carts", "/v1/service-executions", "/v1/agent-instances", "/v1/orders", "/v1/refunds", "/v1/me", "/v1/vault", "/v1/rail/phone-links"];
+const PROTECTED_PATHS = ["/v1/agent-device-account-bindings", "/v1/carts", "/v1/service-executions", "/v1/agent-instances", "/v1/orders", "/v1/refunds", "/v1/me", "/v1/vault", "/v1/rail/phone-links", "/v1/rail-aftercare"];
 
 export class DeviceAuthority {
   private readonly baseURL: string;
@@ -556,25 +558,94 @@ function releaseOwnedLock(path: string, ownerToken: string): void {
   }
 }
 
-// A short filesystem transition excludes competing acquisition/recovery/release.
-// No network work runs here. Interrupted transitions are never reclaimed by age.
+// Per-process tickets publish ownership in the directory name before any write.
+// The pool itself is not a lock. An interrupted choosing/ready ticket is ignored
+// only after its PID is proven dead; no caller removes another caller's ticket.
+// New arrivals choose a larger ticket, and simultaneous choices use name order.
 function lockTransition(path: string, run: () => void): boolean {
-  const transition = `${path}.transition`;
-  try { mkdirSync(transition, { mode: 0o700 }); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw asDeviceStatePathError(error, "prepare_lock");
-  }
+  const legacy = `${path}.transition`;
+  const pool = `${path}.transition-owners`;
+  mkdirSync(pool, { recursive: true, mode: 0o700 });
+  if (lstatSync(pool).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+  const name = `${process.pid}-${randomUUID()}`;
+  const own = resolve(pool, name);
+  mkdirSync(own, { mode: 0o700 });
   let failed = false;
-  try { run(); } catch (error) { failed = true; throw error; } finally {
-    try {
-      const archive = `${transition}.${randomUUID()}`;
-      mkdirSync(archive, { mode: 0o700 });
-      renameSync(transition, `${archive}/transition`);
-    } catch (error) {
-      if (!failed) throw asDeviceStateError(error, "release_lock");
+  let linked = false;
+  const token = `${process.pid}:${randomUUID()}`;
+  try {
+    let ticket = 1;
+    for (const other of readdirSync(pool)) {
+      if (other === name || other === "archives") continue;
+      const value = transitionTicket(pool, other);
+      if (value !== undefined) ticket = Math.max(ticket, (value ?? 0) + 1);
     }
+    if (!Number.isSafeInteger(ticket)) throw new DeviceStateError("inspect_lock", "LOCK_TRANSITION_BUSY");
+    writeFileSync(resolve(own, "ticket"), String(ticket), { flag: "wx", mode: 0o600 });
+    for (const other of readdirSync(pool)) {
+      if (other === name || other === "archives") continue;
+      const value = transitionTicket(pool, other);
+      if (value === null || (value !== undefined && (value < ticket || (value === ticket && other < name)))) return false;
+    }
+    // All new binaries hold the ticket mutex during stale recovery. Old binaries
+    // see EEXIST on this same path, so cannot race acquisition with recovery.
+    if (existsSync(legacy)) {
+      const stat = lstatSync(legacy);
+      if (!stat.isFile()) return false; // Unknown old directory owner stays protected.
+      const old = /^(\d+):[0-9a-f-]+$/.exec(readFileSync(legacy, "utf8"));
+      if (!old) return false;
+      try { process.kill(Number(old[1]), 0); return false; } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+      }
+      moveLockAside(legacy, "stale", "remove_stale_lock", stat);
+    }
+    const owner = resolve(own, "owner");
+    writeFileSync(owner, token, { flag: "wx", mode: 0o600 });
+    // Hard-link a fully written owner: no empty/unowned publication crash gap.
+    try { linkSync(owner, legacy); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+    linked = true;
+    run();
+    return true;
+  } catch (error) { failed = true; throw error; } finally {
+    try {
+      if (linked) {
+        if (readFileSync(legacy, "utf8") !== token) throw new DeviceStateError("release_lock", "LOCK_SOURCE_CHANGED");
+        renameSync(legacy, resolve(own, "transition-released"));
+      }
+      const archive = resolve(pool, "archives");
+      mkdirSync(archive, { recursive: true, mode: 0o700 });
+      if (lstatSync(archive).isSymbolicLink()) throw new DeviceStateError("release_lock", "SYMLINK_LOCK");
+      const destination = resolve(archive, randomUUID());
+      mkdirSync(destination, { mode: 0o700 });
+      renameSync(own, resolve(destination, "entry"));
+    } catch (error) { if (!failed) throw asDeviceStateError(error, "release_lock"); }
   }
-  return true;
+}
+
+// undefined = absent/dead, null = a live process still choosing its ticket.
+function transitionTicket(pool: string, name: string): number | null | undefined {
+  const owner = /^(\d+)-[0-9a-f-]+$/.exec(name);
+  if (!owner || Number(owner[1]) <= 0) throw new DeviceStateError("inspect_lock", "LOCK_SOURCE_CHANGED");
+  try { process.kill(Number(owner[1]), 0); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
+    return null;
+  }
+  try {
+    const entry = resolve(pool, name);
+    if (!lstatSync(entry).isDirectory()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+    const file = resolve(entry, "ticket");
+    if (lstatSync(file).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+    const value = Number(readFileSync(file, "utf8"));
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return existsSync(resolve(pool, name)) ? null : undefined;
+    }
+    throw asDeviceStateError(error, "inspect_lock");
+  }
 }
 
 function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation, source: Stats): void {
