@@ -236,7 +236,7 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
+      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source, ...(stateError.canonicalKeyPublished !== undefined ? {canonical_key_published: stateError.canonicalKeyPublished} : {}) } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
         result: {
           current_cli_version: CLI_VERSION,
           current_api_contract_revision: API_CONTRACT_REVISION,

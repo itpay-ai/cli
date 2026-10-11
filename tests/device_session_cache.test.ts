@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, type PathLike } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -123,4 +123,17 @@ test("atomic replacement between lstat and open reads a complete snapshot and st
  cache.invalidate();cache.write(registration,first);assert.equal(cache.read(),undefined);
  fs.unlinkSync(cache.cachePath);fs.symlinkSync(cache.generationPath,cache.cachePath);
  assert.throws(()=>cache.read(),/DEVICE_CACHE_INVALID_FILE/);
+});
+
+test("denied own key-temp cleanup reports published canonical key and never rotates on continuation", async()=>{
+ const fs=await import('node:fs');const {mock}=await import('node:test');const {syncBuiltinESMExports}=await import('node:module');
+ const {DeviceAuthority,DeviceStateError}=await import('../src/state/device_authority.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-key-cleanup-denied-'));const key=join(root,'private.pem');
+ const unlink=fs.default.unlinkSync;const patch=mock.method(fs.default,'unlinkSync',(path:PathLike)=>{
+  if(String(path).startsWith(key+'.'))throw Object.assign(new Error('cleanup denied'),{code:'EPERM'});return unlink(path);
+ });syncBuiltinESMExports();
+ const authority=new DeviceAuthority({baseURL:context.backend,requestedAgentType:'workbuddy',compatibilityHeaders:{},statePath:join(root,'identity.json'),privateKeyPath:key,fetchImpl:async()=>{throw Error('network must not start after failed cleanup');}});
+ try {await assert.rejects(authority.authorizationHeaders({method:'GET',path:'/v1/orders',body:''}),error=>error instanceof DeviceStateError&&error.operation==='cleanup_private_key_temporary'&&error.causeCode==='EPERM'&&error.canonicalKeyPublished===true);}
+ finally {patch.mock.restore();syncBuiltinESMExports();}
+ const bytes=readFileSync(key);createDeviceKey(key,false);assert.deepEqual(readFileSync(key),bytes);
 });

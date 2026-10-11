@@ -378,7 +378,7 @@ export class DeviceStateError extends Error {
   readonly code = "device_state_unavailable";
   readonly source: "native_filesystem" | "host_broker" | "client_state_validation" | "unclassified_local_operation";
 
-  constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string) {
+  constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string, readonly canonicalKeyPublished?: boolean) {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
     this.source = causeCode === "UNCLASSIFIED_LOCAL_FAILURE" ? "unclassified_local_operation" : causeCode.startsWith("CODEBUDDY_BROKER_") ? "host_broker"
@@ -390,6 +390,7 @@ export type DeviceStateOperation =
   | "read_state"
   | "read_private_key"
   | "write_state"
+  | "cleanup_private_key_temporary"
   | "write_private_key";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -424,7 +425,8 @@ export function asDeviceStateError(error: unknown, operation: DeviceStateOperati
   if (error instanceof DeviceStateError) return error;
   const code = (error as NodeJS.ErrnoException)?.code;
   const known = ["EACCES", "EPERM", "EROFS", "ENOTDIR", "EISDIR", "EEXIST", "ENOENT", "ENOTEMPTY", "ENOSPC", "EMFILE", "EIO", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"];
-  return new DeviceStateError(operation, typeof code === "string" && (known.includes(code) || /^DEVICE_(KEY|CACHE|STATE)_[A-Z_]+$/.test(code)) ? code : "UNCLASSIFIED_LOCAL_FAILURE");
+  const cleanup = isRecord(error) && error.deviceStateOperation === "cleanup_private_key_temporary";
+  return new DeviceStateError(cleanup ? "cleanup_private_key_temporary" : operation, typeof code === "string" && (known.includes(code) || /^DEVICE_(KEY|CACHE|STATE)_[A-Z_]+$/.test(code)) ? code : "UNCLASSIFIED_LOCAL_FAILURE", undefined, cleanup && typeof error.canonicalKeyPublished === "boolean" ? error.canonicalKeyPublished : undefined);
 }
 
 import { stateDir } from "./config.js";

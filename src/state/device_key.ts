@@ -32,12 +32,18 @@ export function createDeviceKey(path: string, existingIdentity: boolean): KeyObj
   const temp = `${path}.${randomUUID()}.tmp`;
   const key = generateKeyPairSync("ed25519").privateKey;
   writeFileSync(temp, key.export({ format: "pem", type: "pkcs8" }), { flag: "wx", mode: 0o600 });
+  let canonicalPublished = false;
   try {
     try { linkSync(temp, path); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
     const canonical = readDeviceKey(path);
     if (!canonical) throw invalid("DEVICE_KEY_MISSING");
+    canonicalPublished = true;
     return canonical;
-  } finally { unlinkSync(temp); }
+  } finally {
+    try { unlinkSync(temp); } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error("Key temporary cleanup failed"), { deviceStateOperation: "cleanup_private_key_temporary", canonicalKeyPublished: canonicalPublished });
+    }
+  }
 }
