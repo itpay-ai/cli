@@ -385,7 +385,7 @@ test("device status verifies again despite a cached session and never replaces i
   assert.equal(readFileSync(options.privateKeyPath, "utf8"), key);
   assert.doesNotMatch(JSON.stringify(second), /token|signature|private|device_id/);
 });
-for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"]) {
+for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN", "UNKNOWN_TEST_CODE"]) {
   test(`lock acquisition classifies ${code} at the file operation boundary`, async () => {
     const root = mkdtempSync(join(tmpdir(), "itpay-lock-error-"));
     const original = fs.writeFileSync;
@@ -400,8 +400,8 @@ for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DE
       }).authorizationHeaders({ method: "GET", path: "/v1/orders", body: "" }), (error: unknown) => {
         assert.ok(error instanceof DeviceStateError);
         assert.equal(error.operation, "acquire_lock");
-        assert.equal(error.causeCode, code);
-        assert.equal(error.source, code.startsWith("CODEBUDDY_") ? "host_broker" : "native_filesystem");
+        assert.equal(error.causeCode, code === "UNKNOWN_TEST_CODE" ? "UNCLASSIFIED_LOCAL_FAILURE" : code);
+        assert.equal(error.source, code.startsWith("CODEBUDDY_") ? "host_broker" : code === "UNKNOWN_TEST_CODE" ? "unclassified_local_operation" : "native_filesystem");
         assert.doesNotMatch(error.message, /private diagnostic/);
         return true;
       });
@@ -465,3 +465,25 @@ test("independent processes recover an exited owner once without replacing anoth
   assert.equal(readdirSync(root).filter(n=>n.startsWith("identity.json.lock.stale.")).length,1);
   assert.equal(existsSync(`${statePath}.lock`),false);
 });
+
+test("exited owner lock preserves existing directory and file archives and recovers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-lock-archive-collision-"));
+  const statePath = join(root, "identity.json");
+  const lockPath = `${statePath}.lock`;
+  writeFileSync(lockPath, "99999999:deadbeef");
+  mkdirSync(`${lockPath}.stale`);
+  writeFileSync(`${lockPath}.stale/history`, "prior-stale");
+  writeFileSync(`${lockPath}.released`, "prior-released");
+  const server = new DeviceServer();
+  await new DeviceAuthority({
+    baseURL: "https://test.itpay.ai", requestedAgentType: "workbuddy", compatibilityHeaders: {},
+    statePath, privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
+  }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(readFileSync(`${lockPath}.stale/history`, "utf8"), "prior-stale");
+  assert.equal(readFileSync(`${lockPath}.released`, "utf8"), "prior-released");
+  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.stale.")).length, 1);
+  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.released.")).length, 1);
+  assert.equal(server.enrollmentCount, 1);
+});
+
