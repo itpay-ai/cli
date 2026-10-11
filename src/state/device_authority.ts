@@ -413,7 +413,7 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
   }
   const ownerToken = `${process.pid}:${randomUUID()}`;
   let acquired = false;
-  for (let attempt = 0; attempt < 800; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       if (!lockTransition(path, () => {
         writeFileSync(path, ownerToken, { encoding: "utf8", flag: "wx", mode: 0o600 });
