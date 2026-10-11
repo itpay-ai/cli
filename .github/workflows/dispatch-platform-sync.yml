@@ -1,0 +1,61 @@
+name: Dispatch published CLI bundle sync
+
+on:
+  workflow_run:
+    workflows: [CD — Publish to npm]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dispatch-platform-sync
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check dispatch credential
+        id: credential
+        env:
+          APP_ID: ${{ secrets.ITPAY_BUNDLE_APP_ID }}
+          APP_KEY: ${{ secrets.ITPAY_BUNDLE_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$APP_ID" && -n "$APP_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$APP_ID" || -n "$APP_KEY" ]]; then
+            echo "::error::Bundle GitHub App id and private key must be configured together"
+            exit 1
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cross-repository sync is not configured. Dispatch the channel sync workflows manually after verifying npm latest."
+            echo "Automatic channel sync inactive: configure the repository-scoped bundle GitHub App, or manually run each channel sync." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Mint channel dispatch token
+        if: steps.credential.outputs.configured == 'true'
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.ITPAY_BUNDLE_APP_ID }}
+          private-key: ${{ secrets.ITPAY_BUNDLE_APP_PRIVATE_KEY }}
+          owner: itpay-ai
+          repositories: |
+            itpay-skill-hermes
+            itpay-plugin-kimi-work
+            itpay-plugin-chatgpt
+            itpay-skill-openclaw
+            itpay-skill-workbuddy
+      - name: Notify channel repositories once
+        if: steps.credential.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          for repo in itpay-skill-hermes itpay-plugin-kimi-work itpay-plugin-chatgpt itpay-skill-openclaw itpay-skill-workbuddy; do
+            gh api --method POST "repos/itpay-ai/$repo/dispatches" -f event_type=itpay-cli-published
+          done

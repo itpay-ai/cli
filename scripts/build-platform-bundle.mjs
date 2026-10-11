@@ -59,12 +59,19 @@ try {
   const installedPackage = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
   if (installedPackage.version !== version) throw new Error(`installed ${installedPackage.version}, expected ${version}`);
 
+  const declaredEntry = typeof installedPackage.bin === "string" ? installedPackage.bin : installedPackage.bin?.itpay;
+  if (!declaredEntry || isAbsolute(declaredEntry) || declaredEntry.split(/[\\/]/).includes("..")) {
+    throw new Error("package has no safe declared itpay executable");
+  }
+  const installedEntry = join(installed, declaredEntry);
+  if (!existsSync(installedEntry)) throw new Error("declared itpay executable is missing");
+
   rmSync(vendor, { recursive: true, force: true });
   mkdirSync(vendor, { recursive: true });
   if (singleFile) {
     const { buildSync } = await import("esbuild");
     buildSync({
-      entryPoints: [join(installed, "bin", "itp.mjs")],
+      entryPoints: [installedEntry],
       bundle: true,
       platform: "node",
       format: "esm",
@@ -104,7 +111,7 @@ try {
   mkdirSync(output, { recursive: true });
   writeFileSync(join(output, "bundle.lock.json"), JSON.stringify(lock, null, 2) + "\n");
 
-  const entry = singleFile ? join(vendor, "itpay-cli.bundle.mjs") : join(vendor, "package", "bin", "itp.mjs");
+  const entry = singleFile ? join(vendor, "itpay-cli.bundle.mjs") : join(vendor, "package", declaredEntry);
   const actual = execFileSync(process.execPath, [entry, "--version"], { encoding: "utf8" }).trim();
   if (actual !== version) throw new Error(`bundle reported ${actual}, expected ${version}`);
   process.stdout.write(`built @itpay/cli@${version} in ${output}\n`);

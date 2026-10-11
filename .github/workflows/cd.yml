@@ -4,17 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Publish a new version, promote an existing version, or verify OIDC without moving a tag
+        description: Stage a checked artifact, promote after Backend validation, or verify OIDC
         type: choice
-        options: [publish, promote, verify]
-        default: publish
+        options: [stage, promote, verify]
+        default: stage
+      source:
+        description: Main or an exact internal source approved in npm-release-sources.json
+        type: choice
+        options: [main, dev, prod]
+        default: main
       tag:
-        description: Distribution channel (latest is the general/stable release)
+        description: Final channel for promote/verify only
         type: choice
         options: [next, latest]
         default: next
       version:
-        description: Exact existing version for promote/verify; publish uses package.json
+        description: Exact existing version for promote/verify
         type: string
         required: false
   push:
@@ -22,52 +27,98 @@ on:
     paths:
       - package.json
       - .github/workflows/cd.yml
-      - scripts/npm-release.mjs
-      - scripts/npm-release.test.mjs
+      - scripts/npm-release*.mjs
+      - scripts/npm-release-sources.json
 
 concurrency:
   group: npm-release
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.action == 'stage')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted workflow policy
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Pin npm
+        run: npm install --global npm@11.21.0
+      - name: Verify routing and approved source
+        run: node --test scripts/npm-release.test.mjs scripts/npm-release-source.test.mjs
+      - name: Select fixed internal source
+        id: source
+        run: node scripts/npm-release-source.mjs select
+        env:
+          RELEASE_SOURCE: ${{ inputs.source || 'main' }}
+      - name: Checkout candidate without publish permission
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Install and check candidate
+        working-directory: candidate
+        run: |
+          npm ci
+          npm run check
+      - name: Pack checked candidate and record actual source
+        run: node scripts/npm-release-source.mjs pack
+        env:
+          RELEASE_SOURCE: ${{ inputs.source || 'main' }}
+          RELEASE_CHECKOUT: candidate
+      - name: Preserve exact artifact for protected publication
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-release
+          path: release-artifact/
+          if-no-files-found: error
+
   publish:
-    if: github.ref == 'refs/heads/main'
+    needs: prepare
+    if: always() && github.ref == 'refs/heads/main' && (needs.prepare.result == 'success' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'promote' || inputs.action == 'verify')))
     runs-on: ubuntu-latest
     environment: npm-publish
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
     steps:
-      - name: Checkout
+      - name: Checkout trusted publisher only
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
+          persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
-
-      - name: Pin npm with OIDC publish and dist-tag support
+      - name: Pin npm with OIDC support
         run: npm install --global npm@11.21.0
-
-      - name: Verify release routing
-        run: node --test scripts/npm-release.test.mjs
-
-      - name: Install dependencies
-        if: github.event_name == 'push' || inputs.action == 'publish'
-        run: npm ci
-
-      - name: Typecheck, test, and verify packed CLI
-        if: github.event_name == 'push' || inputs.action == 'publish'
-        run: npm run check
-
-      - name: Release through npm trusted publisher
+      - name: Download checked artifact
+        if: github.event_name == 'push' || inputs.action == 'stage'
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-release
+          path: release-artifact
+      - name: Verify trusted release routing
+        run: node --test scripts/npm-release.test.mjs scripts/npm-release-source.test.mjs
+      - name: Publish exact artifact or promote approved version
         run: node scripts/npm-release.mjs
         env:
-          RELEASE_ACTION: ${{ inputs.action || 'publish' }}
+          RELEASE_ACTION: ${{ inputs.action || 'stage' }}
+          RELEASE_SOURCE: ${{ inputs.source || 'main' }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_VERSION: ${{ inputs.version }}

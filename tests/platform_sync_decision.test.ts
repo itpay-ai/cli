@@ -52,3 +52,7 @@ test("bundle lock matching normalizes the legacy default directory", () => {
   assert.equal(bundleLockMatches(legacyLock, target), true);
   assert.equal(bundleLockMatches({ ...matchingLock, version: "2.0.25" }, target), false);
 });
+
+ test("platform sync never downgrades a newer installed bundle", () => {
+  assert.deepEqual(decidePlatformSync({ baseLock: { ...matchingLock, version: "2.1.22" }, target: { ...target, version: "2.1.1" } }), { update: false, reason: "target-older-than-base" });
+});

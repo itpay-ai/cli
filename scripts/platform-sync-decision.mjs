@@ -9,6 +9,15 @@ export function bundleLockMatches(lock, target) {
 }
 
 export function decidePlatformSync({ baseLock, candidateLock, openPullRequestURL, target }) {
+  const parts = value => /^\d+\.\d+\.\d+$/.test(value || "") ? value.split(".").map(Number) : undefined;
+  const current = parts(baseLock?.version);
+  const requested = parts(target.version);
+  if (current && requested) {
+    const firstDifference = current.findIndex((part, index) => part !== requested[index]);
+    if (firstDifference >= 0 && current[firstDifference] > requested[firstDifference]) {
+      return { update: false, reason: "target-older-than-base" };
+    }
+  }
   if (bundleLockMatches(baseLock, target)) {
     return { update: false, reason: "base-current" };
   }
