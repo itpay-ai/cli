@@ -588,3 +588,24 @@ test("independent processes recover an exited owner once without replacing anoth
   assert.equal(readdirSync(root).filter(n=>n.startsWith("identity.json.lock.stale.")).length,1);
   assert.equal(existsSync(`${statePath}.lock`),false);
 });
+
+
+test("release waits for a competing live-owner inspection without taking its guard", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-release-transition-"));
+  const statePath = join(root, "identity.json");
+  const server = new DeviceServer();
+  let inspected = false;
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const response = await server.fetch(input, init);
+    if (String(input).includes("agent-device-session-challenges/") && String(input).endsWith("/verify")) {
+      const guard = `${statePath}.lock.transition`;
+      mkdirSync(guard);
+      setTimeout(() => { fs.renameSync(guard, `${guard}.fixture-inspection`); inspected = true; }, 50);
+    }
+    return response;
+  };
+  await new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl}).authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
+  assert.equal(inspected, true);
+  assert.equal(existsSync(`${statePath}.lock`), false);
+  assert.equal(existsSync(`${statePath}.lock.transition.fixture-inspection`), true);
+});

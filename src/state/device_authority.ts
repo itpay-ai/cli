@@ -487,7 +487,7 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
     operationFailed = true;
     throw error;
   } finally {
-    try { releaseLock(path, ownerToken); } catch (error) { if (!operationFailed) throw error; }
+    try { await releaseLock(path, ownerToken); } catch (error) { if (!operationFailed) throw error; }
   }
 }
 
@@ -535,10 +535,14 @@ function inspectLockOwner(path: string): "absent" | "recovered" | "active" {
   return "recovered";
 }
 
-function releaseLock(path: string, ownerToken: string): void {
-  if (!lockTransition(path, () => releaseOwnedLock(path, ownerToken))) {
-    throw new DeviceStateError("release_lock", "LOCK_TRANSITION_BUSY");
+async function releaseLock(path: string, ownerToken: string): Promise<void> {
+  // Another caller may be inspecting our live owner under the same short
+  // transition. Wait for that critical section, without reclaiming its guard.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (lockTransition(path, () => releaseOwnedLock(path, ownerToken))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  throw new DeviceStateError("release_lock", "LOCK_TRANSITION_BUSY");
 }
 
 function releaseOwnedLock(path: string, ownerToken: string): void {
