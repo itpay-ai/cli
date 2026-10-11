@@ -1,4 +1,4 @@
-import { railAdapter } from "./rail/adapter.js";
+import { railAdapterFor } from "./rail/adapter.js";
 import { schemaAdapter, unsupportedAdapter } from "./schema.js";
 import type { ServiceAdapter } from "./adapter.js";
 import type { ServiceExecution } from "../client/types.js";
@@ -29,5 +29,5 @@ export function serviceClientFeatures(): string[] {
 
 export function serviceAdapter(execution: Parameters<typeof serviceAdapterKey>[0]): ServiceAdapter {
  const key = serviceAdapterKey(execution);
- return key === "rail.v1" ? railAdapter : key === "schema.v1" ? schemaAdapter : unsupportedAdapter;
+ return key === "rail.v1" ? railAdapterFor(execution) : key === "schema.v1" ? schemaAdapter : unsupportedAdapter;
 }

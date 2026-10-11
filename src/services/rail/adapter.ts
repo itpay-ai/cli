@@ -12,7 +12,6 @@ import { railCheckoutItinerary } from "./checkout.js";
 import { renderRailResultPage } from "./page.js";
 import { readSavedResult } from "./reading.js";
 export const railAdapter: ServiceAdapter = {
- aftercare:{order:railAftercareOrder,directory:railAftercareList,present:railAftercareEnvelope,create:railAftercareCreate,respond:railAftercareRespond},
  entryInstruction: RAIL_ENDPOINT_BRIEF + "按 result.guidance 逐项填写输入（when_to_use 说明本服务适用场景、input_fields 是必填契约、input_example 是待填示意，必须替换用户真实值），然后继续同一服务执行。不要臆造字段名。",
  supported:true, inputTemplate:railInputTemplate, inputInstruction:railInputRecoveryInstruction,
  guidance:railServiceGuidance, requiresGuidance: id => id === "itpay-rail-smart",
@@ -26,3 +25,14 @@ export const railAdapter: ServiceAdapter = {
  renderPage: (...args) => {renderRailResultPage(...args);return true;},
  checkout:async(backend,model,id,token)=>railCheckoutItinerary(model,await backend.getCheckoutPresentation(id,token)),
 };
+
+const bookingAdapter: ServiceAdapter = {
+ ...railAdapter,
+ aftercare:{order:railAftercareOrder,directory:railAftercareList,present:railAftercareEnvelope,create:railAftercareCreate,respond:railAftercareRespond},
+};
+export function railAdapterFor(identity: Pick<import("../../client/types.js").ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">): ServiceAdapter {
+ const booking = identity.public_binding
+  ? identity.public_binding.operation_id === "prepare_purchase"
+  : identity.service_id === "itpay-rail-booking";
+ return booking ? bookingAdapter : railAdapter;
+}

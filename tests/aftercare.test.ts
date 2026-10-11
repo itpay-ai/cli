@@ -38,3 +38,30 @@ test('aftercare commands use locked adapter and preserve the request idempotency
   await assert.rejects(runAftercareList(backend,'order_test'),error=>error instanceof CommandContractError&&error.code==='aftercare_unsupported');
  }finally{await rm(dir,{recursive:true,force:true})}
 });
+
+
+test('query orders preserve ordinary delivery and refund without ticket aftercare',async()=>{
+ const {runOrder}=await import('../src/commands/order.js');
+ const {startMockBackend}=await import('./mock_backend.js');
+ const mock=await startMockBackend();
+ try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const original=await backend.getOrder('ord_delivery');let reads=0;
+  backend.listRailAftercare=async()=>{reads++;return directory};
+  for(const identity of [
+   {service_id:'itpay-rail-exact',service_contract_version_id:'scv_itpay_rail_exact_v1'},
+   {service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6'},
+   {service_id:'itpay-rail',service_contract_version_id:'scv_itpay_rail_exact_v1',public_binding:{public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',operation_id:'query_exact'}},
+   {service_id:'itpay-rail',service_contract_version_id:'scv_itpay_rail_smart_v6',public_binding:{public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',operation_id:'query_smart'}},
+  ]){
+   backend.getOrder=async()=>({...original,status:'paid',service_identities:[identity]});
+   let output='';await runOrder(backend,'ord_delivery',{jsonOutput:true,output:s=>output+=s});
+   assert.equal(reads,0);assert.match(output,/ord_delivery/);assert.doesNotMatch(output,/aftercare_cases/);
+  }
+  for(const identity of [view.execution_identity,{...view.execution_identity,public_binding:{public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',operation_id:'prepare_purchase'}}]){
+   backend.getOrder=async()=>({...original,status:'paid',service_identities:[identity]});
+   let output='';await runOrder(backend,'ord_delivery',{jsonOutput:true,output:s=>output+=s});assert.match(output,/aftercare_cases/);
+  }
+  assert.equal(reads,2);
+ }finally{await mock.close()}
+});
