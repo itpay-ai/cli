@@ -58,6 +58,7 @@ export interface CreateCartRequest {
 }
 
 export interface Checkout {
+  cart_id?: string;
   checkout_id: string;
   order_code?: string;
   status: string;
@@ -131,7 +132,7 @@ export interface CheckoutPresentation {
   account_phone_option?: { source?: string; masked_recipient?: string };
   payment_deadline_at?: string;
   server_now?: string;
-  payment_remaining_seconds?: number;
+  payment_remaining_seconds?: number | null;
   qr_png_url?: string;
   card_url?: string;
   card_png_url?: string;
@@ -159,6 +160,7 @@ export interface CreatePaymentIntentRequest {
 }
 
 export interface Order {
+ service_identities?: Array<Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">>;
   order_id: string;
   order_code?: string;
   checkout_id: string;
@@ -169,7 +171,7 @@ export interface Order {
   paid_at?: string;
   payment_deadline_at?: string;
   server_now?: string;
-  payment_remaining_seconds?: number;
+  payment_remaining_seconds?: number | null;
   items: LineItem[];
   delivery_artifacts: DeliveryArtifact[];
 }
@@ -328,6 +330,9 @@ export interface PlatformCompatibility {
 }
 
 export interface ErrorResponse {
+ service_definition?:PublicServiceDefinition;
+ service_id?:string;
+ service_contract_version_id?:string;
   selection_expiry?: { query_execution_id: string; query_service_id: string; expired_at: string; query_input?: Record<string, unknown>; safe_new_query: boolean; booking_execution_id?: string };
   reason?: string;
   input_schema?: Record<string, unknown>;
@@ -394,6 +399,16 @@ export interface CatalogServiceFlow {
   };
 }
 
+export interface PublicServiceDefinition {
+  schema_version: "itpay.service-definition.v1";
+  service_id: string;
+  definition_version: string;
+  display_names: Record<string,string>;
+  guide?: {topic:string;version:string};
+  adapter_key: string;
+  operations: Array<{id:string;role:"query"|"purchase_preparation"|"service";display_names:Record<string,string>;billing_mode:"free"|"dynamic"|"fixed";price_amount_minor?:number;price_currency?:string;requires_continuation?:boolean;allowed_source_operations?:string[];input_schema:Record<string,unknown>;binding:{service_id:string;service_contract_version_id:string;capability_id:string}}>;
+}
+
 export interface CatalogItem {
   catalog_item_id: string;
   slug: string;
@@ -404,6 +419,7 @@ export interface CatalogItem {
   service_id?: string;
   description?: string;
   service_flow?: CatalogServiceFlow;
+  service_definition?: PublicServiceDefinition;
   variants: CatalogVariant[];
 }
 
@@ -437,6 +453,7 @@ export interface ServiceCapability {
 }
 
 export interface ServiceExecution {
+ public_binding?:{public_service_id:string;service_definition_version:string;operation_id:string;adapter_key:string;source_execution_id?:string;source_snapshot_id?:string};
   service_execution_id: string;
   service_id: string;
   service_contract_version_id: string;
@@ -456,6 +473,8 @@ export interface ServiceExecution {
 }
 
 export interface StartServiceExecutionRequest {
+ operation_id?:string;
+ continuation?:{service_execution_id:string;snapshot_id:string};
   service_id: string;
   client_context?: Record<string, unknown>;
   /** Optional intended workflow input. The server only consumes this for
@@ -463,6 +482,10 @@ export interface StartServiceExecutionRequest {
    * same purchase execution instead of duplicating it. */
   input?: Record<string, unknown>;
 }
+
+export interface PublicOperationInput {service_id:string;operation_id:string;input:Record<string,unknown>;continuation?:{service_execution_id:string;snapshot_id:string}}
+export interface PublicServiceOverview {overview_only:true;service_definition:PublicServiceDefinition}
+export type ServiceStartResponse = ServiceExecutionStarted | PublicServiceOverview;
 
 export interface ServiceExecutionStarted {
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
@@ -506,6 +529,9 @@ export interface ServiceCapabilityResultItem {
 }
 
 export interface ServiceResultItemPage {
+ service_id?:string;
+ service_contract_version_id?:string;
+ public_binding?:ServiceExecution["public_binding"];
   service_capability_result_item_id?: string;
   service_execution_id: string;
   /** rail.progressive.v2 snapshot pages key the snapshot id instead of a
@@ -592,6 +618,14 @@ export interface ServiceExecutionCheckoutCreated {
 }
 
 export interface ServiceQuotePrepared {
+ purchase_summary?:{title:string;subject?:string|null;included_sections:string[];quantity:number;amount_minor:number;currency:string};
+ approval_template?: {
+ public_service_id?:string;service_definition_version?:string;operation_id?:string;
+ service_quote_lock_id: string; service_execution_id: string; service_id: string; service_contract_version_id: string;
+ capability_id: string; owner_ref: string; material_hash: string; subject_fingerprint: string; terms_version: string;
+ scope: "prepare_checkout"; expires_at: string; user_approved: boolean; evidence_source: "agent_reported";
+ price_policy: {mode:"exact";currency:string;quote_id:string;amount_minor:number} | {mode:"capped";currency:string;maximum_minor?:number} | {mode:"confirm_on_official_page";currency:string};
+ };
   service_quote_lock_id: string;
   service_execution_id: string;
   capability_id: string;
@@ -740,7 +774,7 @@ export interface RailPlanningProjection {
   notices?: Array<Record<string, unknown>>;
   recommendation?: RailJourneyCard;
   alternatives?: RailJourneyCard[];
-  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string; input_example?: Record<string, unknown> }>;
+  available_actions?: Array<{ type: string; command: string; provider_effect: string; when?: string; target?: {service_execution_id:string;query_revision:number;snapshot_id?:string;journey_id?:string}; input?:Record<string,unknown>; input_example?: Record<string, unknown>; input_schema?: Record<string, unknown> }>;
   result_not_updated?: boolean;
 }
 
@@ -790,6 +824,7 @@ export interface RailJourneyCard {
   // Server-issued purchase handle: present only on single_leg cards. The token
   // is opaque — submit it verbatim to itpay-rail-booking, never decode it.
   booking_offer?: { service_id: string; selection_token: string };
+  purchase_operation?:PublicOperationInput;
   candidate_ids?: string[];
 }
 
@@ -842,6 +877,10 @@ export interface ServiceExecutionQuotaView {
 }
 
 export interface ServiceExecutionAllowedAction {
+ purpose?:string;
+ effect?:"read"|"query"|"commerce";
+ target?:{service_execution_id:string;service_contract_version_id:string;revision?:number};
+ input_schema?:Record<string,unknown>;
   type: "invoke_capability" | "select_candidate" | "prepare_quote" | "resume_checkout" | "wait" | "view_delivery" | string;
   capability_id?: string;
   source_capability_id?: string;
@@ -869,4 +908,36 @@ export interface SSEEvent {
   type: string;
   sequence: number;
   payload: Record<string, unknown>;
+}
+
+export interface RailAftercareTarget { leg_index: number; passenger_index: number }
+export interface RailAftercareInput {
+ operation: "refund" | "change";
+ targets: RailAftercareTarget[];
+ reason: string;
+ scope_revision: number;
+ user_confirmed_scope: boolean;
+ change?: { travel_date?: string; departure_after?: string; arrival_before?: string; seat_type?: string; train_code?: string; constraints: string };
+}
+export interface RailChangedTicket extends RailAftercareTarget {
+ train_code: string; travel_date: string; from_station_code: string; to_station_code: string; departure_time: string; arrival_time: string; arrival_days: number; seat_type: string;
+}
+export interface RailChangeProposal { changes: RailChangedTicket[]; difference_minor: number; currency: string; fee_handling: "manual_coordination"; conditions: string }
+export interface RailAftercareCase {
+ case_id: string; order_id: string; status: "requested"|"needs_input"|"awaiting_confirmation"|"processing"|"completed"|"rejected"|"cancelled"; revision: number;
+ request: RailAftercareInput; refund_request_id?: string; proposal?: RailChangeProposal; proposal_revision: number; confirmed_proposal_revision: number;
+ supplier_result?: { completed: boolean; source: string; changes: RailChangedTicket[]; reference?: string; fee_status: string; fee_evidence?: string };
+ history: Array<{ action: string; actor_type: string; actor_id?: string; note?: string; revision: number; at: string }>;
+ created_at: string; updated_at: string;
+}
+export interface RailAftercareJourney {
+ passengers: number; fact_rule: string;
+ legs: Array<{ leg_index: number; train_code: string; travel_date: string; from: string; to: string; departure_time: string; arrival_time: string; arrival_days: number; seat_name: string; tickets: Array<RailAftercareTarget & { issuance_state: string; change_state?: string; verified_change?: RailChangedTicket; financial_refund_state?: string; supplier_refund_state?: string }> }>;
+}
+export interface RailAftercareView { can_cancel: boolean; refund_amount_basis?: string; execution_identity: Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">; case: RailAftercareCase; journey: RailAftercareJourney; refund?: RefundRequest; instruction: string }
+export interface RailAftercareDirectory { execution_identity: Pick<ServiceExecution,"service_id"|"service_contract_version_id"|"public_binding">; order_id: string; journey: RailAftercareJourney; cases: RailAftercareView[]; available_targets: RailAftercareTarget[]; input_templates: Record<"refund"|"change",RailAftercareInput>; instruction: string }
+export interface RailAftercareResponseInput { expected_revision: number; proposal_revision?: number; user_approved?: boolean; additional_information?: string; reason?: string }
+export interface RailAftercareAdminInput {
+ expected_revision: number; action: "needs_input"|"reject"|"start"|"propose_change"|"complete_change"|"confirm_refund"|"note";
+ note: string; proposal?: RailChangeProposal; supplier_result?: NonNullable<RailAftercareCase["supplier_result"]>; rail_refund?: {supplier_completed:boolean;tickets:Array<{leg_index:number;passenger_index:number;fare_minor:number;source:string; supplier_refund_ref?:string}>};
 }

@@ -242,44 +242,17 @@ itpay services next <service_execution_id> [--timeout <seconds>] [--since-snapsh
 }
 ```
 
-用户明确选择某班次/席别并要求购买时，用该 token 开启购票执行：
+有购买委托时，读取所选完整行程详情，使用其返回的 `itpay-rail --operation prepare_purchase` 完整模板；保留 continuation 的原 execution/snapshot 与完整 selections。上面的 booking_offer 是历史兼容事实，不将它改造成新公共承接或手拼多腿。
 
-```bash
-itpay services run itpay-rail-booking --input-json booking.json --json
-# booking.json: {"passengers": 1, "selection": {"token": "<selection_token>", "seat_type": "O"}}
-```
+## 整程订票确认与价格批准
 
-`booking_offer` 只是受条件约束的可选承接：查询完成本身已满足查询目标，不自动购买。过期 token 不会因重读保存结果而恢复；按当前 owner 错误与用户原请求取得新的实时选择证据，不手工拼装 `legs` 绕过失效凭据。
+当前 `booking_review_required` 返回完整整程 review、每段席别代码/名称、人数、偏好词表、notice_version 与 draft_revision。直接读写返回的完整 JSON，不需要解析脚本；模板的 accept_non_guaranteed 默认 false。只补用户尚未明确同意的实质内容；仅修席别代码而车次、实际席别、人数、价格、条款未变时沿用原真实确认。
 
-## 订票确认（booking review）
-
-`itpay-rail-booking` 在报价前停在 `workflow:confirm_booking` 人工确认节点。`services next` 返回 `booking_review_required`，`human_action.context.review` 携带服务端投影：`draft_revision`、`legs`（含可编码的 `seat_options`）、`notice_version` 等。乘客身份信息永不在此投影，也不经 CLI 提交。
-
-```json
-{
-  "status": "booking_review_required",
-  "result": {
-    "service_execution_id": "<id>",
-    "service_id": "itpay-rail-booking",
-    "human_action": {
-      "action_type": "workflow:confirm_booking",
-      "context": { "review": { "draft_revision": 1, "legs": [], "seat_options": {} } }
-    },
-    "required_fields": ["draft_revision", "passengers", "seat_type", "seat_preferences", "party_preference", "fallback", "notice_version", "accept_non_guaranteed"]
-  },
-  "instruction": "向用户展示行程与可选席别/座位偏好词表，并明确告知：座位偏好仅为请求、不保证分配。收集后经 --input-json 提交完整 JSON；draft_revision 以服务端当前值为准。",
-  "next": null,
-  "interaction": { "input_template": { "command": "itpay services action <id> --action workflow:confirm_booking --actor-type human --status approved --input-json <file> --json", "executable": false } },
-  "recovery": [{ "command": "itpay services next <id> --json", "reason": "重新读取当前 draft_revision 后重试" }]
-}
-```
-
-规则：
-
-- `seat_preferences` 逐乘客一条，`passenger_index` 从 0 起、人数 1–5、取值限该席别 `seat_options`；`party_preference`、`fallback=automatic_assignment`、`notice_version`、`accept_non_guaranteed=true` 全部必填。
-- `draft_revision` 必须等于投影值；服务端返回 `booking_review_changed` 时重新 `services next` 读取后重试，不得自行递增或重放旧 revision。
-- 付款暂停且 review 仍开放时，`next` 指向 Checkout 恢复，`recovery` 附带修订命令（`services action … confirm_booking --input-json`）——修订回到同一执行重新报价，不产生第二笔订单或付款。
-- 支付已在途/完成后 review 关闭，修订被拒绝；按返回的同一订单状态继续，不得新建执行。
+- 每段保留相连行程、对应席别、每位乘客偏好；不要恢复固定单腿 scalar 模板。
+- `booking_review_changed` 重新读取当前服务端 revision，不自行递增、不重放旧 revision。
+- 候选/条款确认不等于价格批准；实时报价后使用完整有范围 approve_purchase 模板，仅真实匹配批准允许 true。
+- 未付且允许修改时修订同一 booking 重新报价；支付已在途/完成、结果未知或退款锁定时按原单读取，不新建替代购买。
+- 乘客身份、电话、邮箱修改只在保护页完成，不在聊天或 workflow 输入收集。
 
 ## 异常处理
 

@@ -85,6 +85,8 @@ try {
     mkdirSync(join(vendor, "package"), { recursive: true });
     cpSync(installed, join(vendor, "package"), { recursive: true });
   }
+  // The CLI is relocated to vendor/package; its npm shims would point at the removed scope.
+  for (const alias of ["itp", "itpay", "itpay_cli"]) rmSync(join(scratch, "node_modules", ".bin", alias), { force: true });
   rmSync(installed, { recursive: true, force: true });
   const scope = dirname(installed);
   if (existsSync(scope)) rmSync(scope, { recursive: true, force: true });

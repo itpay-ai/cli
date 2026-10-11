@@ -25,7 +25,7 @@
     "previous_content": "Use vault list, optionally with the subject as --query.",
     "purchase_history": "Use orders.",
     "refund_or_paid_problem": "Resume the known Order or Refund before creating anything new.",
-    "service_feedback": "Finish the original order outcome first, then submit one safe Agent postmortem; include a rating or comment only when the human explicitly gives it.",
+    "service_feedback": "Finish the original order outcome first, then optionally submit one safe Agent postmortem; include a rating or comment only when the human explicitly gives it.",
     "ambiguous": "Ask whether the human wants an earlier purchase or a new query before calling ItPay.",
     "railway": "Known railway intent: itpay docs show rail-booking. Read once, then follow its Exact/Smart route."
   },
@@ -107,5 +107,6 @@
     "target",
     "input"
   ],
-  "reading_results": "Read normal CLI text directly, or parse the complete --json envelope with the host file reader. If saving stdout to a file, first check the command exit code, then read the whole file with cat or the existing file tool. Keep stderr separate; do not use head, tail, regex or a custom script to recover truncated results. Write complex input as a small JSON file and use --input-json."
+  "reading_results": "Read normal CLI text directly, or parse the complete --json envelope with the host file reader. If saving stdout to a file, first check the command exit code, then read the whole file with cat or the existing file tool. Keep stderr separate; do not use head, tail, regex or a custom script to recover truncated results. Write complex input as a small JSON file and use --input-json.",
+  "purchase_consent": "Candidate selection is not price approval. Service-backed quote/cart/checkout requires a current scoped approve_purchase record; use the complete server template, default false. Only genuine matching approval allows true; material price/subject/terms changes invalidate it. Restore an existing Checkout before creating anything."
 }

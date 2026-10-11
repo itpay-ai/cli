@@ -66,5 +66,6 @@
     "付款后",
     "不要重复付款",
     "支付确认"
-  ]
+  ],
+  "purchase_consent": "Candidate selection is not price approval. Service-backed quote/cart/checkout requires a current scoped approve_purchase record; use the complete server template, default false. Only genuine matching approval allows true; material price/subject/terms changes invalidate it. Restore an existing Checkout before creating anything."
 }

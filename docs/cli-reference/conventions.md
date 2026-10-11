@@ -80,7 +80,7 @@ next: <one command>
 - `device_state_unwritable` 表示当前运行环境不能可靠持久化 `~/.itpay-v3`；保持同一 Agent Type 与 CLI/Node launcher，恢复 Host 写权限后重试原命令，不得手工造 lock、删除身份或换运行时碰运气。
 - WorkBuddy 需通过宿主的正常权限机制允许 CLI 持久化 `~/.itpay-v3`。若被拦截，报告受阻操作和宿主原因；不切换 Node、删除 identity 或猜测性处理活跃 lock。
 - `provider_input_rejected` 只表示 Provider 明确声明输入无效；`provider_contract_mismatch` 表示响应无法按已发布契约解释，绝不能归咎于用户输入。两者都必须停止且没有自动 recovery。
-- `backend_contract_incompatible` 只有在 Backend 返回合法 `minimum_cli_version` 时才能提供升级 recovery。npm 分发返回精确的 `npm install -g @itpay/cli@<version>`；平台 bundle 返回该平台的 Skill/plugin 更新动作。不得使用 `latest`、解析 message 猜版本或继续任何业务命令；升级后必须先用 `itpay --version` 核对完全一致，再重新运行 `readyz`。
+- `backend_contract_incompatible` 返回当前 CLI/API、平台 API 与 minimum/major 事实；minimum 不是已验证的推荐包。无配套制品证据时 next=null、recovery=[]，停止本轮并请求维护方提供匹配制品，禁止猜版本、降级或变更身份。
 
 ## 网络传输失败与自动重试
 

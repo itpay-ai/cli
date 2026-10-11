@@ -17,6 +17,11 @@
       "success_signal": "one compact owned-order summary and one current next step are returned"
     },
     {
+      "intent": "read railway refund/change targets and complete current input templates",
+      "command": "itpay --agent-type <agent_type> aftercare list --order <order_id> --json",
+      "success_signal": "safe original itinerary, available leg/passenger targets, requests and full refund/change templates"
+    },
+    {
       "intent": "request a refund",
       "command": "itpay --agent-type <agent_type> refund create --order <order_id> --reason buyer_requested --json",
       "success_signal": "the Refund Owner returns its request id, policy status, consumption state, and access lock"
@@ -45,9 +50,12 @@
     "Read this order’s current refund policy. Railway return depends on supplier ticket facts and may require manual review; platform refund status alone does not prove a train ticket was returned.",
     "A refund request freezes all delivery paths and revokes existing grants immediately.",
     "Cancellation or rejection follows the returned order policy and never reactivates an old grant automatically.",
-    "Use get or watch after interruption; do not infer success from elapsed time.",
+    "Use get after interruption; explicit watch defaults to a bounded 20-second window and returns on change or manual attention. Do not restart watch automatically or infer success from elapsed time.",
     "Never switch CLI/MCP lanes or identities to recover an order or refund error.",
-    "A read-only MCP Agent may explain policy and order facts, but directs refund actions to the ItPay Dashboard or a full Local CLI Agent."
+    "A read-only MCP Agent may explain policy and order facts, but directs refund actions to the ItPay Dashboard or a full Local CLI Agent.",
+    "Railway refund or manual change: use aftercare list for structured ticket targets. Match the user’s explicit legs/passengers; only ask when that scope is missing. Explain the scope and manual handling before create using the returned complete JSON. No supplier reference or amount is needed from the user.",
+    "Aftercare acceptance, supplier completion and platform money status are separate. Only real scope consent may set user_confirmed_scope=true. A concrete change proposal requires fresh approval of the current proposal revision and fees; the original purchase consent cannot approve it. This release has no automatic change payment link.",
+    "Partial refunds do not mean every ticket was returned. The platform delivery lock remains; use the safe aftercare journey for remaining-ticket facts, never promise validity from historical issued state. Protected ticket numbers still require account authorization."
   ],
   "human_explanations": {
     "payment_verified": "Payment is confirmed and the Order is recorded. Do not ask the human to pay again; continue the same delivery.",
@@ -56,11 +64,11 @@
     "refund_automatic": "The request is on the automatic policy path because the delivery is reported unconsumed; only the final server status proves success.",
     "refund_manual": "The request requires human review, commonly because delivery was consumed. Manual review is not a rejection.",
     "refund_unknown": "The payment channel outcome is unknown. Delivery stays locked while ItPay reconciles; never submit or replay another refund.",
-    "refund_succeeded": "ItPay confirms the refund succeeded and delivery is permanently closed."
+    "refund_succeeded": "ItPay confirms this request’s money refund succeeded. Verify its scope and the remaining-ticket facts separately; only the order’s full refunded state establishes all platform money returned."
   },
   "forbidden": [
     "Do not fabricate Buyer sessions, Device IDs or payment references.",
-    "Do not read delivery while refund access_locked is true.",
+    "Do not consume locked platform delivery; authorized safe remaining-ticket status reads are separate.",
     "Do not claim a refund succeeded before the Refund Owner says succeeded.",
     "Do not promise an unconditional refund, instant arrival, or a channel result that ItPay has not confirmed.",
     "Do not blame the human for a Provider, delivery, platform, or payment-channel failure."
@@ -99,5 +107,6 @@
     "status_read": "Use the current returned reader for ticket state; order summaries do not expose per-leg notification delivery records. Do not infer a sent or delivered notification.",
     "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
     "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
-  }
+  },
+  "consumption_and_access": "Platform content consumption is not train usage; access_locked freezes platform delivery and does not prove ticket validity. Read actual refund/ticket facts; a future departure does not guarantee eligibility."
 }

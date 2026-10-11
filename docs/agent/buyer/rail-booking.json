@@ -11,18 +11,20 @@
   "goal_and_overview": {
     "route": "Understand endpoints and constraints → 2–4 line route brief → Exact or Smart → read enough saved results for the goal → select under delegation → missing real consent only → official payment entry; show and stop.",
     "query_vs_booking": "Exact/Smart returns a query execution and saved evidence. Booking creates a separate execution from a server-issued selection; it is not a repeated search.",
-    "comparison": "If the human only asked to compare, answer within the searched scope and stop without a buy-or-not question. Reuse already-read unchanged Skill/docs in this context; do not repeat install/readyz/docs at each step. A clear purchase delegation permits selection under their rules, subject to required human terms."
+    "comparison": "If the human only asked to compare, answer within the searched scope and stop without a buy-or-not question. Reuse already-read unchanged Skill/docs in this context; do not repeat install/readyz/docs at each step. A clear purchase delegation permits selection under their rules, subject to required human terms.",
+    "public_entry": "One public service itpay-rail declares query_exact, query_smart and prepare_purchase. Query, booking, Checkout and order remain separate identities. Legacy IDs are only for recovering their pinned historical executions.",
+    "price_approval": "Choosing a candidate or confirming seat/whole-journey terms is not approving price. Read the current scoped approve_purchase template after quote; record true only for genuine matching exact-price or capped-budget approval, or an explicitly authorized official-page confirmation. Reuse matching approval; never fabricate it."
   },
   "flow_at_a_glance": [
     {
       "step": "search Exact",
-      "command": "itpay services run itpay-rail-exact --input-json <query-file> --json",
+      "command": "itpay services run itpay-rail --operation query_exact --input-json <query-file> --json",
       "returns": "one station-pair query execution, resolved scope and either useful results or a same-execution wait action",
       "next": "follow the current next command when still working; compare results and stop if the request is satisfied"
     },
     {
       "step": "search Smart",
-      "command": "itpay services run itpay-rail-smart --input-json <query-file> --json",
+      "command": "itpay services run itpay-rail --operation query_smart --input-json <query-file> --json",
       "returns": "one broader planning execution, observed coverage and either useful results or a same-execution wait action",
       "next": "follow the current next command when still working; compare results and stop if the request is satisfied"
     },
@@ -40,7 +42,7 @@
     },
     {
       "step": "book",
-      "command": "itpay services run itpay-rail-booking --input-json <booking-file> --json",
+      "command": "itpay services run itpay-rail --operation prepare_purchase --input-json <file> --json",
       "returns": "a separate booking execution using the returned selection token, seat code and party size",
       "next": "follow its review or waiting action on that same booking execution"
     },
@@ -48,7 +50,7 @@
       "step": "review",
       "command": "itpay services next <booking_execution_id> --json",
       "returns": "current review revision, material terms and a non-executable confirm_booking input_template",
-      "next": "submit the returned actor-type human template only after genuine consent; reuse an unchanged explicit consent for code-only correction"
+      "next": "submit the returned actor-type agent template only after genuine consent; reuse an unchanged explicit consent for code-only correction"
     },
     {
       "step": "checkout",
@@ -81,39 +83,44 @@
   },
   "input_and_expected_result": {
     "exact": {
-      "command": "itpay services run itpay-rail-exact --input-json <query-file> --json",
+      "command": "itpay services run itpay-rail --operation query_exact --input-json <query-file> --json",
       "example": {
-        "origin": "<已核实出发站>",
-        "destination": "<已核实到达站>",
-        "travel_date": "<用户出行日期 YYYY-MM-DD>"
+        "input": {
+          "origin": "<已核实出发站>",
+          "destination": "<已核实到达站>",
+          "travel_date": "<用户出行日期 YYYY-MM-DD>"
+        }
       },
       "contract": "Only origin, destination and travel_date are accepted. Use station names, not an undocumented station-code field. Filter time, seat and quantity against returned rows. Date is illustrative; use the actual requested queryable date."
     },
     "smart": {
-      "command": "itpay services run itpay-rail-smart --input-json <query-file> --json",
+      "command": "itpay services run itpay-rail --operation query_smart --input-json <query-file> --json",
       "example": {
-        "endpoints": {
-          "origin": {
-            "kind": "area",
-            "text": "<用户出发市县镇完整名称>"
+        "input": {
+          "endpoints": {
+            "origin": {
+              "kind": "area",
+              "text": "<用户出发市县镇完整名称>"
+            },
+            "destination": {
+              "kind": "station",
+              "text": "<已核实到达站名>"
+            }
           },
-          "destination": {
-            "kind": "station",
-            "text": "<已核实到达站名>"
-          }
-        },
-        "travel_date": "<用户出行日期 YYYY-MM-DD>"
+          "travel_date": "<用户出行日期 YYYY-MM-DD>"
+        }
       },
       "contract": "The current published input_schema is authoritative: use endpoints only when it exposes endpoints. Each side independently accepts kind area/place/station and a full text; fill kind when supported by endpoint understanding; omit it only when the object meaning is clear but its category genuinely awaits verification, explicitly recorded in the brief. An unknown city is not resolved by omitting kind. A complete named place is legal; coordinates are optional. Area centers choose nearby stations without claiming door-to-door ground travel; place uses verified POI/coordinates when available; station locks exactly one verified railway station and does not mean the traveler is already there. All nine origin/destination combinations follow this same rule. Province-only areas need a narrower location. Never mix endpoints with legacy origin/destination or send a station lock/confirmed flag. Adult passengers is an integer 1–5. arrive_before maps to arrive_by; conflicting aliases are rejected. preference_context is unsupported."
     },
     "result": "Read the resolved station pair or area scope, observed coverage, complete compact train rows, fare/inventory evidence and stable references. The recommendation card is not the full catalog. Unknown cost and unverified address ground facts remain unknown. Eligible means usable, not equally preferable. Prefer existing default_layer, roles, dominance and tradeoffs; show at most three meaningful representatives. A same-arrival, earlier-departing and more expensive dominated option stays in the saved catalog rather than taking the first screen.",
     "waiting": "Use the same execution and returned bounded wait command. next is a read; background work may still proceed. Do not resubmit, sleep/get/events repeatedly, or reread the whole guide.",
-    "followup": "Read the saved result for the original execution. Smart: itpay services read-result <execution_id> --snapshot <snapshot_id> --json. Exact: use its returned saved-result reader. Read the relevant same-snapshot pages first; unread does not mean nonexistent. Do not automatically enumerate every theoretical combination. For a new Smart query, restore the original area/place/station intent, passengers, deadlines and preferences; an Exact pair is verified evidence, not proof of user station locks. Only a user-locked station change or scope expansion needs new consent. After a changed endpoint or date, supply the original intent and a same-owner reuse_from reference to an unexpired snapshot; unchanged resolved endpoints and matching fresh station-pair facts may be reused. Date change never reuses old inventory. Preference, party-size or deadline changes within the same scope use refine_preferences on the existing plan. Planning deadline does not erase saved facts; an old selection token is not refreshed by rereading. For expiry, use only the server safe fresh-query template once within the original authorization, preserving all conditions and omitting reuse_from; it may consume query quota. Existing or unknown purchases resume the same booking/order, never new queries. Refresh does not guarantee inventory or original price; confirm materially changed terms. Change to a named station: kind station with matching text/code. Original-station vicinity: kind place with verified station text, remove station_code, resolve normally or use verified POI/coordinates (existing 30 km/5 candidates). Whole city only with explicit consent: kind area with full administrative name, remove POI/location/station_code. Preserve date, passengers, time limits and preferences; refuse cross-owner reuse. The public Smart input does not expose overnight layover. A home or specific address remains the destination; nearby railway stations are candidates, never implicit station locks. Report the rail arrival station separately from any unknown last-mile connection. Preserve the endpoint brief; update only affected facts. A terminal location failure follows its explicit complete new-query template only after new evidence."
+    "followup": "Read the saved result for the original execution. Smart: itpay services read-result <execution_id> --snapshot <snapshot_id> --json. Exact: use its returned saved-result reader. Read the relevant same-snapshot pages first; unread does not mean nonexistent. Do not automatically enumerate every theoretical combination. For a new Smart query, restore the original area/place/station intent, passengers, deadlines and preferences; an Exact pair is verified evidence, not proof of user station locks. Only a user-locked station change or scope expansion needs new consent. After a changed endpoint or date, supply the original intent and a same-owner reuse_from reference to an unexpired snapshot; unchanged resolved endpoints and matching fresh station-pair facts may be reused. Date change never reuses old inventory. Preference, party-size or deadline changes within the same scope use refine_preferences on the existing plan. Planning deadline does not erase saved facts; an old selection token is not refreshed by rereading. For expiry, use only the server safe fresh-query template once within the original authorization, preserving all conditions and omitting reuse_from; it may consume query quota. Existing or unknown purchases resume the same booking/order, never new queries. Refresh does not guarantee inventory or original price; confirm materially changed terms. Change to a named station: kind station with matching text/code. Original-station vicinity: kind place with verified station text, remove station_code, resolve normally or use verified POI/coordinates (existing 30 km/5 candidates). Whole city only with explicit consent: kind area with full administrative name, remove POI/location/station_code. Preserve date, passengers, time limits and preferences; refuse cross-owner reuse. The public Smart input does not expose overnight layover. A home or specific address remains the destination; nearby railway stations are candidates, never implicit station locks. Report the rail arrival station separately from any unknown last-mile connection. Preserve the endpoint brief; update only affected facts. A terminal location failure follows its explicit complete new-query template only after new evidence.",
+    "public_envelope": "New public operation files contain input plus, for prepare_purchase, the exact continuation supplied by saved result detail. Do not invent source execution/snapshot IDs. Historical executions use their own pinned schema."
   },
   "select_and_book": {
     "delegation": "Apply existing seat/price/delegation rules. Exact fastest requires enough coverage to compare the station-pair candidates; without ordering/coverage evidence the first page is not proof. Smart can present up to three eligible representatives once full connections meet the goal, or continue under delegation; no routine full-catalog or all-seat paging. If an unapproved seat choice changes the price, combine that decision and missing terms into one question. Do not default to second class or require a three-tier menu. No match does not permit loosening conditions.",
     "input": "Copy the complete current booking_template.input_example; retain passenger count, every ordered token and the returned seat_type code matched to seat_name. Never use a seat display name as the code, mix selections/selection/legs or guess missing credentials. Technical JSON errors are repaired by the Agent using current input_schema/input_errors/template, preserving original user requirements; ask the human only for a genuinely missing business choice.",
-    "command": "itpay services run itpay-rail-booking --input-json <booking-file> --json",
+    "command": "itpay services run itpay-rail --operation prepare_purchase --input-json <file> --json",
     "identity": "Passenger name, ID and phone are entered on the official protected checkout page, not in query or booking JSON.",
     "whole_journey": "Use the returned complete ticket plan booking_template: ordered selections (2–3 legs) from one owner/snapshot/revision/plan, or selection for one leg. One booking, one refreshed whole quote, one checkout, one order and one payment; each leg issues separately without connection or joint-seat guarantees. Raw legs are single-leg compatibility only; never hand-compose multi-leg legs when complete selections are missing or expired. Do not combine different plans or choose per-leg payment by default. Historical details without a whole-journey template do not prove whole-journey support."
   },
@@ -125,7 +132,7 @@
   "continue_and_aftercare": {
     "same_execution": "Read the same booking/checkout/order. Report issued only when every leg is confirmed issued; partial or unknown outcomes keep the same order and successful tickets, reconcile before retry, and explain the affected leg. No automatic rebuy or full-refund promise.",
     "saved_vs_live": "A saved snapshot remains historical evidence after expiry. Real-time booking or quote credentials may expire and require the documented fresh validation path; rereading an old token does not renew it.",
-    "refund": "Read itpay docs show orders-refunds --json and the current order policy. Railway supplier cancellation/return and platform refund have separate facts; a refund request is not completed railway return."
+    "refund": "For railway refund/change use itpay aftercare list --order <order_id> --json. Select returned leg/passenger targets from the user’s request, explain scope and manual processing, submit the complete current template. Request acceptance is not supplier success or money returned. Read the same case; concrete change proposals need current-revision consent and actual fee facts. No automatic change payment or replacement purchase."
   },
   "exceptional_branches": {
     "login_required": "Use itpay auth login --json, complete the official handoff, then execute the returned recovery command for the same paused query. Login returning a command does not execute it.",
@@ -158,5 +165,12 @@
     "rail-booking"
   ],
   "reading_and_writing": "Use the formal Skill Follow one envelope rules for direct text/file reading, truncation and small JSON input; no parsing scripts.",
-  "restore_old_execution": "Only when resuming an existing v4 execution, follow its own declared legacy schema; new queries use the current three-endpoint contract."
+  "restore_old_execution": "Only when resuming an existing v4 execution, follow its own declared legacy schema; new queries use the current three-endpoint contract.",
+  "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Page limit is 1-20; follow next_offset exactly, never infer full-catalog optimality from the visible page. Byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee.",
+  "actor_conventions": {
+    "location_confirmation": "Use the returned human template only for the user's real place choice; no delegated human action.",
+    "journey_terms": "workflow:confirm_booking and booking_review_invalid recovery accept agent-reported genuine consent; default false, never infer from purchase delegation.",
+    "ordinary_human_action": "Use its published actor rule; do not generalize railway permission.",
+    "price_approval": "approve_purchase uses actor-type agent with the unchanged server-scoped approval template and genuine matching approval; candidate choice is not price approval."
+  }
 }

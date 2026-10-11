@@ -1,3 +1,4 @@
+import {verifyPackedDeviceUpgrade} from './device-upgrade-smoke.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -137,6 +138,7 @@ try {
     ["sell pull", "commands/sell.md"],
     ["sell mcp", "commands/sell.md"],
   ]);
+  for(const path of ["aftercare","aftercare list","aftercare create","aftercare get","aftercare respond","aftercare cancel"]) commandDocs.set(path,"commands/aftercare.md");
   const commandPaths = discoverCommandPaths(entry, env);
   assert.deepEqual(
     [...commandPaths].map((path) => path.join(" ")).sort(),
@@ -227,6 +229,7 @@ try {
     assert.equal(String(error.stderr ?? ""), "");
   }
   assert.match(errorOutput, /agent type is required/);
+  await verifyPackedDeviceUpgrade(packageRoot, scratch);
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });

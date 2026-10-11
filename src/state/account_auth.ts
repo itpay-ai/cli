@@ -1,3 +1,6 @@
+import { HttpError } from '../client/http.js';
+import { HttpTransportError } from '../client/transport.js';
+import { DeviceAuthorizationError, DeviceStateError, DeviceLockBusyError } from './device_authority.js';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, rmSync } from 'node:fs';
@@ -42,10 +45,10 @@ const ACTIVE_SESSION_STAGES = ['created', 'waiting_provider', 'email_verificatio
 
 function stageInstruction(stage: string): string {
   if (stage === 'email_verification_required') {
-    return '钱包授权已完成，官方页还需要完成联系方式验证（邮箱或手机，以页面实际提供的方式为准）。完成后继续原查询，不用重说行程。';
+    return '官方页返回显式或历史身份验证状态；按页面当前要求完成验证。普通登录只需一种有效身份，不要求补齐邮箱和手机。完成后恢复原执行。';
   }
   if (stage === 'merge_confirmation_required') {
-    return '官方页需要用户确认账号合并决定后才能完成登录；不要替用户选择，也不要新建授权请求。';
+    return '官方页需要用户核对两侧账号证明及主账号，再明确确认或取消合并；这不是付款确认。不要替用户同意，不自动重启原服务或授权请求。';
   }
   return '用户仍在官方页面完成登录；保留当前 handoff，不要生成新二维码或新请求。';
 }
@@ -80,12 +83,32 @@ class AuthRequestError extends Error {
 
 // AUTH03: transport/read uncertainty never maps to "denied" or a new session —
 // the stored session stays on disk and the caller retries the same poll.
-function authStatusUnknown(sessionID: string | undefined): CommandEnvelope {
+function authStatusUnknown(sessionID: string | undefined, error?: unknown, failureStage = "authorization_status_read"): CommandEnvelope {
+  // These errors have definite compatibility/identity/state facts. Let the
+  // command boundary report them rather than turning them into polling.
+  if ((error instanceof HttpError && error.status < 500)
+    || (error instanceof AuthRequestError && error.httpStatus < 500)
+    || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError
+    || error instanceof DeviceLockBusyError) throw error;
+  const hostFailure = error && typeof error === "object" && "code" in error
+    && (error.code === "CODEBUDDY_BROKER_DENY" || error.code === "CODEBUDDY_BROKER_OUTCOME_UNKNOWN");
+  const failure = error instanceof HttpTransportError
+    ? { category: error.code, attempts: error.attempts, source: "network_transport" }
+    : error instanceof HttpError || error instanceof AuthRequestError
+      ? { category: "http_server_error", http_status: error instanceof HttpError ? error.status : error.httpStatus, source: "http_response" }
+      : hostFailure ? { category: "host_operation_unavailable", source: "host_broker" }
+      : { category: "authorization_status_unavailable", source: "unclassified" };
+
+
   return {
     status: 'auth_status_unknown',
-    result: sessionID ? { dashboard_auth_session_id: sessionID } : {},
-    instruction: '读取官方授权状态时遇到网络或服务端临时故障；原授权请求已保留。稍后重读同一状态，不要新建授权、不要清除本地登记。',
-    next: { command: 'itpay auth status --json', reason: '稍后重读同一授权状态', poll_after_ms: 5000 } as CommandAction,
+    result: { ...failure, failure_stage: failureStage, ...(sessionID ? { dashboard_auth_session_id: sessionID } : {}) },
+    instruction: hostFailure || failure.source === 'unclassified'
+      ? '本轮授权检查未完成，底层原因尚未确定；保留设备和已有授权，请维护方核对当前失败阶段及宿主结果，不自动登录、换身份或盲目重复修改。'
+      : sessionID
+      ? '读取官方授权状态失败；原授权请求已保留。稍后重读同一状态，不要新建授权、不要清除本地登记。'
+      : '本轮账号绑定检查未完成，设备与绑定状态尚未确认；没有保存的授权请求。结束本轮，网络或服务恢复后可重新检查，不发起登录。',
+    next: sessionID && !hostFailure && failure.source !== 'unclassified' ? { command: 'itpay auth status --json', reason: '稍后重读同一授权状态', poll_after_ms: 5000 } : null,
     recovery: [],
   };
 }
@@ -137,7 +160,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
       if (error instanceof AuthRequestError) throw error;
       // AUTH03: even the binding-status probe can hit transport failure; the
       // truthful state is "unknown", never an implicit unbound or a fresh login.
-      return authStatusUnknown(undefined);
+      return authStatusUnknown(read(baseURL, env, purpose)?.sessionID, error, "account_binding_probe");
     }
   }
   async function request(path: string, init: RequestInit = {}) {
@@ -201,7 +224,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
             // The explicit login call may open one fresh session now. Status
             // remains read-only and still reports the missing old session.
           } else {
-            return authStatusUnknown(open.sessionID);
+            return authStatusUnknown(open.sessionID, error);
           }
         }
       }
@@ -271,7 +294,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
     if (error instanceof AuthRequestError && (error.httpStatus === 404 || error.httpStatus === 410)) {
       return sessionGone(env, purpose, baseURL, state.sessionID);
     }
-    return authStatusUnknown(state.sessionID);
+    return authStatusUnknown(state.sessionID, error);
   }
   if (progress.status !== 'completed') {
     if (backend) {
@@ -307,7 +330,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
       if (error instanceof AuthRequestError) throw error;
       // Binding outcome unknown: keep the session so a retry can still bind
       // the same completed login instead of creating a new one.
-      return authStatusUnknown(state.sessionID);
+      return authStatusUnknown(state.sessionID, error);
     }
   }
   const claimed = await request(`/v1/dashboard/auth-sessions/${encodeURIComponent(state.sessionID)}/claim?start_token=${encodeURIComponent(state.startToken)}`, { method: 'POST' });

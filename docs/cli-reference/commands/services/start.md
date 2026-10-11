@@ -4,7 +4,9 @@
 
 ## 范围与意义
 
-按 Catalog 中的 `service_id` 启动一次 Service Execution，并返回当前可执行的唯一首选动作。不会调用 Provider、创建 Checkout 或订单。
+公开 service_definition 入口只返回固定版本的服务总览与操作，未创建 execution、未调用 Provider。铁路总览指向 rail-booking：首次实际查询前理解端点并写短摘要。使用返回的操作模板执行 `services run --operation … --input-json <file>`。
+
+旧内部 service_id 仍兼容启动一次 Service Execution，并返回当前合法动作，不创建 Checkout 或订单。以下执行示例属于旧入口。
 
 **上游：** `catalog list` 或服务端明确要求新 execution。
 **下游：** `services invoke`、`action`、`checkout` 或 `next`。

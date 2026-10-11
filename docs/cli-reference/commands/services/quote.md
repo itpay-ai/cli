@@ -10,7 +10,7 @@
 
 **上游：** 用户明确要求合并多个独立 Execution，且每个 Execution 的 Arazzo workflow 当前都允许 `prepare_quote`。
 
-**下游：** `cart add --quote`。多个独立 Execution 的 Quote 可以加入同一 Cart。
+**下游：** 读取当前服务器返回的有范围 `approve_purchase` 完整 JSON，默认 false；仅已有真实匹配批准时置 true 并记录。批准成功后再 `cart add --quote`，多个已批准 Quote 可加入同一 Cart。候选选择不等于价格批准。
 
 ## 语法与参数
 

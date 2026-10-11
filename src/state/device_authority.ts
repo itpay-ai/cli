@@ -8,10 +8,14 @@ import {
   type KeyObject,
 } from "node:crypto";
 import {
+  type Stats,
   chmodSync,
   existsSync,
   mkdirSync,
+  lstatSync,
+  linkSync,
   readFileSync,
+  readdirSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -74,7 +78,7 @@ interface SessionVerified {
   expires_at: string;
 }
 
-const PROTECTED_PATHS = ["/v1/agent-device-account-bindings", "/v1/carts", "/v1/service-executions", "/v1/agent-instances", "/v1/orders", "/v1/refunds", "/v1/me", "/v1/vault", "/v1/rail/phone-links"];
+const PROTECTED_PATHS = ["/v1/agent-device-account-bindings", "/v1/carts", "/v1/service-executions", "/v1/agent-instances", "/v1/orders", "/v1/refunds", "/v1/me", "/v1/vault", "/v1/rail/phone-links", "/v1/rail-aftercare"];
 
 export class DeviceAuthority {
   private readonly baseURL: string;
@@ -176,7 +180,7 @@ export class DeviceAuthority {
           unlinkSync(this.privateKeyPath);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-            throw asDeviceStateError(error, "remove_private_key") ?? error;
+            throw asDeviceStateError(error, "remove_private_key");
           }
         }
       }
@@ -357,9 +361,7 @@ export class DeviceAuthority {
       }
       return undefined;
     } catch (error) {
-      const stateError = asDeviceStateError(error, "read_state");
-      if (stateError) throw stateError;
-      return undefined;
+      throw asDeviceStateError(error, "read_state");
     }
   }
 
@@ -368,9 +370,7 @@ export class DeviceAuthority {
     try {
       return createPrivateKey(readFileSync(this.privateKeyPath, "utf8"));
     } catch (error) {
-      const stateError = asDeviceStateError(error, "read_private_key");
-      if (stateError) throw stateError;
-      return undefined;
+      throw asDeviceStateError(error, "read_private_key");
     }
   }
 
@@ -388,18 +388,21 @@ export class DeviceAuthorizationError extends Error {
 }
 
 export class DeviceStateError extends Error {
-  readonly code = "device_state_unwritable";
+  readonly code = "device_state_unavailable";
+  readonly source: "native_filesystem" | "host_broker" | "client_state_validation" | "unclassified_local_operation";
 
   constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string) {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
+    this.source = causeCode === "UNCLASSIFIED_LOCAL_FAILURE" ? "unclassified_local_operation" : causeCode.startsWith("CODEBUDDY_BROKER_") ? "host_broker"
+      : ["LEGACY_LOCK_OWNER_UNKNOWN", "SYMLINK_LOCK", "LOCK_SOURCE_CHANGED", "LOCK_TRANSITION_BUSY", "LOCK_OWNER_PROBE_UNAVAILABLE"].includes(causeCode) ? "client_state_validation" : "native_filesystem";
   }
 }
 
 export class DeviceLockBusyError extends Error {
   readonly code = "device_lock_busy";
   constructor() {
-    super("ItPay device identity is being updated by another process");
+    super("ItPay device lock is occupied or its transition cannot be safely completed");
     this.name = "DeviceLockBusyError";
   }
 }
@@ -448,7 +451,7 @@ function atomicOwnerOnlyWrite(path: string, value: string, operation: DeviceStat
     chmodSync(path, 0o600);
   } catch (error) {
     try { unlinkSync(temporary); } catch { /* best-effort cleanup */ }
-    throw asDeviceStatePathError(error, operation) ?? error;
+    throw asDeviceStatePathError(error, operation);
   }
 }
 
@@ -456,41 +459,59 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   } catch (error) {
-    throw asDeviceStatePathError(error, "prepare_lock") ?? error;
+    throw asDeviceStatePathError(error, "prepare_lock");
   }
   const ownerToken = `${process.pid}:${randomUUID()}`;
   let acquired = false;
   for (let attempt = 0; attempt < 800; attempt += 1) {
     try {
-      writeFileSync(path, ownerToken, { encoding: "utf8", flag: "wx", mode: 0o600 });
-      chmodSync(path, 0o600);
+      if (!lockTransition(path, () => {
+        writeFileSync(path, ownerToken, { encoding: "utf8", flag: "wx", mode: 0o600 });
+        chmodSync(path, 0o600);
+      })) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        continue;
+      }
       acquired = true;
       break;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock") ?? error;
+      if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock");
       inspectAndRecoverLock(path);
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
   if (!acquired) throw new DeviceLockBusyError();
+  let operationFailed = false;
   try {
     return await run();
+  } catch (error) {
+    operationFailed = true;
+    throw error;
   } finally {
-    releaseLock(path, ownerToken);
+    try { await releaseLock(path, ownerToken); } catch (error) { if (!operationFailed) throw error; }
   }
 }
 
 function inspectAndRecoverLock(path: string): "absent" | "recovered" | "active" {
+  let result: "absent" | "recovered" | "active" = "active";
+  lockTransition(path, () => { result = inspectLockOwner(path); });
+  return result;
+}
+
+function inspectLockOwner(path: string): "absent" | "recovered" | "active" {
   let token: string;
   let age: number;
+  let inspected: Stats;
   try {
-    const lockStat = statSync(path);
+    const lockStat = lstatSync(path);
+    if (lockStat.isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+    inspected = lockStat;
     age = Date.now() - lockStat.mtimeMs;
     token = lockStat.isDirectory() ? "" : readFileSync(path, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-    throw asDeviceStateError(error, "inspect_lock") ?? error;
+    throw asDeviceStateError(error, "inspect_lock");
   }
   const ownerPID = /^(\d+):[0-9a-f-]+$/.exec(token)?.[1];
   if (ownerPID) {
@@ -500,48 +521,195 @@ function inspectAndRecoverLock(path: string): "absent" | "recovered" | "active" 
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") return "active";
     }
-  } else if (age <= 30_000) {
-    return "active";
+  } else {
+    if (age <= 30_000) return "active";
+    // Legacy ownerless locks cannot prove that an old caller has exited.
+    throw new DeviceStateError("inspect_lock", "LEGACY_LOCK_OWNER_UNKNOWN");
   }
   // Recheck the exact owner before moving the lock; another process may have renewed it.
   try {
     if (token ? readFileSync(path, "utf8") !== token : !statSync(path).isDirectory()) return "active";
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-    throw asDeviceStateError(error, "inspect_lock") ?? error;
+    throw asDeviceStateError(error, "inspect_lock");
   }
-  moveLockAside(path, "stale", "remove_stale_lock");
+  moveLockAside(path, "stale", "remove_stale_lock", inspected);
   return "recovered";
 }
 
-function releaseLock(path: string, ownerToken: string): void {
+async function releaseLock(path: string, ownerToken: string): Promise<void> {
+  // Another caller may be inspecting our live owner under the same short
+  // transition. Wait for that critical section, without reclaiming its guard.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (lockTransition(path, () => releaseOwnedLock(path, ownerToken))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new DeviceStateError("release_lock", "LOCK_TRANSITION_BUSY");
+}
+
+function releaseOwnedLock(path: string, ownerToken: string): void {
   try {
+    const inspected = lstatSync(path);
+    if (!inspected.isFile()) throw new DeviceStateError("release_lock", "LOCK_SOURCE_CHANGED");
     if (readFileSync(path, "utf8") !== ownerToken) return;
-    moveLockAside(path, "released", "release_lock");
+    moveLockAside(path, "released", "release_lock", inspected);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, "release_lock") ?? error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, "release_lock");
   }
 }
 
-function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation): void {
+// Per-process tickets publish ownership in the directory name before any write.
+// The pool itself is not a lock. An interrupted choosing/ready ticket is ignored
+// only after its PID is proven dead; no caller removes another caller's ticket.
+// New arrivals choose a larger ticket, and simultaneous choices use name order.
+function lockTransition(path: string, run: () => void): boolean {
+  const legacy = `${path}.transition`;
+  const pool = `${path}.transition-owners`;
+  mkdirSync(pool, { recursive: true, mode: 0o700 });
+  if (lstatSync(pool).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+  const incarnation = processIncarnation(process.pid);
+  if (!incarnation) throw new DeviceStateError("prepare_lock", "LOCK_OWNER_PROBE_UNAVAILABLE");
+  // mkdir publishes the choosing owner and its incarnation in one atomic step.
+  const name = `${process.pid}-${sha256(incarnation).slice(7)}-${randomUUID()}`;
+  const own = resolve(pool, name);
+  mkdirSync(own, { mode: 0o700 });
+  let failed = false;
+  let linked = false;
+  const token = JSON.stringify({ pid: process.pid, incarnation, token: randomUUID() });
   try {
-    renameSync(path, `${path}.${suffix}`);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return;
-    if (code === "EEXIST" || code === "ENOTEMPTY") {
-      renameSync(path, `${path}.${suffix}.${randomUUID()}`);
-      return;
+    let ticket = 1;
+    for (const other of readdirSync(pool)) {
+      if (other === name || other === "archives") continue;
+      const value = transitionTicket(pool, other);
+      if (value !== undefined) ticket = Math.max(ticket, (value ?? 0) + 1);
     }
-    throw asDeviceStateError(error, operation) ?? error;
+    if (!Number.isSafeInteger(ticket)) throw new DeviceStateError("inspect_lock", "LOCK_TRANSITION_BUSY");
+    writeFileSync(resolve(own, "ticket"), JSON.stringify({sequence: ticket, incarnation}), { flag: "wx", mode: 0o600 });
+    for (const other of readdirSync(pool)) {
+      if (other === name || other === "archives") continue;
+      const value = transitionTicket(pool, other);
+      if (value === null || (value !== undefined && (value < ticket || (value === ticket && other < name)))) return false;
+    }
+    // All new binaries hold the ticket mutex during stale recovery. Old binaries
+    // see EEXIST on this same path, so cannot race acquisition with recovery.
+    if (existsSync(legacy)) {
+      const stat = lstatSync(legacy);
+      if (!stat.isFile()) return false; // Unknown old directory owner stays protected.
+      const text = readFileSync(legacy, "utf8");
+      const old = /^(\d+):[0-9a-f-]+$/.exec(text);
+      let ownerPID: number;
+      let birth: string | undefined;
+      if (old) ownerPID = Number(old[1]);
+      else {
+        let value: unknown; try { value = JSON.parse(text); } catch { return false; }
+        if (!value || typeof value !== "object" || !("pid" in value) || typeof value.pid !== "number" || !("incarnation" in value) || typeof value.incarnation !== "string") return false;
+        ownerPID = value.pid; birth = value.incarnation;
+      }
+      if (!Number.isSafeInteger(ownerPID) || ownerPID <= 0) return false;
+      try {
+        process.kill(ownerPID, 0);
+        const current = birth && processIncarnation(ownerPID);
+        if (!current || current === birth) return false;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false; }
+      moveLockAside(legacy, "stale", "remove_stale_lock", stat);
+    }
+    const owner = resolve(own, "owner");
+    writeFileSync(owner, token, { flag: "wx", mode: 0o600 });
+    // Hard-link a fully written owner: no empty/unowned publication crash gap.
+    try { linkSync(owner, legacy); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+    linked = true;
+    run();
+    return true;
+  } catch (error) { failed = true; throw error; } finally {
+    try {
+      if (linked) {
+        if (readFileSync(legacy, "utf8") !== token) throw new DeviceStateError("release_lock", "LOCK_SOURCE_CHANGED");
+        renameSync(legacy, resolve(own, "transition-released"));
+      }
+      const archive = resolve(pool, "archives");
+      mkdirSync(archive, { recursive: true, mode: 0o700 });
+      if (lstatSync(archive).isSymbolicLink()) throw new DeviceStateError("release_lock", "SYMLINK_LOCK");
+      const destination = resolve(archive, randomUUID());
+      mkdirSync(destination, { mode: 0o700 });
+      renameSync(own, resolve(destination, "entry"));
+    } catch (error) { if (!failed) throw asDeviceStateError(error, "release_lock"); }
   }
 }
 
-function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "EACCES" || code === "EPERM" || code === "EROFS" || code === "ENOTDIR" || code === "EISDIR"
-    ? new DeviceStateError(operation, code, (error as NodeJS.ErrnoException).path)
-    : undefined;
+// undefined = absent/dead, null = a live process still choosing its ticket.
+function transitionTicket(pool: string, name: string): number | null | undefined {
+  const owner = /^(\d+)-(?:([0-9a-f]{64})-)?[0-9a-f-]+$/.exec(name);
+  if (!owner || Number(owner[1]) <= 0) throw new DeviceStateError("inspect_lock", "LOCK_SOURCE_CHANGED");
+  try { process.kill(Number(owner[1]), 0); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
+    return null;
+  }
+  if (owner[2]) {
+    const birth = processIncarnation(Number(owner[1]));
+    if (!birth) return null;
+    if (sha256(birth).slice(7) !== owner[2]) return undefined;
+  }
+  try {
+    const entry = resolve(pool, name);
+    if (!lstatSync(entry).isDirectory()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+    const file = resolve(entry, "ticket");
+    if (lstatSync(file).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
+    let value: unknown;
+    try { value = JSON.parse(readFileSync(file, "utf8")); } catch { return null; }
+    if (!value || typeof value !== "object" || !("sequence" in value) || typeof value.sequence !== "number" || !("incarnation" in value) || typeof value.incarnation !== "string") return null;
+    const birth = processIncarnation(Number(owner[1]));
+    if (!birth) return null;
+    if (birth !== value.incarnation) return undefined; // PID belongs to a different process.
+    return Number.isSafeInteger(value.sequence) && value.sequence > 0 ? value.sequence : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return existsSync(resolve(pool, name)) ? null : undefined;
+    }
+    throw asDeviceStateError(error, "inspect_lock");
+  }
+}
+
+// Built-in OS process metadata distinguishes reused PIDs without an age timeout.
+// If probing is unavailable, ownership stays conservative rather than stolen.
+function processIncarnation(pid: number): string | undefined {
+  try {
+    if (process.platform === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const started = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+      return started ? `${readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim()}:${started}` : undefined;
+    }
+    const output = process.platform === "win32"
+      ? execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString('o')`], {encoding:"utf8",timeout:1000,stdio:["ignore","pipe","ignore"]})
+      : execFileSync("ps", ["-p",String(pid),"-o","lstart="], {encoding:"utf8",timeout:1000,stdio:["ignore","pipe","ignore"],env:{...process.env,LC_ALL:"C",TZ:"UTC"}});
+    return output.trim() || undefined;
+  } catch { return undefined; }
+}
+
+function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation, source: Stats): void {
+  try {
+    if (source.isSymbolicLink()) throw new DeviceStateError(operation, "SYMLINK_LOCK");
+    // Reserve a private, unique destination; never rename over shared archives.
+    const archive = `${path}.${suffix}.${randomUUID()}`;
+    mkdirSync(archive, { mode: 0o700 });
+    const current = lstatSync(path);
+    if (source.dev !== current.dev || source.ino !== current.ino || source.mtimeMs !== current.mtimeMs || source.size !== current.size) {
+      throw new DeviceStateError(operation, "LOCK_SOURCE_CHANGED");
+    }
+    renameSync(path, `${archive}/lock`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw asDeviceStateError(error, operation);
+  }
+}
+
+function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError {
+  if (error instanceof DeviceStateError) return error;
+  const code = (error as NodeJS.ErrnoException)?.code;
+  const known = ["EACCES", "EPERM", "EROFS", "ENOTDIR", "EISDIR", "EEXIST", "ENOENT", "ENOTEMPTY", "ENOSPC", "EMFILE", "EIO", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"];
+  return new DeviceStateError(operation, typeof code === "string" && known.includes(code) ? code : "UNCLASSIFIED_LOCAL_FAILURE");
 }
 
 function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
@@ -550,3 +718,4 @@ function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation)
 }
 
 import { stateDir } from "./config.js";
+import { execFileSync } from "node:child_process";

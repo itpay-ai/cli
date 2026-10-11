@@ -1,3 +1,4 @@
+import {runAftercareList,runAftercareCreate,runAftercareGet,runAftercareRespond} from "./commands/aftercare.js";
 import { agentAuth } from "./state/account_auth.js";
 import {registerSell} from "./sell/commands.js";
 import { readFileSync as readWorkflowInputFile, statSync as statWorkflowInputFile } from "node:fs";
@@ -7,7 +8,7 @@ import { runServicesRun } from "./commands/services.js";
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { BackendOverrideError, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceLockBusyError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
@@ -177,7 +178,7 @@ function resolveCheckoutPresentationArgs(input: {
 
 function reportCLIError(
   error: unknown,
-  contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[] },
+  contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[]; initialization?: boolean },
 ): void {
   const commandError = error instanceof CommandContractError ? error : undefined;
   const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
@@ -197,9 +198,6 @@ function reportCLIError(
 		error.code === "platform_release_unavailable" ||
 		(error.status === 404 && error.code === "unknown_error")
 	);
-  const requiredCLIVersion = incompatible && error instanceof HttpError && /^\d+\.\d+\.\d+$/.test(error.payload?.minimum_cli_version ?? "")
-    ? error.payload!.minimum_cli_version
-    : undefined;
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const providerConnectionUnavailable = error instanceof HttpError && error.code === "provider_connection_unavailable";
   const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
@@ -218,18 +216,15 @@ function reportCLIError(
     },
 
   ] : [];
-  const stateRecovery: CommandAction[] = stateError ? [{
-    command: "itpay skill show itpay --json",
-    reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
-  }] : [];
+  const stateRecovery: CommandAction[] = [];
   const lockRecovery: CommandAction[] = lockError ? [{
     command: "itpay device repair-lock --json",
     reason: "检查锁持有者；只回收已退出进程留下的锁，不改变设备身份",
   }] : [];
   const authorizationInstruction = stateError
-    ? `当前运行环境无法写入 owner-only Device 状态；受阻路径 ${stateError.blockedPath ?? "~/.itpay-v3"}，操作 ${stateError.operation}（${stateError.causeCode}）。保持同一 Node、CLI 和 Agent Type，修复该路径持久写权限后重试原命令；不要手工创建 lock、删除 identity、随意更换 HOME 或换运行时。`
+    ? `本地设备状态操作未完成：${stateError.operation}（${stateError.causeCode}，来源 ${stateError.source}）。保持原身份和已有授权；由环境负责人核对该操作、锁持有者和宿主返回。权限错误才检查读写权限；未知操作结果先核对现场，不盲目重试，不删除身份或绕过宿主保护。`
     : lockError
-    ? "另一个进程仍在更新本地身份。执行 recovery 检查；若持有者仍活跃，等待后继续原任务，不要删除锁或重建身份。"
+    ? "本地身份锁占用或安全转换未完成。执行 recovery 核对；活跃持有者需等待，遗留转换需环境负责人检查。不能仅凭等待时间删锁或重建身份。"
     : error instanceof HttpError && error.code === "agent_device_session_required"
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
@@ -248,10 +243,13 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(commandError?.result ? {result: commandError.result} : requiredCLIVersion ? {
+      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
         result: {
           current_cli_version: CLI_VERSION,
-          required_cli_version: requiredCLIVersion,
+          current_api_contract_revision: API_CONTRACT_REVISION,
+          platform_api_contract_revision: error.payload?.api_contract_revision ?? null,
+          minimum_cli_version: error.payload?.minimum_cli_version ?? null,
+          maximum_cli_major: error.payload?.maximum_cli_major ?? null,
         },
       } : transportError ? {
         result: {
@@ -271,9 +269,7 @@ function reportCLIError(
         },
       } : {}),
       instruction: incompatible
-		? requiredCLIVersion
-      ? distributionUpgradeInstruction()
-      : "告诉用户 ItPay 当前版本信息无法验证，因此本次服务不能安全继续。停止所有 ItPay 和 npm 操作；不要转述技术错误、猜版本、切换 Agent Type 或删除 Device 身份。"
+        ? "当前 CLI 与 Backend 合约不兼容或无法核验。minimum_cli_version 仅是协议门槛，不是已验证的推荐安装包。停止本轮，请维护方提供与当前 Backend 配套的制品；不要猜版本、降级、切换 Agent Type 或删除 Device 身份。"
 		: backendInternal
 			? "告诉用户 ItPay 当前暂时无法完成这项服务并停止。不要转述内部错误、重试、修改身份、创建替代服务或进入任何付费路径。"
 		: providerConnectionUnavailable
@@ -289,7 +285,9 @@ function reportCLIError(
 		: capabilityInputInvalid
 			? "Agent按当前合同模板修正字段和JSON层级，保留用户原始需求，继续同一次服务。不要让用户修技术输入，只有真实业务歧义才询问。"
 		: transportError
-          ? transportError.attempts > 1
+          ? contract?.initialization
+            ? "本轮初始化检查未完成；CLI 已结束有限的网络尝试，尚未确认后端或设备就绪。结束本轮，网络恢复后可重新检查；不要继续登录或业务操作。"
+            : transportError.attempts > 1
             ? "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。"
             : "网络在完整响应前中断；当前写操作没有安全重放合同，因此 CLI 未自动重试。按 recovery 查询权威状态；不要原样重放或创建替代 Checkout、Execution、Payment 或 Refund。"
 		: backendOverrideError
@@ -297,10 +295,8 @@ function reportCLIError(
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
     ...(commandError?.interaction ? { interaction: commandError.interaction } : {}),
-      recovery: incompatible
-        ? requiredCLIVersion
-          ? [distributionUpgradeAction(requiredCLIVersion)]
-          : []
+      recovery: incompatible || (transportError && contract?.initialization)
+        ? []
         : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
           ? []
           : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : lockError ? lockRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
@@ -354,16 +350,10 @@ function distributionUpgradeAction(version: string): CommandAction {
         reason: `更新包含 ItPay CLI ${version} 的 Kimi plugin`,
       };
     default:
-      return { command: `npm install -g @itpay/cli@${version}`, reason: "安装 Backend 指定的兼容 CLI 版本" };
+      return { command: `npm install -g @itpay/cli@${version}`, reason: "恢复当前 CLI 版本的完整安装包" };
   }
 }
 
-function distributionUpgradeInstruction(): string {
-  if (cliDistribution() === "npm") {
-    return "当前 CLI 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，将 @itpay/cli 更新到 Backend 指定的精确版本。安装完成后确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要安装 latest、猜测版本、切换 Agent Type 或删除 Device 身份。";
-  }
-  return "当前平台 bundle 与 Backend 合约不兼容。停止所有 ItPay 业务命令；只执行 recovery.command，更新平台 Skill/plugin 后启动新会话，确认 itpay --version 与 result.required_cli_version 完全一致，再重新运行 readyz。不要运行 npm、猜测版本、切换 Agent Type 或删除 Device 身份。";
-}
 
 program
   .command("readyz")
@@ -381,10 +371,9 @@ program
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "backend_unavailable",
+        initialization: true,
         instruction: `当前官方 Backend ${config.baseURL} 不可用；恢复前不要继续下单，也不要切换环境。`,
-        recovery: [
-          { command: "itpay readyz", reason: "重试当前官方 Backend 的可用性检查" },
-        ],
+        recovery: [],
       });
     }
   });
@@ -407,7 +396,8 @@ for (const action of ["login", "status"] as const) {
         recovery: (result.recovery ?? []) as Array<{ command: string; reason: string }>,
       };
       writeCommandEnvelope(envelope, { jsonOutput: Boolean(options.json) });
-    } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", instruction: "完成官方网页登录后重试 itpay auth status；不要清除设备登记。"}); }
+      if (envelope.status === "auth_status_unknown") process.exitCode = 1;
+    } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", initialization: true, instruction: "本轮授权检查未完成；保留设备及已有授权状态，按明确错误原因恢复。不要自动发起新的登录。"}); }
   });
 }
 
@@ -430,7 +420,7 @@ deviceCmd
       writeCommandEnvelope({
         status: status === "recovered" ? "device_lock_recovered" : status === "active" ? "device_lock_active" : "device_lock_absent",
         result: { lock_status: status, device_identity_preserved: true },
-        instruction: status === "active" ? "本地身份正由存活进程更新；稍后继续原任务。" : "本地锁无需进一步处理；继续原任务。",
+        instruction: status === "active" ? "本地锁占用或安全转换未完成；保留原身份，核对持有者及宿主现场后继续原任务。" : "本地锁无需进一步处理；继续原任务。",
         next: null,
         recovery: [],
       }, { jsonOutput: Boolean(options.json), plainResult: [`lock: ${status}`, "device_identity: preserved"] });
@@ -1340,6 +1330,22 @@ feedback
     }
   });
 
+const aftercare = program.command("aftercare").description("Railway manual refund/change requests; never automatic supplier operations");
+aftercare.command("list").requiredOption("--order <order_id>").option("--json").action(async(options)=>{
+ try{const config=loadConfig();writeCommandEnvelope(await runAftercareList(newBackendClient(config),options.order),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_read_failed",instruction:"核对原订单与当前身份；铁路人工售后不改变平台内容授权，不换身份绕过。",recovery:[{command:"itpay services list --json",reason:"找回当前身份原订单"}]});}
+});
+aftercare.command("create").requiredOption("--order <order_id>").requiredOption("--input-json <file>").option("--json").action(async(options)=>{
+ const recovery=[{command:`itpay aftercare list --order ${options.order} --json`,reason:"读取原订单当前行程与完整申请模板"}];
+ try{const config=loadConfig();const input=readInputJsonObject(options.inputJson,"rail_aftercare_input_invalid",recovery);writeCommandEnvelope(await runAftercareCreate(newBackendClient(config),config,options.order,input),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_create_failed",instruction:"保留原申请与用户范围，按实际错误读取当前模板或办理状态；不猜金额/身份，不重复未知操作。",recovery});}
+});
+aftercare.command("get").argument("<case_id>").option("--json").action(async(id,options)=>{
+ try{const config=loadConfig();writeCommandEnvelope(await runAftercareGet(newBackendClient(config),id),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_read_failed",instruction:"核对当前身份的原申请，不换身份或探测其他申请。",recovery:[]});}
+});
+for(const action of ["respond","cancel"]){aftercare.command(action).argument("<case_id>").requiredOption("--input-json <file>").option("--json").action(async(id,options)=>{
+ const recovery=[{command:`itpay aftercare get ${id} --json`,reason:"读取原申请当前版本与明确下一步"}];
+ try{const config=loadConfig();const input=readInputJsonObject(options.inputJson,"rail_aftercare_input_invalid",recovery);writeCommandEnvelope(await runAftercareRespond(newBackendClient(config),id,input,action==="cancel"),{jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"aftercare_response_failed",instruction:"按原申请当前版本处理；取消不撤回供应商操作，未知资金不重试。",recovery});}
+});}
+
 const refund = program
   .command("refund")
 	.enablePositionalOptions()
@@ -1409,7 +1415,7 @@ refund.command("get").argument("<refund_request_id>").option("--json", "output J
 		});
 	}
 });
-refund.command("watch").argument("<refund_request_id>").option("--interval <seconds>", "poll interval", Number, 2).option("--timeout <seconds>", "timeout", Number, 120).option("--json", "output JSON instead of terminal text").action(async (id, options) => {
+refund.command("watch").argument("<refund_request_id>").option("--interval <seconds>", "poll interval", Number, 2).option("--timeout <seconds>", "bounded wait; returns on change/manual attention", Number, 20).option("--json", "output JSON instead of terminal text").action(async (id, options) => {
 	const config = loadConfig();
 	try {
 		await runWatchRefund(newBackendClient(config), id, {
@@ -1572,7 +1578,8 @@ const services = program.command("services").description("Generic V3 Service Exe
 
 services
   .command("run")
-  .description("Run a published service and present Checkout when payment is required")
+  .description("Run a declared service operation; preparation approval is required before Checkout")
+  .option("--operation <operation_id>", "operation declared by the public service definition")
   .argument("<service_id>")
   .option("--input-json <file>", "JSON object containing the service input")
   .option("--execution <execution_id>", "resume the same execution")
@@ -1583,16 +1590,29 @@ services
   .action(async (serviceID: string, options) => {
     const config = loadConfig();
     try {
-      const input = options.inputJson
+      let input = options.inputJson
         ? readInputJsonObject(options.inputJson, "workflow_input_invalid", [
             { command: `itpay services run ${serviceID} --json`, reason: "重新读取服务输入声明" },
           ])
         : undefined;
+      let continuation: {service_execution_id:string;snapshot_id:string}|undefined;
+      if(options.operation && input!==undefined){
+        const parameters=input.input;
+        if(typeof parameters!=="object"||parameters===null||Array.isArray(parameters)) throw new CommandContractError("operation_input_invalid","operation JSON must include an input object","使用公开操作返回的完整JSON模板，顶层input是业务输入；保留服务端continuation。",[]);
+        const reference=input.continuation;
+        if(reference!==undefined){
+          if(typeof reference!=="object"||reference===null||Array.isArray(reference)||!("service_execution_id" in reference)||!("snapshot_id" in reference)||typeof reference.service_execution_id!=="string"||typeof reference.snapshot_id!=="string") throw new CommandContractError("operation_input_invalid","invalid continuation reference","保留结果详情返回的continuation，不猜执行或snapshot。",[]);
+          continuation={service_execution_id:reference.service_execution_id,snapshot_id:reference.snapshot_id};
+        }
+        input=Object.fromEntries(Object.entries(parameters));
+      }
       if (!Number.isFinite(options.timeout) || options.timeout < 0 || options.timeout > 600) {
         throw new Error("timeout must be between 0 and 600 seconds");
       }
       await runServicesRun(newBackendClient(config), config, serviceID, input, {
         ...(options.execution ? { executionID: options.execution } : {}),
+ ...(options.operation ? {operationID:options.operation}:{}),
+ ...(continuation ? {continuation}:{}),
         jsonOutput: Boolean(options.json),
         host: withHost(options.host, config.agentType, options.target),
         ...(options.target ? { target: options.target } : {}),
