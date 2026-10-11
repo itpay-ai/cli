@@ -395,7 +395,7 @@ export class DeviceStateError extends Error {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
     this.source = causeCode === "UNCLASSIFIED_LOCAL_FAILURE" ? "unclassified_local_operation" : causeCode.startsWith("CODEBUDDY_BROKER_") ? "host_broker"
-      : ["LEGACY_LOCK_OWNER_UNKNOWN", "SYMLINK_LOCK", "LOCK_SOURCE_CHANGED", "LOCK_TRANSITION_BUSY"].includes(causeCode) ? "client_state_validation" : "native_filesystem";
+      : ["LEGACY_LOCK_OWNER_UNKNOWN", "SYMLINK_LOCK", "LOCK_SOURCE_CHANGED", "LOCK_TRANSITION_BUSY", "LOCK_OWNER_PROBE_UNAVAILABLE"].includes(causeCode) ? "client_state_validation" : "native_filesystem";
   }
 }
 
@@ -569,10 +569,12 @@ function lockTransition(path: string, run: () => void): boolean {
   if (lstatSync(pool).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
   const name = `${process.pid}-${randomUUID()}`;
   const own = resolve(pool, name);
+  const incarnation = processIncarnation(process.pid);
+  if (!incarnation) throw new DeviceStateError("prepare_lock", "LOCK_OWNER_PROBE_UNAVAILABLE");
   mkdirSync(own, { mode: 0o700 });
   let failed = false;
   let linked = false;
-  const token = `${process.pid}:${randomUUID()}`;
+  const token = JSON.stringify({ pid: process.pid, incarnation, token: randomUUID() });
   try {
     let ticket = 1;
     for (const other of readdirSync(pool)) {
@@ -581,7 +583,7 @@ function lockTransition(path: string, run: () => void): boolean {
       if (value !== undefined) ticket = Math.max(ticket, (value ?? 0) + 1);
     }
     if (!Number.isSafeInteger(ticket)) throw new DeviceStateError("inspect_lock", "LOCK_TRANSITION_BUSY");
-    writeFileSync(resolve(own, "ticket"), String(ticket), { flag: "wx", mode: 0o600 });
+    writeFileSync(resolve(own, "ticket"), JSON.stringify({sequence: ticket, incarnation}), { flag: "wx", mode: 0o600 });
     for (const other of readdirSync(pool)) {
       if (other === name || other === "archives") continue;
       const value = transitionTicket(pool, other);
@@ -592,11 +594,22 @@ function lockTransition(path: string, run: () => void): boolean {
     if (existsSync(legacy)) {
       const stat = lstatSync(legacy);
       if (!stat.isFile()) return false; // Unknown old directory owner stays protected.
-      const old = /^(\d+):[0-9a-f-]+$/.exec(readFileSync(legacy, "utf8"));
-      if (!old) return false;
-      try { process.kill(Number(old[1]), 0); return false; } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+      const text = readFileSync(legacy, "utf8");
+      const old = /^(\d+):[0-9a-f-]+$/.exec(text);
+      let ownerPID: number;
+      let birth: string | undefined;
+      if (old) ownerPID = Number(old[1]);
+      else {
+        let value: unknown; try { value = JSON.parse(text); } catch { return false; }
+        if (!value || typeof value !== "object" || !("pid" in value) || typeof value.pid !== "number" || !("incarnation" in value) || typeof value.incarnation !== "string") return false;
+        ownerPID = value.pid; birth = value.incarnation;
       }
+      if (!Number.isSafeInteger(ownerPID) || ownerPID <= 0) return false;
+      try {
+        process.kill(ownerPID, 0);
+        const current = birth && processIncarnation(ownerPID);
+        if (!current || current === birth) return false;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false; }
       moveLockAside(legacy, "stale", "remove_stale_lock", stat);
     }
     const owner = resolve(own, "owner");
@@ -638,14 +651,35 @@ function transitionTicket(pool: string, name: string): number | null | undefined
     if (!lstatSync(entry).isDirectory()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
     const file = resolve(entry, "ticket");
     if (lstatSync(file).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
-    const value = Number(readFileSync(file, "utf8"));
-    return Number.isSafeInteger(value) && value > 0 ? value : null;
+    let value: unknown;
+    try { value = JSON.parse(readFileSync(file, "utf8")); } catch { return null; }
+    if (!value || typeof value !== "object" || !("sequence" in value) || typeof value.sequence !== "number" || !("incarnation" in value) || typeof value.incarnation !== "string") return null;
+    const birth = processIncarnation(Number(owner[1]));
+    if (!birth) return null;
+    if (birth !== value.incarnation) return undefined; // PID belongs to a different process.
+    return Number.isSafeInteger(value.sequence) && value.sequence > 0 ? value.sequence : null;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return existsSync(resolve(pool, name)) ? null : undefined;
     }
     throw asDeviceStateError(error, "inspect_lock");
   }
+}
+
+// Built-in OS process metadata distinguishes reused PIDs without an age timeout.
+// If probing is unavailable, ownership stays conservative rather than stolen.
+function processIncarnation(pid: number): string | undefined {
+  try {
+    if (process.platform === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const started = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+      return started ? `${readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim()}:${started}` : undefined;
+    }
+    const output = process.platform === "win32"
+      ? execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString('o')`], {encoding:"utf8",timeout:1000,stdio:["ignore","pipe","ignore"]})
+      : execFileSync("ps", ["-p",String(pid),"-o","lstart="], {encoding:"utf8",timeout:1000,stdio:["ignore","pipe","ignore"],env:{...process.env,LC_ALL:"C",TZ:"UTC"}});
+    return output.trim() || undefined;
+  } catch { return undefined; }
 }
 
 function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation, source: Stats): void {
@@ -678,3 +712,4 @@ function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation)
 }
 
 import { stateDir } from "./config.js";
+import { execFileSync } from "node:child_process";

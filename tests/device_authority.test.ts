@@ -638,3 +638,13 @@ test("transition recovery never steals an old active published owner",()=>{
  const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
  assert.equal(authority.repairLock(),"active");assert.equal(readFileSync(guard,"utf8"),token);
 });
+
+
+test("retained ticket and guard with a reused PID cannot block a different process",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"itpay-transition-reused-")),statePath=join(root,"identity.json"),pool=statePath+".lock.transition-owners";
+ const own=join(pool,process.pid+"-deadbeef");mkdirSync(own,{recursive:true,mode:0o700});writeFileSync(join(own,"ticket"),JSON.stringify({sequence:1,incarnation:"different-process-incarnation"}),{mode:0o600});
+ writeFileSync(statePath+".lock.transition",JSON.stringify({pid:process.pid,incarnation:"different-process-incarnation",token:"old"}),{mode:0o600});
+ const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl:new DeviceServer().fetch});
+ await authority.authorizationHeaders({method:"GET",path:"/v1/orders",body:""});assert.equal(existsSync(statePath+".lock"),false);
+ assert.equal(readFileSync(join(own,"ticket"),"utf8"),JSON.stringify({sequence:1,incarnation:"different-process-incarnation"}));
+});
