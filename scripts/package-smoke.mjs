@@ -1,3 +1,4 @@
+import {verifyPackedDeviceUpgrade} from './device-upgrade-smoke.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -153,6 +154,7 @@ try {
     stderr = String(error.stderr ?? "");
   }
   assert.match(stderr, /agent type is required/);
+  await verifyPackedDeviceUpgrade(packageRoot, scratch);
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
