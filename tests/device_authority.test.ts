@@ -508,7 +508,7 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
-for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"]) {
+for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN", "UNKNOWN_TEST_CODE"]) {
   test(`lock acquisition classifies ${code} at the file operation boundary`, async () => {
     const root = mkdtempSync(join(tmpdir(), "itpay-lock-error-"));
     const original = fs.writeFileSync;
@@ -523,8 +523,8 @@ for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DE
       }).authorizationHeaders({ method: "GET", path: "/v1/orders", body: "" }), (error: unknown) => {
         assert.ok(error instanceof DeviceStateError);
         assert.equal(error.operation, "acquire_lock");
-        assert.equal(error.causeCode, code);
-        assert.equal(error.source, code.startsWith("CODEBUDDY_") ? "host_broker" : "native_filesystem");
+        assert.equal(error.causeCode, code === "UNKNOWN_TEST_CODE" ? "UNCLASSIFIED_LOCAL_FAILURE" : code);
+        assert.equal(error.source, code.startsWith("CODEBUDDY_") ? "host_broker" : code === "UNKNOWN_TEST_CODE" ? "unclassified_local_operation" : "native_filesystem");
         assert.doesNotMatch(error.message, /private diagnostic/);
         return true;
       });

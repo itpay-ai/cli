@@ -178,7 +178,7 @@ export class DeviceAuthority {
           unlinkSync(this.privateKeyPath);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-            throw asDeviceStateError(error, "remove_private_key") ?? error;
+            throw asDeviceStateError(error, "remove_private_key");
           }
         }
       }
@@ -359,9 +359,7 @@ export class DeviceAuthority {
       }
       return undefined;
     } catch (error) {
-      const stateError = asDeviceStateError(error, "read_state");
-      if (stateError) throw stateError;
-      return undefined;
+      throw asDeviceStateError(error, "read_state");
     }
   }
 
@@ -370,9 +368,7 @@ export class DeviceAuthority {
     try {
       return createPrivateKey(readFileSync(this.privateKeyPath, "utf8"));
     } catch (error) {
-      const stateError = asDeviceStateError(error, "read_private_key");
-      if (stateError) throw stateError;
-      return undefined;
+      throw asDeviceStateError(error, "read_private_key");
     }
   }
 
@@ -391,12 +387,12 @@ export class DeviceAuthorizationError extends Error {
 
 export class DeviceStateError extends Error {
   readonly code = "device_state_unavailable";
-  readonly source: "native_filesystem" | "host_broker" | "client_state_validation";
+  readonly source: "native_filesystem" | "host_broker" | "client_state_validation" | "unclassified_local_operation";
 
   constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string) {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
-    this.source = causeCode.startsWith("CODEBUDDY_BROKER_") ? "host_broker"
+    this.source = causeCode === "UNCLASSIFIED_LOCAL_FAILURE" ? "unclassified_local_operation" : causeCode.startsWith("CODEBUDDY_BROKER_") ? "host_broker"
       : ["LEGACY_LOCK_OWNER_UNKNOWN", "SYMLINK_LOCK", "LOCK_SOURCE_CHANGED", "LOCK_TRANSITION_BUSY"].includes(causeCode) ? "client_state_validation" : "native_filesystem";
   }
 }
@@ -453,7 +449,7 @@ function atomicOwnerOnlyWrite(path: string, value: string, operation: DeviceStat
     chmodSync(path, 0o600);
   } catch (error) {
     try { unlinkSync(temporary); } catch { /* best-effort cleanup */ }
-    throw asDeviceStatePathError(error, operation) ?? error;
+    throw asDeviceStatePathError(error, operation);
   }
 }
 
@@ -461,7 +457,7 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   } catch (error) {
-    throw asDeviceStatePathError(error, "prepare_lock") ?? error;
+    throw asDeviceStatePathError(error, "prepare_lock");
   }
   const ownerToken = `${process.pid}:${randomUUID()}`;
   let acquired = false;
@@ -478,7 +474,7 @@ async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> 
       break;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock") ?? error;
+      if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock");
       inspectAndRecoverLock(path);
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
@@ -513,7 +509,7 @@ function inspectLockOwner(path: string): "absent" | "recovered" | "active" {
     token = lockStat.isDirectory() ? "" : readFileSync(path, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-    throw asDeviceStateError(error, "inspect_lock") ?? error;
+    throw asDeviceStateError(error, "inspect_lock");
   }
   const ownerPID = /^(\d+):[0-9a-f-]+$/.exec(token)?.[1];
   if (ownerPID) {
@@ -533,7 +529,7 @@ function inspectLockOwner(path: string): "absent" | "recovered" | "active" {
     if (token ? readFileSync(path, "utf8") !== token : !statSync(path).isDirectory()) return "active";
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-    throw asDeviceStateError(error, "inspect_lock") ?? error;
+    throw asDeviceStateError(error, "inspect_lock");
   }
   moveLockAside(path, "stale", "remove_stale_lock", inspected);
   return "recovered";
@@ -552,7 +548,7 @@ function releaseOwnedLock(path: string, ownerToken: string): void {
     if (readFileSync(path, "utf8") !== ownerToken) return;
     moveLockAside(path, "released", "release_lock", inspected);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, "release_lock") ?? error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, "release_lock");
   }
 }
 
@@ -562,7 +558,7 @@ function lockTransition(path: string, run: () => void): boolean {
   const transition = `${path}.transition`;
   try { mkdirSync(transition, { mode: 0o700 }); } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw asDeviceStatePathError(error, "inspect_lock") ?? error;
+    throw asDeviceStatePathError(error, "prepare_lock");
   }
   let failed = false;
   try { run(); } catch (error) { failed = true; throw error; } finally {
@@ -571,7 +567,7 @@ function lockTransition(path: string, run: () => void): boolean {
       mkdirSync(archive, { mode: 0o700 });
       renameSync(transition, `${archive}/transition`);
     } catch (error) {
-      if (!failed) throw asDeviceStateError(error, "release_lock") ?? error;
+      if (!failed) throw asDeviceStateError(error, "release_lock");
     }
   }
   return true;
@@ -590,16 +586,15 @@ function moveLockAside(path: string, suffix: "released" | "stale", operation: De
     renameSync(path, `${archive}/lock`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw asDeviceStateError(error, operation) ?? error;
+    throw asDeviceStateError(error, operation);
   }
 }
 
-function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
-  const code = (error as NodeJS.ErrnoException).code;
+function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError {
   if (error instanceof DeviceStateError) return error;
-  return code === "EACCES" || code === "EPERM" || code === "EROFS" || code === "ENOTDIR" || code === "EISDIR" || code === "CODEBUDDY_BROKER_DENY" || code === "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"
-    ? new DeviceStateError(operation, code, (error as NodeJS.ErrnoException).path)
-    : undefined;
+  const code = (error as NodeJS.ErrnoException)?.code;
+  const known = ["EACCES", "EPERM", "EROFS", "ENOTDIR", "EISDIR", "EEXIST", "ENOENT", "ENOTEMPTY", "ENOSPC", "EMFILE", "EIO", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"];
+  return new DeviceStateError(operation, typeof code === "string" && known.includes(code) ? code : "UNCLASSIFIED_LOCAL_FAILURE");
 }
 
 function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
