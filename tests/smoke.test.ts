@@ -56,7 +56,9 @@ const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
 const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw"] as const;
-const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
+// Mock-backed subprocesses must never read or write the user's real identity.
+// Individual persistence scenarios can still supply their own isolated HOME.
+const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test", HOME: mkdtempSync(join(tmpdir(), "itpay-smoke-home-")) });
 
 test("CLI version matches package version", () => {
   const packageJSON = JSON.parse(readFileSync(resolve(CLI_ROOT, "package.json"), "utf8")) as { version: string };
@@ -2340,9 +2342,19 @@ test("readyz probes /v1/readyz", async () => {
     status: "ready",
     result: { backend: "available", backend_url: "https://app.itpay.ai", environment: "production" },
     instruction: "ItPay 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；不自动登录或开始业务。",
-    next: { command: "itpay skill show itpay --json", reason: "加载完整操作与安全规则" },
+    next: { command: "itpay install --json", reason: "选择实际宿主，再检查设备访问；尚未读本包 Skill 时先完整读取" },
     recovery: [],
   });
+});
+
+test("readyz with a declared host continues to device status without repeating Skill", async () => {
+  await runReadyz(backend, { output: stdoutSink, jsonOutput: true, agentType: "workbuddy" });
+  const envelope = JSON.parse(stdoutCapture.join(""));
+  assert.equal(envelope.status, "ready");
+  assert.equal(envelope.result.agent_type, "workbuddy");
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy auth status --json");
+  assert.match(envelope.instruction, /只证明后端存活/);
+  assert.doesNotMatch(envelope.next.command, /skill show/);
 });
 
 test("readyz command supports the documented JSON contract", async () => {
@@ -2656,7 +2668,7 @@ test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   });
   const envelope = JSON.parse(result.stdout) as { result: { agent_type: string }; next: { command: string } };
   assert.equal(envelope.result.agent_type, "claude-code-cli");
-  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli skill show itpay --json");
+  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli auth status --json");
 });
 
 test("sandbox Backend is explicit and preserved in every next command", async () => {
@@ -2677,7 +2689,7 @@ test("sandbox Backend is explicit and preserved in every next command", async ()
   });
   assert.ok(envelope.instruction.includes(SANDBOX_BASE_URL));
   assert.match(envelope.instruction, /同一 Backend/);
-  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy skill show itpay --json`);
+  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy auth status --json`);
 });
 
 test("forbidden Backend override fails before any request", async () => {
@@ -2720,14 +2732,14 @@ test("device recover requires confirmation and remains Backend-scoped", async ()
     result: { backend: string; private_key_preserved: boolean; other_backend_registrations_preserved: boolean };
     next: { command: string };
   };
-  assert.equal(envelope.status, "backend_registration_absent");
+  assert.equal(envelope.status, "backend_cache_absent");
   assert.equal(envelope.result.backend, "https://app.itpay.ai");
   assert.equal(envelope.result.private_key_preserved, true);
   assert.equal(envelope.result.other_backend_registrations_preserved, true);
-  assert.equal(envelope.next.command, "itpay --agent-type workbuddy services list --limit 1 --json");
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy auth status --json");
 });
 
-test("device reset-key requires confirmation and discards the local device key", async () => {
+test("device reset-key preserves confirmation guards and fails closed as unavailable", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-device-reset-key-cli-"));
   await assert.rejects(
     runCLI(["device", "reset-key", "--json"], { HOME: home }),
@@ -2738,16 +2750,17 @@ test("device reset-key requires confirmation and discards the local device key",
     },
   );
 
-  const envelope = JSON.parse((await runCLI([
+  await assert.rejects(runCLI([
     "--agent-type", "workbuddy", "device", "reset-key", "--confirm-key-reset", "--json",
-  ], { HOME: home })).stdout) as {
-    status: string;
-    result: { removed_backend_registrations: string[]; private_key_preserved: boolean; server_side_device: string };
-  };
-  assert.equal(envelope.status, "device_key_reset");
-  assert.deepEqual(envelope.result.removed_backend_registrations, []);
-  assert.equal(envelope.result.private_key_preserved, false);
-  assert.equal(envelope.result.server_side_device, "orphaned_under_previous_key");
+  ], { HOME: home }), (error: unknown) => {
+    const failure = error as {stdout?: string; stderr?: string};
+    const envelope = JSON.parse(String(failure.stdout || failure.stderr || ""));
+    assert.equal(envelope.error.code,"device_key_reset_unavailable");
+    assert.equal(envelope.next,null);
+    assert.deepEqual(envelope.recovery,[]);
+    return true;
+  });
+
 });
 
 test("skill show returns the complete packaged Skill and type-aware onboarding", async () => {

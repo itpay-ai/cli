@@ -120,3 +120,7 @@ actual human input; safe Agent feedback follows the completed order outcome.
 ### Railway aftercare
 
 Use `itpay aftercare list --order <order_id> --json` for the safe original itinerary, ticket targets and complete refund/change templates. Apply explicit user leg/passenger scope without asking it again; ask only for missing scope or genuine intent. Explain manual handling before submitting. Acceptance is not supplier completion or platform refund success. Current concrete change terms and fees need their own real consent; no automatic change payment exists. Read the same case and remaining-ticket facts without consuming locked delivery or promising validity from historical issuance.
+
+## Local device state
+
+Keep the original device key. Normal authorization uses separate Backend/Agent Type/key-bound session caches; it does not require legacy lock repair. Do not clear identity or old lock files. `device repair-lock` only explains that legacy locks are unmanaged. `device reset-key` is unavailable in this version and returns a nonzero error without changing identity; do not suggest deleting the key or installing an older CLI.

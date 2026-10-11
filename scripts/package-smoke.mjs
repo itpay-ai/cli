@@ -24,13 +24,19 @@ try {
   assert.equal(tarballs.length, 1, "npm pack must create exactly one tarball");
   execFileSync("tar", ["-xzf", join(packed, tarballs[0]), "-C", install]);
 
-  const packageRoot = join(install, "package");
+  let packageRoot = join(install, "package");
   assert.equal(existsSync(join(packageRoot, "tests")), false, "test transport shim must not ship in the npm package");
-  execFileSync("npm", ["install", "--dry-run=false", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
-    cwd: packageRoot,
+  const metadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+  assert.deepEqual([...metadata.bundleDependencies].sort(), Object.keys(metadata.dependencies).sort());
+  for (const dependency of metadata.bundleDependencies) assert(existsSync(join(packageRoot, "node_modules", dependency, "package.json")), `runtime dependency is absent: ${dependency}`);
+  for (const dependency of Object.keys(metadata.devDependencies)) assert.equal(existsSync(join(packageRoot, "node_modules", dependency)), false, `development dependency shipped: ${dependency}`);
+  const runtimeInstall = join(scratch, "runtime-install");
+  execFileSync("npm", ["install", "--prefix", runtimeInstall, join(packed, tarballs[0]), "--offline", "--dry-run=false", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
+    cwd: install,
     env: { ...process.env, npm_config_cache: join(scratch, "npm-cache") },
     stdio: "pipe"
   });
+  packageRoot = join(runtimeInstall, "node_modules", "@itpay", "cli");
   const entry = join(packageRoot, "bin", "itp.mjs");
   const env = {
     ...process.env,

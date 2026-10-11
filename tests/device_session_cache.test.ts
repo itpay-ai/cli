@@ -1,0 +1,177 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync, type PathLike } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { DeviceSessionCache } from "../src/state/device_session_cache.js";
+import { createDeviceKey, deviceKeyThumbprint } from "../src/state/device_key.js";
+const context = { backend: "https://dev.itpay.ai", agentType: "workbuddy", keyThumbprint: "fixture-key" };
+const registration = { deviceID: "dev_fixture", deviceKeyID: "key_fixture", quotaLineageID: "lineage_fixture", agentInstances: {workbuddy: "instance_fixture"}, sessions: {workbuddy: {token: "synthetic", expiresAt: "2099-01-01T00:00:00Z"}} };
+
+test("invalidation cannot be overwritten by a late session response", () => {
+ const cache = new DeviceSessionCache(mkdtempSync(join(tmpdir(), "itpay-cache-")), context);
+ const first = cache.generation(true)!;
+ cache.write(registration, first);
+ assert.deepEqual(cache.read(), registration);
+ cache.invalidate();
+ cache.write(registration, first);
+ assert.equal(cache.read(), undefined);
+ const second = cache.generation(false)!;
+ cache.write(registration, second);
+ assert.deepEqual(cache.read(), registration);
+ cache.invalidate();
+ cache.invalidate();
+ cache.write(registration, second);
+ assert.equal(cache.read(), undefined);
+});
+
+test("backend recovery includes generation-only in-flight types and isolates other contexts", async () => {
+ const {deviceCacheAgentTypes}=await import('../src/state/device_session_cache.js');
+ const {DeviceAuthority}=await import('../src/state/device_authority.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-marker-only-'));
+ const keyPath=join(root,'private.pem');
+ const key=createDeviceKey(keyPath,false);
+ const current={...context,keyThumbprint:deviceKeyThumbprint(key)};
+ const directory=join(root,'sessions');
+ const pending=new DeviceSessionCache(directory,current);
+ const captured=pending.generation(true)!;
+ const unrelated=new DeviceSessionCache(directory,{...current,backend:'https://app.itpay.ai'});
+ const otherGeneration=unrelated.generation(true)!;
+ assert.deepEqual(deviceCacheAgentTypes(directory,current.backend,current.keyThumbprint),['workbuddy']);
+ const authority=new DeviceAuthority({baseURL:current.backend,requestedAgentType:'codex-desktop',compatibilityHeaders:{},statePath:join(root,'identity.json'),privateKeyPath:keyPath,fetchImpl:async()=>{throw Error('recovery must not use network');}});
+ const recovered=await authority.recoverBackendReset();
+ assert.ok(recovered.agentTypes.includes('workbuddy'));
+ pending.write(registration,captured);
+ assert.equal(pending.read(),undefined,'late first response cannot revive a recovered context');
+ assert.equal(unrelated.generation(false),otherGeneration);
+ const marker=JSON.parse(readFileSync(pending.generationPath,'utf8'));
+ marker.agentType='wrong-type';writeFileSync(pending.generationPath,JSON.stringify(marker));
+ assert.throws(()=>deviceCacheAgentTypes(directory,current.backend,current.keyThumbprint),/DEVICE_CACHE_CONTEXT_INVALID/);
+ assert.throws(()=>pending.generation(false),/DEVICE_CACHE_GENERATION_INVALID/);
+});
+test("cache contexts are separated and corrupt generation cannot revive a session", () => {
+ const root = mkdtempSync(join(tmpdir(), "itpay-cache-context-"));
+ const cache = new DeviceSessionCache(root, context);
+ const generation = cache.generation(true)!;
+ cache.write(registration, generation);
+ for (const other of [{...context,backend:"https://app.itpay.ai"},{...context,agentType:"codex-cli"},{...context,keyThumbprint:"other-key"}]) assert.equal(new DeviceSessionCache(root,other).read(),undefined);
+ writeFileSync(cache.generationPath,"invalid");
+ assert.throws(()=>cache.read(),/DEVICE_CACHE_GENERATION_INVALID/);
+});
+test("canonical key never gets overwritten; existing identity without key fails", () => {
+ const root = mkdtempSync(join(tmpdir(), "itpay-key-"));
+ const path = join(root,"private.pem");
+ const first = createDeviceKey(path,false);
+ const bytes = readFileSync(path);
+ assert.equal(deviceKeyThumbprint(createDeviceKey(path,true)),deviceKeyThumbprint(first));
+ assert.deepEqual(readFileSync(path),bytes);
+ assert.throws(()=>createDeviceKey(join(root,"missing.pem"),true),/DEVICE_KEY_MISSING/);
+});
+
+test("existing identity authorizes and recovers without process probes or legacy lock writes", async () => {
+ const fs = await import("node:fs");
+ const child = await import("node:child_process");
+ const { mock } = await import("node:test");
+ const { syncBuiltinESMExports } = await import("node:module");
+ const { DeviceAuthority } = await import("../src/state/device_authority.js");
+ const root = mkdtempSync(join(tmpdir(),"itpay-no-legacy-lock-"));
+ const keyPath = join(root,"private.pem");
+ createDeviceKey(keyPath,false);
+ const keyBytes = readFileSync(keyPath);
+ const statePath = join(root,"identity.json");
+ writeFileSync(statePath,JSON.stringify({schemaVersion:"itpay.device.v2",registrations:{[context.backend]:registration}}));
+ fs.mkdirSync(`${statePath}.lock.transition`);
+ writeFileSync(`${statePath}.lock`,"unknown historical owner");
+ const identityBytes = readFileSync(statePath);
+ let challenges = 0;
+ const fetchImpl: typeof fetch = async (input) => {
+  const path = new URL(String(input)).pathname;
+  if(path==="/v1/agent-device-session-challenges") {
+   challenges++;
+   return new Response(JSON.stringify({agent_device_session_challenge_id:"fixture-challenge",challenge:"synthetic"}));
+  }
+  if(path==="/v1/agent-device-session-challenges/fixture-challenge/verify") return new Response(JSON.stringify({session_token:`fixture-session-${challenges}`,expires_at:"2099-01-01T00:00:00Z"}));
+  throw new Error("unexpected enrollment or business call");
+ };
+ const write = fs.default.writeFileSync;
+ const patches = [
+  mock.method(child.default,"execFileSync",()=>{throw new Error("process probe forbidden");}),
+  mock.method(fs.default,"writeFileSync",(...args: Parameters<typeof fs.writeFileSync>)=>{
+   if(String(args[0]).includes(".lock")) throw new Error("legacy lock write forbidden");
+   return write(...args);
+  }),
+ ];
+ syncBuiltinESMExports();
+ try {
+  const options = {baseURL:context.backend,requestedAgentType:"workbuddy",compatibilityHeaders:{},statePath,privateKeyPath:keyPath,fetchImpl};
+  const first = new DeviceAuthority(options);
+  const request = {method:"GET",path:"/v1/service-executions",body:""};
+  assert.equal((await first.authorizationHeaders(request)).Authorization,"ItPayDevice fixture-session-1");
+  assert.equal((await new DeviceAuthority(options).authorizationHeaders(request)).Authorization,"ItPayDevice fixture-session-1");
+  await first.recoverAuthorization();
+  assert.equal((await first.authorizationHeaders(request)).Authorization,"ItPayDevice fixture-session-2");
+  await first.recoverBackendReset();
+  assert.equal((await first.authorizationHeaders(request)).Authorization,"ItPayDevice fixture-session-3");
+  assert.deepEqual(readFileSync(keyPath),keyBytes);
+  assert.deepEqual(readFileSync(statePath),identityBytes);
+  assert.equal(readFileSync(`${statePath}.lock`,"utf8"),"unknown historical owner");
+  assert.ok(fs.existsSync(`${statePath}.lock.transition`));
+ } finally {
+  for(const patch of patches) patch.mock.restore();
+  syncBuiltinESMExports();
+ }
+});
+
+test("atomic replacement between lstat and open reads a complete snapshot and still rejects stale generations", async () => {
+ const fs = await import("node:fs");
+ const {mock} = await import("node:test");
+ const {syncBuiltinESMExports} = await import("node:module");
+ const cache = new DeviceSessionCache(mkdtempSync(join(tmpdir(),"itpay-open-snapshot-")),context);
+ const first=cache.generation(true)!;cache.write(registration,first);
+ const open=fs.default.openSync;
+ for(const target of [cache.cachePath,cache.generationPath]) {
+  let replaced=false;
+  const patch=mock.method(fs.default,"openSync",(...args:Parameters<typeof fs.openSync>)=>{
+   if(String(args[0])===target&&!replaced) {
+    replaced=true;
+    const replacement=target+'.fixture';
+    const bytes=readFileSync(target);
+    fs.writeFileSync(replacement,bytes,{flag:'wx',mode:0o600});
+    fs.renameSync(replacement,target);
+   }
+   return open(...args);
+  });
+  syncBuiltinESMExports();
+  try {assert.deepEqual(cache.read(),registration);assert.equal(replaced,true);}
+  finally {patch.mock.restore();syncBuiltinESMExports();}
+ }
+ cache.invalidate();cache.write(registration,first);assert.equal(cache.read(),undefined);
+ fs.unlinkSync(cache.cachePath);fs.symlinkSync(cache.generationPath,cache.cachePath);
+ assert.throws(()=>cache.read(),/DEVICE_CACHE_INVALID_FILE/);
+});
+
+test("denied own key-temp cleanup reports published canonical key and never rotates on continuation", async()=>{
+ const fs=await import('node:fs');const {mock}=await import('node:test');const {syncBuiltinESMExports}=await import('node:module');
+ const {DeviceAuthority,DeviceStateError}=await import('../src/state/device_authority.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-key-cleanup-denied-'));const key=join(root,'private.pem');
+ const unlink=fs.default.unlinkSync;const patch=mock.method(fs.default,'unlinkSync',(path:PathLike)=>{
+  if(String(path).startsWith(key+'.'))throw Object.assign(new Error('cleanup denied'),{code:'EPERM'});return unlink(path);
+ });syncBuiltinESMExports();
+ const authority=new DeviceAuthority({baseURL:context.backend,requestedAgentType:'workbuddy',compatibilityHeaders:{},statePath:join(root,'identity.json'),privateKeyPath:key,fetchImpl:async()=>{throw Error('network must not start after failed cleanup');}});
+ try {await assert.rejects(authority.authorizationHeaders({method:'GET',path:'/v1/orders',body:''}),error=>error instanceof DeviceStateError&&error.operation==='cleanup_private_key_temporary'&&error.causeCode==='EPERM'&&error.canonicalKeyPublished===true);}
+ finally {patch.mock.restore();syncBuiltinESMExports();}
+ const bytes=readFileSync(key);createDeviceKey(key,false);assert.deepEqual(readFileSync(key),bytes);
+});
+
+test("backend recovery ignores unrelated old cache schemas but rejects its own unsupported schema",async()=>{
+ const {deviceCacheAgentTypes}=await import('../src/state/device_session_cache.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-cache-recovery-isolation-'));
+ const own=new DeviceSessionCache(root,context);own.write(registration,own.generation(true)!);
+ for(const otherContext of [{...context,backend:'https://app.itpay.ai'},{...context,keyThumbprint:'different-key'}]) {
+  const other=new DeviceSessionCache(root,otherContext);other.write(registration,other.generation(true)!);
+  const data=JSON.parse(readFileSync(other.cachePath,'utf8'));data.schemaVersion='historical.unsupported';writeFileSync(other.cachePath,JSON.stringify(data));
+ }
+ assert.deepEqual(deviceCacheAgentTypes(root,context.backend,context.keyThumbprint),['workbuddy']);
+ const data=JSON.parse(readFileSync(own.cachePath,'utf8'));data.schemaVersion='historical.unsupported';writeFileSync(own.cachePath,JSON.stringify(data));
+ assert.throws(()=>deviceCacheAgentTypes(root,context.backend,context.keyThumbprint),/DEVICE_CACHE_CORRUPT/);
+});

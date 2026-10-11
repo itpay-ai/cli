@@ -9,7 +9,7 @@ import { runServicesRun } from "./commands/services.js";
 
 import { Command } from "commander";
 import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
-import { DeviceAuthority, DeviceAuthorizationError, DeviceLockBusyError, DeviceStateError } from "./state/device_authority.js";
+import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
 import { HttpError } from "./client/http.js";
@@ -184,7 +184,6 @@ function reportCLIError(
   const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
   const deviceError = error instanceof DeviceAuthorizationError ? error : undefined;
   const stateError = error instanceof DeviceStateError ? error : undefined;
-  const lockError = error instanceof DeviceLockBusyError ? error : undefined;
   const transportError = error instanceof HttpTransportError ? error : undefined;
   const httpRecovery = errorRecoveryActions(error).map((action) => ({
     command: action.command,
@@ -217,14 +216,8 @@ function reportCLIError(
 
   ] : [];
   const stateRecovery: CommandAction[] = [];
-  const lockRecovery: CommandAction[] = lockError ? [{
-    command: "itpay device repair-lock --json",
-    reason: "检查锁持有者；只回收已退出进程留下的锁，不改变设备身份",
-  }] : [];
   const authorizationInstruction = stateError
-    ? `本地设备状态操作未完成：${stateError.operation}（${stateError.causeCode}，来源 ${stateError.source}）。保持原身份和已有授权；由环境负责人核对该操作、锁持有者和宿主返回。权限错误才检查读写权限；未知操作结果先核对现场，不盲目重试，不删除身份或绕过宿主保护。`
-    : lockError
-    ? "本地身份锁占用或安全转换未完成。执行 recovery 核对；活跃持有者需等待，遗留转换需环境负责人检查。不能仅凭等待时间删锁或重建身份。"
+    ? `本地设备状态操作未完成：${stateError.operation}（${stateError.causeCode}，来源 ${stateError.source}）。保持原身份和已有授权；按该操作和宿主返回核对现场。权限错误才检查读写权限；未知操作结果先核对现场，不盲目重试，不删除身份或绕过宿主保护。`
     : error instanceof HttpError && error.code === "agent_device_session_required"
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
@@ -232,18 +225,18 @@ function reportCLIError(
       : deviceError?.enrollmentFailed && deviceError.status === 500
         ? "服务端未能完成设备登记；保持原密钥和Agent Type，说明系统故障，待服务端恢复后继续原任务。不要重置身份。"
         : deviceKeyResettable
-          ? "服务端拒绝当前设备私钥登记（轮换或冲突）。停止自动恢复；换钥会放弃旧身份，旧执行访问不会迁移。仅用户或运营明确决定放弃旧身份后，按 device reset-key 帮助执行。"
+          ? "服务端拒绝当前设备私钥登记（轮换或冲突）。停止并保留原身份；此版本暂不支持设备密钥重置，不删除私钥或安装旧版本绕过。"
           : deviceError
             ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
             : undefined;
-  if (contract || commandError || backendOverrideError || lockError || stateError) {
+  if (contract || commandError || backendOverrideError || stateError) {
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
+        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
+      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source, ...(stateError.canonicalKeyPublished !== undefined ? {canonical_key_published: stateError.canonicalKeyPublished} : {}) } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
         result: {
           current_cli_version: CLI_VERSION,
           current_api_contract_revision: API_CONTRACT_REVISION,
@@ -299,9 +292,9 @@ function reportCLIError(
         ? []
         : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
           ? []
-          : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : lockError ? lockRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
+          : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
-      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError || lockError || stateError ? { jsonOutput: process.argv.includes("--json") } : {}),
+      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError || stateError ? { jsonOutput: process.argv.includes("--json") } : {}),
       output: (text) => { process.stdout.write(text); },
     });
     process.exitCode = 1;
@@ -407,7 +400,7 @@ const deviceCmd = program.command("device").description("Recover the current off
 
 deviceCmd
   .command("repair-lock")
-  .description("Safely inspect and recover a local Device identity lock left by an exited process")
+  .description("Explain that this version does not manage legacy locks; no files are inspected or changed")
   .option("--json", "output JSON instead of terminal text")
   .action((options) => {
     try {
@@ -418,9 +411,9 @@ deviceCmd
         compatibilityHeaders: {},
       }).repairLock();
       writeCommandEnvelope({
-        status: status === "recovered" ? "device_lock_recovered" : status === "active" ? "device_lock_active" : "device_lock_absent",
+        status: "device_legacy_lock_unmanaged",
         result: { lock_status: status, device_identity_preserved: true },
-        instruction: status === "active" ? "本地锁占用或安全转换未完成；保留原身份，核对持有者及宿主现场后继续原任务。" : "本地锁无需进一步处理；继续原任务。",
+        instruction: "新版不管理旧锁，普通授权不需要清锁。旧锁与身份现场均未读取或修改；继续原任务。",
         next: null,
         recovery: [],
       }, { jsonOutput: Boolean(options.json), plainResult: [`lock: ${status}`, "device_identity: preserved"] });
@@ -431,7 +424,7 @@ deviceCmd
 
 deviceCmd
   .command("recover")
-  .description("Forget only the current official Backend registration while preserving the local private key")
+  .description("Invalidate the current Backend session caches while preserving the private key and legacy identity")
   .option("--confirm-backend-reset", "confirm that an operator reset the selected Backend registration database")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
@@ -459,16 +452,16 @@ deviceCmd
         compatibilityHeaders: {},
       }).recoverBackendReset();
       writeCommandEnvelope({
-        status: recovered.removed ? "backend_registration_removed" : "backend_registration_absent",
+        status: recovered.removed ? "backend_cache_invalidated" : "backend_cache_absent",
         result: {
           backend: config.baseURL,
-          removed_agent_types: recovered.agentTypes,
+          invalidated_agent_types: recovered.agentTypes,
           private_key_preserved: true,
           other_backend_registrations_preserved: true,
         },
-        instruction: "只读列出 Service Executions，以同一私钥和 Agent Type 重新登记当前 Backend；不要删除 ~/.itpay-v3 或切换运行时。",
+        instruction: "读取 auth status，以同一私钥和 Agent Type 获取当前 Backend 的权威登记与新会话；不要删除 ~/.itpay-v3 或切换运行时。",
         next: {
-          command: `itpay --agent-type ${config.agentType} services list --limit 1 --json`,
+          command: `itpay --agent-type ${config.agentType} auth status --json`,
           reason: "用无业务写入的签名请求重新登记当前 Backend",
         },
         recovery: [],
@@ -476,7 +469,7 @@ deviceCmd
         jsonOutput: Boolean(options.json),
         plainResult: [
           `backend: ${config.baseURL}`,
-          `registration: ${recovered.removed ? "removed" : "already absent"}`,
+          `session_cache: ${recovered.removed ? "invalidated" : "already absent"}`,
           "private_key: preserved",
           "other_backends: preserved",
         ],
@@ -493,7 +486,7 @@ deviceCmd
 
 deviceCmd
   .command("reset-key")
-  .description("Discard the local Ed25519 device key and all Backend registrations so the next command enrolls as a new device")
+  .description("Unavailable in this version: device key reset never changes existing identity")
   .option("--confirm-key-reset", "confirm that the current device key must be abandoned and a new identity created")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
@@ -511,33 +504,16 @@ deviceCmd
           [{ command: "itpay docs show identity-and-sessions --json", reason: "检查适用边界" }],
         );
       }
-      const reset = await new DeviceAuthority({
+      await new DeviceAuthority({
         baseURL: config.baseURL,
         ...(config.agentType ? { requestedAgentType: config.agentType } : {}),
         compatibilityHeaders: {},
       }).resetDeviceKey();
-      writeCommandEnvelope({
-        status: "device_key_reset",
-        result: {
-          removed_backend_registrations: reset.removedBackends,
-          private_key_preserved: false,
-          server_side_device: "orphaned_under_previous_key",
-        },
-        instruction: "本地设备私钥已重置；下一次需要设备身份的命令会以全新 Ed25519 密钥重新登记；这不能恢复旧身份的订单或用于刷新额度。服务端旧设备记录保留为孤儿；如需清理请走运营流程。",
-        next: {
-          command: `itpay --agent-type ${config.agentType} services list --limit 1 --json`,
-          reason: "用无业务写入的签名请求完成新密钥的重新登记",
-        },
-        recovery: [],
-      }, {
-        jsonOutput: Boolean(options.json),
-        plainResult: [
-          `removed_backend_registrations: ${reset.removedBackends.join(", ") || "none"}`,
-          "private_key: rotated (previous key discarded)",
-          "server_side_device: orphaned under previous key",
-        ],
-      });
     } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "device_key_reset_unavailable") {
+        reportCLIError(new CommandContractError("device_key_reset_unavailable", "Device key reset is unavailable in this version", "此版本暂不支持设备密钥重置，原身份未改变。", []), { jsonOutput: Boolean(options.json), code: "device_key_reset_unavailable", instruction: "此版本暂不支持设备密钥重置，原身份未改变。" });
+        return;
+      }
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "device_key_reset_failed",

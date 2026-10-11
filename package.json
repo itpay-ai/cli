@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.44",
+  "version": "2.1.45",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -76,5 +76,11 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/itpay-ai/cli.git"
-  }
+  },
+  "bundleDependencies": [
+    "@modelcontextprotocol/sdk",
+    "commander",
+    "qrcode",
+    "zod"
+  ]
 }

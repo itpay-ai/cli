@@ -1,25 +1,22 @@
+import { asTransientTransportError } from "../client/transport.js";
+import { createDeviceKey, deviceKeyThumbprint, readDeviceKey } from "./device_key.js";
+import { deviceCacheAgentTypes, DeviceSessionCache } from "./device_session_cache.js";
 import {
   createHash,
-  createPrivateKey,
   createPublicKey,
-  generateKeyPairSync,
   randomUUID,
   sign,
   type KeyObject,
 } from "node:crypto";
 import {
-  type Stats,
-  chmodSync,
-  existsSync,
-  mkdirSync,
+  constants,
+  closeSync,
+  openSync,
+  fstatSync,
   lstatSync,
-  linkSync,
+  existsSync,
   readFileSync,
   readdirSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -43,10 +40,6 @@ interface DeviceRegistration {
   quotaLineageID: string;
   agentInstances: Record<string, string>;
   sessions: Record<string, DeviceSessionState>;
-}
-
-interface DeviceStateV1 extends DeviceRegistration {
-  schemaVersion: "itpay.device.v1";
 }
 
 interface DeviceState {
@@ -122,7 +115,7 @@ export class DeviceAuthority {
 
   private async ensureAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
     if (!this.pending) {
-      this.pending = this.cachedAuthorization() ?? withFileLock(`${this.statePath}.lock`, () => this.prepareAuthorization());
+      this.pending = this.cachedAuthorization() ?? this.prepareAuthorization();
       this.pending = this.pending.finally(() => {
         this.pending = undefined;
       });
@@ -130,114 +123,91 @@ export class DeviceAuthority {
     return this.pending;
   }
 
+  private cache(privateKey: KeyObject, agentType = this.requestedAgentType): DeviceSessionCache {
+    if (!agentType) throw new Error("agent type is required for ItPay commerce; pass --agent-type <type> or set ITPAY_AGENT_TYPE");
+    return new DeviceSessionCache(resolve(dirname(this.statePath), "sessions"), {
+      backend: this.backendKey, agentType, keyThumbprint: deviceKeyThumbprint(privateKey),
+    });
+  }
+
   private cachedAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> | undefined {
     const agentType = this.requestedAgentType;
     if (!agentType) return undefined;
-    const state = this.readState();
-    const registration = state?.registrations[this.backendKey];
-    const session = registration?.sessions[agentType];
-    if (!registration?.agentInstances[agentType] || !session || Date.parse(session.expiresAt) <= Date.now() + 60_000) return undefined;
+    this.readState(); // Unknown/corrupt legacy identity never becomes a fresh device.
     const privateKey = this.readPrivateKey();
-    return privateKey ? Promise.resolve({ state: registration, agentType, session, privateKey }) : undefined;
+    if (!privateKey) return undefined;
+    try {
+      const registration = this.cache(privateKey).read();
+      const session = registration?.sessions[agentType];
+      if (!registration || !session || Date.parse(session.expiresAt) <= Date.now() + 60_000) return undefined;
+      return Promise.resolve({ state: registration, agentType, session, privateKey });
+    } catch (error) { throw asDeviceStateError(error, "read_state"); }
   }
 
   async recoverAuthorization(): Promise<void> {
-    await withFileLock(`${this.statePath}.lock`, async () => {
-      const state = this.readState();
-      if (!state || !this.requestedAgentType) return;
-      const registration = state.registrations[this.backendKey];
-      if (!registration) return;
-      delete registration.sessions[this.requestedAgentType];
-      this.writeState(state);
-    });
+    const privateKey = this.readPrivateKey();
+    if (!privateKey || !this.requestedAgentType) return;
+    try { this.cache(privateKey).invalidate(); } catch (error) { throw asDeviceStateError(error, "write_state"); }
   }
 
-  repairLock(): "absent" | "recovered" | "active" {
-    return inspectAndRecoverLock(`${this.statePath}.lock`);
-  }
+  repairLock(): "unmanaged" { return "unmanaged"; }
 
   async recoverBackendReset(): Promise<{ removed: boolean; agentTypes: string[] }> {
-    return withFileLock(`${this.statePath}.lock`, async () => {
-      const state = this.readState();
-      const registration = state?.registrations[this.backendKey];
-      if (!state || !registration) return { removed: false, agentTypes: [] };
-      const agentTypes = Object.keys(registration.agentInstances).sort();
-      delete state.registrations[this.backendKey];
-      this.writeState(state);
-      return { removed: true, agentTypes };
-    });
+    const privateKey = this.readPrivateKey();
+    if (!privateKey) return { removed: false, agentTypes: [] };
+    try {
+      const types = deviceCacheAgentTypes(resolve(dirname(this.statePath), "sessions"), this.backendKey, deviceKeyThumbprint(privateKey));
+      if (this.requestedAgentType && !types.includes(this.requestedAgentType)) types.push(this.requestedAgentType);
+      for (const type of types) this.cache(privateKey, type).invalidate();
+      return { removed: types.length > 0, agentTypes: types.sort() };
+    } catch (error) { throw asDeviceStateError(error, "write_state"); }
   }
 
   async resetDeviceKey(): Promise<{ removedBackends: string[] }> {
-    return withFileLock(`${this.statePath}.lock`, async () => {
-      const state = this.readState();
-      const removedBackends = state ? Object.keys(state.registrations).sort() : [];
-      // Delete the key first: if the process dies before the state write, the
-      // next run treats the missing key as a fresh install and completes the
-      // reset itself; it can never pair a new key with stale registrations.
-      if (existsSync(this.privateKeyPath)) {
-        try {
-          unlinkSync(this.privateKeyPath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-            throw asDeviceStateError(error, "remove_private_key");
-          }
-        }
-      }
-      this.writeState(emptyDeviceState());
-      return { removedBackends };
-    });
+    throw Object.assign(new Error("Device key reset is unavailable in this version; the original identity is unchanged"), { code: "device_key_reset_unavailable" });
   }
 
   private async prepareAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
-    let state = this.readState() ?? emptyDeviceState();
+    const state = this.readState();
     const agentType = this.requestedAgentType;
-    if (!agentType) {
-      throw new Error("agent type is required for ItPay commerce; pass --agent-type <type> or set ITPAY_AGENT_TYPE");
-    }
-    let privateKey = this.readPrivateKey();
-    if (!privateKey) {
-      const pair = generateKeyPairSync("ed25519");
-      privateKey = pair.privateKey;
-      // Persist an empty state before the new key ever reaches disk so a crash
-      // can never pair the new key with registrations bound to the old one.
-      // A crash between the two writes leaves either no key (fresh retry) or a
-      // key with no registrations (the backend re-attaches to the existing
-      // device instead of creating a duplicate).
-      state = emptyDeviceState();
-      this.writeState(state);
-      this.writePrivateKey(pair.privateKey.export({ format: "pem", type: "pkcs8" }).toString());
-    }
-
-    let registration = state.registrations[this.backendKey];
-    if (!registration && state.legacyRegistration) {
-      try {
-        await this.ensureRegistrationAgentType(state.legacyRegistration, agentType, privateKey, true);
-        registration = state.legacyRegistration;
-        delete state.legacyRegistration;
-      } catch (error) {
-        if (!canMovePastLegacyRegistration(error)) throw error;
-      }
-    }
-    if (!registration) {
-      registration = await this.enroll(agentType, privateKey);
-    }
-    state.registrations[this.backendKey] = registration;
-    let session: DeviceSessionState;
+    if (!agentType) throw new Error("agent type is required for ItPay commerce; pass --agent-type <type> or set ITPAY_AGENT_TYPE");
+    let privateKey: KeyObject;
     try {
-      session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+      const cacheDirectory = resolve(dirname(this.statePath), "sessions");
+      const hasCache = existsSync(cacheDirectory) && readdirSync(cacheDirectory).some(name => /\.(json|generation)$/.test(name));
+      privateKey = createDeviceKey(this.privateKeyPath, state !== undefined || hasCache);
     } catch (error) {
-      if (!isUnknownDeviceRegistration(error)) throw error;
-      // The backend lost this registration (e.g. its identity store was
-      // rebuilt). Drop the stale record and enroll once: the same key either
-      // re-attaches to the surviving device or creates a fresh one.
-      delete state.registrations[this.backendKey];
-      registration = await this.enroll(agentType, privateKey);
-      state.registrations[this.backendKey] = registration;
-      session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+      const code = (error as NodeJS.ErrnoException)?.code;
+      throw asDeviceStateError(error, typeof code === "string" && code.startsWith("DEVICE_KEY_") ? "read_private_key" : "write_private_key");
     }
-    this.writeState(state);
-    return { state: registration, agentType, session, privateKey };
+    const cache = this.cache(privateKey);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let generation: string;
+      let registration: DeviceRegistration | undefined;
+      try {
+        generation = cache.generation(true)!;
+        registration = cache.read() ?? cache.registrationHint();
+      } catch (error) { throw asDeviceStateError(error, "read_state"); }
+      // The old file is a registration hint only, never a session fallback.
+      if (!registration) {
+        const hint = state?.registrations[this.backendKey];
+        if (hint?.agentInstances[agentType]) registration = { ...hint, agentInstances: { ...hint.agentInstances }, sessions: {} };
+      }
+      if (!registration) registration = await this.enroll(agentType, privateKey);
+      let session: DeviceSessionState;
+      try { session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false); }
+      catch (error) {
+        if (!isUnknownDeviceRegistration(error)) throw error;
+        registration = await this.enroll(agentType, privateKey);
+        session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+      }
+      try {
+        cache.write(registration, generation);
+        if (cache.generation(false) !== generation) continue;
+      } catch (error) { throw asDeviceStateError(error, "write_state"); }
+      return { state: registration, agentType, session, privateKey };
+    }
+    throw new DeviceStateError("write_state", "DEVICE_CACHE_BUSY");
   }
 
   private async ensureRegistrationAgentType(
@@ -339,43 +309,60 @@ export class DeviceAuthority {
   }
 
   private async fetchJSON<T>(path: string, body: string, extraHeaders: Record<string, string>): Promise<T> {
-    const response = await this.fetchImpl(this.baseURL + path, {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.baseURL + path, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", ...this.compatibilityHeaders, ...extraHeaders },
       body,
       signal: AbortSignal.timeout(15_000),
     });
+    } catch (error) { throw asTransientTransportError(error, 1) ?? error; }
     const payload = await response.json().catch(() => ({})) as { code?: string; message?: string };
     if (!response.ok) throw new DeviceAuthorizationError(response.status, payload.code, payload.message || payload.code || `ItPay device request failed: ${response.status}`);
     return payload as T;
   }
 
   private readState(): DeviceState | undefined {
-    if (!existsSync(this.statePath)) return undefined;
     try {
-      const parsed = JSON.parse(readFileSync(this.statePath, "utf8")) as DeviceState | DeviceStateV1;
-      if (parsed.schemaVersion === "itpay.device.v2") return parsed;
-      if (parsed.schemaVersion === "itpay.device.v1") {
-        const { schemaVersion: _, ...legacyRegistration } = parsed;
-        return { ...emptyDeviceState(), legacyRegistration };
+      let stat;
+      try { stat = lstatSync(this.statePath); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
       }
-      return undefined;
-    } catch (error) {
-      throw asDeviceStateError(error, "read_state");
-    }
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new DeviceStateError("read_state", "DEVICE_STATE_INVALID_FILE");
+      const fd = openSync(this.statePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      let parsed: unknown;
+      try {
+        const opened = fstatSync(fd);
+        if (opened.dev !== stat.dev || opened.ino !== stat.ino) throw new DeviceStateError("read_state", "DEVICE_STATE_CHANGED");
+        try { parsed = JSON.parse(readFileSync(fd, "utf8")); }
+        catch { throw new DeviceStateError("read_state", "DEVICE_STATE_CORRUPT"); }
+      } finally { closeSync(fd); }
+      if (!isRecord(parsed)) throw new DeviceStateError("read_state", "DEVICE_STATE_CORRUPT");
+      if (parsed.schemaVersion === "itpay.device.v2") {
+        if (!isRecord(parsed.registrations) || !Object.values(parsed.registrations).every(isDeviceRegistration) || (parsed.legacyRegistration !== undefined && !isDeviceRegistration(parsed.legacyRegistration))) throw new DeviceStateError("read_state", "DEVICE_STATE_CORRUPT");
+        const registrations: Record<string, DeviceRegistration> = {};
+        for (const [backend, value] of Object.entries(parsed.registrations)) {
+          if (!isDeviceRegistration(value)) throw new DeviceStateError("read_state", "DEVICE_STATE_CORRUPT");
+          registrations[backend] = value;
+        }
+        return { schemaVersion: "itpay.device.v2", registrations, ...(parsed.legacyRegistration ? { legacyRegistration: parsed.legacyRegistration } : {}) };
+      }
+      if (parsed.schemaVersion === "itpay.device.v1") {
+        if (!isDeviceRegistration(parsed)) throw new DeviceStateError("read_state", "DEVICE_STATE_CORRUPT");
+        return { ...emptyDeviceState(), legacyRegistration: parsed };
+      }
+      throw new DeviceStateError("read_state", "DEVICE_STATE_SCHEMA_INVALID");
+    } catch (error) { throw asDeviceStateError(error, "read_state"); }
   }
 
   private readPrivateKey(): KeyObject | undefined {
-    if (!existsSync(this.privateKeyPath)) return undefined;
-    try {
-      return createPrivateKey(readFileSync(this.privateKeyPath, "utf8"));
-    } catch (error) {
-      throw asDeviceStateError(error, "read_private_key");
-    }
+    try { return readDeviceKey(this.privateKeyPath); }
+    catch (error) { throw asDeviceStateError(error, "read_private_key"); }
   }
 
-  private writeState(state: DeviceState): void { atomicOwnerOnlyWrite(this.statePath, JSON.stringify(state, null, 2), "write_state"); }
-  private writePrivateKey(value: string): void { atomicOwnerOnlyWrite(this.privateKeyPath, value, "write_private_key"); }
+
 }
 
 export class DeviceAuthorizationError extends Error {
@@ -391,41 +378,34 @@ export class DeviceStateError extends Error {
   readonly code = "device_state_unavailable";
   readonly source: "native_filesystem" | "host_broker" | "client_state_validation" | "unclassified_local_operation";
 
-  constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string) {
+  constructor(readonly operation: DeviceStateOperation, readonly causeCode: string, readonly blockedPath?: string, readonly canonicalKeyPublished?: boolean) {
     super(`ItPay device state operation failed: ${operation} (${causeCode})`);
     this.name = "DeviceStateError";
     this.source = causeCode === "UNCLASSIFIED_LOCAL_FAILURE" ? "unclassified_local_operation" : causeCode.startsWith("CODEBUDDY_BROKER_") ? "host_broker"
-      : ["LEGACY_LOCK_OWNER_UNKNOWN", "SYMLINK_LOCK", "LOCK_SOURCE_CHANGED", "LOCK_TRANSITION_BUSY", "LOCK_OWNER_PROBE_UNAVAILABLE"].includes(causeCode) ? "client_state_validation" : "native_filesystem";
+      : /^DEVICE_(KEY|CACHE|STATE)_/.test(causeCode) ? "client_state_validation" : "native_filesystem";
   }
 }
 
-export class DeviceLockBusyError extends Error {
-  readonly code = "device_lock_busy";
-  constructor() {
-    super("ItPay device lock is occupied or its transition cannot be safely completed");
-    this.name = "DeviceLockBusyError";
-  }
-}
-
-type DeviceStateOperation =
+export type DeviceStateOperation =
   | "read_state"
   | "read_private_key"
   | "write_state"
-  | "write_private_key"
-  | "remove_private_key"
-  | "prepare_lock"
-  | "acquire_lock"
-  | "inspect_lock"
-  | "remove_stale_lock"
-  | "release_lock";
+  | "cleanup_private_key_temporary"
+  | "write_private_key";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isDeviceRegistration(value: unknown): value is DeviceRegistration {
+  return isRecord(value) && typeof value.deviceID === "string" && typeof value.deviceKeyID === "string" && typeof value.quotaLineageID === "string"
+    && isRecord(value.agentInstances) && Object.values(value.agentInstances).every(id => typeof id === "string")
+    && isRecord(value.sessions) && Object.values(value.sessions).every(session => isRecord(session) && typeof session.token === "string" && typeof session.expiresAt === "string" && Number.isFinite(Date.parse(session.expiresAt)));
+}
 
 function emptyDeviceState(): DeviceState {
   return { schemaVersion: "itpay.device.v2", registrations: {} };
 }
 
-function canMovePastLegacyRegistration(error: unknown): boolean {
-  return error instanceof DeviceAuthorizationError && (error.code === "agent_device_revoked" || error.status === 404);
-}
 function isUnknownDeviceRegistration(error: unknown): boolean {
   return error instanceof DeviceAuthorizationError && (error.code === "agent_device_not_found" || error.status === 404);
 }
@@ -441,281 +421,12 @@ function enrollmentProofMessage(id: string, challenge: string): string { return 
 function deviceSessionProofMessage(id: string, challenge: string): string { return `itpay-device-session/v1\n${id}\n${challenge}`; }
 function requestProofMessage(method: string, path: string, bodyHash: string, timestamp: string, jti: string): string { return ["itpay-agent-request/v1", method, path, bodyHash, timestamp, jti].join("\n"); }
 
-function atomicOwnerOnlyWrite(path: string, value: string, operation: DeviceStateOperation): void {
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    writeFileSync(temporary, value, { encoding: "utf8", mode: 0o600 });
-    chmodSync(temporary, 0o600);
-    renameSync(temporary, path);
-    chmodSync(path, 0o600);
-  } catch (error) {
-    try { unlinkSync(temporary); } catch { /* best-effort cleanup */ }
-    throw asDeviceStatePathError(error, operation);
-  }
-}
-
-async function withFileLock<T>(path: string, run: () => Promise<T>): Promise<T> {
-  try {
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  } catch (error) {
-    throw asDeviceStatePathError(error, "prepare_lock");
-  }
-  const ownerToken = `${process.pid}:${randomUUID()}`;
-  let acquired = false;
-  for (let attempt = 0; attempt < 800; attempt += 1) {
-    try {
-      if (!lockTransition(path, () => {
-        writeFileSync(path, ownerToken, { encoding: "utf8", flag: "wx", mode: 0o600 });
-        chmodSync(path, 0o600);
-      })) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        continue;
-      }
-      acquired = true;
-      break;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw asDeviceStateError(error, "acquire_lock");
-      inspectAndRecoverLock(path);
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
-  if (!acquired) throw new DeviceLockBusyError();
-  let operationFailed = false;
-  try {
-    return await run();
-  } catch (error) {
-    operationFailed = true;
-    throw error;
-  } finally {
-    try { await releaseLock(path, ownerToken); } catch (error) { if (!operationFailed) throw error; }
-  }
-}
-
-function inspectAndRecoverLock(path: string): "absent" | "recovered" | "active" {
-  let result: "absent" | "recovered" | "active" = "active";
-  lockTransition(path, () => { result = inspectLockOwner(path); });
-  return result;
-}
-
-function inspectLockOwner(path: string): "absent" | "recovered" | "active" {
-  let token: string;
-  let age: number;
-  let inspected: Stats;
-  try {
-    const lockStat = lstatSync(path);
-    if (lockStat.isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
-    inspected = lockStat;
-    age = Date.now() - lockStat.mtimeMs;
-    token = lockStat.isDirectory() ? "" : readFileSync(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-    throw asDeviceStateError(error, "inspect_lock");
-  }
-  const ownerPID = /^(\d+):[0-9a-f-]+$/.exec(token)?.[1];
-  if (ownerPID) {
-    try {
-      process.kill(Number(ownerPID), 0);
-      return "active";
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return "active";
-    }
-  } else {
-    if (age <= 30_000) return "active";
-    // Legacy ownerless locks cannot prove that an old caller has exited.
-    throw new DeviceStateError("inspect_lock", "LEGACY_LOCK_OWNER_UNKNOWN");
-  }
-  // Recheck the exact owner before moving the lock; another process may have renewed it.
-  try {
-    if (token ? readFileSync(path, "utf8") !== token : !statSync(path).isDirectory()) return "active";
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-    throw asDeviceStateError(error, "inspect_lock");
-  }
-  moveLockAside(path, "stale", "remove_stale_lock", inspected);
-  return "recovered";
-}
-
-async function releaseLock(path: string, ownerToken: string): Promise<void> {
-  // Another caller may be inspecting our live owner under the same short
-  // transition. Wait for that critical section, without reclaiming its guard.
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (lockTransition(path, () => releaseOwnedLock(path, ownerToken))) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new DeviceStateError("release_lock", "LOCK_TRANSITION_BUSY");
-}
-
-function releaseOwnedLock(path: string, ownerToken: string): void {
-  try {
-    const inspected = lstatSync(path);
-    if (!inspected.isFile()) throw new DeviceStateError("release_lock", "LOCK_SOURCE_CHANGED");
-    if (readFileSync(path, "utf8") !== ownerToken) return;
-    moveLockAside(path, "released", "release_lock", inspected);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw asDeviceStateError(error, "release_lock");
-  }
-}
-
-// Per-process tickets publish ownership in the directory name before any write.
-// The pool itself is not a lock. An interrupted choosing/ready ticket is ignored
-// only after its PID is proven dead; no caller removes another caller's ticket.
-// New arrivals choose a larger ticket, and simultaneous choices use name order.
-function lockTransition(path: string, run: () => void): boolean {
-  const legacy = `${path}.transition`;
-  const pool = `${path}.transition-owners`;
-  mkdirSync(pool, { recursive: true, mode: 0o700 });
-  if (lstatSync(pool).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
-  const incarnation = processIncarnation(process.pid);
-  if (!incarnation) throw new DeviceStateError("prepare_lock", "LOCK_OWNER_PROBE_UNAVAILABLE");
-  // mkdir publishes the choosing owner and its incarnation in one atomic step.
-  const name = `${process.pid}-${sha256(incarnation).slice(7)}-${randomUUID()}`;
-  const own = resolve(pool, name);
-  mkdirSync(own, { mode: 0o700 });
-  let failed = false;
-  let linked = false;
-  const token = JSON.stringify({ pid: process.pid, incarnation, token: randomUUID() });
-  try {
-    let ticket = 1;
-    for (const other of readdirSync(pool)) {
-      if (other === name || other === "archives") continue;
-      const value = transitionTicket(pool, other);
-      if (value !== undefined) ticket = Math.max(ticket, (value ?? 0) + 1);
-    }
-    if (!Number.isSafeInteger(ticket)) throw new DeviceStateError("inspect_lock", "LOCK_TRANSITION_BUSY");
-    writeFileSync(resolve(own, "ticket"), JSON.stringify({sequence: ticket, incarnation}), { flag: "wx", mode: 0o600 });
-    for (const other of readdirSync(pool)) {
-      if (other === name || other === "archives") continue;
-      const value = transitionTicket(pool, other);
-      if (value === null || (value !== undefined && (value < ticket || (value === ticket && other < name)))) return false;
-    }
-    // All new binaries hold the ticket mutex during stale recovery. Old binaries
-    // see EEXIST on this same path, so cannot race acquisition with recovery.
-    if (existsSync(legacy)) {
-      const stat = lstatSync(legacy);
-      if (!stat.isFile()) return false; // Unknown old directory owner stays protected.
-      const text = readFileSync(legacy, "utf8");
-      const old = /^(\d+):[0-9a-f-]+$/.exec(text);
-      let ownerPID: number;
-      let birth: string | undefined;
-      if (old) ownerPID = Number(old[1]);
-      else {
-        let value: unknown; try { value = JSON.parse(text); } catch { return false; }
-        if (!value || typeof value !== "object" || !("pid" in value) || typeof value.pid !== "number" || !("incarnation" in value) || typeof value.incarnation !== "string") return false;
-        ownerPID = value.pid; birth = value.incarnation;
-      }
-      if (!Number.isSafeInteger(ownerPID) || ownerPID <= 0) return false;
-      try {
-        process.kill(ownerPID, 0);
-        const current = birth && processIncarnation(ownerPID);
-        if (!current || current === birth) return false;
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false; }
-      moveLockAside(legacy, "stale", "remove_stale_lock", stat);
-    }
-    const owner = resolve(own, "owner");
-    writeFileSync(owner, token, { flag: "wx", mode: 0o600 });
-    // Hard-link a fully written owner: no empty/unowned publication crash gap.
-    try { linkSync(owner, legacy); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-      throw error;
-    }
-    linked = true;
-    run();
-    return true;
-  } catch (error) { failed = true; throw error; } finally {
-    try {
-      if (linked) {
-        if (readFileSync(legacy, "utf8") !== token) throw new DeviceStateError("release_lock", "LOCK_SOURCE_CHANGED");
-        renameSync(legacy, resolve(own, "transition-released"));
-      }
-      const archive = resolve(pool, "archives");
-      mkdirSync(archive, { recursive: true, mode: 0o700 });
-      if (lstatSync(archive).isSymbolicLink()) throw new DeviceStateError("release_lock", "SYMLINK_LOCK");
-      const destination = resolve(archive, randomUUID());
-      mkdirSync(destination, { mode: 0o700 });
-      renameSync(own, resolve(destination, "entry"));
-    } catch (error) { if (!failed) throw asDeviceStateError(error, "release_lock"); }
-  }
-}
-
-// undefined = absent/dead, null = a live process still choosing its ticket.
-function transitionTicket(pool: string, name: string): number | null | undefined {
-  const owner = /^(\d+)-(?:([0-9a-f]{64})-)?[0-9a-f-]+$/.exec(name);
-  if (!owner || Number(owner[1]) <= 0) throw new DeviceStateError("inspect_lock", "LOCK_SOURCE_CHANGED");
-  try { process.kill(Number(owner[1]), 0); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
-    return null;
-  }
-  if (owner[2]) {
-    const birth = processIncarnation(Number(owner[1]));
-    if (!birth) return null;
-    if (sha256(birth).slice(7) !== owner[2]) return undefined;
-  }
-  try {
-    const entry = resolve(pool, name);
-    if (!lstatSync(entry).isDirectory()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
-    const file = resolve(entry, "ticket");
-    if (lstatSync(file).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
-    let value: unknown;
-    try { value = JSON.parse(readFileSync(file, "utf8")); } catch { return null; }
-    if (!value || typeof value !== "object" || !("sequence" in value) || typeof value.sequence !== "number" || !("incarnation" in value) || typeof value.incarnation !== "string") return null;
-    const birth = processIncarnation(Number(owner[1]));
-    if (!birth) return null;
-    if (birth !== value.incarnation) return undefined; // PID belongs to a different process.
-    return Number.isSafeInteger(value.sequence) && value.sequence > 0 ? value.sequence : null;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return existsSync(resolve(pool, name)) ? null : undefined;
-    }
-    throw asDeviceStateError(error, "inspect_lock");
-  }
-}
-
-// Built-in OS process metadata distinguishes reused PIDs without an age timeout.
-// If probing is unavailable, ownership stays conservative rather than stolen.
-function processIncarnation(pid: number): string | undefined {
-  try {
-    if (process.platform === "linux") {
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const started = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
-      return started ? `${readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim()}:${started}` : undefined;
-    }
-    const output = process.platform === "win32"
-      ? execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString('o')`], {encoding:"utf8",timeout:1000,stdio:["ignore","pipe","ignore"]})
-      : execFileSync("ps", ["-p",String(pid),"-o","lstart="], {encoding:"utf8",timeout:1000,stdio:["ignore","pipe","ignore"],env:{...process.env,LC_ALL:"C",TZ:"UTC"}});
-    return output.trim() || undefined;
-  } catch { return undefined; }
-}
-
-function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation, source: Stats): void {
-  try {
-    if (source.isSymbolicLink()) throw new DeviceStateError(operation, "SYMLINK_LOCK");
-    // Reserve a private, unique destination; never rename over shared archives.
-    const archive = `${path}.${suffix}.${randomUUID()}`;
-    mkdirSync(archive, { mode: 0o700 });
-    const current = lstatSync(path);
-    if (source.dev !== current.dev || source.ino !== current.ino || source.mtimeMs !== current.mtimeMs || source.size !== current.size) {
-      throw new DeviceStateError(operation, "LOCK_SOURCE_CHANGED");
-    }
-    renameSync(path, `${archive}/lock`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw asDeviceStateError(error, operation);
-  }
-}
-
-function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError {
+export function asDeviceStateError(error: unknown, operation: DeviceStateOperation): DeviceStateError {
   if (error instanceof DeviceStateError) return error;
   const code = (error as NodeJS.ErrnoException)?.code;
   const known = ["EACCES", "EPERM", "EROFS", "ENOTDIR", "EISDIR", "EEXIST", "ENOENT", "ENOTEMPTY", "ENOSPC", "EMFILE", "EIO", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"];
-  return new DeviceStateError(operation, typeof code === "string" && known.includes(code) ? code : "UNCLASSIFIED_LOCAL_FAILURE");
-}
-
-function asDeviceStatePathError(error: unknown, operation: DeviceStateOperation): DeviceStateError | undefined {
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "EEXIST" ? new DeviceStateError(operation, code, (error as NodeJS.ErrnoException).path) : asDeviceStateError(error, operation);
+  const cleanup = isRecord(error) && error.deviceStateOperation === "cleanup_private_key_temporary";
+  return new DeviceStateError(cleanup ? "cleanup_private_key_temporary" : operation, typeof code === "string" && (known.includes(code) || /^DEVICE_(KEY|CACHE|STATE)_[A-Z_]+$/.test(code)) ? code : "UNCLASSIFIED_LOCAL_FAILURE", undefined, cleanup && typeof error.canonicalKeyPublished === "boolean" ? error.canonicalKeyPublished : undefined);
 }
 
 import { stateDir } from "./config.js";
-import { execFileSync } from "node:child_process";
