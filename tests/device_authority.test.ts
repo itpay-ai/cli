@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createPublicKey, verify } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -128,6 +128,28 @@ test("device identity lock lifecycle does not depend on sandbox delete operation
   const lockLifecycle = source.slice(source.indexOf("async function withFileLock"), source.indexOf("function asDeviceStateError"));
   assert.doesNotMatch(lockLifecycle, /\b(?:unlinkSync|rmdirSync)\b/);
   assert.match(lockLifecycle, /renameSync/);
+});
+
+test("legacy directory lock preserves existing file archives and recovers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-lock-archive-collision-"));
+  const statePath = join(root, "identity.json");
+  const lockPath = `${statePath}.lock`;
+  mkdirSync(lockPath);
+  const stale = new Date(Date.now() - 31_000);
+  utimesSync(lockPath, stale, stale);
+  writeFileSync(`${lockPath}.stale`, "prior-stale");
+  writeFileSync(`${lockPath}.released`, "prior-released");
+  const server = new DeviceServer();
+  await new DeviceAuthority({
+    baseURL: "https://test.itpay.ai", requestedAgentType: "workbuddy", compatibilityHeaders: {},
+    statePath, privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
+  }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(readFileSync(`${lockPath}.stale`, "utf8"), "prior-stale");
+  assert.equal(readFileSync(`${lockPath}.released`, "utf8"), "prior-released");
+  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.stale.")).length, 1);
+  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.released.")).length, 1);
+  assert.equal(server.enrollmentCount, 1);
 });
 
 test("device repair-lock preserves live owners and recovers exited owners", () => {

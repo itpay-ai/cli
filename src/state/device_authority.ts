@@ -524,12 +524,15 @@ function releaseLock(path: string, ownerToken: string): void {
 }
 
 function moveLockAside(path: string, suffix: "released" | "stale", operation: DeviceStateOperation): void {
+  const archivePath = `${path}.${suffix}`;
+  // Legacy directory locks and file locks must never replace an existing archive.
+  const destination = existsSync(archivePath) ? `${archivePath}.${randomUUID()}` : archivePath;
   try {
-    renameSync(path, `${path}.${suffix}`);
+    renameSync(path, destination);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return;
-    if (code === "EEXIST" || code === "ENOTEMPTY") {
+    if (code === "EEXIST" || code === "ENOTEMPTY" || code === "ENOTDIR" || code === "EISDIR") {
       renameSync(path, `${path}.${suffix}.${randomUUID()}`);
       return;
     }
