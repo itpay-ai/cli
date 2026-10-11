@@ -567,10 +567,11 @@ function lockTransition(path: string, run: () => void): boolean {
   const pool = `${path}.transition-owners`;
   mkdirSync(pool, { recursive: true, mode: 0o700 });
   if (lstatSync(pool).isSymbolicLink()) throw new DeviceStateError("inspect_lock", "SYMLINK_LOCK");
-  const name = `${process.pid}-${randomUUID()}`;
-  const own = resolve(pool, name);
   const incarnation = processIncarnation(process.pid);
   if (!incarnation) throw new DeviceStateError("prepare_lock", "LOCK_OWNER_PROBE_UNAVAILABLE");
+  // mkdir publishes the choosing owner and its incarnation in one atomic step.
+  const name = `${process.pid}-${sha256(incarnation).slice(7)}-${randomUUID()}`;
+  const own = resolve(pool, name);
   mkdirSync(own, { mode: 0o700 });
   let failed = false;
   let linked = false;
@@ -640,11 +641,16 @@ function lockTransition(path: string, run: () => void): boolean {
 
 // undefined = absent/dead, null = a live process still choosing its ticket.
 function transitionTicket(pool: string, name: string): number | null | undefined {
-  const owner = /^(\d+)-[0-9a-f-]+$/.exec(name);
+  const owner = /^(\d+)-(?:([0-9a-f]{64})-)?[0-9a-f-]+$/.exec(name);
   if (!owner || Number(owner[1]) <= 0) throw new DeviceStateError("inspect_lock", "LOCK_SOURCE_CHANGED");
   try { process.kill(Number(owner[1]), 0); } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
     return null;
+  }
+  if (owner[2]) {
+    const birth = processIncarnation(Number(owner[1]));
+    if (!birth) return null;
+    if (sha256(birth).slice(7) !== owner[2]) return undefined;
   }
   try {
     const entry = resolve(pool, name);

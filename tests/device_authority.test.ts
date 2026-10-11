@@ -648,3 +648,12 @@ test("retained ticket and guard with a reused PID cannot block a different proce
  await authority.authorizationHeaders({method:"GET",path:"/v1/orders",body:""});assert.equal(existsSync(statePath+".lock"),false);
  assert.equal(readFileSync(join(own,"ticket"),"utf8"),JSON.stringify({sequence:1,incarnation:"different-process-incarnation"}));
 });
+
+
+test("pre-ticket choosing directory carries incarnation through PID reuse",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"itpay-transition-choosing-reused-")),statePath=join(root,"identity.json");
+ const own=join(statePath+".lock.transition-owners",process.pid+"-"+"0".repeat(64)+"-deadbeef");mkdirSync(own,{recursive:true,mode:0o700});
+ const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl:new DeviceServer().fetch});
+ await authority.authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
+ assert.equal(existsSync(statePath+".lock"),false);assert.equal(existsSync(own),true);assert.equal(existsSync(join(own,"ticket")),false);
+});
