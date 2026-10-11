@@ -4,7 +4,7 @@
 
 import { Command } from "commander";
 import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
-import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
+import { DeviceAuthority, DeviceAuthorizationError, DeviceLockBusyError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
 import { HttpError } from "./client/http.js";
@@ -178,6 +178,7 @@ function reportCLIError(
   const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
   const deviceError = error instanceof DeviceAuthorizationError ? error : undefined;
   const stateError = error instanceof DeviceStateError ? error : undefined;
+  const lockError = error instanceof DeviceLockBusyError ? error : undefined;
   const transportError = error instanceof HttpTransportError ? error : undefined;
   const httpRecovery = errorRecoveryActions(error).map((action) => ({
     command: action.command,
@@ -202,12 +203,10 @@ function reportCLIError(
     command: "itpay skill show itpay --json",
     reason: "读取 ItPay 身份边界；该错误需要用户或运营恢复 Backend 登记，不能通过换类型或删除本地身份绕过",
   }] : [];
-  const stateRecovery: CommandAction[] = stateError ? [{
-    command: "itpay skill show itpay --json",
-    reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
-  }] : [];
+  const stateRecovery: CommandAction[] = [];
   const authorizationInstruction = stateError
-    ? "当前运行环境无法写入 owner-only Device 状态；请保持同一 Node、CLI 和 Agent Type，在允许持久写入 ~/.itpay-v3 的执行环境中重试。不要手工创建 lock、删除 identity 或换运行时碰运气。"
+    ? `本地设备状态操作未完成：${stateError.operation}（${stateError.causeCode}，来源 ${stateError.source}）。保持原身份和已有授权；由环境负责人核对该操作、锁持有者和宿主返回。权限错误才检查读写权限；未知操作结果先核对现场，不盲目重试，不删除身份或绕过宿主保护。`
+    : lockError ? "本地身份锁占用或安全转换未完成；由环境负责人核对当前持有者和宿主现场，不能按等待时间删锁或重建身份。"
     : error instanceof HttpError && error.code === "agent_device_session_required"
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
@@ -215,14 +214,14 @@ function reportCLIError(
       : deviceError
         ? "Device 身份验证失败；停止重试，不要切换 Agent Type、删除状态或旋转私钥。"
         : undefined;
-  if (contract || commandError || backendOverrideError) {
+  if (contract || commandError || backendOverrideError || stateError || lockError) {
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
+        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(incompatible && error instanceof HttpError ? {
+      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source } } : incompatible && error instanceof HttpError ? {
         result: {
           current_cli_version: CLI_VERSION,
           current_api_contract_revision: API_CONTRACT_REVISION,
@@ -279,7 +278,7 @@ function reportCLIError(
           ? []
           : backendOverrideError ? [] : commandError?.recovery ?? (stateError ? stateRecovery : deviceError ? deviceRecovery : identityRecovery ? httpRecovery : contract?.recovery ?? []),
     }, {
-      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError ? { jsonOutput: process.argv.includes("--json") } : {}),
+      ...(contract?.jsonOutput !== undefined ? { jsonOutput: contract.jsonOutput } : backendOverrideError || stateError || lockError ? { jsonOutput: process.argv.includes("--json") } : {}),
       output: (text) => { process.stderr.write(text); },
     });
     process.exitCode = 1;
