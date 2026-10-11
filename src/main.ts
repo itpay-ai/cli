@@ -216,18 +216,15 @@ function reportCLIError(
     },
 
   ] : [];
-  const stateRecovery: CommandAction[] = stateError ? [{
-    command: "itpay skill show itpay --json",
-    reason: "读取 Device 状态边界；修复当前 Host 的持久写权限后重试原命令",
-  }] : [];
+  const stateRecovery: CommandAction[] = [];
   const lockRecovery: CommandAction[] = lockError ? [{
     command: "itpay device repair-lock --json",
     reason: "检查锁持有者；只回收已退出进程留下的锁，不改变设备身份",
   }] : [];
   const authorizationInstruction = stateError
-    ? `当前运行环境无法写入 owner-only Device 状态；受阻路径 ${stateError.blockedPath ?? "~/.itpay-v3"}，操作 ${stateError.operation}（${stateError.causeCode}）。保持同一 Node、CLI 和 Agent Type，修复该路径持久写权限后重试原命令；不要手工创建 lock、删除 identity、随意更换 HOME 或换运行时。`
+    ? `本地设备状态操作未完成：${stateError.operation}（${stateError.causeCode}，来源 ${stateError.source}）。保持原身份和已有授权；由环境负责人核对该操作、锁持有者和宿主返回。权限错误才检查读写权限；未知操作结果先核对现场，不盲目重试，不删除身份或绕过宿主保护。`
     : lockError
-    ? "另一个进程仍在更新本地身份。执行 recovery 检查；若持有者仍活跃，等待后继续原任务，不要删除锁或重建身份。"
+    ? "本地身份锁占用或安全转换未完成。执行 recovery 核对；活跃持有者需等待，遗留转换需环境负责人检查。不能仅凭等待时间删锁或重建身份。"
     : error instanceof HttpError && error.code === "agent_device_session_required"
     ? "CLI 已自动续期并重试同一请求一次，仍被拒绝；停止重试，不要切换 Agent Type 或旋转身份。"
     : deviceError?.code === "agent_device_revoked"
@@ -246,7 +243,7 @@ function reportCLIError(
         code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? lockError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
-      ...(commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
+      ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
         result: {
           current_cli_version: CLI_VERSION,
           current_api_contract_revision: API_CONTRACT_REVISION,
@@ -399,6 +396,7 @@ for (const action of ["login", "status"] as const) {
         recovery: (result.recovery ?? []) as Array<{ command: string; reason: string }>,
       };
       writeCommandEnvelope(envelope, { jsonOutput: Boolean(options.json) });
+      if (envelope.status === "auth_status_unknown") process.exitCode = 1;
     } catch (error) { reportCLIError(error, {jsonOutput: Boolean(options.json), code: "account_login_failed", initialization: true, instruction: "本轮授权检查未完成；保留设备及已有授权状态，按明确错误原因恢复。不要自动发起新的登录。"}); }
   });
 }
@@ -422,7 +420,7 @@ deviceCmd
       writeCommandEnvelope({
         status: status === "recovered" ? "device_lock_recovered" : status === "active" ? "device_lock_active" : "device_lock_absent",
         result: { lock_status: status, device_identity_preserved: true },
-        instruction: status === "active" ? "本地身份正由存活进程更新；稍后继续原任务。" : "本地锁无需进一步处理；继续原任务。",
+        instruction: status === "active" ? "本地锁占用或安全转换未完成；保留原身份，核对持有者及宿主现场后继续原任务。" : "本地锁无需进一步处理；继续原任务。",
         next: null,
         recovery: [],
       }, { jsonOutput: Boolean(options.json), plainResult: [`lock: ${status}`, "device_identity: preserved"] });

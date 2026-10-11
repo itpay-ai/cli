@@ -346,3 +346,14 @@ test("setup: a saved authorization rejected with HTTP401 preserves the definite 
   await assert.rejects(agentAuth("status", mock.url, backend, env, async () => new Response("unauthorized", {status:401})), (error: unknown) => error instanceof Error && error.name === "AuthRequestError");
   assert.ok(existsSync(sellerAuthPath(mock.url, env, "agent-login")));
 });
+
+
+test("setup host and unknown failures preserve stages without claiming network recovery", async () => {
+  for (const error of [Object.assign(new Error("private omitted"),{code:"CODEBUDDY_BROKER_DENY"}),new Error("private omitted")]) {
+    const response=await agentAuth("status",mock.url,{agentAccountStatus:async()=>{throw error;},bindAgentAccount:backend.bindAgentAccount.bind(backend)},env) as {status:string;result:Record<string,unknown>;instruction:string;next:unknown};
+    assert.equal(response.status,"auth_status_unknown");
+    assert.equal(response.result.failure_stage,"account_binding_probe");
+    assert.equal(response.next,null);
+    assert.doesNotMatch(response.instruction,/网络.*恢复|private omitted/);
+  }
+});

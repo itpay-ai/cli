@@ -83,24 +83,32 @@ class AuthRequestError extends Error {
 
 // AUTH03: transport/read uncertainty never maps to "denied" or a new session —
 // the stored session stays on disk and the caller retries the same poll.
-function authStatusUnknown(sessionID: string | undefined, error?: unknown): CommandEnvelope {
+function authStatusUnknown(sessionID: string | undefined, error?: unknown, failureStage = "authorization_status_read"): CommandEnvelope {
   // These errors have definite compatibility/identity/state facts. Let the
   // command boundary report them rather than turning them into polling.
   if ((error instanceof HttpError && error.status < 500)
     || (error instanceof AuthRequestError && error.httpStatus < 500)
     || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError
     || error instanceof DeviceLockBusyError) throw error;
+  const hostFailure = error && typeof error === "object" && "code" in error
+    && (error.code === "CODEBUDDY_BROKER_DENY" || error.code === "CODEBUDDY_BROKER_OUTCOME_UNKNOWN");
   const failure = error instanceof HttpTransportError
-    ? { category: error.code, attempts: error.attempts }
-    : { category: 'authorization_status_unavailable' };
+    ? { category: error.code, attempts: error.attempts, source: "network_transport" }
+    : error instanceof HttpError || error instanceof AuthRequestError
+      ? { category: "http_server_error", http_status: error instanceof HttpError ? error.status : error.httpStatus, source: "http_response" }
+      : hostFailure ? { category: "host_operation_unavailable", source: "host_broker" }
+      : { category: "authorization_status_unavailable", source: "unclassified" };
+
 
   return {
     status: 'auth_status_unknown',
-    result: { ...failure, ...(sessionID ? { dashboard_auth_session_id: sessionID } : {}) },
-    instruction: sessionID
+    result: { ...failure, failure_stage: failureStage, ...(sessionID ? { dashboard_auth_session_id: sessionID } : {}) },
+    instruction: hostFailure || failure.source === 'unclassified'
+      ? '本轮授权检查未完成，底层原因尚未确定；保留设备和已有授权，请维护方核对当前失败阶段及宿主结果，不自动登录、换身份或盲目重复修改。'
+      : sessionID
       ? '读取官方授权状态失败；原授权请求已保留。稍后重读同一状态，不要新建授权、不要清除本地登记。'
       : '本轮账号绑定检查未完成，设备与绑定状态尚未确认；没有保存的授权请求。结束本轮，网络或服务恢复后可重新检查，不发起登录。',
-    next: sessionID ? { command: 'itpay auth status --json', reason: '稍后重读同一授权状态', poll_after_ms: 5000 } : null,
+    next: sessionID && !hostFailure && failure.source !== 'unclassified' ? { command: 'itpay auth status --json', reason: '稍后重读同一授权状态', poll_after_ms: 5000 } : null,
     recovery: [],
   };
 }
@@ -152,7 +160,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
       if (error instanceof AuthRequestError) throw error;
       // AUTH03: even the binding-status probe can hit transport failure; the
       // truthful state is "unknown", never an implicit unbound or a fresh login.
-      return authStatusUnknown(read(baseURL, env, purpose)?.sessionID, error);
+      return authStatusUnknown(read(baseURL, env, purpose)?.sessionID, error, "account_binding_probe");
     }
   }
   async function request(path: string, init: RequestInit = {}) {

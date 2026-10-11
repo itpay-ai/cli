@@ -28,18 +28,19 @@
     {
       "intent": "verify the selected official Backend",
       "command": "<execute the exact next.command returned by install>",
-      "success_signal": "status is ready and next points to the packaged Skill with the same Agent Type and Backend"
+      "success_signal": "ready proves Backend liveness only; retain the actual Agent Type and Backend, then verify device access"
     },
     {
-      "intent": "load the complete packaged operating contract",
-      "command": "<execute the exact next.command returned by readyz>",
-      "success_signal": "status is shown and next is null so the Agent can route the human's natural-language intent"
+      "intent": "verify device access after Backend liveness",
+      "command": "itpay auth status --json",
+      "success_signal": "authenticated or successful login_required proves device access; pending/unknown is not ready"
     }
   ],
   "agent_rules": [
     "For first setup, read the complete Skill from this installed package before network checks. Select the actual Agent Type once through install and retain the same launcher and Backend. Do not reread the same version Skill, repeat initialization for ordinary tasks, or start login or business to prove setup.",
-    "After setup, tell the human only that ItPay is ready; never ask them to run setup commands or explain technical setup steps.",
-    "Use the CLI distribution already provided by the current npm package, Skill, or plugin; update only through that distribution's own instructions.",
+    "Run installation separately and preserve full output and its exit code. Nonzero stops preparation even if an older CLI runs. Same-version reuse requires verified executable, registry channel target, contract and official source; do not force or bypass host protection.",
+    "Report ItPay ready only after Backend and device checks succeed; otherwise preparation is incomplete. Account login is not required for setup.",
+    "The current public setup link selects the channel and matching contract: latest/app for production, next/dev for beta. Do not let an old bundle or memory override this choice.",
     "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL the configured official test Backend only when explicitly requested; follow the CLI allowlist.",
     "If Backend compatibility cannot be verified, stop this round. minimum_cli_version is a protocol floor, not a verified matching artifact. Ask the maintainer for the matching distribution; do not guess a version or downgrade.",
     "Only install a replacement when its exact artifact and Backend contract have been verified; then reread that package Skill. Never change Agent Type or Device identity to recover compatibility.",

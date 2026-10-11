@@ -6026,3 +6026,28 @@ test("multi-service catalog text keeps each real entry without a guessed top-lev
   assert.doesNotMatch(plain, /docs show rail-booking/, "an untyped legacy ID does not imply a railway contract");
   assert.doesNotMatch(plain, /\nnext:/);
 });
+
+test("auth CLI exit distinguishes verified device access from technical initialization failure", async () => {
+  const home = mkdtempSync(join(tmpdir(), "itpay-auth-command-"));
+  mock.setAgentBinding({status:"unbound"});
+  for (const json of [false,true]) {
+    const out=await runCLI(["--agent-type","workbuddy","auth","status",...(json?["--json"]:[])],{HOME:home});
+    if(json) assert.equal(JSON.parse(out.stdout).status,"login_required");
+    else assert.match(out.stdout,/login_required/);
+  }
+  mock.setAgentBinding({status:"authenticated",phone_verified:true});
+  assert.equal(JSON.parse((await runCLI(["--agent-type","workbuddy","auth","status","--json"],{HOME:home})).stdout).status,"authenticated");
+  mock.setAuthSessionError({status:500,code:"internal_error",message:"fixture"});
+  try {
+    await assert.rejects(runCLI(["--agent-type","workbuddy","auth","status","--json"],{HOME:home}),(error:unknown)=>{
+      assert.ok(error && typeof error === "object" && "code" in error && "stdout" in error);
+      assert.equal(error.code,1);
+      const out=JSON.parse(String(error.stdout));
+      assert.equal(out.status,"auth_status_unknown");
+      assert.equal(out.result.failure_stage,"account_binding_probe");
+      assert.equal(out.result.source,"http_response");
+      assert.equal(out.next,null);
+      return true;
+    });
+  } finally {mock.setAuthSessionError(undefined);mock.setAgentBinding({status:"unbound"});}
+});

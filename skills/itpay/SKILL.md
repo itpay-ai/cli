@@ -14,6 +14,8 @@ human the useful result or action, not the internal steps.
 
 ## Installation readiness
 
+The current setup link chooses the channel: production is latest/app; beta is next/dev. Keep this choice even if old memory or a bundled CLI suggests another version. Run any installation separately, read its full output and preserve its exit code; a failed installation ends preparation even when an old CLI still runs. Reuse requires verified executable, current channel version, contract and official package source. Do not force installation or bypass host protection.
+
 Read this installed package Skill before network checks. Select the actual Agent Type from `itpay install --json` and retain the same executable and Backend. readyz proves liveness only; after success, `itpay auth status --json` checks device access and binding. A successful authenticated or login_required response proves the device request worked; login_required does not require login during setup. Preserve any existing authorization. Unknown, missing-command, compatibility or exhausted network checks end this round without guessing commands/versions or reporting ready. minimum_cli_version is a protocol floor, not a verified artifact recommendation. Do not use services, orders or paid operations to prove installation. Already read same-version Skill needs no repeat.
 
 ## Choose one entry

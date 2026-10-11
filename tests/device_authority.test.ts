@@ -3,7 +3,11 @@ import { createPublicKey, verify } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test, mock } from "node:test";
+import fs from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { syncBuiltinESMExports } from "node:module";
 
 import { HttpClient, HttpError } from "../src/client/http.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "../src/state/device_authority.js";
@@ -32,7 +36,7 @@ test("device authority enrolls once, survives concurrent processes, and register
   assert.equal(statSync(statePath).mode & 0o777, 0o600);
   assert.equal(statSync(privateKeyPath).mode & 0o777, 0o600);
   assert.equal(existsSync(`${statePath}.lock`), false);
-  assert.equal(existsSync(`${statePath}.lock.released`), true);
+  assert.equal(readdirSync(join(statePath, "..")).some(name => name.startsWith("identity.json.lock.released.")), true);
 
   const requestCount = server.requestCount;
   await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
@@ -103,24 +107,18 @@ test("device authority stops when every existing instance is revoked", async () 
   assert.equal(server.enrollmentCount, 1, "revoked instances must not create a replacement device");
 });
 
-test("device authority renames a stale legacy lock and releases without deletion", async () => {
+test("ownerless legacy directory requires operator evidence rather than stealing an old caller", () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-legacy-lock-"));
   const statePath = join(root, "identity.json");
   const lockPath = `${statePath}.lock`;
   mkdirSync(lockPath);
   const stale = new Date(Date.now() - 31_000);
   utimesSync(lockPath, stale, stale);
-
-  const server = new DeviceServer();
-  const headers = await new DeviceAuthority({
-    baseURL: "https://test.itpay.ai", requestedAgentType: "workbuddy", compatibilityHeaders: {},
-    statePath, privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
-  }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-
-  assert.equal(headers["X-ItPay-Agent-Instance-ID"], "ain_workbuddy");
-  assert.equal(existsSync(lockPath), false);
-  assert.equal(existsSync(`${lockPath}.stale`), true);
-  assert.equal(existsSync(`${lockPath}.released`), true);
+  writeFileSync(`${lockPath}.stale`, "preserved");
+  const authority = new DeviceAuthority({ baseURL: "https://test.itpay.ai", compatibilityHeaders: {}, statePath, privateKeyPath: join(root, "private.pem") });
+  assert.throws(() => authority.repairLock(), (error: unknown) => error instanceof DeviceStateError && error.causeCode === "LEGACY_LOCK_OWNER_UNKNOWN");
+  assert.equal(statSync(lockPath).isDirectory(), true);
+  assert.equal(readFileSync(`${lockPath}.stale`, "utf8"), "preserved");
 });
 
 test("device identity lock lifecycle does not depend on sandbox delete operations", () => {
@@ -130,14 +128,13 @@ test("device identity lock lifecycle does not depend on sandbox delete operation
   assert.match(lockLifecycle, /renameSync/);
 });
 
-test("legacy directory lock preserves existing file archives and recovers", async () => {
+test("exited owner lock preserves existing directory and file archives and recovers", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-lock-archive-collision-"));
   const statePath = join(root, "identity.json");
   const lockPath = `${statePath}.lock`;
-  mkdirSync(lockPath);
-  const stale = new Date(Date.now() - 31_000);
-  utimesSync(lockPath, stale, stale);
-  writeFileSync(`${lockPath}.stale`, "prior-stale");
+  writeFileSync(lockPath, "99999999:deadbeef");
+  mkdirSync(`${lockPath}.stale`);
+  writeFileSync(`${lockPath}.stale/history`, "prior-stale");
   writeFileSync(`${lockPath}.released`, "prior-released");
   const server = new DeviceServer();
   await new DeviceAuthority({
@@ -145,7 +142,7 @@ test("legacy directory lock preserves existing file archives and recovers", asyn
     statePath, privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
   }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
   assert.equal(existsSync(lockPath), false);
-  assert.equal(readFileSync(`${lockPath}.stale`, "utf8"), "prior-stale");
+  assert.equal(readFileSync(`${lockPath}.stale/history`, "utf8"), "prior-stale");
   assert.equal(readFileSync(`${lockPath}.released`, "utf8"), "prior-released");
   assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.stale.")).length, 1);
   assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.released.")).length, 1);
@@ -176,7 +173,7 @@ test("device authority returns a stable error when its state path is not writabl
       statePath: "/dev/null/identity.json", privateKeyPath: join(root, "private.pem"), fetchImpl: new DeviceServer().fetch,
     }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" }),
     (error: unknown) => error instanceof DeviceStateError &&
-      error.code === "device_state_unwritable" &&
+      error.code === "device_state_unavailable" &&
       error.operation === "prepare_lock" &&
       error.causeCode === "EEXIST" &&
       error.blockedPath === "/dev/null" &&
@@ -510,3 +507,84 @@ test("device authority resetDeviceKey discards the key and every registration", 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
+
+for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN"]) {
+  test(`lock acquisition classifies ${code} at the file operation boundary`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "itpay-lock-error-"));
+    const original = fs.writeFileSync;
+    const patch = mock.method(fs, "writeFileSync", (...args: Parameters<typeof fs.writeFileSync>) => {
+      if (String(args[0]).endsWith(".lock")) throw Object.assign(new Error("private diagnostic omitted"), { code });
+      return original(...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(new DeviceAuthority({ baseURL: "https://test.itpay.ai", compatibilityHeaders: {},
+        statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"), fetchImpl: new DeviceServer().fetch,
+      }).authorizationHeaders({ method: "GET", path: "/v1/orders", body: "" }), (error: unknown) => {
+        assert.ok(error instanceof DeviceStateError);
+        assert.equal(error.operation, "acquire_lock");
+        assert.equal(error.causeCode, code);
+        assert.equal(error.source, code.startsWith("CODEBUDDY_") ? "host_broker" : "native_filesystem");
+        assert.doesNotMatch(error.message, /private diagnostic/);
+        return true;
+      });
+    } finally { patch.mock.restore(); syncBuiltinESMExports(); }
+  });
+}
+
+test("release failure does not replace the original enrollment failure", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-lock-release-error-"));
+  const original = fs.renameSync;
+  const patch = mock.method(fs, "renameSync", (...args: Parameters<typeof fs.renameSync>) => {
+    if (String(args[1]).includes(".released.")) throw Object.assign(new Error("release blocked"), { code: "EPERM" });
+    return original(...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(new DeviceAuthority({ baseURL: "https://test.itpay.ai", compatibilityHeaders: {},
+      statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"),
+      requestedAgentType: "workbuddy", fetchImpl: async () => Response.json({code:"agent_device_revoked",message:"revoked"}, {status:403}),
+    }).authorizationHeaders({method:"GET",path:"/v1/orders",body:""}), (error: unknown) => error instanceof DeviceAuthorizationError && error.status === 403);
+  } finally { patch.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("recovery stops when the inspected source changes", () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-lock-changed-"));
+  const statePath = join(root, "identity.json"), lock = `${statePath}.lock`;
+  writeFileSync(lock, "99999999:deadbeef");
+  const original = fs.lstatSync;
+  let calls = 0;
+  const patch = mock.method(fs, "lstatSync", (...args: Parameters<typeof fs.lstatSync>) => {
+    if (String(args[0]) === lock && ++calls === 2) writeFileSync(lock, `${process.pid}:deadbeef`);
+    return original(...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    const authority = new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
+    assert.throws(() => authority.repairLock(), (error: unknown) => error instanceof DeviceStateError && error.causeCode === "LOCK_SOURCE_CHANGED");
+    assert.equal(readFileSync(lock,"utf8"), `${process.pid}:deadbeef`);
+  } finally {patch.mock.restore();syncBuiltinESMExports();}
+});
+
+test("lock inspection does not follow symlinks or reclaim an unprobeable owner", () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-lock-symlink-"));
+  const statePath = join(root,"identity.json"), lock=`${statePath}.lock`, outside=join(root,"outside");
+  writeFileSync(outside,"preserved");fs.symlinkSync(outside,lock);
+  const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
+  assert.throws(()=>authority.repairLock(),(error:unknown)=>error instanceof DeviceStateError && error.causeCode==="SYMLINK_LOCK");
+  assert.equal(readFileSync(outside,"utf8"),"preserved");
+  fs.unlinkSync(lock);writeFileSync(lock,"99999999:deadbeef");
+  const patch=mock.method(process,"kill",()=>{throw Object.assign(new Error("not allowed"),{code:"EPERM"});});
+  try {assert.equal(authority.repairLock(),"active");assert.equal(readFileSync(lock,"utf8"),"99999999:deadbeef");} finally {patch.mock.restore();}
+});
+
+test("independent processes recover an exited owner once without replacing another transition", async () => {
+  const root=mkdtempSync(join(tmpdir(),"itpay-lock-processes-")), statePath=join(root,"identity.json");
+  writeFileSync(`${statePath}.lock`,"99999999:deadbeef");
+  const source=new URL("../src/state/device_authority.ts",import.meta.url).href;
+  const script=`import {DeviceAuthority} from ${JSON.stringify(source)}; const a=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath:${JSON.stringify(statePath)},privateKeyPath:${JSON.stringify(join(root,"private.pem"))}}); console.log(a.repairLock());`;
+  const results=await Promise.all(Array.from({length:4},()=>promisify(execFile)(process.execPath,["--import","tsx","--input-type=module","-e",script],{cwd:new URL("../",import.meta.url)})));
+  assert.equal(results.filter(r=>r.stdout.trim()==="recovered").length,1);
+  assert.equal(readdirSync(root).filter(n=>n.startsWith("identity.json.lock.stale.")).length,1);
+  assert.equal(existsSync(`${statePath}.lock`),false);
+});
