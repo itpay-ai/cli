@@ -76,5 +76,11 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/itpay-ai/cli.git"
-  }
+  },
+  "bundleDependencies": [
+    "@modelcontextprotocol/sdk",
+    "commander",
+    "qrcode",
+    "zod"
+  ]
 }
