@@ -137,3 +137,16 @@ test("denied own key-temp cleanup reports published canonical key and never rota
  finally {patch.mock.restore();syncBuiltinESMExports();}
  const bytes=readFileSync(key);createDeviceKey(key,false);assert.deepEqual(readFileSync(key),bytes);
 });
+
+test("backend recovery ignores unrelated old cache schemas but rejects its own unsupported schema",async()=>{
+ const {deviceCacheAgentTypes}=await import('../src/state/device_session_cache.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-cache-recovery-isolation-'));
+ const own=new DeviceSessionCache(root,context);own.write(registration,own.generation(true)!);
+ for(const otherContext of [{...context,backend:'https://app.itpay.ai'},{...context,keyThumbprint:'different-key'}]) {
+  const other=new DeviceSessionCache(root,otherContext);other.write(registration,other.generation(true)!);
+  const data=JSON.parse(readFileSync(other.cachePath,'utf8'));data.schemaVersion='historical.unsupported';writeFileSync(other.cachePath,JSON.stringify(data));
+ }
+ assert.deepEqual(deviceCacheAgentTypes(root,context.backend,context.keyThumbprint),['workbuddy']);
+ const data=JSON.parse(readFileSync(own.cachePath,'utf8'));data.schemaVersion='historical.unsupported';writeFileSync(own.cachePath,JSON.stringify(data));
+ assert.throws(()=>deviceCacheAgentTypes(root,context.backend,context.keyThumbprint),/DEVICE_CACHE_CORRUPT/);
+});

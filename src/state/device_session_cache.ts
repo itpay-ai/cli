@@ -139,8 +139,8 @@ export function deviceCacheAgentTypes(directory: string, backend: string, keyThu
     const text = readRegular(join(directory, file));
     if (text === undefined) continue;
     const value: CacheRecord = JSON.parse(text);
-    if (value?.schemaVersion !== "itpay.device-session.v1") throw invalid("DEVICE_CACHE_CORRUPT");
-    if (value.backend !== backend || value.keyThumbprint !== keyThumbprint) continue;
+    if (value?.backend !== backend || value?.keyThumbprint !== keyThumbprint) continue;
+    if (value.schemaVersion !== "itpay.device-session.v1") throw invalid("DEVICE_CACHE_CORRUPT");
     if (typeof value.agentType !== "string") throw invalid("DEVICE_CACHE_CORRUPT");
     const cache = new DeviceSessionCache(directory, value);
     if (cache.cachePath !== join(directory, file)) throw invalid("DEVICE_CACHE_CONTEXT_INVALID");
