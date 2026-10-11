@@ -12,6 +12,19 @@ import { readDeviceKey, deviceKeyThumbprint } from "../src/state/device_key.js";
 import { HttpClient, HttpError } from "../src/client/http.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "../src/state/device_authority.js";
 
+test("legacy empty identity without its key remains an unsupported recovery state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "itpay-empty-identity-"));
+  const statePath = join(root, "identity.json");
+  const privateKeyPath = join(root, "private.pem");
+  const original = JSON.stringify({ schemaVersion: "itpay.device.v2", registrations: {} });
+  writeFileSync(statePath, original, { mode: 0o600 });
+  const server = new DeviceServer();
+  await assert.rejects(new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath,fetchImpl:server.fetch}).authorizationHeaders({method:"GET",path:"/v1/orders",body:""}), error => error instanceof DeviceStateError && error.causeCode === "DEVICE_KEY_MISSING");
+  assert.equal(readFileSync(statePath,"utf8"),original);
+  assert.equal(existsSync(privateKeyPath),false);
+  assert.equal(server.requestCount,0);
+});
+
 test("device authority keeps one canonical key and device during concurrent enrollment and distinct agent caches", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-"));
   const statePath = join(root, "missing", "nested", "identity.json");

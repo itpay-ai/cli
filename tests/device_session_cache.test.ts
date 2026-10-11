@@ -24,6 +24,31 @@ test("invalidation cannot be overwritten by a late session response", () => {
  cache.write(registration, second);
  assert.equal(cache.read(), undefined);
 });
+
+test("backend recovery includes generation-only in-flight types and isolates other contexts", async () => {
+ const {deviceCacheAgentTypes}=await import('../src/state/device_session_cache.js');
+ const {DeviceAuthority}=await import('../src/state/device_authority.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-marker-only-'));
+ const keyPath=join(root,'private.pem');
+ const key=createDeviceKey(keyPath,false);
+ const current={...context,keyThumbprint:deviceKeyThumbprint(key)};
+ const directory=join(root,'sessions');
+ const pending=new DeviceSessionCache(directory,current);
+ const captured=pending.generation(true)!;
+ const unrelated=new DeviceSessionCache(directory,{...current,backend:'https://app.itpay.ai'});
+ const otherGeneration=unrelated.generation(true)!;
+ assert.deepEqual(deviceCacheAgentTypes(directory,current.backend,current.keyThumbprint),['workbuddy']);
+ const authority=new DeviceAuthority({baseURL:current.backend,requestedAgentType:'codex-desktop',compatibilityHeaders:{},statePath:join(root,'identity.json'),privateKeyPath:keyPath,fetchImpl:async()=>{throw Error('recovery must not use network');}});
+ const recovered=await authority.recoverBackendReset();
+ assert.ok(recovered.agentTypes.includes('workbuddy'));
+ pending.write(registration,captured);
+ assert.equal(pending.read(),undefined,'late first response cannot revive a recovered context');
+ assert.equal(unrelated.generation(false),otherGeneration);
+ const marker=JSON.parse(readFileSync(pending.generationPath,'utf8'));
+ marker.agentType='wrong-type';writeFileSync(pending.generationPath,JSON.stringify(marker));
+ assert.throws(()=>deviceCacheAgentTypes(directory,current.backend,current.keyThumbprint),/DEVICE_CACHE_CONTEXT_INVALID/);
+ assert.throws(()=>pending.generation(false),/DEVICE_CACHE_GENERATION_INVALID/);
+});
 test("cache contexts are separated and corrupt generation cannot revive a session", () => {
  const root = mkdtempSync(join(tmpdir(), "itpay-cache-context-"));
  const cache = new DeviceSessionCache(root, context);

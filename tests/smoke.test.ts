@@ -56,7 +56,9 @@ const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX_BIN = resolve(CLI_ROOT, "node_modules/.bin/tsx");
 const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
 const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw"] as const;
-const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test" });
+// Mock-backed subprocesses must never read or write the user's real identity.
+// Individual persistence scenarios can still supply their own isolated HOME.
+const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test", HOME: mkdtempSync(join(tmpdir(), "itpay-smoke-home-")) });
 
 test("CLI version matches package version", () => {
   const packageJSON = JSON.parse(readFileSync(resolve(CLI_ROOT, "package.json"), "utf8")) as { version: string };

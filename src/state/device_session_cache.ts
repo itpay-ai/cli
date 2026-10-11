@@ -19,6 +19,10 @@ interface CacheRecord extends DeviceCacheContext {
   generation: string;
   registration: DeviceCachedRegistration;
 }
+interface GenerationRecord extends DeviceCacheContext {
+  schemaVersion: "itpay.device-generation.v1";
+  generation: string;
+}
 function invalid(code: string): Error { return Object.assign(new Error(code), { code }); }
 function readRegular(path: string): string | undefined {
   let stat;
@@ -87,11 +91,17 @@ export class DeviceSessionCache {
     if (value === undefined && create) {
       if (readRegular(this.cachePath) !== undefined) throw invalid("DEVICE_CACHE_GENERATION_MISSING");
       this.prepareDirectory();
-      writeComplete(this.generationPath, randomUUID(), true);
+      writeComplete(this.generationPath, this.newGeneration(), true);
       value = readRegular(this.generationPath);
     }
-    if (value !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)) throw invalid("DEVICE_CACHE_GENERATION_INVALID");
-    return value;
+    if (value === undefined) return undefined;
+    let record: GenerationRecord;
+    try { record = JSON.parse(value); } catch { throw invalid("DEVICE_CACHE_GENERATION_INVALID"); }
+    if (!record || record.schemaVersion !== "itpay.device-generation.v1" || record.backend !== this.context.backend || record.agentType !== this.context.agentType || record.keyThumbprint !== this.context.keyThumbprint || typeof record.generation !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(record.generation)) throw invalid("DEVICE_CACHE_GENERATION_INVALID");
+    return record.generation;
+  }
+  private newGeneration(): string {
+    return JSON.stringify({ schemaVersion: "itpay.device-generation.v1", ...this.context, generation: randomUUID() });
   }
   read(): DeviceCachedRegistration | undefined {
     const before = this.generation(false);
@@ -124,7 +134,7 @@ export class DeviceSessionCache {
   }
   invalidate(): void {
     this.generation(true);
-    writeComplete(this.generationPath, randomUUID(), false);
+    writeComplete(this.generationPath, this.newGeneration(), false);
   }
 }
 
@@ -135,15 +145,17 @@ export function deviceCacheAgentTypes(directory: string, backend: string, keyThu
     throw error;
   }
   const types = new Set<string>();
-  for (const file of files.filter(name => /^[0-9a-f]{64}\.json$/.test(name))) {
+  for (const file of files.filter(name => /^[0-9a-f]{64}\.(json|generation)$/.test(name))) {
     const text = readRegular(join(directory, file));
     if (text === undefined) continue;
     const value: CacheRecord = JSON.parse(text);
     if (value?.backend !== backend || value?.keyThumbprint !== keyThumbprint) continue;
-    if (value.schemaVersion !== "itpay.device-session.v1") throw invalid("DEVICE_CACHE_CORRUPT");
+    const marker = file.endsWith(".generation");
+    if (value.schemaVersion !== (marker ? "itpay.device-generation.v1" : "itpay.device-session.v1")) throw invalid("DEVICE_CACHE_CORRUPT");
     if (typeof value.agentType !== "string") throw invalid("DEVICE_CACHE_CORRUPT");
     const cache = new DeviceSessionCache(directory, value);
-    if (cache.cachePath !== join(directory, file)) throw invalid("DEVICE_CACHE_CONTEXT_INVALID");
+    if ((marker ? cache.generationPath : cache.cachePath) !== join(directory, file)) throw invalid("DEVICE_CACHE_CONTEXT_INVALID");
+    if (marker) cache.generation(false);
     types.add(value.agentType);
   }
   return [...types].sort();
