@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
-import { createPublicKey, verify } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { createPublicKey, verify, createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, mock } from "node:test";
 import fs from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { syncBuiltinESMExports } from "node:module";
 
+import { DeviceSessionCache } from "../src/state/device_session_cache.js";
+import { readDeviceKey, deviceKeyThumbprint } from "../src/state/device_key.js";
 import { HttpClient, HttpError } from "../src/client/http.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "../src/state/device_authority.js";
 
-test("device authority enrolls once, survives concurrent processes, and registers another agent type", async () => {
+test("device authority keeps one canonical key and device during concurrent enrollment and distinct agent caches", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-"));
   const statePath = join(root, "missing", "nested", "identity.json");
   const privateKeyPath = join(root, "private.pem");
@@ -30,13 +30,13 @@ test("device authority enrolls once, survives concurrent processes, and register
     new DeviceAuthority(options).authorizationHeaders({ method: "POST", path: "/v1/carts", body: "{}" }),
     new DeviceAuthority(options).authorizationHeaders({ method: "POST", path: "/v1/carts", body: "{}" }),
   ]);
-  assert.equal(server.enrollmentCount, 1);
+  assert.equal(server.deviceCount, 1);
   assert.equal(first["X-ItPay-Agent-Instance-ID"], "ain_codex_cli");
   assert.equal(concurrent["X-ItPay-Agent-Instance-ID"], "ain_codex_cli");
-  assert.equal(statSync(statePath).mode & 0o777, 0o600);
+  assert.equal(existsSync(statePath), false, "new cache must not write legacy identity");
   assert.equal(statSync(privateKeyPath).mode & 0o777, 0o600);
   assert.equal(existsSync(`${statePath}.lock`), false);
-  assert.equal(readdirSync(join(statePath, "..")).some(name => name.startsWith("identity.json.lock.released.")), true);
+  assert.equal(readdirSync(join(statePath, "..")).some(name => name.startsWith("identity.json.lock.released.")), false);
 
   const requestCount = server.requestCount;
   await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
@@ -50,16 +50,10 @@ test("device authority enrolls once, survives concurrent processes, and register
   const claude = await new DeviceAuthority({ ...options, requestedAgentType: "claude-code-cli" })
     .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
   assert.equal(claude["X-ItPay-Agent-Instance-ID"], "ain_claude_code_cli");
-  assert.equal(server.enrollmentCount, 1);
-  const state = JSON.parse(readFileSync(statePath, "utf8")) as {
-    schemaVersion: string;
-    registrations: Record<string, { agentInstances: Record<string, string> }>;
-  };
-  assert.equal(state.schemaVersion, "itpay.device.v2");
-  assert.deepEqual(state.registrations["https://test.itpay.ai"]?.agentInstances, {
-    "codex-cli": "ain_codex_cli",
-    "claude-code-cli": "ain_claude_code_cli",
-  });
+  assert.equal(server.deviceCount, 1, "same public key must retain one device and lineage");
+  assert.equal(server.enrollmentCount, 3, "two concurrent attaches and one distinct host attach are bounded");
+  assert.equal(cached(options).agentInstances["codex-cli"], "ain_codex_cli");
+  assert.equal(cached({...options,requestedAgentType:"claude-code-cli"}).agentInstances["claude-code-cli"], "ain_claude_code_cli");
 });
 
 test("device authority skips a revoked instance when registering a new agent type", async () => {
@@ -80,11 +74,12 @@ test("device authority skips a revoked instance when registering a new agent typ
     .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
 
   assert.equal(headers["X-ItPay-Agent-Instance-ID"], "ain_workbuddy");
-  assert.deepEqual(server.registrationAuthorizers.slice(-2), ["codex-cli", "claude-code-cli"]);
-  assert.equal(server.enrollmentCount, 1, "a revoked instance must not create a replacement device");
+  assert.deepEqual(server.registrationAuthorizers, [], "new host proves its key directly; no revoked authorizer session is reused");
+  assert.equal(server.deviceCount, 1, "a different host reattaches to the original device");
+  assert.equal(server.enrollmentCount, 3);
 });
 
-test("device authority stops when every existing instance is revoked", async () => {
+test("device authority rejects the revoked requested instance without replacing its device", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-all-instances-revoked-"));
   const server = new DeviceServer();
   const options = {
@@ -96,6 +91,10 @@ test("device authority stops when every existing instance is revoked", async () 
     .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
   await new DeviceAuthority({ ...options, requestedAgentType: "claude-code-cli" })
     .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  const workbuddy = new DeviceAuthority({ ...options, requestedAgentType: "workbuddy" });
+  await workbuddy.authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
+  await workbuddy.recoverAuthorization();
+  server.revokedAgentTypes.add("workbuddy");
   server.revokedAgentTypes.add("codex-cli");
   server.revokedAgentTypes.add("claude-code-cli");
 
@@ -104,31 +103,11 @@ test("device authority stops when every existing instance is revoked", async () 
       .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" }),
     (error: unknown) => error instanceof DeviceAuthorizationError && error.code === "agent_device_revoked",
   );
-  assert.equal(server.enrollmentCount, 1, "revoked instances must not create a replacement device");
+  assert.equal(server.enrollmentCount, 3, "revoked requested instance must not enroll again");
+  assert.equal(server.deviceCount, 1);
 });
 
-test("ownerless legacy directory requires operator evidence rather than stealing an old caller", () => {
-  const root = mkdtempSync(join(tmpdir(), "itpay-device-legacy-lock-"));
-  const statePath = join(root, "identity.json");
-  const lockPath = `${statePath}.lock`;
-  mkdirSync(lockPath);
-  const stale = new Date(Date.now() - 31_000);
-  utimesSync(lockPath, stale, stale);
-  writeFileSync(`${lockPath}.stale`, "preserved");
-  const authority = new DeviceAuthority({ baseURL: "https://test.itpay.ai", compatibilityHeaders: {}, statePath, privateKeyPath: join(root, "private.pem") });
-  assert.throws(() => authority.repairLock(), (error: unknown) => error instanceof DeviceStateError && error.causeCode === "LEGACY_LOCK_OWNER_UNKNOWN");
-  assert.equal(statSync(lockPath).isDirectory(), true);
-  assert.equal(readFileSync(`${lockPath}.stale`, "utf8"), "preserved");
-});
-
-test("device identity lock lifecycle does not depend on sandbox delete operations", () => {
-  const source = readFileSync(new URL("../src/state/device_authority.ts", import.meta.url), "utf8");
-  const lockLifecycle = source.slice(source.indexOf("async function withFileLock"), source.indexOf("function asDeviceStateError"));
-  assert.doesNotMatch(lockLifecycle, /\b(?:unlinkSync|rmdirSync)\b/);
-  assert.match(lockLifecycle, /renameSync/);
-});
-
-test("exited owner lock preserves existing directory and file archives and recovers", async () => {
+test("normal authorization preserves opaque legacy locks and all existing archives", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-lock-archive-collision-"));
   const statePath = join(root, "identity.json");
   const lockPath = `${statePath}.lock`;
@@ -141,28 +120,12 @@ test("exited owner lock preserves existing directory and file archives and recov
     baseURL: "https://test.itpay.ai", requestedAgentType: "workbuddy", compatibilityHeaders: {},
     statePath, privateKeyPath: join(root, "private.pem"), fetchImpl: server.fetch,
   }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-  assert.equal(existsSync(lockPath), false);
+  assert.equal(readFileSync(lockPath,"utf8"), "99999999:deadbeef");
   assert.equal(readFileSync(`${lockPath}.stale/history`, "utf8"), "prior-stale");
   assert.equal(readFileSync(`${lockPath}.released`, "utf8"), "prior-released");
-  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.stale.")).length, 1);
-  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.released.")).length, 1);
+  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.stale.")).length, 0);
+  assert.equal(readdirSync(root).filter(name => name.startsWith("identity.json.lock.released.")).length, 0);
   assert.equal(server.enrollmentCount, 1);
-});
-
-test("device repair-lock preserves live owners and recovers exited owners", () => {
-  const root = mkdtempSync(join(tmpdir(), "itpay-device-repair-lock-"));
-  const statePath = join(root, "identity.json");
-  const lockPath = `${statePath}.lock`;
-  const authority = new DeviceAuthority({
-    baseURL: "https://test.itpay.ai", compatibilityHeaders: {}, statePath,
-    privateKeyPath: join(root, "private.pem"),
-  });
-  writeFileSync(lockPath, `${process.pid}:live`);
-  assert.equal(authority.repairLock(), "active");
-  assert.equal(readFileSync(lockPath, "utf8"), `${process.pid}:live`);
-  writeFileSync(lockPath, "99999999:deadbeef");
-  assert.equal(authority.repairLock(), "recovered");
-  assert.equal(existsSync(lockPath), false);
 });
 
 test("device authority returns a stable error when its state path is not writable", async () => {
@@ -174,10 +137,7 @@ test("device authority returns a stable error when its state path is not writabl
     }).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" }),
     (error: unknown) => error instanceof DeviceStateError &&
       error.code === "device_state_unavailable" &&
-      error.operation === "prepare_lock" &&
-      error.causeCode === "EEXIST" &&
-      error.blockedPath === "/dev/null" &&
-      error.message === "ItPay device state operation failed: prepare_lock (EEXIST)",
+      error.operation === "read_state" && error.causeCode === "ENOTDIR",
   );
 });
 
@@ -195,19 +155,21 @@ test("device authority keeps one private key and separate registrations per back
       .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
   }
 
-  const state = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, unknown> };
-  assert.deepEqual(Object.keys(state.registrations).sort(), ["https://dev.itpay.ai", "https://test.itpay.ai"]);
-  assert.equal(testServer.enrollmentCount, 1);
-  assert.equal(devServer.enrollmentCount, 1);
-
-  const privateKey = readFileSync(privateKeyPath, "utf8");
-  const recovered = await new DeviceAuthority({
-    baseURL: "https://dev.itpay.ai", requestedAgentType: "codex-desktop", compatibilityHeaders: {}, statePath, privateKeyPath, fetchImpl,
-  }).recoverBackendReset();
-  assert.deepEqual(recovered, { removed: true, agentTypes: ["codex-cli", "codex-desktop"] });
-  assert.equal(readFileSync(privateKeyPath, "utf8"), privateKey);
-  const recoveredState = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, unknown> };
-  assert.deepEqual(Object.keys(recoveredState.registrations), ["https://test.itpay.ai"]);
+  const production = {baseURL:"https://test.itpay.ai",requestedAgentType:"codex-desktop",statePath,privateKeyPath};
+  const development = {...production,baseURL:"https://dev.itpay.ai"};
+  assert.equal(cached(production).deviceID,"adev_1");
+  assert.equal(cached(development).deviceID,"adev_1");
+  assert.equal(readdirSync(join(root,"sessions")).filter(name=>name.endsWith(".json")).length,2);
+  assert.equal(testServer.enrollmentCount,1);
+  assert.equal(devServer.enrollmentCount,1);
+  const privateKey = readFileSync(privateKeyPath,"utf8");
+  const recovered = await new DeviceAuthority({...development,compatibilityHeaders:{},fetchImpl}).recoverBackendReset();
+  assert.deepEqual(recovered,{removed:true,agentTypes:["codex-desktop"]});
+  assert.equal(readFileSync(privateKeyPath,"utf8"),privateKey);
+  const requests = testServer.requestCount;
+  await new DeviceAuthority({...production,compatibilityHeaders:{},fetchImpl}).authorizationHeaders({method:"GET",path:"/v1/service-executions",body:""});
+  assert.equal(testServer.requestCount,requests,"other Backend cache remains valid");
+  assert.equal(existsSync(statePath),false,"old identity never created or rewritten");
 });
 
 test("device authority migrates a v1 registration only after the backend proves it", async () => {
@@ -217,18 +179,17 @@ test("device authority migrates a v1 registration only after the backend proves 
   const server = new DeviceServer();
   const options = { baseURL: "https://test.itpay.ai", requestedAgentType: "codex-cli", compatibilityHeaders: {}, statePath, privateKeyPath, fetchImpl: server.fetch };
   await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-  const current = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, Record<string, unknown>> };
-  const registration = current.registrations["https://test.itpay.ai"]!;
+  const registration = cached(options);
   writeFileSync(statePath, JSON.stringify({ schemaVersion: "itpay.device.v1", ...registration }), { mode: 0o600 });
+  await new DeviceAuthority(options).recoverAuthorization();
+  const before = readFileSync(statePath);
   const requestCount = server.requestCount;
 
   await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
 
-  const migrated = JSON.parse(readFileSync(statePath, "utf8")) as { schemaVersion: string; registrations: Record<string, unknown>; legacyRegistration?: unknown };
-  assert.equal(migrated.schemaVersion, "itpay.device.v2");
-  assert.ok(migrated.registrations["https://test.itpay.ai"]);
-  assert.equal(migrated.legacyRegistration, undefined);
-  assert.ok(server.requestCount > requestCount, "v1 migration must renew against the selected backend");
+  assert.deepEqual(readFileSync(statePath),before,"v1 remains read-only");
+  assert.equal(cached(options).deviceID,registration.deviceID);
+  assert.ok(server.requestCount > requestCount,"session is freshly proven to the selected Backend");
 });
 
 test("device authority does not attach a v1 registration to the wrong backend", async () => {
@@ -243,22 +204,19 @@ test("device authority does not attach a v1 registration to the wrong backend", 
 
   await new DeviceAuthority({ ...options, baseURL: "https://test.itpay.ai" })
     .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-  const current = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, Record<string, unknown>> };
-  writeFileSync(statePath, JSON.stringify({ schemaVersion: "itpay.device.v1", ...current.registrations["https://test.itpay.ai"] }), { mode: 0o600 });
+  writeFileSync(statePath, JSON.stringify({ schemaVersion: "itpay.device.v1", ...cached({...options,baseURL:"https://test.itpay.ai"}) }), { mode: 0o600 });
+  const original = readFileSync(statePath);
 
   await new DeviceAuthority({ ...options, baseURL: "https://dev.itpay.ai" })
     .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-  let migrated = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, unknown>; legacyRegistration?: unknown };
-  assert.ok(migrated.registrations["https://dev.itpay.ai"]);
-  assert.ok(migrated.legacyRegistration, "unclaimed v1 registration must remain available for its original backend");
-  assert.equal(devServer.enrollmentCount, 1);
+  assert.equal(cached({...options,baseURL:"https://dev.itpay.ai"}).deviceID,"adev_1");
+  assert.deepEqual(readFileSync(statePath),original);
+  assert.equal(devServer.enrollmentCount,1);
+  await new DeviceAuthority({...options,baseURL:"https://test.itpay.ai"}).authorizationHeaders({method:"GET",path:"/v1/service-executions",body:""});
+  assert.deepEqual(readFileSync(statePath),original);
+  assert.equal(testServer.enrollmentCount,1);
+  assert.equal(readFileSync(privateKeyPath,"utf8").includes("PRIVATE KEY"),true);
 
-  await new DeviceAuthority({ ...options, baseURL: "https://test.itpay.ai" })
-    .authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-  migrated = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, unknown>; legacyRegistration?: unknown };
-  assert.deepEqual(Object.keys(migrated.registrations).sort(), ["https://dev.itpay.ai", "https://test.itpay.ai"]);
-  assert.equal(migrated.legacyRegistration, undefined);
-  assert.equal(testServer.enrollmentCount, 1, "proven v1 registration must be reused without enrolling again");
 });
 
 test("device authority never replaces a revoked v2 registration automatically", async () => {
@@ -346,6 +304,9 @@ test("HTTP does not recover unrelated authentication failures", async () => {
 
 class DeviceServer {
   enrollmentCount = 0;
+  deviceCount = 0;
+  private readonly thumbprints = new Set<string>();
+  private readonly enrollmentTypes = new Map<string,string>();
   requestCount = 0;
   revoked = false;
   failEnrollmentVerify = false;
@@ -368,16 +329,24 @@ class DeviceServer {
       this.enrollmentCount += 1;
       const raw = Buffer.from(body.public_key!, "base64");
       this.publicKey = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]), format: "der", type: "spki" });
-      return json({ agent_device_enrollment_id: "enr_1", challenge: "enroll_nonce" });
+      const id = `enr_${this.enrollmentCount}`;
+      this.enrollmentTypes.set(id, body.agent_type!);
+      return json({ agent_device_enrollment_id: id, challenge: "enroll_nonce" });
     }
-    if (path === "/v1/agent-device-enrollments/enr_1/verify") {
-      this.assertSignature("itpay-device-enrollment/v1\nenr_1\nenroll_nonce", body.signature!);
+    if (path.startsWith("/v1/agent-device-enrollments/") && path.endsWith("/verify")) {
+      const id = path.split("/").at(-2)!;
+      this.assertSignature(`itpay-device-enrollment/v1\n${id}\nenroll_nonce`, body.signature!);
       if (this.failEnrollmentVerify) {
         return json({ code: "internal_error", message: "request failed" }, 500);
       }
-      this.instances.set("codex-cli", "ain_codex_cli");
+      const type = this.enrollmentTypes.get(id)!;
+      if (this.revoked || this.revokedAgentTypes.has(type)) return json({code:"agent_device_revoked",message:"agent device is revoked"},403);
+      const thumbprint = createHash("sha256").update(this.publicKey!.export({format:"der",type:"spki"})).digest("hex");
+      if (!this.thumbprints.has(thumbprint)) { this.thumbprints.add(thumbprint); this.deviceCount++; }
+      const instance = `ain_${type.replaceAll("-", "_")}`;
+      this.instances.set(type, instance);
       this.devices.add("adev_1");
-      return json({ agent_device_id: "adev_1", agent_device_key_id: "akey_1", quota_lineage_id: "qln_1", agent_instance_id: "ain_codex_cli", agent_type: "codex-cli" });
+      return json({ agent_device_id: "adev_1", agent_device_key_id: "akey_1", quota_lineage_id: "qln_1", agent_instance_id: instance, agent_type: type });
     }
     if (path === "/v1/agent-instances") {
       const authorization = String(new Headers(init?.headers).get("Authorization"));
@@ -428,8 +397,8 @@ test("device authority re-enrolls an orphaned private key after interrupted firs
   const firstInstance = first["X-ItPay-Agent-Instance-ID"];
   const privateKey = readFileSync(privateKeyPath, "utf8");
 
-  // Simulate the crash window: the server committed the device but the local
-  // registration write never happened. Only identity.json is lost.
+  // The server committed but a local cache is lost. Keep its generation and key.
+  for (const name of readdirSync(join(root,"sessions")).filter(name=>name.endsWith(".json"))) fs.unlinkSync(join(root,"sessions",name));
   writeFileSync(statePath, JSON.stringify({ schemaVersion: "itpay.device.v2", registrations: {} }), { mode: 0o600 });
 
   const second = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
@@ -453,9 +422,11 @@ test("device authority re-enrolls when the backend forgot the registration", asy
 
   // Simulate a backend whose identity store was rebuilt: the registration rows
   // are gone, so session establishment reports agent_device_not_found.
-  const state = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, { sessions: Record<string, unknown> }> };
-  state.registrations["https://test.itpay.ai"]!.sessions = {};
-  writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
+  const key = readDeviceKey(privateKeyPath)!;
+  const cache = new DeviceSessionCache(join(root,"sessions"),{backend:options.baseURL,agentType:options.requestedAgentType,keyThumbprint:deviceKeyThumbprint(key)});
+  const state = cached(options);
+  state.sessions[options.requestedAgentType]!.expiresAt = "1970-01-01T00:00:00Z";
+  cache.write(state,cache.generation(false)!);
   server.forgetDevices();
 
   const second = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
@@ -463,7 +434,7 @@ test("device authority re-enrolls when the backend forgot the registration", asy
   assert.equal(second["X-ItPay-Agent-Instance-ID"], "ain_codex_cli");
 });
 
-test("device authority marks enrollment failures so guidance can offer key reset", async () => {
+test("device authority preserves the actual enrollment failure without resetting identity", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-enroll-fail-"));
   const server = new DeviceServer();
   server.failEnrollmentVerify = true;
@@ -478,7 +449,7 @@ test("device authority marks enrollment failures so guidance can offer key reset
   );
 });
 
-test("device authority resetDeviceKey discards the key and every registration", async () => {
+test("device key reset is unavailable and preserves key, cache and identity", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-device-reset-key-"));
   const statePath = join(root, "identity.json");
   const privateKeyPath = join(root, "private.pem");
@@ -491,17 +462,15 @@ test("device authority resetDeviceKey discards the key and every registration", 
   await authority.authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
   const previousKey = readFileSync(privateKeyPath, "utf8");
 
-  const reset = await authority.resetDeviceKey();
-  assert.deepEqual(reset.removedBackends, ["https://test.itpay.ai"]);
-  assert.equal(existsSync(privateKeyPath), false);
-  const cleared = JSON.parse(readFileSync(statePath, "utf8")) as { registrations: Record<string, unknown> };
-  assert.deepEqual(cleared.registrations, {});
+  const files = readdirSync(join(root,"sessions")).map(name=>[name,readFileSync(join(root,"sessions",name))] as const);
+  await assert.rejects(authority.resetDeviceKey(),(error:unknown)=>!!error && typeof error==="object" && "code" in error && error.code==="device_key_reset_unavailable");
+  assert.equal(readFileSync(privateKeyPath,"utf8"),previousKey);
+  assert.equal(existsSync(statePath),false);
+  for (const [name,bytes] of files) assert.deepEqual(readFileSync(join(root,"sessions",name)),bytes);
+  const headers = await new DeviceAuthority(options).authorizationHeaders({method:"GET",path:"/v1/service-executions",body:""});
+  assert.equal(headers["X-ItPay-Agent-Instance-ID"],"ain_codex_cli");
+  assert.equal(server.enrollmentCount,1);
 
-  // The next authorization generates a brand-new key pair and enrolls fresh.
-  const headers = await new DeviceAuthority(options).authorizationHeaders({ method: "GET", path: "/v1/service-executions", body: "" });
-  assert.equal(headers["X-ItPay-Agent-Instance-ID"], "ain_codex_cli");
-  assert.equal(server.enrollmentCount, 2);
-  assert.notEqual(readFileSync(privateKeyPath, "utf8"), previousKey);
 });
 
 function json(value: unknown, status = 200): Response {
@@ -509,20 +478,20 @@ function json(value: unknown, status = 200): Response {
 }
 
 for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DENY", "CODEBUDDY_BROKER_OUTCOME_UNKNOWN", "UNKNOWN_TEST_CODE"]) {
-  test(`lock acquisition classifies ${code} at the file operation boundary`, async () => {
+  test(`key publication classifies ${code} at the file operation boundary`, async () => {
     const root = mkdtempSync(join(tmpdir(), "itpay-lock-error-"));
     const original = fs.writeFileSync;
     const patch = mock.method(fs, "writeFileSync", (...args: Parameters<typeof fs.writeFileSync>) => {
-      if (String(args[0]).endsWith(".lock")) throw Object.assign(new Error("private diagnostic omitted"), { code });
+      if (String(args[0]).endsWith(".tmp")) throw Object.assign(new Error("private diagnostic omitted"), { code });
       return original(...args);
     });
     syncBuiltinESMExports();
     try {
-      await assert.rejects(new DeviceAuthority({ baseURL: "https://test.itpay.ai", compatibilityHeaders: {},
+      await assert.rejects(new DeviceAuthority({ baseURL: "https://test.itpay.ai", requestedAgentType: "workbuddy", compatibilityHeaders: {},
         statePath: join(root, "identity.json"), privateKeyPath: join(root, "private.pem"), fetchImpl: new DeviceServer().fetch,
       }).authorizationHeaders({ method: "GET", path: "/v1/orders", body: "" }), (error: unknown) => {
         assert.ok(error instanceof DeviceStateError);
-        assert.equal(error.operation, "acquire_lock");
+        assert.equal(error.operation, "write_private_key");
         assert.equal(error.causeCode, code === "UNKNOWN_TEST_CODE" ? "UNCLASSIFIED_LOCAL_FAILURE" : code);
         assert.equal(error.source, code.startsWith("CODEBUDDY_") ? "host_broker" : code === "UNKNOWN_TEST_CODE" ? "unclassified_local_operation" : "native_filesystem");
         assert.doesNotMatch(error.message, /private diagnostic/);
@@ -532,7 +501,7 @@ for (const code of ["EACCES", "EPERM", "ENOTDIR", "EISDIR", "CODEBUDDY_BROKER_DE
   });
 }
 
-test("release failure does not replace the original enrollment failure", async () => {
+test("authorization does not attempt legacy archive writes on enrollment failure", async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-lock-release-error-"));
   const original = fs.renameSync;
   const patch = mock.method(fs, "renameSync", (...args: Parameters<typeof fs.renameSync>) => {
@@ -548,68 +517,6 @@ test("release failure does not replace the original enrollment failure", async (
   } finally { patch.mock.restore(); syncBuiltinESMExports(); }
 });
 
-test("recovery stops when the inspected source changes", () => {
-  const root = mkdtempSync(join(tmpdir(), "itpay-lock-changed-"));
-  const statePath = join(root, "identity.json"), lock = `${statePath}.lock`;
-  writeFileSync(lock, "99999999:deadbeef");
-  const original = fs.lstatSync;
-  let calls = 0;
-  const patch = mock.method(fs, "lstatSync", (...args: Parameters<typeof fs.lstatSync>) => {
-    if (String(args[0]) === lock && ++calls === 2) writeFileSync(lock, `${process.pid}:deadbeef`);
-    return original(...args);
-  });
-  syncBuiltinESMExports();
-  try {
-    const authority = new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
-    assert.throws(() => authority.repairLock(), (error: unknown) => error instanceof DeviceStateError && error.causeCode === "LOCK_SOURCE_CHANGED");
-    assert.equal(readFileSync(lock,"utf8"), `${process.pid}:deadbeef`);
-  } finally {patch.mock.restore();syncBuiltinESMExports();}
-});
-
-test("lock inspection does not follow symlinks or reclaim an unprobeable owner", () => {
-  const root = mkdtempSync(join(tmpdir(), "itpay-lock-symlink-"));
-  const statePath = join(root,"identity.json"), lock=`${statePath}.lock`, outside=join(root,"outside");
-  writeFileSync(outside,"preserved");fs.symlinkSync(outside,lock);
-  const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
-  assert.throws(()=>authority.repairLock(),(error:unknown)=>error instanceof DeviceStateError && error.causeCode==="SYMLINK_LOCK");
-  assert.equal(readFileSync(outside,"utf8"),"preserved");
-  fs.unlinkSync(lock);writeFileSync(lock,"99999999:deadbeef");
-  const patch=mock.method(process,"kill",()=>{throw Object.assign(new Error("not allowed"),{code:"EPERM"});});
-  try {assert.equal(authority.repairLock(),"active");assert.equal(readFileSync(lock,"utf8"),"99999999:deadbeef");} finally {patch.mock.restore();}
-});
-
-test("independent processes recover an exited owner once without replacing another transition", async () => {
-  const root=mkdtempSync(join(tmpdir(),"itpay-lock-processes-")), statePath=join(root,"identity.json");
-  writeFileSync(`${statePath}.lock`,"99999999:deadbeef");
-  const source=new URL("../src/state/device_authority.ts",import.meta.url).href;
-  const script=`import {DeviceAuthority} from ${JSON.stringify(source)}; const a=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath:${JSON.stringify(statePath)},privateKeyPath:${JSON.stringify(join(root,"private.pem"))}}); console.log(a.repairLock());`;
-  const results=await Promise.all(Array.from({length:4},()=>promisify(execFile)(process.execPath,["--import","tsx","--input-type=module","-e",script],{cwd:new URL("../",import.meta.url)})));
-  assert.equal(results.filter(r=>r.stdout.trim()==="recovered").length,1);
-  assert.equal(readdirSync(root).filter(n=>n.startsWith("identity.json.lock.stale.")).length,1);
-  assert.equal(existsSync(`${statePath}.lock`),false);
-});
-
-
-test("release waits for a competing live-owner inspection without taking its guard", async () => {
-  const root = mkdtempSync(join(tmpdir(), "itpay-release-transition-"));
-  const statePath = join(root, "identity.json");
-  const server = new DeviceServer();
-  let inspected = false;
-  const fetchImpl: typeof fetch = async (input, init) => {
-    const response = await server.fetch(input, init);
-    if (String(input).includes("agent-device-session-challenges/") && String(input).endsWith("/verify")) {
-      const guard = `${statePath}.lock.transition`;
-      mkdirSync(guard);
-      setTimeout(() => { fs.renameSync(guard, `${guard}.fixture-inspection`); inspected = true; }, 50);
-    }
-    return response;
-  };
-  await new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl}).authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
-  assert.equal(inspected, true);
-  assert.equal(existsSync(`${statePath}.lock`), false);
-  assert.equal(existsSync(`${statePath}.lock.transition.fixture-inspection`), true);
-});
-
 
 test("case-level aftercare requests carry device proof for read, respond and cancel", async () => {
  const root=mkdtempSync(join(tmpdir(),"itpay-aftercare-device-proof-"));const server=new DeviceServer();
@@ -619,24 +526,6 @@ test("case-level aftercare requests carry device proof for read, respond and can
  assert.ok(headers.Authorization);assert.match(headers.Authorization,/^ItPayDevice /);assert.ok(headers["X-ItPay-Agent-Signature"]);
  }
  assert.equal(server.enrollmentCount,1);
-});
-
-for(const phase of ["choosing","ready","linked"] as const) test(`interrupted transition ${phase} ticket does not block recovery`,async()=>{
- const root=mkdtempSync(join(tmpdir(),"itpay-transition-crash-"));const statePath=join(root,"identity.json");
- const script=`import {mkdirSync,writeFileSync,linkSync} from 'node:fs';import {randomUUID} from 'node:crypto';const own=${JSON.stringify(statePath+".lock.transition-owners/")}+process.pid+'-'+randomUUID();mkdirSync(own,{recursive:true,mode:0o700});${phase!=="choosing" ? "writeFileSync(own+'/ticket','1',{mode:0o600});" : ""}${phase==="linked" ? "writeFileSync(own+'/owner',process.pid+':'+randomUUID(),{mode:0o600});linkSync(own+'/owner',"+JSON.stringify(statePath+".lock.transition")+");" : ""}process.exit(17);`;
- await assert.rejects(promisify(execFile)(process.execPath,["--input-type=module","-e",script]),(error:unknown)=>typeof error==="object" && error!==null && "code" in error && error.code===17);
- const pool=statePath+".lock.transition-owners";const entries=readdirSync(pool).filter(name=>name!=="archives");
- const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl:new DeviceServer().fetch});
- assert.equal(authority.repairLock(),"absent");await authority.authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
- assert.deepEqual(readdirSync(pool).filter(name=>name!=="archives"),entries);assert.equal(existsSync(statePath+".lock"),false);
-});
-
-
-test("transition recovery never steals an old active published owner",()=>{
- const root=mkdtempSync(join(tmpdir(),"itpay-transition-live-"));const statePath=join(root,"identity.json"),guard=statePath+".lock.transition";
- const token=process.pid+":deadbeef";writeFileSync(guard,token,{mode:0o600});utimesSync(guard,new Date(0),new Date(0));
- const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem")});
- assert.equal(authority.repairLock(),"active");assert.equal(readFileSync(guard,"utf8"),token);
 });
 
 
@@ -650,10 +539,42 @@ test("retained ticket and guard with a reused PID cannot block a different proce
 });
 
 
-test("pre-ticket choosing directory carries incarnation through PID reuse",async()=>{
+test("opaque legacy choosing directory is preserved and never inspected",async()=>{
  const root=mkdtempSync(join(tmpdir(),"itpay-transition-choosing-reused-")),statePath=join(root,"identity.json");
  const own=join(statePath+".lock.transition-owners",process.pid+"-"+"0".repeat(64)+"-deadbeef");mkdirSync(own,{recursive:true,mode:0o700});
  const authority=new DeviceAuthority({baseURL:"https://test.itpay.ai",requestedAgentType:"codex-cli",compatibilityHeaders:{},statePath,privateKeyPath:join(root,"private.pem"),fetchImpl:new DeviceServer().fetch});
  await authority.authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
  assert.equal(existsSync(statePath+".lock"),false);assert.equal(existsSync(own),true);assert.equal(existsSync(join(own,"ticket")),false);
 });
+
+function cached(options: {statePath: string; privateKeyPath: string; baseURL: string; requestedAgentType: string}) {
+ const key = readDeviceKey(options.privateKeyPath);
+ assert.ok(key);
+ const value = new DeviceSessionCache(join(options.statePath,"..","sessions"),{backend:options.baseURL.replace(/\/$/,""),agentType:options.requestedAgentType,keyThumbprint:deviceKeyThumbprint(key)}).read();
+ assert.ok(value);
+ return value;
+}
+
+for (const phase of ["enrollment", "session"] as const) {
+ test(`lost ${phase} verification response retains canonical key and original device`, async () => {
+  const root=mkdtempSync(join(tmpdir(),"itpay-response-loss-"));
+  const server=new DeviceServer();let lose=true;
+  const fetchImpl: typeof fetch=async(input,init)=>{
+   const response=await server.fetch(input,init);
+   const path=new URL(String(input)).pathname;
+   if(lose && path.endsWith("/verify") && path.includes(phase==="enrollment"?"agent-device-enrollments":"agent-device-session-challenges")) {
+    lose=false;throw new TypeError("fetch failed",{cause:Object.assign(new Error("synthetic connection closed"),{code:"ECONNRESET"})});
+   }
+   return response;
+  };
+  const options={baseURL:"https://test.itpay.ai",requestedAgentType:"workbuddy",compatibilityHeaders:{},statePath:join(root,"identity.json"),privateKeyPath:join(root,"private.pem"),fetchImpl};
+  await assert.rejects(new DeviceAuthority(options).authorizationHeaders({method:"GET",path:"/v1/orders",body:""}));
+  const before=readFileSync(options.privateKeyPath);
+  const result=await new DeviceAuthority(options).authorizationHeaders({method:"GET",path:"/v1/orders",body:""});
+  assert.equal(result["X-ItPay-Agent-Instance-ID"],"ain_workbuddy");
+  assert.deepEqual(readFileSync(options.privateKeyPath),before);
+  assert.equal(server.deviceCount,1);
+  assert.equal(server.enrollmentCount,2);
+  assert.equal(existsSync(options.statePath),false);
+ });
+}

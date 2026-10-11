@@ -1,6 +1,6 @@
 import { HttpError } from '../client/http.js';
 import { HttpTransportError } from '../client/transport.js';
-import { DeviceAuthorizationError, DeviceStateError, DeviceLockBusyError } from './device_authority.js';
+import { DeviceAuthorizationError, DeviceStateError } from './device_authority.js';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, rmSync } from 'node:fs';
@@ -88,8 +88,7 @@ function authStatusUnknown(sessionID: string | undefined, error?: unknown, failu
   // command boundary report them rather than turning them into polling.
   if ((error instanceof HttpError && error.status < 500)
     || (error instanceof AuthRequestError && error.httpStatus < 500)
-    || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError
-    || error instanceof DeviceLockBusyError) throw error;
+    || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError) throw error;
   const hostFailure = error && typeof error === "object" && "code" in error
     && (error.code === "CODEBUDDY_BROKER_DENY" || error.code === "CODEBUDDY_BROKER_OUTCOME_UNKNOWN");
   const failure = error instanceof HttpTransportError

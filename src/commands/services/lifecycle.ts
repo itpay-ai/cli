@@ -2,7 +2,7 @@ import { serviceAdapter, serviceClientFeatures } from "../../services/registry.j
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { HttpTransportError } from "../../client/transport.js";
-import { DeviceLockBusyError, DeviceStateError } from "../../state/device_authority.js";
+import { DeviceStateError } from "../../state/device_authority.js";
 import { type ServiceCapability, type ServiceCapabilityInvoked, type ServiceExecutionReadModel } from "../../client/types.js";
 import { operationID, type CLIConfig } from "../../state/config.js";
 import { type ClientHost } from "../../state/client_context.js";
@@ -447,7 +447,7 @@ export async function runServicesRun(
         {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? Boolean(executionID), ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
     }
     adapter.runError(cause, serviceID, id);
-    if (cause instanceof CommandContractError || cause instanceof HttpError || cause instanceof DeviceLockBusyError || cause instanceof DeviceStateError) throw cause;
+    if (cause instanceof CommandContractError || cause instanceof HttpError || cause instanceof DeviceStateError) throw cause;
     if (!id) {
       throw new CommandContractError(
         "workflow_start_outcome_unknown",

@@ -8,7 +8,7 @@
 
 **上游：** 当前 npm CLI 或平台 bundle 已经可执行。
 
-**下游：** 使用真实 Agent Type 执行 `readyz`，随后读取完整 Skill 和 Catalog。
+**下游：** 先读取本包完整 Skill，使用真实 Agent Type 执行 `readyz`，再按返回的同 Backend/type 命令检查 `auth status`。authenticated 或成功 login_required 才证明设备访问可用；后者仍未登录，不自动发起授权或业务。
 
 ## 语法与参数
 
