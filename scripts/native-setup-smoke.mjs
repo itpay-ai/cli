@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createServer} from 'node:http';
-import {mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdirSync,realpathSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
+import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 const exec=promisify(execFile);
 
@@ -32,18 +33,25 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const packageRoot=join(root,...(global&&process.platform!=='win32'?['lib']:[]),'node_modules','@itpay','cli');
    const entry=join(packageRoot,'bin','itp.mjs');
    const invoke=(argv)=>exec(process.execPath,[entry,...argv],{env,timeout:30000});
-   let oldKey;
+   let oldKey; let upgradeRequestStart; let conflictProof;
    if(previousTarball){
     await exec('npm',[...args,previousTarball],{env,timeout:90000});
     await invoke(['auth','status','--agent-type','workbuddy','--json']);
     oldKey=readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem'));
+    // Reproduce the concrete npm retirement collision, without user installation cleanup.
+    const suffix=createHash('sha1').update(packageRoot).digest('base64').replace(/[^a-zA-Z0-9]/g,'').slice(0,8);
+    const retirement=join(packageRoot,'..',`.cli-${suffix}`);mkdirSync(retirement);writeFileSync(join(retirement,'retained-fixture'),'old fixture');
+    try {await exec('npm',[...args,tarball],{env,timeout:90000});assert.fail('retirement conflict must fail');}
+    catch(error){assert(Number.isInteger(error.code) && error.code !== 0);assert.match(error.stderr,/ENOTEMPTY/);assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),oldKey);conflictProof={code:'ENOTEMPTY',exit:error.code};}
+    rmSync(retirement,{recursive:true}); // Only this test's explicit synthetic fixture.
+    upgradeRequestStart=paths.length;
    }
    const installStart=performance.now();await exec('npm',[...args,tarball],{env,timeout:90000});
    const installationMs=Math.round(performance.now()-installStart);
    const setupStart=performance.now();const output=await invoke(['setup','--agent-type','workbuddy','--json']);
    const setupMs=Math.round(performance.now()-setupStart);const value=JSON.parse(output.stdout);
    assert.equal(value.status,'setup_ready');assert.equal(value.result.account_status,'login_required');assert.equal(value.next,null);
-   assert.equal(output.stderr,'');assert.equal(value.result.skill_path,join(packageRoot,'skills','itpay','SKILL.md'));
+   assert.equal(output.stderr,'');if(previousTarball)assert.deepEqual(paths.slice(upgradeRequestStart),['/v1/agent-device-account-bindings']);assert.equal(value.result.skill_path,realpathSync(join(packageRoot,'skills','itpay','SKILL.md')));
    assert.equal(readFileSync(value.result.skill_path,'utf8'),readFileSync(join(packageRoot,'skills','itpay','SKILL.md'),'utf8'));
    const key=readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem'));if(oldKey)assert.deepEqual(key,oldKey);
    const requestsBefore=paths.length;
@@ -57,7 +65,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const skill=readFileSync(value.result.skill_path);rmSync(value.result.skill_path);
    await assert.rejects(()=>invoke(['setup','--agent-type','workbuddy','--json']),e=>e.code===1&&JSON.parse(e.stdout).error.code==='packaged_skill_unavailable');
    assert.equal(paths.length,beforeInvalid);writeFileSync(value.result.skill_path,skill);
-   proof.push({mode:global?'global':'managed-prefix',version:value.result.cli_version,installationMs,setupMs,upgrade:!!previousTarball,json:output.stdout,plain:plain.stdout});
+   proof.push({mode:global?'global':'managed-prefix',version:value.result.cli_version,installationMs,setupMs,upgrade:!!previousTarball,...(conflictProof?{conflictProof}:{}),json:output.stdout,plain:plain.stdout});
   }
   assert(paths.every(p=>/^\/v1\/agent-device/.test(p)),'setup must not call login/business/liveness');
   return proof;
