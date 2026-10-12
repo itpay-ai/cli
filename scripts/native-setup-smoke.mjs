@@ -56,11 +56,15 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    assert.equal(output.stderr,'');if(previousTarball)assert.deepEqual(paths.slice(upgradeRequestStart),['/v1/platform/compatibility','/v1/agent-device-account-bindings']);assert.equal(value.result.skill_path,realpathSync(join(packageRoot,'skills','itpay','SKILL.md')));
    assert.equal(readFileSync(value.result.skill_path,'utf8'),readFileSync(join(packageRoot,'skills','itpay','SKILL.md'),'utf8'));
    const key=readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem'));if(oldKey)assert.deepEqual(key,oldKey);
+   const sessionPath=join(env.ITPAY_STATE_DIR,`agent-login-${createHash('sha256').update(base).digest('hex').slice(0,16)}.json`);
+   writeFileSync(sessionPath,JSON.stringify({baseURL:base,sessionID:'completed-browser-fixture',pollToken:'synthetic',startToken:'synthetic'}));
+   const savedSession=readFileSync(sessionPath);
    const requestsBefore=paths.length;
+   const prepared=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'])).stdout);assert.equal(prepared.result.account_status,'login_required');assert.deepEqual(readFileSync(sessionPath),savedSession);
    status='authenticated';const plain=await invoke(['setup','--agent-type','workbuddy']);assert.match(plain.stdout,/已有账号授权/);
    const again=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'])).stdout);
-   assert.equal(again.result.account_status,'authenticated');assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),key);
-   assert.deepEqual(paths.slice(requestsBefore),['/v1/platform/compatibility','/v1/agent-device-account-bindings','/v1/platform/compatibility','/v1/agent-device-account-bindings']);status='login_required';
+   assert.equal(again.result.account_status,'authenticated');assert.deepEqual(readFileSync(sessionPath),savedSession);assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),key);
+   assert.deepEqual(paths.slice(requestsBefore),['/v1/platform/compatibility','/v1/agent-device-account-bindings','/v1/platform/compatibility','/v1/agent-device-account-bindings','/v1/platform/compatibility','/v1/agent-device-account-bindings']);status='login_required';
    const beforeInvalid=paths.length;
    for(const argv of [['setup','--json'],['setup','--agent-type','unsupported','--json']])await assert.rejects(()=>invoke(argv),e=>e.code===1&&JSON.parse(e.stdout).status==='error');
    assert.equal(paths.length,beforeInvalid);

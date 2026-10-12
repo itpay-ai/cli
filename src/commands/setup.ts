@@ -25,7 +25,7 @@ export function validateSetup(agentType: string | undefined): string {
 export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus" | "bindAgentAccount" | "compatibility">, config: CLIConfig, skillPath: string,
   options: { jsonOutput?: boolean; output?: OutputSink } = {}): Promise<void> {
   await requirePlatformCompatibility(backend);
-  const account = await agentAuth("status", config.baseURL, backend);
+  const account = await agentAuth("status", config.baseURL, backend, undefined, undefined, { readOnlyStatus: true });
   if (!account || typeof account !== "object" || !("status" in account)
     || (account.status !== "authenticated" && account.status !== "login_required")) {
     const detail = account && typeof account === "object" && "result" in account

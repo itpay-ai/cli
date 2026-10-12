@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
+import { sellerAuthPath } from "../src/state/account_auth.js";
 import { runSetup, validateSetup } from "../src/commands/setup.js";
 import { loadConfig, CLI_VERSION, API_CONTRACT_REVISION } from "../src/state/config.js";
 import { HttpError } from "../src/client/http.js";
@@ -17,6 +18,7 @@ test("setup validates actual type and current package Skill before any backend r
 for (const status of ["authenticated", "login_required", "unknown", "404", "426", "503"]) {
  test(`setup ${status} keeps preparation separate from login and business`, async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-setup-contract-"));
+  const oldFetch=globalThis.fetch; globalThis.fetch=async()=>{throw Error("setup must not poll browser authorization");};
   const old = process.env.ITPAY_STATE_DIR; process.env.ITPAY_STATE_DIR = root;
   let calls = 0; const lines: string[] = [];
   const backend = {
@@ -25,6 +27,10 @@ for (const status of ["authenticated", "login_required", "unknown", "404", "426"
    async bindAgentAccount(): Promise<{status: string}> { throw new Error("setup must not bind or log in"); },
   };
   const config = loadConfig({ ITPAY_AGENT_TYPE: "workbuddy", ITPAY_BACKEND_URL: "https://dev.itpay.ai", ITPAY_IDEMPOTENCY_KEY: "setup-test" });
+  const sessionPath=sellerAuthPath(config.baseURL,process.env,"agent-login");
+  mkdirSync(root,{recursive:true});
+  writeFileSync(sessionPath,JSON.stringify({baseURL:config.baseURL,sessionID:"completed-browser-session",pollToken:"synthetic",startToken:"synthetic"}));
+  const sessionBefore=readFileSync(sessionPath);
   try {
    const run = () => runSetup(backend, config, validateSetup("workbuddy"), {jsonOutput: true, output: s => lines.push(s)});
    if (["authenticated", "login_required"].includes(status)) {
@@ -36,7 +42,8 @@ for (const status of ["authenticated", "login_required", "unknown", "404", "426"
     await assert.rejects(run, status === "404" || status === "426" ? HttpError : CommandContractError);
     assert.equal(lines.length, 0); assert.equal(calls, 1);
    }
-  } finally { if (old === undefined) delete process.env.ITPAY_STATE_DIR; else process.env.ITPAY_STATE_DIR = old; rmSync(root, {recursive: true, force: true}); }
+   assert.deepEqual(readFileSync(sessionPath),sessionBefore);
+  } finally { globalThis.fetch=oldFetch; if (old === undefined) delete process.env.ITPAY_STATE_DIR; else process.env.ITPAY_STATE_DIR = old; rmSync(root, {recursive: true, force: true}); }
  });
 }
 
