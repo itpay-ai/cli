@@ -1,3 +1,4 @@
+import { requirePlatformCompatibility } from "./compatibility.js";
 import type { BackendClient } from "../client/backend.js";
 import { agentAuth } from "../state/account_auth.js";
 import { CLI_VERSION, type CLIConfig } from "../state/config.js";
@@ -13,12 +14,17 @@ export function validateSetup(agentType: string | undefined): string {
       [{ command: "itpay install --json", reason: "识别实际宿主类型" }]);
   }
   try { return packagedSkill().path; }
-  catch { throw new CommandContractError("packaged_skill_unavailable", "current package Skill is missing or invalid",
-    "准备未完成：同包 Skill 不可读取。通过原安装位置恢复当前版本的完整官方包。", []); }
+  catch (error) {
+    const cause = error && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code : "invalid_packaged_skill";
+    throw new CommandContractError("packaged_skill_unavailable", "current package Skill is missing or invalid",
+    "准备未完成：同包 Skill 不可读取。按返回原因确认宿主正常读取权限或恢复原位置的完整官方包。", [], undefined,
+      { failure_stage: "packaged_skill", cause_code: cause }); }
 }
 
-export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus" | "bindAgentAccount">, config: CLIConfig, skillPath: string,
+export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus" | "bindAgentAccount" | "compatibility">, config: CLIConfig, skillPath: string,
   options: { jsonOutput?: boolean; output?: OutputSink } = {}): Promise<void> {
+  await requirePlatformCompatibility(backend);
   const account = await agentAuth("status", config.baseURL, backend);
   if (!account || typeof account !== "object" || !("status" in account)
     || (account.status !== "authenticated" && account.status !== "login_required")) {

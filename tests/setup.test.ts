@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
 import { runSetup, validateSetup } from "../src/commands/setup.js";
-import { loadConfig, CLI_VERSION } from "../src/state/config.js";
+import { loadConfig, CLI_VERSION, API_CONTRACT_REVISION } from "../src/state/config.js";
 import { HttpError } from "../src/client/http.js";
 import { CommandContractError } from "../src/commands/guidance.js";
 
@@ -20,6 +20,7 @@ for (const status of ["authenticated", "login_required", "unknown", "404", "426"
   const old = process.env.ITPAY_STATE_DIR; process.env.ITPAY_STATE_DIR = root;
   let calls = 0; const lines: string[] = [];
   const backend = {
+   async compatibility() { return { api_contract_revision: API_CONTRACT_REVISION, minimum_cli_version: "2.1.40", maximum_cli_major: 2, platform_revision: "fixture", schema_revision: "fixture", bootstrap_revision: "fixture" }; },
    async agentAccountStatus() { calls++; if (/^\d+$/.test(status)) throw new HttpError(Number(status), {code: "fixture_failure", message: "fixture failure"}, "fixture failure"); return { status }; },
    async bindAgentAccount(): Promise<{status: string}> { throw new Error("setup must not bind or log in"); },
   };
@@ -38,3 +39,13 @@ for (const status of ["authenticated", "login_required", "unknown", "404", "426"
   } finally { if (old === undefined) delete process.env.ITPAY_STATE_DIR; else process.env.ITPAY_STATE_DIR = old; rmSync(root, {recursive: true, force: true}); }
  });
 }
+
+ test("setup incompatible API fails before device/account work", async () => {
+  const config=loadConfig({ITPAY_AGENT_TYPE:"workbuddy",ITPAY_IDEMPOTENCY_KEY:"fixture"});
+  const backend={
+   async compatibility(){return {api_contract_revision:"other",minimum_cli_version:"2.1.40",maximum_cli_major:2,platform_revision:"fixture",schema_revision:"fixture",bootstrap_revision:"fixture"};},
+   async agentAccountStatus(): Promise<{status:string}>{throw Error("must not read account on incompatible Backend");},
+   async bindAgentAccount(): Promise<{status:string}>{throw Error("must not bind");},
+  };
+  await assert.rejects(()=>runSetup(backend,config,validateSetup("workbuddy")),e=>e instanceof HttpError&&e.status===426);
+ });
