@@ -78,6 +78,17 @@ try {
         `ITPAY_CLI_SKILLS_DIR: resolve(skillRoot, "${skillsPath}")`);
       writeFileSync(launcherPath, launcher);
     }
+    const publishedSkill = readFileSync(join(candidateRoot, "skills/itpay/SKILL.md"), "utf8");
+    const outerSkillPath = join(output, "SKILL.md");
+    if (existsSync(outerSkillPath)) {
+      const existingSkill = readFileSync(outerSkillPath, "utf8");
+      const boundary = existingSkill.indexOf("## Local CLI business rules");
+      if (boundary < 0) throw new Error("host Skill has no explicit business boundary");
+      // Host lanes remain before this boundary; replace the outdated Buyer recipe.
+      const host = existingSkill.slice(0, boundary).replaceAll("readyz --json", "setup --json");
+      const body = publishedSkill.slice(publishedSkill.indexOf("# ItPay") + "# ItPay".length).trim();
+      writeFileSync(outerSkillPath, host + "## Local CLI business rules\n\n" + body + "\n");
+    }
     const coreSha256=createHash("sha256").update(readFileSync(join(candidateRoot,"dist/src/main.js"))).digest("hex");
     writeFileSync(join(output,"bundle.lock.json"),JSON.stringify({schemaVersion:1,package:"@itpay/cli",version,format:"buyer-esm-v1",npmIntegrity:metadata["dist.integrity"],...(metadata.gitHead?{sourceGitSha:metadata.gitHead}:{}),candidateTarballSha256:createHash("sha256").update(readFileSync(tarball)).digest("hex"),coreSha256,node:candidatePackage.engines?.node ?? ">=18",bundleDirectory},null,2)+"\n");
     const actual=execFileSync(process.execPath,[join(vendor,"itpay-cli.bundle.mjs"),"--version"],{encoding:"utf8"}).trim();

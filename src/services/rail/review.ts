@@ -242,8 +242,8 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
       instruction: failedInstruction
         ?? (state === "payment"
           ? (model.workflow?.human_action?.context?.review
-            ? "服务已到付款步骤，可直接 Checkout 付款；如需调整席别/座位偏好，先用 confirm_booking 动作修订（会重新报价并锁定新价），完成后再付款。"
-            : "服务已到付款步骤，使用现有 Checkout 完成扫码付款。")
+            ? "已具备准备锁价与付款入口的条件；当前状态不等于已有 Checkout。沿返回动作取得报价、批准同范围价格，再准备官方入口；未变化的真实同意不重复询问。如需修订席别或座位偏好，先用 confirm_booking 动作；这会重新报价，变化须确认。"
+            : "先核对当前返回的报价和 Checkout 事实；已有可付款入口先展示，实际支付由用户完成，不以 payment 状态推定已创建入口。")
           : state === "input_required" && guidance
             ? RAIL_ENDPOINT_BRIEF + "按 result.guidance 的字段契约填写输入后继续同一服务执行；不要臆造字段名。"
             : "继续读取同一执行；缺少输入时按服务声明补齐。"),
