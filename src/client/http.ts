@@ -29,12 +29,14 @@ export class HttpError extends Error {
   }
 }
 
+export type AuthorizationBudget = Pick<RequestOptions,"signal" | "deadline">;
+
 export interface HttpClientConfig {
   baseURL: string;
   fetchImpl?: typeof fetch;
   defaultHeaders?: Record<string, string>;
-  requestAuthorizer?: (input: { method: string; path: string; body: string }) => Promise<Record<string, string>>;
-  recoverAuthorization?: () => Promise<void>;
+  requestAuthorizer?: (input: { method: string; path: string; body: string } & AuthorizationBudget) => Promise<Record<string, string>>;
+  recoverAuthorization?: (options: AuthorizationBudget) => Promise<void>;
   transportRetryDelayMs?: number;
   onDiagnostic?: (diagnostic: RequestDiagnostic) => void;
 }
@@ -128,7 +130,7 @@ export class HttpClient {
       const headers: Record<string, string> = { ...this.defaultHeaders };
       try {
         if (this.requestAuthorizer) {
-          Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body }));
+          Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body, ...(options.signal?{signal:options.signal}:{}), ...(options.deadline!==undefined?{deadline:options.deadline}:{}) }));
         }
       } catch (error) {
         // Authorization can perform enrollment or session POSTs before the
@@ -177,7 +179,7 @@ export class HttpClient {
       if (!authorizationRecovered && error.status === 401 && error.code === "agent_device_session_required" && this.recoverAuthorization) {
         authorizationRecovered = true;
         options.signal?.throwIfAborted();
-        await this.recoverAuthorization();
+        await this.recoverAuthorization({...(options.signal?{signal:options.signal}:{}),...(options.deadline!==undefined?{deadline:options.deadline}:{})});
         options.signal?.throwIfAborted();
         continue;
       }

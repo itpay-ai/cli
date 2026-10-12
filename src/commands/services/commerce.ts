@@ -44,6 +44,7 @@ export async function runServicesCheckout(
     }) => void;
   } = {},
 ): Promise<void> {
+  const deadline = options.deadline ?? Date.now()+60000;
   const host = options.host ?? "terminal";
   const contextError = validateContext(host, options.target);
   if (contextError) {
@@ -58,7 +59,7 @@ export async function runServicesCheckout(
     ...(options.deliveryContact ?? {}),
     ...(options.email ? { email: options.email } : {}),
   };
-  const currentModel = options.readModel ?? (!options.resume ? await backend.getServiceExecution(serviceExecutionID) : undefined);
+  const currentModel = options.readModel ?? (!options.resume ? await backend.getServiceExecution(serviceExecutionID,{deadline}) : undefined);
   if (!options.resume && !capabilityID) capabilityID = currentModel?.workflow_entry?.capability_id;
   if (!options.resume && !capabilityID) {
     throw new CommandContractError(
@@ -81,7 +82,7 @@ export async function runServicesCheckout(
       );
     }
     if(readModel.checkout_bindings.length===0 && !readModel.actions.some(action=>action.action_type==="approve_purchase"&&action.status==="approved")) {
-      await runServicesQuote(backend,serviceExecutionID,capability.capability_id,options.lockedInput ?? {},{...options,readModel});
+      await runServicesQuote(backend,serviceExecutionID,capability.capability_id,options.lockedInput ?? {},{...options,readModel,deadline});
       return;
     }
     const lockedInput = options.lockedInput ?? {};
@@ -109,7 +110,7 @@ export async function runServicesCheckout(
     ...(Object.keys(deliveryContact).length > 0 ? { delivery_contact: deliveryContact } : {}),
 		...(options.lockedInput && Object.keys(options.lockedInput).length > 0 ? { locked_input: options.lockedInput } : {}),
     ...(options.resume ? { resume: true } : {}),
-  });
+  },{deadline});
   } catch(error) {
     if(error instanceof HttpError && error.code === "purchase_approval_required") {
       throw new CommandContractError(error.code,error.message,"先读当前报价及完整范围模板。沿用覆盖同条件的真实批准；缺少哪部分才补哪部分，不把候选选择当作价格同意，也不代付。",[{command:capabilityID ? `itpay services quote ${serviceExecutionID} --capability ${capabilityID}${formatInputOptions(options.lockedInput ?? {})} --json` : `itpay services next ${serviceExecutionID} --json`,reason:"读取同一执行的当前批准范围，不新建购买"}]);
@@ -117,7 +118,14 @@ export async function runServicesCheckout(
     throw error;
   }
   const checkout = response.checkout;
-  const authoritative = checkout.display_token ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id,checkout.display_token) : undefined;
+  options.persistHandoff?.({
+    serviceExecutionID,
+    cartID: response.cart.cart_id,
+    checkoutID:checkout.checkout.checkout_id,
+    displayToken:checkout.display_token,
+    checkoutURL:tokenizedCheckoutURL(checkout.checkout_url,checkout.display_token,checkout.qr_payload),
+  });
+  const authoritative = checkout.display_token ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id,checkout.display_token,undefined,{deadline}) : undefined;
   assertCheckoutPayable(checkout,authoritative,response.cart.cart_id,serviceExecutionID);
   if (authoritative) response.cart.items=authoritative.items;
   const checkoutID = checkout.checkout.checkout_id;
@@ -135,8 +143,8 @@ export async function runServicesCheckout(
   let itineraryTitle: string | undefined;
   let itinerary: Record<string, unknown> | undefined;
   try {
-    const booking = currentModel ?? await backend.getServiceExecution(serviceExecutionID);
-    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken));
+    const booking = currentModel ?? await backend.getServiceExecution(serviceExecutionID,{deadline});
+    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken,authoritative));
   } catch {
     // Checkout already exists; a display-only title lookup cannot hide its official handoff.
   }
@@ -161,15 +169,14 @@ export async function runServicesCheckout(
     locale,
   });
 
-  options.persistHandoff?.({
-    serviceExecutionID,
-    cartID: response.cart.cart_id,
-    checkoutID,
-    displayToken,
-    checkoutURL,
-  });
+
 
   const platform = platformKeyForHost(plan.host);
+  const fetchWithinBudget: typeof fetch = async (url,init) => {
+    const remaining=deadline-Date.now();
+    if(remaining<=0) throw new DOMException("command deadline reached","TimeoutError");
+    return (options.fetchImpl ?? globalThis.fetch)(url,{...init,signal:AbortSignal.timeout(remaining)});
+  };
   if (!options.jsonOutput && (platform === "telegram" || platform === "feishu" || platform === "lark")) {
     await dispatchRender(plan, {
       host,
@@ -177,7 +184,7 @@ export async function runServicesCheckout(
       ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
       ...(options.qrFilePath ? { qrFilePath: options.qrFilePath } : {}),
       ...(options.output ? { output: options.output } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      fetchImpl:fetchWithinBudget,
       baseURL: config.baseURL,
     });
     return;
@@ -186,7 +193,7 @@ export async function runServicesCheckout(
     await ensureIdeImageAttach(plan, {
       enabled: config.ideImageAttach,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      fetchImpl:fetchWithinBudget,
     });
   }
   const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, options.agentType, options.target);
@@ -212,7 +219,8 @@ export async function runServicesQuote(
   input: Record<string, unknown>,
   options: ServicesCommandOptions & { readModel?: ServiceExecutionReadModel; email?: string; deliveryContact?: Record<string, unknown>; jsonOutput?: boolean } = {},
 ): Promise<void> {
-  const model = options.readModel ?? await backend.getServiceExecution(serviceExecutionID);
+  const deadline = options.deadline ?? Date.now()+60000;
+  const model = options.readModel ?? await backend.getServiceExecution(serviceExecutionID,{deadline});
   const capability = model.capabilities.find((item) => item.capability_id === capabilityID);
   if (!capability || !capability.requires_payment) {
     throw new CommandContractError(
@@ -249,7 +257,7 @@ export async function runServicesQuote(
     capability_id: capabilityID,
     ...(Object.keys(deliveryContact).length > 0 ? { delivery_contact: deliveryContact } : {}),
     ...(Object.keys(input).length > 0 ? { locked_input: input } : {}),
-  });
+  },{deadline});
   const result = {
     service_quote_lock_id: quote.service_quote_lock_id,
     service_execution_id: quote.service_execution_id,

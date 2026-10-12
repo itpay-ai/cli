@@ -10,6 +10,7 @@ import { buildCheckoutQRPlan } from "../../render/checkout_plan.js";
 import { appendFeedbackPostmortemInstruction, CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, shellArgument, plainValueLines, fileInputTemplate } from "./envelope.js";
 
 export interface ServicesCommandOptions {
+  deadline?: number;
   output?: OutputSink;
   env?: NodeJS.ProcessEnv;
 }

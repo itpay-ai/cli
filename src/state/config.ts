@@ -154,7 +154,7 @@ export function newBackendClient(config: CLIConfig): BackendClient {
     requestAuthorizer: (input) => {
       return authority.authorizationHeaders(input);
     },
-    recoverAuthorization: () => authority.recoverAuthorization(),
+    recoverAuthorization: options => authority.recoverAuthorization(options),
   });
   return new BackendClient(http);
 }

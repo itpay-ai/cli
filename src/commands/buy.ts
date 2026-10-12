@@ -31,6 +31,7 @@ import { assertCheckoutPayable, buildCheckoutHandoff, shouldPrepareLocalCheckout
 export type ContactField = "email" | "phone";
 
 export interface BuyOptions {
+  deadline?: number;
   cartSession: CartSession;
   cartID?: string;
   host: ClientHost;
@@ -69,6 +70,12 @@ export async function runBuy(
   config: CLIConfig,
   options: BuyOptions,
 ): Promise<BuyResult> {
+  const deadline=options.deadline ?? Date.now()+60000;
+  const fetchWithinBudget: typeof fetch = async(url,init)=>{
+    const remaining=deadline-Date.now();
+    if(remaining<=0) throw new DOMException("command deadline reached","TimeoutError");
+    return (options.fetchImpl ?? globalThis.fetch)(url,{...init,signal:AbortSignal.timeout(remaining)});
+  };
   const err = validateContext(options.host, options.target);
   if (err) {
     throw new Error(`${err.code}: ${err.message}`);
@@ -97,14 +104,14 @@ export async function runBuy(
 
   let cart: Cart;
   if (options.cartID || resumableCartID) {
-    cart = await backend.getCart(options.cartID ?? resumableCartID!);
+    cart = await backend.getCart(options.cartID ?? resumableCartID!,{deadline});
   } else {
     const request = options.cartSession.toCreateCartRequest();
     request.client_context = {
       host: options.host,
       target: options.target,
     };
-    cart = await backend.createCart(request);
+    cart = await backend.createCart(request,{deadline});
   }
 
   const latestLine = cart.items[cart.items.length - 1];
@@ -128,10 +135,16 @@ export async function runBuy(
     client_reference_id: options.clientReferenceID ?? idempotencyKey,
     ...(options.contact ? { delivery_contact: options.contact } : {}),
   };
-  const checkout = await backend.createCheckout(checkoutRequest, idempotencyKey);
+  const checkout = await backend.createCheckout(checkoutRequest, idempotencyKey,{deadline});
+
+  options.cartSession.rememberCheckout({
+    checkoutID: checkout.checkout.checkout_id,
+    displayToken: checkout.display_token,
+    checkoutURL: tokenizedCheckoutURL(checkout.checkout_url, checkout.display_token, checkout.qr_payload),
+  });
 
   const authoritative = checkout.display_token
-    ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id, checkout.display_token)
+    ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id, checkout.display_token,undefined,{deadline})
     : undefined;
   assertCheckoutPayable(checkout, authoritative, cart.cart_id, latestLine?.service_execution_id);
   const current = authoritative?.checkout ?? checkout.checkout;
@@ -139,11 +152,7 @@ export async function runBuy(
   if (!authoritative) throw new Error("checkout presentation unavailable");
   cart = {...cart, items:authoritative.items, amount_minor:current.amount_minor, currency:current.currency};
 
-  options.cartSession.rememberCheckout({
-    checkoutID: checkout.checkout.checkout_id,
-    displayToken: checkout.display_token,
-    checkoutURL: tokenizedCheckoutURL(checkout.checkout_url, checkout.display_token, checkout.qr_payload),
-  });
+
 
   const checkoutID = checkout.checkout.checkout_id;
   const displayToken = checkout.display_token;
@@ -174,6 +183,7 @@ export async function runBuy(
     paymentIntent = await backend.createPaymentIntent(
       checkoutID,
       { payment_method_type: method, display_token: displayToken },
+      {deadline},
     );
 
     if (!options.jsonOutput) {
@@ -225,7 +235,7 @@ export async function runBuy(
     await ensureIdeImageAttach(plan, {
       enabled: config.ideImageAttach,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      fetchImpl:fetchWithinBudget,
     });
   }
 
@@ -261,7 +271,7 @@ export async function runBuy(
     ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
     ...(options.qrFilePath ? { qrFilePath: options.qrFilePath } : {}),
     ...(options.output ? { output: options.output } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    fetchImpl:fetchWithinBudget,
     baseURL: config.baseURL,
   };
   await dispatchRender(plan, renderOptions);

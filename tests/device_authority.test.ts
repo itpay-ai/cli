@@ -591,3 +591,33 @@ for (const phase of ["enrollment", "session"] as const) {
   assert.equal(existsSync(options.statePath),false);
  });
 }
+
+// Actual fetch cancellation, not a Promise.race over a stubbed authorization method.
+test('authorization deadline aborts slow headers/body before follow-up enrollment or cache commit',async()=>{
+ const {createServer}=await import('node:http');
+ const {HttpTransportError}=await import('../src/client/transport.js');
+ for(const mode of ['headers','body']) {
+  const root=mkdtempSync(join(tmpdir(),'itpay-auth-deadline-'));
+  const facts=new DeviceServer();const requests:string[]=[];
+  const server=createServer(async(req,res)=>{
+   requests.push(req.url!);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);
+   const response=await facts.fetch(`https://test.itpay.ai${req.url}`,{method:req.method!,body:Buffer.concat(chunks).toString()});
+   const raw=await response.text();res.setHeader('content-type','application/json');
+   if(mode==='body'){res.writeHead(response.status);res.flushHeaders();res.write(raw.slice(0,1));}
+   await new Promise(resolve=>setTimeout(resolve,180));
+   if(!res.destroyed)res.end(mode==='body'?raw.slice(1):raw);
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+  const url=`http://127.0.0.1:${address.port}`;
+  const authority=new DeviceAuthority({baseURL:url,requestedAgentType:'codex-cli',compatibilityHeaders:{},statePath:join(root,'identity.json'),privateKeyPath:join(root,'private.pem')});
+  const client=new HttpClient({baseURL:url,requestAuthorizer:i=>authority.authorizationHeaders(i),recoverAuthorization:o=>authority.recoverAuthorization(o)});
+  try{
+   await assert.rejects(()=>client.post('/v1/carts',{}, {deadline:Date.now()+70}),error=>error instanceof HttpTransportError&&error.code==='network_timeout');
+   const snapshot=()=>JSON.stringify(readdirSync(root,{recursive:true}).filter(x=>String(x).endsWith('.json')).map(x=>[x,readFileSync(join(root,String(x)),'utf8')]));
+   const atTimeout=snapshot();await new Promise(resolve=>setTimeout(resolve,250));
+   assert.equal(snapshot(),atTimeout,'no late authorization cache/state commit');
+   assert.deepEqual(requests,['/v1/agent-device-enrollments'],'no verification/session/original commerce POST after expiry');
+   assert(existsSync(join(root,'private.pem')),'preserve canonical isolated identity even when enrollment outcome is unknown');
+  }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+ }
+});

@@ -329,13 +329,13 @@ export async function runServicesNext(
   options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void>; initialModel?: ServiceExecutionReadModel; deadline?: number; startedAt?: number } = {},
 ): Promise<void> {
   const started = options.startedAt ?? Date.now();
-  const until = options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000;
+  const until = options.timeoutSeconds===0 ? started : options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000;
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
-  let response = options.initialModel ?? await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(until>started ? {deadline:until}: {})});
+  let response = options.initialModel ?? await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});
   while (shouldWaitForServiceResult(response) && Date.now() < until) {
     await sleep(Math.min(Math.max(1500, options.pollIntervalMS ?? serviceAdapter(response.execution).pollAfter(response)), Math.max(0,until-Date.now())));
     if (Date.now() >= until) break;
-    try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(until>started ? {deadline:until}: {})});}
+    try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});}
     catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
   }
   const envelope = servicesNextEnvelope(response);
@@ -371,7 +371,7 @@ export async function runServicesRun(
   options: ServicesRunOptions = {},
 ): Promise<void> {
   const startedAt = Date.now();
-  const deadline = startedAt + (options.timeoutSeconds ?? 120) * 1000;
+  const deadline = options.deadline ?? startedAt + (options.timeoutSeconds===0 ? 60 : options.timeoutSeconds ?? 120) * 1000;
   let id = options.executionID;
   let adapter = serviceAdapter({service_id:serviceID,service_contract_version_id:""});
   let inputContext = {serviceID, operationID:options.operationID, executionID:options.executionID, continuation:options.continuation};
@@ -383,7 +383,7 @@ export async function runServicesRun(
  ...(options.continuation ? {continuation:options.continuation}:{}),
         client_context: { host: options.host ?? "terminal", features: serviceClientFeatures(), ...(options.target ? { target: options.target } : {}) },
         ...(input !== undefined ? { input } : {}),
-      },options.timeoutSeconds===0 ? {} : {deadline});
+      },{deadline});
       if ("overview_only" in started) {writeServiceOverview(started.service_definition,options);return;}
       id = started.execution.service_execution_id;
       if (!started.workflow_entry) {
@@ -391,7 +391,7 @@ export async function runServicesRun(
         return;
       }
     }
-    let model = await backend.getServiceExecution(id,options.timeoutSeconds===0?{}:{deadline});
+    let model = await backend.getServiceExecution(id,{deadline});
     adapter = serviceAdapter(model.execution);
     if (model.execution.public_binding) inputContext = {...inputContext,...executionInputContext(model.execution),...(options.continuation ? {continuation:options.continuation} : {})};
     if (model.execution.service_id !== serviceID && model.execution.public_binding?.public_service_id !== serviceID) throw new Error("execution belongs to another service");
@@ -409,11 +409,11 @@ export async function runServicesRun(
       return;
     }
     if (input !== undefined) {
-      model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`,options.timeoutSeconds===0?{}:{deadline});
+      model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`,{deadline});
     } else if (model.workflow?.status === "quota_paused") {
-      model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`,options.timeoutSeconds===0?{}:{deadline});
+      model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`,{deadline});
     }
-    const until = deadline;
+    const until = options.timeoutSeconds===0 ? startedAt : deadline;
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     // A planning projection can exist before any usable result or user action.
@@ -432,6 +432,7 @@ export async function runServicesRun(
       await runServicesCheckout(backend, config, id, model.workflow_entry?.capability_id, {
         ...options,
         readModel:model,
+        deadline,
         ...(config.agentType ? { agentType: config.agentType } : {}),
         resume: model.checkout_bindings.length > 0,
       });
@@ -463,7 +464,7 @@ export async function runServicesRun(
         [{ command: "itpay services list --json", reason: "查找可能已经创建的服务执行" }],
       );
     }
-    if (cause instanceof HttpTransportError) throw new CommandContractError("workflow_outcome_unknown", cause.message, "未收到完整响应；只读同一执行的权威事实，不重放写操作或创建替代执行。", [{ command: `itpay services next ${id} --json`, reason: "核对同一执行" }]);
+    if (cause instanceof HttpTransportError) throw new CommandContractError("workflow_outcome_unknown", cause.message, "未收到完整响应；只读同一执行的权威事实，不重放写操作或创建替代执行。", [{ command: `itpay services next ${id} --json`, reason: "核对同一执行" }],undefined,{original_error_code:cause.code,network_diagnostics:cause.diagnostics});
     throw new CommandContractError(
       "workflow_run_failed",
       cause instanceof Error ? cause.message : "workflow run failed",

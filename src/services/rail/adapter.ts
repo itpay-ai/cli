@@ -23,7 +23,7 @@ export const railAdapter: ServiceAdapter = {
  extraFacts: model => model.rail_booking ? {rail_booking:model.rail_booking} : {},
  runError:railRunError, actionError:railActionError, readResult:readSavedResult,
  renderPage: (...args) => {renderRailResultPage(...args);return true;},
- checkout:async(backend,model,id,token)=>railCheckoutItinerary(model,await backend.getCheckoutPresentation(id,token)),
+ checkout:async(backend,model,id,token,presentation)=>railCheckoutItinerary(model,presentation ?? await backend.getCheckoutPresentation(id,token)),
 };
 
 const bookingAdapter: ServiceAdapter = {

@@ -35,7 +35,7 @@ export function newSellerClient(config:CLIConfig):SellerClient {
       }
       return authority.authorizationHeaders(input);
     },
-    recoverAuthorization: () => authority.recoverAuthorization(),
+    recoverAuthorization: options => authority.recoverAuthorization(options),
   });
   return new SellerClient(http);
 }

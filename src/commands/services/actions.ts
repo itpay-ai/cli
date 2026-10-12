@@ -21,8 +21,8 @@ export async function runServicesAction(
     jsonOutput?: boolean;
   } = {},
 ): Promise<void> {
-  const deadline=Date.now()+60000;
-  const selection = await resolveCandidateSelection(backend, serviceExecutionID, actionType, options);
+  const deadline=options.deadline ?? Date.now()+60000;
+  const selection = await resolveCandidateSelection(backend, serviceExecutionID, actionType, {...options,deadline});
   const request: RecordServiceExecutionActionRequest = {
     action_type: actionType,
     input_snapshot: input,
@@ -130,7 +130,7 @@ export async function resolveCandidateSelection(
   backend: BackendClient,
   serviceExecutionID: string,
   actionType: string,
-	options: { candidateRank?: number; resultItemID?: string },
+	options: { candidateRank?: number; resultItemID?: string; deadline?: number },
 ): Promise<{ resultItemID: string; rank: number; title: string } | undefined> {
   if (options.candidateRank === undefined) return undefined;
   if (actionType !== "select_candidate") {
@@ -142,7 +142,7 @@ export async function resolveCandidateSelection(
   if (!Number.isInteger(options.candidateRank) || options.candidateRank < 1) {
     throw actionInputError(serviceExecutionID, "--candidate must be a positive integer result rank");
   }
-  const execution = await backend.getServiceExecution(serviceExecutionID);
+  const execution = await backend.getServiceExecution(serviceExecutionID,options.deadline!==undefined?{deadline:options.deadline}:{});
 	const currentItems = execution.current_result_items ?? [];
 	const result = currentItems.find((item) => item.rank === options.candidateRank);
   if (!result) {

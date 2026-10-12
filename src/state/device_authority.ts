@@ -1,4 +1,5 @@
-import { asTransientTransportError } from "../client/transport.js";
+import type { AuthorizationBudget } from "../client/http.js";
+import { asTransientTransportError, HttpTransportError } from "../client/transport.js";
 import { createDeviceKey, deviceKeyThumbprint, readDeviceKey } from "./device_key.js";
 import { deviceCacheAgentTypes, DeviceSessionCache } from "./device_session_cache.js";
 import {
@@ -94,9 +95,11 @@ export class DeviceAuthority {
     this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
   }
 
-  async authorizationHeaders(input: { method: string; path: string; body: string }): Promise<Record<string, string>> {
+  async authorizationHeaders(input: { method: string; path: string; body: string } & AuthorizationBudget): Promise<Record<string, string>> {
     if (!PROTECTED_PATHS.some((prefix) => input.path.startsWith(prefix))) return {};
-    const auth = await this.ensureAuthorization();
+    checkAuthorizationBudget(input);
+    const auth = await this.ensureAuthorization(input);
+    checkAuthorizationBudget(input);
     const timestamp = new Date().toISOString();
     const jti = randomUUID();
     const bodyHash = sha256(input.body);
@@ -113,9 +116,9 @@ export class DeviceAuthority {
     };
   }
 
-  private async ensureAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
+  private async ensureAuthorization(options: AuthorizationBudget): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
     if (!this.pending) {
-      this.pending = this.cachedAuthorization() ?? this.prepareAuthorization();
+      this.pending = this.cachedAuthorization() ?? this.prepareAuthorization(options);
       this.pending = this.pending.finally(() => {
         this.pending = undefined;
       });
@@ -144,9 +147,11 @@ export class DeviceAuthority {
     } catch (error) { throw asDeviceStateError(error, "read_state"); }
   }
 
-  async recoverAuthorization(): Promise<void> {
+  async recoverAuthorization(options: AuthorizationBudget = {}): Promise<void> {
+    checkAuthorizationBudget(options);
     const privateKey = this.readPrivateKey();
     if (!privateKey || !this.requestedAgentType) return;
+    checkAuthorizationBudget(options);
     try { this.cache(privateKey).invalidate(); } catch (error) { throw asDeviceStateError(error, "write_state"); }
   }
 
@@ -167,11 +172,13 @@ export class DeviceAuthority {
     throw Object.assign(new Error("Device key reset is unavailable in this version; the original identity is unchanged"), { code: "device_key_reset_unavailable" });
   }
 
-  private async prepareAuthorization(): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
+  private async prepareAuthorization(options: AuthorizationBudget): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
+    checkAuthorizationBudget(options);
     const state = this.readState();
     const agentType = this.requestedAgentType;
     if (!agentType) throw new Error("agent type is required for ItPay commerce; pass --agent-type <type> or set ITPAY_AGENT_TYPE");
     let privateKey: KeyObject;
+    checkAuthorizationBudget(options);
     try {
       const cacheDirectory = resolve(dirname(this.statePath), "sessions");
       const hasCache = existsSync(cacheDirectory) && readdirSync(cacheDirectory).some(name => /\.(json|generation)$/.test(name));
@@ -182,6 +189,7 @@ export class DeviceAuthority {
     }
     const cache = this.cache(privateKey);
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      checkAuthorizationBudget(options);
       let generation: string;
       let registration: DeviceRegistration | undefined;
       try {
@@ -193,14 +201,15 @@ export class DeviceAuthority {
         const hint = state?.registrations[this.backendKey];
         if (hint?.agentInstances[agentType]) registration = { ...hint, agentInstances: { ...hint.agentInstances }, sessions: {} };
       }
-      if (!registration) registration = await this.enroll(agentType, privateKey);
+      if (!registration) registration = await this.enroll(agentType, privateKey,options);
       let session: DeviceSessionState;
-      try { session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false); }
+      try { session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false,options); }
       catch (error) {
         if (!isUnknownDeviceRegistration(error)) throw error;
-        registration = await this.enroll(agentType, privateKey);
-        session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false);
+        registration = await this.enroll(agentType, privateKey,options);
+        session = await this.ensureRegistrationAgentType(registration, agentType, privateKey, false,options);
       }
+      checkAuthorizationBudget(options);
       try {
         cache.write(registration, generation);
         if (cache.generation(false) !== generation) continue;
@@ -215,6 +224,7 @@ export class DeviceAuthority {
     agentType: string,
     privateKey: KeyObject,
     forceSession: boolean,
+    options: AuthorizationBudget,
   ): Promise<DeviceSessionState> {
     if (!registration.agentInstances[agentType]) {
       const existingTypes = Object.keys(registration.agentInstances).sort();
@@ -222,7 +232,7 @@ export class DeviceAuthority {
       let revokedError: DeviceAuthorizationError | undefined;
       for (const existingType of existingTypes) {
         try {
-          const existingSession = await this.ensureSession(registration, existingType, privateKey, forceSession);
+          const existingSession = await this.ensureSession(registration, existingType, privateKey, forceSession,options);
           const registered = await this.signedJSON<{ agent_instance_id: string }>(
             "/v1/agent-instances",
             { agent_type: agentType },
@@ -230,6 +240,7 @@ export class DeviceAuthority {
             existingType,
             existingSession,
             privateKey,
+            options,
           );
           registration.agentInstances[agentType] = registered.agent_instance_id;
           break;
@@ -241,19 +252,20 @@ export class DeviceAuthority {
       }
       if (!registration.agentInstances[agentType]) throw revokedError ?? new Error("device has no active registered agent instance");
     }
-    return this.ensureSession(registration, agentType, privateKey, forceSession);
+    return this.ensureSession(registration, agentType, privateKey, forceSession,options);
   }
 
-  private async enroll(agentType: string, privateKey: KeyObject): Promise<DeviceRegistration> {
+  private async enroll(agentType: string, privateKey: KeyObject, options: AuthorizationBudget): Promise<DeviceRegistration> {
     const publicJWK = createPublicKey(privateKey).export({ format: "jwk" });
     if (!publicJWK.x) throw new Error("unable to export Ed25519 public key");
     const publicKey = Buffer.from(publicJWK.x, "base64url").toString("base64");
     try {
-      const started = await this.publicJSON<EnrollmentStarted>("/v1/agent-device-enrollments", { public_key: publicKey, agent_type: agentType });
+      const started = await this.publicJSON<EnrollmentStarted>("/v1/agent-device-enrollments", { public_key: publicKey, agent_type: agentType },options);
       const proof = enrollmentProofMessage(started.agent_device_enrollment_id, started.challenge);
       const verified = await this.publicJSON<EnrollmentVerified>(
         `/v1/agent-device-enrollments/${encodeURIComponent(started.agent_device_enrollment_id)}/verify`,
         { challenge: started.challenge, signature: sign(null, Buffer.from(proof), privateKey).toString("base64") },
+        options,
       );
       return {
         deviceID: verified.agent_device_id,
@@ -268,7 +280,7 @@ export class DeviceAuthority {
     }
   }
 
-  private async ensureSession(state: DeviceRegistration, agentType: string, privateKey: KeyObject, force = false): Promise<DeviceSessionState> {
+  private async ensureSession(state: DeviceRegistration, agentType: string, privateKey: KeyObject, force = false, options: AuthorizationBudget = {}): Promise<DeviceSessionState> {
     const existing = state.sessions[agentType];
     if (!force && existing && Date.parse(existing.expiresAt) > Date.now() + 60_000) return existing;
     const instanceID = state.agentInstances[agentType];
@@ -276,18 +288,20 @@ export class DeviceAuthority {
     const challenge = await this.publicJSON<SessionChallenge>("/v1/agent-device-session-challenges", {
       agent_device_id: state.deviceID,
       agent_instance_id: instanceID,
-    });
+    },options);
     const proof = deviceSessionProofMessage(challenge.agent_device_session_challenge_id, challenge.challenge);
     const verified = await this.publicJSON<SessionVerified>(
       `/v1/agent-device-session-challenges/${encodeURIComponent(challenge.agent_device_session_challenge_id)}/verify`,
       { challenge: challenge.challenge, signature: sign(null, Buffer.from(proof), privateKey).toString("base64") },
+      options,
     );
     const session = { token: verified.session_token, expiresAt: verified.expires_at };
+    checkAuthorizationBudget(options);
     state.sessions[agentType] = session;
     return session;
   }
 
-  private async signedJSON<T>(path: string, bodyValue: unknown, state: DeviceRegistration, agentType: string, session: DeviceSessionState, privateKey: KeyObject): Promise<T> {
+  private async signedJSON<T>(path: string, bodyValue: unknown, state: DeviceRegistration, agentType: string, session: DeviceSessionState, privateKey: KeyObject, options: AuthorizationBudget): Promise<T> {
     const body = JSON.stringify(bodyValue);
     const timestamp = new Date().toISOString();
     const jti = randomUUID();
@@ -301,26 +315,36 @@ export class DeviceAuthority {
       "X-ItPay-Agent-Proof-JTI": jti,
       "X-ItPay-Agent-Body-SHA256": bodyHash,
       "X-ItPay-Agent-Signature": signature,
-    });
+    },options);
   }
 
-  private publicJSON<T>(path: string, bodyValue: unknown): Promise<T> {
-    return this.fetchJSON<T>(path, JSON.stringify(bodyValue), {});
+  private publicJSON<T>(path: string, bodyValue: unknown, options: AuthorizationBudget): Promise<T> {
+    return this.fetchJSON<T>(path, JSON.stringify(bodyValue), {},options);
   }
 
-  private async fetchJSON<T>(path: string, body: string, extraHeaders: Record<string, string>): Promise<T> {
-    let response: Response;
+  private async fetchJSON<T>(path: string, body: string, extraHeaders: Record<string, string>, options: AuthorizationBudget): Promise<T> {
+    checkAuthorizationBudget(options);
+    const controller = new AbortController();
+    const abort=()=>controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort",abort,{once:true});
+    if(options.signal?.aborted) abort();
+    const timer=setTimeout(()=>controller.abort(new DOMException("authorization deadline reached","TimeoutError")),Math.min(15000,Math.max(0,(options.deadline ?? Date.now()+15000)-Date.now())));
     try {
-      response = await this.fetchImpl(this.baseURL + path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json", ...this.compatibilityHeaders, ...extraHeaders },
-      body,
-      signal: AbortSignal.timeout(15_000),
-    });
-    } catch (error) { throw asTransientTransportError(error, 1) ?? error; }
-    const payload = await response.json().catch(() => ({})) as { code?: string; message?: string };
-    if (!response.ok) throw new DeviceAuthorizationError(response.status, payload.code, payload.message || payload.code || `ItPay device request failed: ${response.status}`);
-    return payload as T;
+      const response = await this.fetchImpl(this.baseURL + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", ...this.compatibilityHeaders, ...extraHeaders },
+        body, signal:controller.signal,
+      });
+      const payload = await response.json().catch(()=>{controller.signal.throwIfAborted();return {};}) as {code?:string;message?:string};
+      controller.signal.throwIfAborted();
+      checkAuthorizationBudget(options);
+      if (!response.ok) throw new DeviceAuthorizationError(response.status,payload.code,payload.message || payload.code || `ItPay device request failed: ${response.status}`);
+      return payload as T;
+    } catch(error) {
+      if(controller.signal.aborted && !options.signal?.aborted) throw new HttpTransportError("network_timeout",1,"AUTHORIZATION_DEADLINE_EXCEEDED",error);
+      throw asTransientTransportError(error,1) ?? error;
+    }
+    finally { clearTimeout(timer);options.signal?.removeEventListener("abort",abort); }
   }
 
   private readState(): DeviceState | undefined {
@@ -430,3 +454,8 @@ export function asDeviceStateError(error: unknown, operation: DeviceStateOperati
 }
 
 import { stateDir } from "./config.js";
+
+function checkAuthorizationBudget(options: AuthorizationBudget): void {
+  options.signal?.throwIfAborted();
+  if(options.deadline !== undefined && Date.now()>=options.deadline) throw new DOMException("authorization deadline reached","TimeoutError");
+}

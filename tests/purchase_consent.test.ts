@@ -254,3 +254,70 @@ test('saved credential deadline is distinct from historical itinerary and missin
  assert.equal(purchaseCredentialFacts('2000-01-01T00:00:00Z').status,'expired');
  assert.equal(purchaseCredentialFacts('2099-01-01T00:00:00Z').status,'not_expired');
 });
+
+test('run shares the remaining deadline with quote and authoritative checkout presentation',async()=>{
+ const {createServer}=await import('node:http');const {mkdtempSync,readFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const mock=await startMockBackend();
+ try{
+  const base=await new BackendClient(new HttpClient({baseURL:mock.url})).getServiceExecution('se_budget');
+  const results:unknown[]=[];
+  for(const stage of ['quote','presentation']){
+   const calls:string[]=[];const home=mkdtempSync(join(tmpdir(),'itpay-run-budget-'));
+   const model={...base,execution_requests:[],current_result_items:[],delivery_bindings:[],payment_bindings:[],checkout_bindings:[],execution:{...base.execution,status:'running'},workflow_entry:{capability_id:'precise_report',input_schema:{}},workflow:{status:'payment',current_step:'payment',revision:1,steps:{}},capabilities:base.capabilities.map(c=>({...c,input_schema:{},delivery_email_required:false})),actions:stage==='presentation'?[{action_type:'approve_purchase',status:'approved'}]:[]};
+   const server=createServer(async(req,res)=>{
+    const path=req.url!;calls.push(`${req.method} ${path.split('?')[0]}`);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
+    if(path==='/v1/service-executions/se_budget'){await new Promise(resolve=>setTimeout(resolve,700));res.setHeader('content-type','application/json');res.end(JSON.stringify(model));return;}
+    if(path.endsWith('/quotes')||path.includes('/presentation')){await new Promise(resolve=>setTimeout(resolve,600));}
+    if(res.destroyed)return;
+    const forwarded=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});res.statusCode=forwarded.status;res.setHeader('content-type','application/json');res.end(await forwarded.text());
+   });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+   let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
+   const started=Date.now();let output='';
+   try{await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,'services','run','svc_qizhidao_company_lookup','--execution','se_budget','--timeout','1','--json'],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:5000});assert.fail('slow command should reach its shared budget');}
+   catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);assert(Date.now()-started<2200,'actual CLI process exits without another 30s request budget');}
+   finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+   assert.equal(calls.filter(x=>x.includes('/quotes')).length,stage==='quote'?1:0);
+   assert.equal(calls.filter(x=>x.endsWith('/checkout')).length,stage==='presentation'?1:0);
+   assert.equal(calls.filter(x=>x.includes('/presentation')).length,stage==='presentation'?1:0);
+   results.push({stage,elapsed_ms:Date.now()-started,calls,output:JSON.parse(output)});
+  }
+  if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R1-real-http-budget.json'),JSON.stringify(results,null,2));
+ }finally{await mock.close();}
+});
+
+test('real CLI authorization timeout exits without late verification or original business write',async()=>{
+ const {createServer}=await import('node:http');const {mkdtempSync,readFileSync,readdirSync,existsSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const mock=await startMockBackend();const home=mkdtempSync(join(tmpdir(),'itpay-process-auth-budget-'));const calls:string[]=[];
+ const server=createServer(async(req,res)=>{
+  const path=req.url!;calls.push(`${req.method} ${path.split('?')[0]}`);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
+  if(path==='/v1/agent-device-enrollments')await new Promise(resolve=>setTimeout(resolve,2200));
+  if(res.destroyed)return;
+  const f=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});res.statusCode=f.status;res.setHeader('content-type','application/json');res.end(await f.text());
+ });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+ let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
+ const file=join(home,'query.json');writeFileSync(file,JSON.stringify({keyword:'fixture'}));const started=Date.now();let output='';
+ try{
+  try{await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,'services','run','svc_qizhidao_company_lookup','--input-json',file,'--timeout','1','--json'],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:5000});assert.fail('expected timeout');}catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);}
+  const elapsed=Date.now()-started;assert(elapsed<2100,'CLI exits before slow enrollment returns');
+  const stateRoot=join(home,'.itpay-v3');const snapshots=()=>JSON.stringify(existsSync(stateRoot)?readdirSync(stateRoot,{recursive:true}).filter(x=>String(x).endsWith('.json')).map(x=>[x,readFileSync(join(stateRoot,String(x)),'utf8')]):[]);const snapshot=snapshots();
+  await new Promise(resolve=>setTimeout(resolve,2300));assert.equal(snapshots(),snapshot);
+  assert.equal(calls.filter(x=>x.includes('/agent-device-enrollments')).length,1);assert.equal(calls.filter(x=>x==='POST /v1/service-executions').length,0);
+  if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R2-real-authority-process.json'),JSON.stringify({scope:'real DeviceAuthority and fetch, synthetic isolated key, loopback server',elapsed_ms:elapsed,requests:calls,late_state_write:false,original_business_post:false,output:JSON.parse(output)},null,2));
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await mock.close();}
+});
+
+test('candidate lookup consumes the action budget before any write',async()=>{
+ const {createServer}=await import('node:http');let writes=0;
+ const server=createServer(async(req,res)=>{
+  if(req.method==='POST')writes++;
+  await new Promise(resolve=>setTimeout(resolve,160));
+  if(!res.destroyed){res.setHeader('content-type','application/json');res.end('{}');}
+ });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const address=server.address();assert(address&&typeof address!=='string');
+ try{
+  const backend=new BackendClient(new HttpClient({baseURL:`http://127.0.0.1:${address.port}`}));
+  const start=Date.now();
+  await assert.rejects(runServicesAction(backend,'se_candidate','select_candidate',{}, {candidateRank:1,deadline:start+60}),/request|timeout|network/i);
+  assert.ok(Date.now()-start<150);assert.equal(writes,0);
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

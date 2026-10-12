@@ -77,12 +77,12 @@ export class BackendClient {
 
   // --- Cart ---
 
-  createCart(input: CreateCartRequest): Promise<Cart> {
-    return this.http.post<Cart>("/v1/carts", input);
+  createCart(input: CreateCartRequest, options: RequestOptions = {}): Promise<Cart> {
+    return this.http.post<Cart>("/v1/carts", input,options);
   }
 
-  getCart(cartID: string): Promise<Cart> {
-    return this.http.get<Cart>(`/v1/carts/${encodeURIComponent(cartID)}`);
+  getCart(cartID: string, options: RequestOptions = {}): Promise<Cart> {
+    return this.http.get<Cart>(`/v1/carts/${encodeURIComponent(cartID)}`,options);
   }
 
   addCartItem(cartID: string, input: AddCartItemRequest): Promise<Cart> {
@@ -101,14 +101,14 @@ export class BackendClient {
 
   // --- Checkout ---
 
-  createCheckout(input: CreateCheckoutRequest, idempotencyKey?: string): Promise<CheckoutCreated> {
-    return this.http.post<CheckoutCreated>("/v1/checkouts", input, idempotencyKey ? { idempotencyKey } : undefined);
+  createCheckout(input: CreateCheckoutRequest, idempotencyKey?: string, options: RequestOptions = {}): Promise<CheckoutCreated> {
+    return this.http.post<CheckoutCreated>("/v1/checkouts", input, {...options,...(idempotencyKey ? {idempotencyKey}: {})});
   }
 
-  getCheckoutPresentation(checkoutID: string, displayToken: string, locale?: "zh-CN" | "en"): Promise<CheckoutPresentation> {
+  getCheckoutPresentation(checkoutID: string, displayToken: string, locale?: "zh-CN" | "en", options: RequestOptions = {}): Promise<CheckoutPresentation> {
     const qs = new URLSearchParams({ display_token: displayToken });
     if (locale) qs.set("locale", locale);
-    return this.http.get<CheckoutPresentation>(`/v1/checkouts/${encodeURIComponent(checkoutID)}/presentation?${qs}`);
+    return this.http.get<CheckoutPresentation>(`/v1/checkouts/${encodeURIComponent(checkoutID)}/presentation?${qs}`,options);
   }
 
   // --- Payment intents ---
@@ -116,10 +116,11 @@ export class BackendClient {
   createPaymentIntent(
     checkoutID: string,
     input: CreatePaymentIntentRequest,
+    options: RequestOptions = {},
   ): Promise<PaymentIntent> {
     return this.http.post<PaymentIntent>(
       `/v1/checkouts/${encodeURIComponent(checkoutID)}/payment-intents`,
-      input,
+      input,options,
     );
   }
 
@@ -262,22 +263,24 @@ export class BackendClient {
   createServiceExecutionCheckout(
     serviceExecutionID: string,
     input: CreateServiceExecutionCheckoutRequest,
+    options: RequestOptions = {},
   ): Promise<ServiceExecutionCheckoutCreated> {
     return this.http.post<ServiceExecutionCheckoutCreated>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/checkout`,
       input,
-      { replaySafe: true },
+      { ...options, replaySafe: true },
     );
   }
 
   prepareServiceQuote(
     serviceExecutionID: string,
     input: CreateServiceExecutionCheckoutRequest,
+    options: RequestOptions = {},
   ): Promise<ServiceQuotePrepared> {
     return this.http.post<ServiceQuotePrepared>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/quotes`,
       input,
-      { replaySafe: true },
+      { ...options, replaySafe: true },
     );
   }
 
