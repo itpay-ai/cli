@@ -162,7 +162,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
       if (error instanceof AuthRequestError) throw error;
       // AUTH03: even the binding-status probe can hit transport failure; the
       // truthful state is "unknown", never an implicit unbound or a fresh login.
-      return authStatusUnknown(read(baseURL, env, purpose)?.sessionID, error, "account_binding_probe");
+      return authStatusUnknown(readOnlyStatus ? undefined : read(baseURL, env, purpose)?.sessionID, error, "account_binding_probe");
     }
   }
   async function request(path: string, init: RequestInit = {}) {

@@ -29,7 +29,7 @@ for (const status of ["authenticated", "login_required", "unknown", "unbound", "
   const config = loadConfig({ ITPAY_AGENT_TYPE: "workbuddy", ITPAY_BACKEND_URL: "https://dev.itpay.ai", ITPAY_IDEMPOTENCY_KEY: "setup-test" });
   const sessionPath=sellerAuthPath(config.baseURL,process.env,"agent-login");
   mkdirSync(root,{recursive:true});
-  writeFileSync(sessionPath,JSON.stringify({baseURL:config.baseURL,sessionID:"completed-browser-session",pollToken:"synthetic",startToken:"synthetic"}));
+  writeFileSync(sessionPath, ["unknown", "503", "unbound"].includes(status) ? "corrupt saved browser file" : JSON.stringify({baseURL:config.baseURL,sessionID:"completed-browser-session",pollToken:"synthetic",startToken:"synthetic"}));
   const sessionBefore=readFileSync(sessionPath);
   try {
    const run = () => runSetup(backend, config, validateSetup("workbuddy"), {jsonOutput: true, output: s => lines.push(s)});
