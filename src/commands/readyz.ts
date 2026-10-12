@@ -19,12 +19,10 @@ export async function runReadyz(backend: BackendClient, options: RunOptions = {}
   writeCommandEnvelope({
     status: response.status,
     result: { backend: "available", backend_url: backendURL, environment, ...(options.agentType ? { agent_type: options.agentType } : {}) },
-    instruction: environment === "development"
-      ? `ItPay 开发环境 ${backendURL} 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；后续必须执行返回的完整命令并保持同一 Backend。`
-      : "ItPay 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；不自动登录或开始业务。",
+    instruction: `ItPay ${environment === "development" ? "开发" : "正式"}环境 ${backendURL} 可用。只证明后端存活；首次使用或更新后运行 setup，不自动登录或开始业务。`,
     next: options.agentType
-      ? { command: "itpay auth status --json", reason: "检查同一 Backend 和宿主的设备访问；login_required 不代表已登录" }
-      : { command: "itpay install --json", reason: "选择实际宿主，再检查设备访问；尚未读本包 Skill 时先完整读取" },
+      ? { command: "itpay setup --json", reason: "确认同一 Backend 和宿主的设备及账号准备状态" }
+      : { command: "itpay install --json", reason: "识别实际宿主类型后执行 setup" },
     recovery: [],
   }, options);
 }

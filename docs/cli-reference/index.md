@@ -20,13 +20,15 @@
 itpay [--agent-type <agent_type>] [--version] [--help]
 ```
 
-不带子命令时显示帮助并退出，不访问 Backend、不读取或修改业务状态。`--version` 只输出当前 CLI 版本；`--help` 只输出命令树。全局 `--agent-type` 必须放在子命令前，并由每个返回的 ItPay `next.command` / `recovery.command` 原样保留其规范值。
+不带子命令时显示帮助并退出，不访问 Backend、不读取或修改业务状态。`--version` 只输出当前 CLI 版本；`--help` 只输出命令树。`--agent-type` 可置于子命令前或 setup 参数中，并由每个返回的 ItPay `next.command` / `recovery.command` 原样保留其规范值。
 
 Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcommand]` 只显示对应帮助，语义等同于在目标命令上使用 `--help`；它们不访问 Backend、不读写本地业务状态，也没有 JSON 输出合同。
 
 ## 命令目录
 
 ### 环境与发现
+
+- [`itpay setup`](commands/setup.md) - 一次准备设备并单独报告账号状态
 
 - [`itpay readyz`](commands/readyz.md) - 检查后端是否可用
 - [`itpay next`](commands/next.md) - 从本地保存的服务端句柄恢复下一步

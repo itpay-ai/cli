@@ -1,3 +1,4 @@
+import {verifyNativeSetup} from './native-setup-smoke.mjs';
 import {verifyPackedDeviceUpgrade} from './device-upgrade-smoke.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -46,6 +47,7 @@ try {
   const commandDocs = new Map([
     ["", "index.md"],
     ["readyz", "commands/readyz.md"],
+    ["setup", "commands/setup.md"],
     ...["auth", "auth login", "auth status"].map(command => [command, "commands/auth.md"]),
     ["device", "commands/device.md"], ["device recover", "commands/device.md"], ["device repair-lock", "commands/device.md"], ["device reset-key", "commands/device.md"],
     ["skill", "commands/skill.md"], ["skill show", "commands/skill.md"],
@@ -236,6 +238,8 @@ try {
   }
   assert.match(errorOutput, /agent type is required/);
   await verifyPackedDeviceUpgrade(packageRoot, scratch);
+  const nativeSetup = await verifyNativeSetup(join(packed, tarballs[0]), scratch);
+  process.stdout.write(JSON.stringify(nativeSetup) + "\n");
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });

@@ -155,6 +155,7 @@ async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: strin
     try {
       const current = await backend.agentAccountStatus();
       if (current.status === 'authenticated') return authenticatedEnvelope(env, current.phone_verified === true);
+      if (current.status !== 'login_required') throw new Error('Unexpected account binding status');
     } catch (error) {
       if (error instanceof AuthRequestError) throw error;
       // AUTH03: even the binding-status probe can hit transport failure; the
