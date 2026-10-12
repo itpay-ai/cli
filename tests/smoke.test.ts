@@ -10,7 +10,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -3054,6 +3054,21 @@ test("docs search routes payment and refund concerns to customer-care guidance",
     assert.deepEqual(envelope.result.topics.map((topic) => topic.topic), ["orders-refunds"]);
     assert.equal(envelope.next.command, "itpay docs show orders-refunds --json");
   }
+});
+
+test("docs refuses stale valid overrides while accepting the same packaged directory", async () => {
+  const same = await runCLI(["docs", "list", "--json"], {ITPAY_CLI_DOCS_DIR: resolve(CLI_ROOT,"docs/agent/buyer")});
+  assert.equal(JSON.parse(same.stdout).result.topics.length,12);
+  const dir=mkdtempSync(join(tmpdir(),"itpay-stale-docs-"));
+  for(const file of readdirSync(resolve(CLI_ROOT,"docs/agent/buyer"))) {
+    const doc=JSON.parse(readFileSync(resolve(CLI_ROOT,"docs/agent/buyer",file),"utf8"));
+    if(file==="rail-booking.json") doc.purpose="obsolete valid guidance";
+    writeFileSync(join(dir,file),JSON.stringify(doc));
+  }
+  await assert.rejects(runCLI(["docs","list","--json"],{ITPAY_CLI_DOCS_DIR:dir}),error=>{
+    const out=JSON.parse(String((error as {stdout?:string}).stdout));
+    assert.equal(out.error.code,"docs_override_mismatch");assert.ok(out.result.docs_path);return true;
+  });
 });
 
 test("docs reports a damaged packaged document without exposing its path", async () => {

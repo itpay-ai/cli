@@ -103,8 +103,18 @@ export function runDocsSearch(query: string, options: DocsOptions = {}): void {
 function loadDocs(): AgentDoc[] {
   const docsDir = findDocsDir();
   const files = readdirSync(docsDir).filter((file) => file.endsWith(".json")).sort();
-  return files.map((file) => parseDoc(readFileSync(resolve(docsDir, file), "utf8"), file))
-    .sort((left, right) => left.topic.localeCompare(right.topic));
+  const docs = files.map((file) => parseDoc(readFileSync(resolve(docsDir, file), "utf8"), file));
+  if (process.env.ITPAY_CLI_DOCS_DIR) {
+    const canonical = packageResourcePath("docs", "agent", "buyer");
+    const expectedFiles = readdirSync(canonical).filter(file => file.endsWith(".json")).sort();
+    if (JSON.stringify(files) !== JSON.stringify(expectedFiles) || files.some((file, index) =>
+      JSON.stringify(docs[index]) !== JSON.stringify(parseDoc(readFileSync(resolve(canonical, file), "utf8"), file)))) {
+      throw new CommandContractError("docs_override_mismatch", "configured Buyer docs differ from the current package",
+        "覆盖目录不是当前包完整文档。使用 result.docs_path 中的正式原文；不要混用旧渠道内容、改身份或重装全局包。", [], undefined,
+        { docs_path: canonical });
+    }
+  }
+  return docs.sort((left, right) => left.topic.localeCompare(right.topic));
 }
 
 function findDocsDir(): string {
