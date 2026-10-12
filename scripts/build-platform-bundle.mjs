@@ -79,6 +79,7 @@ try {
       outfile: join(vendor, "itpay-cli.bundle.mjs"),
       banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
     });
+    cpSync(join(installed, "skills", "itpay"), join(vendor, "skills", "itpay"), { recursive: true });
     cpSync(join(installed, "docs", "agent", "buyer"), join(vendor, "docs", "agent", "buyer"), { recursive: true });
     if (includeLicenses) copyLicenseFiles(join(scratch, "node_modules"), join(vendor, "licenses"));
   } else {

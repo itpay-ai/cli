@@ -1,8 +1,9 @@
+import {createHash} from "node:crypto";
 import {verifyNativeSetup} from './native-setup-smoke.mjs';
 import {verifyPackedDeviceUpgrade} from './device-upgrade-smoke.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -238,7 +239,19 @@ try {
   }
   assert.match(errorOutput, /agent type is required/);
   await verifyPackedDeviceUpgrade(packageRoot, scratch);
-  const nativeSetup = await verifyNativeSetup(join(packed, tarballs[0]), scratch);
+  // Pin the actual previous released binary, not a renamed current-code fixture.
+  const previousPath = join(scratch, "previous-cli-2.1.45.tgz");
+  let previousBytes;
+  if (process.argv.length === 4 && process.argv[2] === "--previous-tarball") previousBytes = readFileSync(process.argv[3]);
+  else {
+    assert.equal(process.argv.length, 2, "unsupported package smoke arguments");
+    const response = await fetch("https://registry.npmjs.org/@itpay/cli/-/cli-2.1.45.tgz", { signal: AbortSignal.timeout(120000) });
+    assert.equal(response.status, 200, "previous official release must be readable");
+    previousBytes = Buffer.from(await response.arrayBuffer());
+  }
+  assert.equal(createHash("sha256").update(previousBytes).digest("hex"), "560dd9b262e7742347cacbfdd46dea69ed5600fbdc761f1bdc38b667c2c14c36", "previous release bytes must match the verified official artifact");
+  writeFileSync(previousPath, previousBytes);
+  const nativeSetup = await verifyNativeSetup(join(packed, tarballs[0]), scratch, previousPath);
   process.stdout.write(JSON.stringify(nativeSetup) + "\n");
   process.stdout.write("packed CLI smoke passed\n");
 } finally {

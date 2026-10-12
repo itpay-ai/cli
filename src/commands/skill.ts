@@ -69,6 +69,8 @@ function findSkillPath(allowOverride = true): string {
     if (existsSync(directPath)) return directPath;
     return resolve(configuredRoot, ITPAY_SKILL, "SKILL.md");
   }
+  const bundlePath = resolve(commandDir, "skills", ITPAY_SKILL, "SKILL.md");
+  if (existsSync(bundlePath)) return bundlePath;
   const packagePath = resolve(commandDir, "..", "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
   if (existsSync(packagePath)) return packagePath;
   return resolve(commandDir, "..", "..", "skills", ITPAY_SKILL, "SKILL.md");

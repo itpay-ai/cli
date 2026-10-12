@@ -4,6 +4,7 @@ import {promisify} from 'node:util';
 import {createServer} from 'node:http';
 import {mkdirSync,realpathSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {API_CONTRACT_REVISION} from '../dist/src/state/config.js';
 import {performance} from 'node:perf_hooks';
@@ -34,7 +35,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const args=['install','--prefix',root,...(global?['--global']:[]),'--offline','--ignore-scripts','--no-audit','--no-fund'];
    const packageRoot=join(root,...(global&&process.platform!=='win32'?['lib']:[]),'node_modules','@itpay','cli');
    const entry=join(packageRoot,'bin','itp.mjs');
-   const invoke=(argv)=>exec(process.execPath,[entry,...argv],{env,timeout:30000});
+   const invoke=(argv,target=entry)=>exec(process.execPath,[target,...argv],{env,timeout:30000});
    let oldKey; let upgradeRequestStart; let conflictProof;
    if(previousTarball){
     await exec('npm',[...args,previousTarball],{env,timeout:90000});
@@ -71,6 +72,17 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const skill=readFileSync(value.result.skill_path);rmSync(value.result.skill_path);
    await assert.rejects(()=>invoke(['setup','--agent-type','workbuddy','--json']),e=>e.code===1&&JSON.parse(e.stdout).error.code==='packaged_skill_unavailable');
    assert.equal(paths.length,beforeInvalid);writeFileSync(value.result.skill_path,skill);
+   if (!global) {
+    const bundleRoot=join(root,'single-file');
+    await exec(process.execPath,[fileURLToPath(new URL('./build-platform-bundle.mjs',import.meta.url)),value.result.cli_version,bundleRoot,'--single-file','--tarball',tarball],{env,timeout:90000});
+    const bundleEntry=join(bundleRoot,'vendor','itpay-cli','itpay-cli.bundle.mjs');
+    const bundled=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'],bundleEntry)).stdout);
+    assert.equal(bundled.status,'setup_ready');
+    assert.equal(bundled.result.skill_path,realpathSync(join(bundleRoot,'vendor','itpay-cli','skills','itpay','SKILL.md')));
+    assert.equal(readFileSync(bundled.result.skill_path,'utf8'),readFileSync(value.result.skill_path,'utf8'));
+    assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),key);
+    proof.push({mode:'single-file-bundle',version:bundled.result.cli_version,json:bundled});
+   }
    proof.push({mode:global?'global':'managed-prefix',version:value.result.cli_version,installationMs,setupMs,upgrade:!!previousTarball,...(conflictProof?{conflictProof}:{}),json:output.stdout,plain:plain.stdout});
   }
   assert(paths.every(p=>/^\/v1\/agent-device/.test(p)||p==='/v1/platform/compatibility'),'setup must not call login/business/liveness');
