@@ -88,7 +88,10 @@ try {
       const host = existingSkill.slice(0, boundary).replaceAll("readyz --json", "setup --json");
       const handoff = existingSkill.match(/^### (?:WorkBuddy Checkout|OpenClaw) handoff\n[\s\S]*?(?=^## |$(?![\s\S]))/m)?.[0] ?? "";
       const body = publishedSkill.slice(publishedSkill.indexOf("# ItPay") + "# ItPay".length).trim();
-      writeFileSync(outerSkillPath, host + handoff + "\n## Local CLI business rules\n\n" + body + "\n");
+      const runtimeFiles = existingSkill.includes("HERMES_SKILL_DIR")
+        ? "\n## Bundled runtime files\n\n" + ["scripts/itpay.mjs", `${bundleDirectory}/itpay-cli.bundle.mjs`, ...filesIn(join(vendor,"package")).map(path => `${bundleDirectory}/package/${path}`)].map(path => `- \`${path}\``).join("\n") + "\n"
+        : "";
+      writeFileSync(outerSkillPath, host + handoff + "\n## Local CLI business rules\n\n" + body + "\n" + runtimeFiles);
     }
     const coreSha256=createHash("sha256").update(readFileSync(join(candidateRoot,"dist/src/main.js"))).digest("hex");
     writeFileSync(join(output,"bundle.lock.json"),JSON.stringify({schemaVersion:1,package:"@itpay/cli",version,format:"buyer-esm-v1",npmIntegrity:metadata["dist.integrity"],...(metadata.gitHead?{sourceGitSha:metadata.gitHead}:{}),candidateTarballSha256:createHash("sha256").update(readFileSync(tarball)).digest("hex"),coreSha256,node:candidatePackage.engines?.node ?? ">=18",bundleDirectory},null,2)+"\n");
@@ -190,4 +193,9 @@ function validateBundleDirectory(value) {
     throw new Error("bundle directory must be a relative path inside the Skill");
   }
   return normalized;
+}
+
+function filesIn(root, prefix = "") {
+  return readdirSync(root, {withFileTypes:true}).flatMap(entry => entry.isDirectory()
+    ? filesIn(join(root,entry.name), prefix + entry.name + "/") : [prefix + entry.name]).sort();
 }
