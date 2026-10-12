@@ -2819,6 +2819,19 @@ test("skill show accepts a direct Skill root and the legacy parent directory", a
   assert.equal(legacy.result.content, content);
 });
 
+test("skill show rejects stale valid overrides instead of contradicting setup", async () => {
+  const staleRoot=mkdtempSync(join(tmpdir(),"itpay-stale-skill-root-"));
+  const content=readFileSync(join(CLI_ROOT,"skills","itpay","SKILL.md"),"utf8");
+  writeFileSync(join(staleRoot,"SKILL.md"),content+"\nStale host-edited business guidance.\n");
+  await assert.rejects(runCLI(["skill","show","itpay","--json"],{ITPAY_CLI_SKILLS_DIR:staleRoot}),
+    (error: unknown)=>{
+      const output=error && typeof error==="object" && "stdout" in error ? String(error.stdout) : "";
+      const x=JSON.parse(output);assert.equal(x.error.code,"skill_override_mismatch");
+      assert.equal(x.next,null);assert.deepEqual(x.recovery,[]);assert.match(x.result.skill_path,/skills\/itpay\/SKILL.md$/);
+      assert(!output.includes("Stale host-edited business guidance"));return true;
+    });
+});
+
 test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
   await assert.rejects(
     runCLI(["skill", "show", "missing", "--json"], {}),
@@ -3042,7 +3055,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, `npm install -g @itpay/cli@${CLI_VERSION}`);
+      assert.deepEqual(failure.recovery, []);
       return true;
     },
   );

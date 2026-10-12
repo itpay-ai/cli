@@ -8,7 +8,7 @@ import { runServicesRun } from "./commands/services.js";
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
@@ -330,23 +330,10 @@ function docsErrorFallback(jsonOutput: boolean): {
     jsonOutput,
     code: "docs_unavailable",
     instruction: "内置文档缺失或损坏；通过当前分发方式恢复同版本 CLI 后重试。",
-    recovery: [distributionUpgradeAction(CLI_VERSION)],
+    recovery: [],
   };
 }
 
-function distributionUpgradeAction(version: string): CommandAction {
-  switch (cliDistribution()) {
-    case "openclaw-skill-bundle":
-      return { command: "openclaw skills update itpay", reason: `更新包含 ItPay CLI ${version} 的 Skill bundle` };
-    case "kimi-plugin-bundle":
-      return {
-        command: "/plugins install https://github.com/itpay-ai/itpay-plugin-kimi-work",
-        reason: `更新包含 ItPay CLI ${version} 的 Kimi plugin`,
-      };
-    default:
-      return { command: `npm install -g @itpay/cli@${version}`, reason: "恢复当前 CLI 版本的完整安装包" };
-  }
-}
 
 
 program
@@ -556,7 +543,7 @@ skillCmd
         jsonOutput: Boolean(options.json),
         code: "skill_unavailable",
         instruction: "内置 Skill 缺失或损坏；通过当前分发方式恢复同版本 CLI 后重试。",
-        recovery: [distributionUpgradeAction(CLI_VERSION)],
+        recovery: [],
       });
     }
   });
