@@ -2851,7 +2851,7 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
     runCLI(["skill", "show", "itpay", "--json"], { ITPAY_CLI_SKILLS_DIR: skillsDir }),
     (error: unknown) => {
       const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
-      assert.equal(failure.error.code, "skill_unavailable");
+      assert.equal(failure.error.code, "skill_override_mismatch");
       return true;
     },
   );

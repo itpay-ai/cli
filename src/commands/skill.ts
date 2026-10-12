@@ -33,12 +33,12 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
   } catch {
     throw new Error("packaged skill is unavailable: itpay");
   }
-  validateSkill(content);
   if (content !== original.content) {
     throw new CommandContractError("skill_override_mismatch", "configured Skill differs from the current package",
       "覆盖路径中的 Skill 不是当前包原文。直接读取 result.skill_path 并按宿主方式启用，不使用陈旧或改写内容。", [], undefined,
       { skill_path: original.path });
   }
+  validateSkill(content);
   const agentType = options.agentType ?? declaredAgentType();
   if (agentType?.startsWith("codex-")) content += `\n## Codex command continuation\n\n${CODEX_WAIT_GUIDANCE}\n`;
   const envelope = {
