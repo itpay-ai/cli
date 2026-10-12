@@ -2819,6 +2819,17 @@ test("skill show accepts a direct Skill root and the legacy parent directory", a
   assert.equal(legacy.result.content, content);
 });
 
+test("missing override keeps the usable canonical Skill and does not reinstall globally", async () => {
+  const emptyRoot=mkdtempSync(join(tmpdir(),"itpay-missing-skill-root-"));
+  await assert.rejects(runCLI(["skill","show","itpay","--json"],{ITPAY_CLI_SKILLS_DIR:emptyRoot}),
+    (error: unknown)=>{
+      const output=error && typeof error==="object" && "stdout" in error ? String(error.stdout) : "";
+      const x=JSON.parse(output);assert.equal(x.error.code,"skill_override_unavailable");
+      assert.equal(x.result.cause_code,"ENOENT");assert.equal(x.next,null);assert.deepEqual(x.recovery,[]);
+      assert.match(x.result.skill_path,/skills\/itpay\/SKILL.md$/);return true;
+    });
+});
+
 test("skill show rejects stale valid overrides instead of contradicting setup", async () => {
   const staleRoot=mkdtempSync(join(tmpdir(),"itpay-stale-skill-root-"));
   const content=readFileSync(join(CLI_ROOT,"skills","itpay","SKILL.md"),"utf8");

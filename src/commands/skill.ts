@@ -30,8 +30,14 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
   let content: string;
   try {
     content = readFileSync(findSkillPath(), "utf8");
-  } catch {
-    throw new Error("packaged skill is unavailable: itpay");
+  } catch (error) {
+    if (process.env.ITPAY_CLI_SKILLS_DIR) {
+      const cause = error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
+      throw new CommandContractError("skill_override_unavailable", "configured Skill cannot be read",
+        "覆盖路径不可读取；当前包原文可用。直接读取 result.skill_path 并按宿主方式启用，不另装全局包。", [], undefined,
+        { skill_path: original.path, cause_code: cause });
+    }
+    throw error;
   }
   if (content !== original.content) {
     throw new CommandContractError("skill_override_mismatch", "configured Skill differs from the current package",
