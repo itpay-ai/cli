@@ -40,7 +40,7 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
     result: { skill: ITPAY_SKILL, content },
     instruction: agentType
       ? agentType === "workbuddy"
-        ? "完整读取原文并按宿主技能方式保存启用；按用户意图选择第一条业务命令。保持 workbuddy 和同一 CLI launcher，并为 ~/.itpay-v3 申请宿主允许的持久化权限；权限被拒时报告受阻操作，不删除 identity。"
+        ? "完整读取原文并按宿主技能方式保存启用；按用户意图选择第一条业务命令。保持 workbuddy、同一入口和 Backend；只有实际持久化操作被拒时才沿宿主正式流程申请所需权限，拒绝后报告受阻操作，不删除 identity。"
         : `完整读取原文并按宿主技能方式保存启用；把自己视为服务用户的代理，先理解用户意图和解释用户权益，再选择购买、已购内容、订单或退款对应的第一条命令。当前 Agent Type 是 ${agentType}，后续命令保持不变。`
       : "完整读取并遵守 Skill；先如实选择当前运行环境对应的 Agent Type。",
     next: agentType

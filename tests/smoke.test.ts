@@ -2791,8 +2791,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   ], {})).stdout) as typeof typed;
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next, null);
-  assert.match(workbuddy.instruction, /同一 CLI launcher/);
-  assert.match(workbuddy.instruction, /宿主允许的持久化权限/);
+  assert.match(workbuddy.instruction, /同一入口和 Backend/);
+  assert.match(workbuddy.instruction, /只有实际持久化操作被拒时才沿宿主正式流程申请/);
   assert.doesNotMatch(workbuddy.instruction, /dangerouslyDisableSandbox/);
   assert.doesNotMatch(workbuddy.result.content, /tools.exec_command|session_id|functions.exec/);
 });
