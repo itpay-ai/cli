@@ -44,9 +44,19 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
     // Reproduce the concrete npm retirement collision, without user installation cleanup.
     const suffix=createHash('sha1').update(packageRoot).digest('base64').replace(/[^a-zA-Z0-9]/g,'').slice(0,8);
     const retirement=join(packageRoot,'..',`.cli-${suffix}`);mkdirSync(retirement);writeFileSync(join(retirement,'retained-fixture'),'old fixture');
-    try {await exec('npm',[...args,tarball],{env,timeout:90000});assert.fail('retirement conflict must fail');}
-    catch(error){assert(Number.isInteger(error.code) && error.code !== 0);assert.match(error.stderr,/ENOTEMPTY/);assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),oldKey);conflictProof={code:'ENOTEMPTY',exit:error.code};}
-    rmSync(retirement,{recursive:true}); // Only this test's explicit synthetic fixture.
+    // Newer npm can resolve its own retirement collision; older npm returns ENOTEMPTY.
+    // Preserve both real outcomes, never misclassify a successful native upgrade as failure.
+    try {
+     await exec('npm',[...args,tarball],{env,timeout:90000});
+     conflictProof={code:'npm_resolved_retirement',exit:0};
+    } catch(error){assert(Number.isInteger(error.code) && error.code !== 0);assert.match(error.stderr,/ENOTEMPTY/);conflictProof={code:'ENOTEMPTY',exit:error.code};}
+    if(conflictProof.exit===0){
+     const installed=JSON.parse(readFileSync(join(packageRoot,'package.json'),'utf8'));
+     assert.equal(installed.version,JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version);
+     assert.match((await invoke(['--version'])).stdout,new RegExp(installed.version.replaceAll('.','\\.')));
+    }
+    assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),oldKey);
+    rmSync(retirement,{recursive:true,force:true}); // Only this test's explicit synthetic fixture.
     upgradeRequestStart=paths.length;
    }
    const installStart=performance.now();await exec('npm',[...args,tarball],{env,timeout:90000});
