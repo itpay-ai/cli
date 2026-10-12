@@ -75,8 +75,8 @@ export function railActionError(error:unknown,serviceExecutionID:string,actionTy
 				error.payload?.review ? [] : [{ command: `itpay services next ${serviceExecutionID} --json`, reason: "读取同一booking的当前状态与review" }],
                 error.payload?.review?.input_template ? {
                   schema_version: "itpay.interaction.v1", stage: "consent_required",
-                  consent_rule: "没有用户明确条款回答或等价已存同意时保持 false，展示 review.consent_question 后等待。技术修正不产生同意；Agent提交是转述。",
-                  input_template: fileInputTemplate(`itpay services action ${serviceExecutionID} --action ${actionType} --actor-type agent --status approved --input-json <file> --json`, error.payload.review.input_template as Record<string, unknown>, [], {executionID:serviceExecutionID,userAnswerRequired:true}),
+                  consent_rule: "先核对聊天明确确认或等价已存同意是否覆盖当前范围、人数、价格及条款；未变且已覆盖则转述已有同意，不重复问。缺少真实同意或实质变化才展示缺失或变化部分并等待。模板false不代表需要新增回答；技术修正不产生同意，Agent提交是转述。",
+                  input_template: fileInputTemplate(`itpay services action ${serviceExecutionID} --action ${actionType} --actor-type agent --status approved --input-json <file> --json`, error.payload.review.input_template as Record<string, unknown>, [], {executionID:serviceExecutionID}),
                 } : undefined,
                 {service_execution_id: serviceExecutionID, review: error.payload?.review, input_errors: error.payload?.input_errors},
 			);

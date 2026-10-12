@@ -1251,7 +1251,7 @@ test("rail saved page with no qualified journey explains the evidence gap", asyn
 			qualification_counts: { eligible: 0, ineligible: 1, unknown: 0 } }, journeys: [diagnostic] } } }) } as unknown as BackendClient;
 	await runServicesReadResult(saved, "se_diag", { snapshot: "rps_diag", jsonOutput: true, output: stdoutSink });
 	const result = JSON.parse(stdoutCapture.join("")) as { instruction: string; result: { journeys: Array<{ qualification_status: string; qualification_reasons: string[]; detail: { reason: string } }> } };
-	assert.match(result.instruction, /查到 1 个时刻组合，当前 0 条满足购票资格/);
+	assert.match(result.instruction, /查到 1 个时刻组合，当前没有已确认满足购票资格的线路/);
 	assert.equal(result.result.journeys[0]?.qualification_status, "ineligible");
 	assert.deepEqual(result.result.journeys[0]?.qualification_reasons, ["INVENTORY_INSUFFICIENT"]);
 	assert.match(result.result.journeys[0]?.detail.reason ?? "", /不可购买原因/);
@@ -4237,6 +4237,7 @@ test("booking review human action guides --input-json submission", async () => {
   assert.equal(result.next, null);
   assert.match(result.interaction.input_template.command, /--input-json <file>/);
   assert.equal(result.interaction.input_template.executable, false);
+  assert.equal("user_answer_required" in result.interaction.input_template, false);
   assert.match(result.interaction.consent_rule, /只有用户本人明确接受/);
   assert.ok(result.interaction.input_template.required_input.includes("draft_revision"));
   assert.match(result.instruction, /只补缺失同意/);

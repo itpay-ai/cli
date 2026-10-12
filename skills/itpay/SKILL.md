@@ -132,3 +132,5 @@ Use `itpay aftercare list --order <order_id> --json` for the safe original itine
 ## Local device state
 
 Keep the original device key. Normal authorization uses separate Backend/Agent Type/key-bound session caches; it does not require legacy lock repair. Do not clear identity or old lock files. `device repair-lock` only explains that legacy locks are unmanaged. `device reset-key` is unavailable in this version and returns a nonzero error without changing identity; do not suggest deleting the key or installing an older CLI.
+
+Approval templates remain false until actual approval is recorded. An omitted user_answer_required means the CLI cannot know the conversation: check existing explicit consent for this exact scope, party, price and terms; reuse it if unchanged, and ask only for missing consent or material changes. Never infer consent from delegation or set approval true without it.

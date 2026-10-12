@@ -239,7 +239,7 @@ test('public expired prepare preserves typed adapter and complete original query
     if(mode==='fresh'){
      assert(template);assert.match(template.command,/services run itpay-rail --operation query_smart --input-json <file>/);
      assert.deepEqual(template.file_content,{input:Object.fromEntries(Object.entries(query).filter(([key])=>key!=='reuse_from'))});
-     assert.deepEqual(template.input,template.file_content);assert.equal(template.user_answer_required,false);assert.equal(error.recovery.length,0);
+     assert.deepEqual(template.input,template.file_content);assert.equal(template.user_answer_required,undefined);assert.equal(error.recovery.length,0);
     }else{assert.equal(template,undefined);if(mode==='existing')assert.match(error.recovery[0]!.command,/next se_original/);else assert.match(error.instruction,/购买历史读取失败/);}
     return true;
    });
@@ -320,4 +320,44 @@ test('candidate lookup consumes the action budget before any write',async()=>{
   await assert.rejects(runServicesAction(backend,'se_candidate','select_candidate',{}, {candidateRank:1,deadline:start+60}),/request|timeout|network/i);
   assert.ok(Date.now()-start<150);assert.equal(writes,0);
  }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
+
+test('actual CLI keeps chat consent unknown and branches saved-result guidance on returned facts',async()=>{
+ const {createServer}=await import('node:http');const {mkdtempSync,readFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const mock=await startMockBackend();const base=await new BackendClient(new HttpClient({baseURL:mock.url})).getServiceExecution('se_fixture');const home=mkdtempSync(join(tmpdir(),'itpay-consent-facts-'));let scenario='no_consent';let approvals=0;const evidence:unknown[]=[];
+ const diagnostic={journey_id:'j_diag',qualification_status:'ineligible',qualification_reasons:['INVENTORY_INSUFFICIENT'],booking_support:'none',rides:[{train_code:'G1',departure:'2030-10-01 09:00',arrival:'2030-10-01 10:00'}]};
+ const server=createServer(async(req,res)=>{
+  const path=req.url!;const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();res.setHeader('content-type','application/json');
+  if(path==='/v1/service-executions/se_fixture'){
+   const reading=scenario.startsWith('page_');res.end(JSON.stringify({...base,execution:{...base.execution,service_id:reading?'itpay-rail-smart':base.execution.service_id,service_contract_version_id:reading?'scv_itpay_rail_smart_v6':base.execution.service_contract_version_id},workflow_entry:{capability_id:'precise_report',input_schema:{}},capabilities:base.capabilities.map(c=>({...c,input_schema:{},delivery_email_required:false}))}));return;
+  }
+  if(path.includes('/result-items/')){
+   const empty=scenario==='page_empty'||scenario==='page_empty_next'||scenario==='page_empty_history';const unknown=scenario==='page_history'||scenario==='page_empty_history';
+   res.end(JSON.stringify({snapshot_id:'snap',plan_id:'plan',query_revision:1,page:{result:{journey_page:{total:empty?(scenario==='page_empty_next'?2:0):1,next_offset:scenario==='page_empty_next'?1:null,...(!unknown?{qualification_counts:{eligible:0,ineligible:empty?0:1,unknown:0}}:{})},journeys:empty?[]:[diagnostic]}}}));return;
+  }
+  if(path.endsWith('/actions'))approvals++;
+  const f=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});let response=JSON.parse(await f.text());
+  if(path.endsWith('/quotes')&&scenario==='changed_terms'){response={...response,amount_minor:700,approval_template:{...response.approval_template,terms_version:'changed-terms',price_policy:{...response.approval_template.price_policy,amount_minor:700}}};}
+  res.statusCode=f.status;res.end(JSON.stringify(response));
+ });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+ let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
+ const run=async(args:string[])=>{const r=await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,...args],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:10000});return r.stdout;};
+ try{
+  for(scenario of ['no_consent','existing_chat_consent','changed_terms']){
+   // Conversation consent is deliberately not supplied to the CLI, which cannot know it.
+   const args=['services','quote','se_fixture','--capability','precise_report'];const json=JSON.parse(await run([...args,'--json']));const plain=await run(args);
+   assert.equal(json.interaction.input_template.user_answer_required,undefined);assert.equal(json.interaction.input_template.file_content.user_approved,false);assert.equal(json.next,null);assert.match(json.interaction.consent_rule,/false/);assert.ok(plain.includes(json.instruction));
+   if(scenario==='changed_terms')assert.equal(json.result.approval_template.terms_version,'changed-terms');
+   evidence.push({scenario,scope:'output semantics only; no human consent submitted',json,plain});
+  }
+  for(scenario of ['page_empty','page_diagnostic','page_history','page_empty_history','page_empty_next']){
+   const args=['services','read-result','se_fixture','--snapshot','snap'];const json=JSON.parse(await run([...args,'--json']));const plain=await run(args);assert.ok(plain.includes(json.instruction));
+   if(scenario==='page_empty'||scenario==='page_empty_history'){assert.equal(json.result.total,0);assert.equal(json.next,null);assert.doesNotMatch(json.instruction,/detail\.command/);}
+   else if(scenario==='page_empty_next'){assert.equal(json.result.count,0);assert.match(json.next.command,/--offset 1/);assert.doesNotMatch(json.instruction,/detail\.command/);}
+   else{assert.match(json.result.journeys[0].detail.command,/--journey j_diag/);assert.match(json.instruction,/detail\.command/);}
+   evidence.push({scenario,json,plain});
+  }
+  assert.equal(approvals,0);
+  if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R4-R5-package-output.json'),JSON.stringify({scope:'exact package with real HTTP and isolated DeviceAuthority; fixed Backend response fixtures; no approval action',approvals,outputs:evidence},null,2));
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await mock.close();}
 });

@@ -25,7 +25,7 @@ export interface InputTemplate {
 // input remains a compatibility alias of the exact file content.
 export function fileInputTemplate(command: string, input: Record<string, unknown>, required: string[] = [], options: {executionID?: string | undefined; userAnswerRequired?: boolean} = {}): InputTemplate {
   return {command, input, file_content: input, required_input: ["file", ...required.filter(field => field !== "file")], executable: false,
-    user_answer_required: options.userAnswerRequired ?? false,
+    ...(options.userAnswerRequired !== undefined ? {user_answer_required: options.userAnswerRequired} : {}),
     ...(options.executionID ? {target_execution_id: options.executionID} : {})};
 }
 

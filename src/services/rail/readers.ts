@@ -15,7 +15,11 @@ export function renderExactRows(serviceExecutionID:string,itemID:string,binding:
           ...(exactSmartTemplate(resolvedStationPair, serviceExecutionID, itemID, binding)
             ? { smart_template: exactSmartTemplate(resolvedStationPair, serviceExecutionID, itemID, binding) } : {}),
           trains: rows, ...(nextOffset !== null ? { next_offset: nextOffset } : {}) },
-        instruction: "这是同一已保存站对的车次行。按用户时限、席别和人数筛选；零条仅代表这一站对。纯比较答复后结束；已有购票委托则执行所选行 detail.command 读取当前席别、库存和购买凭据。",
+        instruction: rows.length > 0
+          ? "这是同一已保存站对的车次行。按用户时限、席别和人数筛选；纯比较答复后结束，已有购票委托则执行返回行的 detail.command 读取当前席别、库存和购买凭据。"
+          : nextOffset !== null ? "当前页没有车次，只沿返回的 next.command 读取同一结果，不重新查询。"
+          : total === 0 ? "本次已查站对没有可展示车次，仅代表这一站对，不代表全网无票；不自动扩大端点或循环重查。"
+          : "当前页为空，已保存车次目录并非空；核对先前返回的分页入口，不猜详情命令或重新查询。",
         next: nextOffset !== null ? { command: `itpay services read-result ${serviceExecutionID} --offset ${nextOffset} --limit ${limit} --json`, reason: "继续读取同一结果的剩余车次" } : null,
         recovery: [],
       }, { ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
@@ -25,6 +29,11 @@ export function renderExactRows(serviceExecutionID:string,itemID:string,binding:
 }
 
 export function renderJourneyPage(serviceExecutionID:string,planID:string|undefined,queryRevision:number|undefined,total:number,qualificationCounts:{eligible:number;ineligible:number;unknown:number}|undefined,limit:number,truncatedReason:string|null,offset:number,nextOffset:number|null,journeys:Record<string,unknown>[],options:SavedReadOptions):void{
+    const hasDetail = journeys.some(journey => {
+      const detail = journey.detail;
+      return detail !== null && typeof detail === "object" && "command" in detail && typeof detail.command === "string" && detail.command.length > 0;
+    });
+    const detailInstruction = hasDetail ? "读取返回线路的 detail.command 核对具体原因与购买条件。" : "当前未返回详情入口，不猜详情命令或购买凭据。";
     writeSavedRailPage({
       status: "ready",
       result: {
@@ -41,11 +50,17 @@ export function renderJourneyPage(serviceExecutionID:string,planID:string|undefi
         next_offset: nextOffset,
         journeys,
       },
-      instruction: qualificationCounts === undefined
-        ? "此历史快照没有完整资格计数；线路仅供核对铁路事实，不能据此认定可购买。沿同快照 detail.command 查看详情。"
+      instruction: journeys.length === 0
+        ? nextOffset !== null
+          ? "当前页没有可展示组合，仍有后续页；只沿返回的 next.command 读取同一保存结果，不重新查询。"
+          : total === 0
+            ? `本次已查并保存的范围内没有可展示时刻组合，不代表全网无票。${qualificationCounts === undefined ? "此历史快照缺少完整资格信息，不能据此确认无票。" : ""}不自动扩大端点或循环重查；改变条件须依据用户意愿。`
+            : "本次请求页为空，已保存目录并非空；使用先前返回的分页入口核对范围，不猜详情命令、不重新查询。"
+        : qualificationCounts === undefined
+        ? `此历史快照没有完整资格计数；线路仅供核对铁路事实，不能据此认定可购买。${detailInstruction}`
         : qualificationCounts.eligible === 0
-        ? `查到 ${total} 个时刻组合，当前 0 条满足购票资格。请读取诊断线路的 detail.command 查看具体原因；修改条件须依据用户意愿。`
-        : `已查范围内合格时刻组合 ${qualificationCounts.eligible}；本次展示 ${journeys.length} 个方案（首屏优先既有主方案/代表，计数不是中转通道数）。最快/低价须按对应方案和比较范围说明；未全范围排序只能说已读方案中。更多条件优先同执行 refine_preferences 复用已存事实；页大小受字节预算限制，每页可能不满，只沿 next_offset/next 读取，不计算偏移或无收益并行，不随机翻页、不无条件读完组合。未知费用不能当免费；detail.command 读取席别和整程购买条件，购买前实时报价。`,
+        ? `查到 ${total} 个时刻组合，当前没有已确认满足购票资格的线路。${qualificationCounts.unknown > 0 ? "仍有资格未知组合，不能说确认无票。" : ""}${detailInstruction}修改条件须依据用户意愿。`
+        : `已查范围内合格时刻组合 ${qualificationCounts.eligible}；本次展示 ${journeys.length} 个方案（首屏优先既有主方案/代表，计数不是中转通道数）。最快/低价须按对应方案和比较范围说明；未全范围排序只能说已读方案中。更多条件优先同执行 refine_preferences 复用已存事实；页大小受字节预算限制，每页可能不满，只沿 next_offset/next 读取，不计算偏移或无收益并行，不随机翻页、不无条件读完组合。未知费用不能当免费；${detailInstruction}购买前实时报价。`,
       next: nextOffset === null ? null : { command: `itpay services read-result ${serviceExecutionID} --snapshot ${options.snapshot} --offset ${nextOffset} --limit ${limit} --json`, reason: "仅当前问题还需未读线路时继续；已有合格完整结果可答复或按委托继续" },
       recovery: [],
     }, {

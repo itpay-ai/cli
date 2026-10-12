@@ -273,7 +273,7 @@ export async function runServicesQuote(
     instruction: quote.approval_template
       ? "报价已锁定。先展示服务端商品名称、对象、范围、数量和金额；与用户请求不符时让用户决定，不自称基础报告或换商品。选择候选不是价格同意；模板中的user_approved=false表示尚未记录批准。仅在用户已有真实批准覆盖本范围时改为true并提交，不重复询问同条件已明确同意。用户授权预算时用capped及真实maximum_minor；仅委托准备入口、最终金额在官方页确认时用confirm_on_official_page。不要伪造接受未知金额或条款。"
       : "报价已锁定当前 Execution 的可信输入和价格；可单独付款，也可与其他独立 Execution 的报价合并。",
-    ...(quote.approval_template ? {interaction: {schema_version:"itpay.interaction.v1" as const,stage:"purchase_approval_required",input_template:fileInputTemplate(`itpay services action ${serviceExecutionID} --action approve_purchase --actor-type agent --status approved --input-json <file> --json`,{...quote.approval_template},["user_approved"],{executionID:serviceExecutionID,userAnswerRequired:!quote.approval_template.user_approved})}} : {}),
+    ...(quote.approval_template ? {interaction: {schema_version:"itpay.interaction.v1" as const,stage:"purchase_approval_required",consent_rule:"先核对聊天明确确认或已存同意是否覆盖当前对象、范围、数量、价格及条款；已覆盖则沿用，不重复询问。缺少同意或实质变化才问缺失或变化部分；模板false只表示尚未记录批准，不判断聊天事实。",input_template:fileInputTemplate(`itpay services action ${serviceExecutionID} --action approve_purchase --actor-type agent --status approved --input-json <file> --json`,{...quote.approval_template},["user_approved"],{executionID:serviceExecutionID})}} : {}),
     next: quote.approval_template ? null : {
       command: `itpay cart add --quote ${quote.service_quote_lock_id} --json`,
       reason: "加入 canonical Cart",

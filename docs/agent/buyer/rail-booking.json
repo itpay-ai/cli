@@ -173,5 +173,6 @@
     "journey_terms": "workflow:confirm_booking and booking_review_invalid recovery accept agent-reported genuine consent; default false, never infer from purchase delegation.",
     "ordinary_human_action": "Use its published actor rule; do not generalize railway permission.",
     "price_approval": "approve_purchase uses actor-type agent with the unchanged server-scoped approval template and genuine matching approval; candidate choice is not price approval."
-  }
+  },
+  "consent_template_semantics": "Template false means approval is not recorded, not that the human must answer again. When user_answer_required is absent, check explicit chat or recorded consent for the current scope, party, price and terms; reuse it unchanged, ask only for missing consent or material differences, and never invent approval."
 }
