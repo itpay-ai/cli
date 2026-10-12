@@ -18,10 +18,15 @@ mkdirSync(install);
 mkdirSync(home);
 
 try {
+  const exactTarball = process.env.ITPAY_CANDIDATE_TARBALL;
+  if (exactTarball) {
+    writeFileSync(join(packed, "candidate.tgz"), readFileSync(exactTarball));
+  } else {
   execFileSync(process.env.npm_execpath ? process.execPath : "npm", [...(process.env.npm_execpath ? [process.env.npm_execpath] : []),"pack", "--dry-run=false", "--ignore-scripts", "--pack-destination", packed], {
     cwd: root,
     stdio: "pipe",
   });
+  }
   const tarballs = readdirSync(packed).filter((name) => name.endsWith(".tgz"));
   assert.equal(tarballs.length, 1, "npm pack must create exactly one tarball");
   execFileSync("tar", ["-xzf", join(packed, tarballs[0]), "-C", install]);
@@ -172,7 +177,8 @@ try {
   // Pin the actual previous released binary, not a renamed current-code fixture.
   const previousPath = join(scratch, "previous-cli-2.1.46.tgz");
   let previousBytes;
-  if (process.argv.length === 4 && process.argv[2] === "--previous-tarball") previousBytes = readFileSync(process.argv[3]);
+  if (process.env.ITPAY_PREVIOUS_TARBALL) previousBytes = readFileSync(process.env.ITPAY_PREVIOUS_TARBALL);
+  else if (process.argv.length === 4 && process.argv[2] === "--previous-tarball") previousBytes = readFileSync(process.argv[3]);
   else {
     assert.equal(process.argv.length, 2, "unsupported package smoke arguments");
     const response = await fetch("https://registry.npmjs.org/@itpay/cli/-/cli-2.1.46.tgz", { signal: AbortSignal.timeout(120000) });
