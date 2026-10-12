@@ -1,4 +1,5 @@
-import { sellerSessionToken } from "./account_auth.js";
+import { CLI_VERSION, API_CONTRACT_REVISION } from "./release_identity.js";
+export { CLI_VERSION, API_CONTRACT_REVISION } from "./release_identity.js";
 // CLI configuration loader. Production defaults to app.itpay.ai; supported public overrides
 // are the official sandbox and dev Backends. Checkout
 // display-token persistence belongs to the cart session file, protected with
@@ -36,8 +37,8 @@ export interface CLIConfig {
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
-export const CLI_VERSION = "2.1.46";
-export const API_CONTRACT_REVISION = "sha256:c1e1f459c1d3844f6eeae21535b532abb2e48c3e320173c4faccd62992890dcd";
+
+
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
 const CART_SESSION_FILENAME = "cart.json";
 const OPERATION_JOURNAL_FILENAME = "operations.json";
@@ -151,11 +152,6 @@ export function newBackendClient(config: CLIConfig): BackendClient {
       "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
     requestAuthorizer: (input) => {
-      if (/^\/v1\/(seller\/organizations(?:\/|\?|$)|library\/)/.test(input.path)) {
-        const token = config.bearerToken ?? sellerSessionToken(config.baseURL);
-        if (!token) throw new Error("Seller login required; run itpay sell auth login");
-        return Promise.resolve({ Authorization: `Bearer ${token}` });
-      }
       return authority.authorizationHeaders(input);
     },
     recoverAuthorization: () => authority.recoverAuthorization(),

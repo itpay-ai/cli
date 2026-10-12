@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the public CLI entry point for Buyer services and existing itpay sell Seller workflows.",
+  "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
   "purpose": "Install in one host-permitted persistent npm location, prepare the real Agent once, and enable the same-package Skill.",

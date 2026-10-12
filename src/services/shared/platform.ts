@@ -7,7 +7,7 @@ import { buildCheckoutHandoff } from "../../render/checkout_handoff.js";
 import { buildAgentChatHandoff } from "../../render/markdown.js";
 import { platformKeyForHost } from "../../render/plan.js";
 import { buildCheckoutQRPlan } from "../../render/checkout_plan.js";
-import { appendFeedbackPostmortemInstruction, CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, shellArgument, plainValueLines } from "./envelope.js";
+import { appendFeedbackPostmortemInstruction, CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, shellArgument, plainValueLines, fileInputTemplate } from "./envelope.js";
 
 export interface ServicesCommandOptions {
   output?: OutputSink;
@@ -425,5 +425,6 @@ export function publicPurchaseTemplate(value:unknown):Record<string,unknown>|und
  if(typeof value!=="object"||value===null||Array.isArray(value)||!("service_id" in value)||typeof value.service_id!=="string"||!("operation_id" in value)||typeof value.operation_id!=="string"||!("input" in value)||typeof value.input!=="object"||value.input===null||Array.isArray(value.input)||!("continuation" in value)) throw invalid();
  const ref=value.continuation;
  if(typeof ref!=="object"||ref===null||Array.isArray(ref)||!("service_execution_id" in ref)||typeof ref.service_execution_id!=="string"||!("snapshot_id" in ref)||typeof ref.snapshot_id!=="string")throw invalid();
- return {command:`itpay services run ${shellArgument(value.service_id)} --operation ${shellArgument(value.operation_id)} --input-json <file> --json`,input_example:{input:value.input,continuation:{service_execution_id:ref.service_execution_id,snapshot_id:ref.snapshot_id}},executable:false};
+ const template = fileInputTemplate(`itpay services run ${shellArgument(value.service_id)} --operation ${shellArgument(value.operation_id)} --input-json <file> --json`, {input:value.input,continuation:{service_execution_id:ref.service_execution_id,snapshot_id:ref.snapshot_id}});
+ return {...template, input_example:template.input};
 }

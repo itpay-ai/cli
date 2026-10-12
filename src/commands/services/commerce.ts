@@ -1,3 +1,4 @@
+import type { ServiceExecutionReadModel } from "../../client/types.js";
 import {assertCheckoutPayable} from "../checkout_handoff.js";
 import { serviceAdapter } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
@@ -11,7 +12,7 @@ import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../../ren
 import { platformKeyForHost } from "../../render/plan.js";
 import { renderTerminalQR } from "../../render/qr.js";
 import { buildCheckoutQRPlan } from "../../render/checkout_plan.js";
-import { CommandContractError, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
+import { CommandContractError, fileInputTemplate, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
 import { ServicesCommandOptions, missingRequiredInput, checkoutCommand, formatInputOptions, tokenizedCheckoutURL, absolutePublicURL, fallbackCardURL, fallbackCardPNGURL, buildServicesCheckoutEnvelope, quoteCommand, formatMoney } from "../../services/shared/platform.js";
 
 export async function runServicesCheckout(
@@ -20,6 +21,7 @@ export async function runServicesCheckout(
   serviceExecutionID: string,
   capabilityID: string | undefined,
   options: ServicesCommandOptions & {
+    readModel?: ServiceExecutionReadModel;
     email?: string;
     deliveryContact?: Record<string, unknown>;
 		lockedInput?: Record<string, unknown>;
@@ -56,10 +58,8 @@ export async function runServicesCheckout(
     ...(options.deliveryContact ?? {}),
     ...(options.email ? { email: options.email } : {}),
   };
-  if (!options.resume && !capabilityID) {
-    const model = await backend.getServiceExecution(serviceExecutionID);
-    capabilityID = model.workflow_entry?.capability_id;
-  }
+  const currentModel = options.readModel ?? (!options.resume ? await backend.getServiceExecution(serviceExecutionID) : undefined);
+  if (!options.resume && !capabilityID) capabilityID = currentModel?.workflow_entry?.capability_id;
   if (!options.resume && !capabilityID) {
     throw new CommandContractError(
       "capability_required",
@@ -69,7 +69,8 @@ export async function runServicesCheckout(
     );
   }
   if (!options.resume) {
-    const readModel = await backend.getServiceExecution(serviceExecutionID);
+    if (!currentModel) throw new Error("current execution model is required for checkout validation");
+    const readModel = currentModel;
     const capability = readModel.capabilities.find((item) => item.capability_id === capabilityID);
     if (!capability || !capability.requires_payment) {
       throw new CommandContractError(
@@ -80,7 +81,7 @@ export async function runServicesCheckout(
       );
     }
     if(readModel.checkout_bindings.length===0 && !readModel.actions.some(action=>action.action_type==="approve_purchase"&&action.status==="approved")) {
-      await runServicesQuote(backend,serviceExecutionID,capability.capability_id,options.lockedInput ?? {},options);
+      await runServicesQuote(backend,serviceExecutionID,capability.capability_id,options.lockedInput ?? {},{...options,readModel});
       return;
     }
     const lockedInput = options.lockedInput ?? {};
@@ -134,7 +135,7 @@ export async function runServicesCheckout(
   let itineraryTitle: string | undefined;
   let itinerary: Record<string, unknown> | undefined;
   try {
-    const booking = await backend.getServiceExecution(serviceExecutionID);
+    const booking = currentModel ?? await backend.getServiceExecution(serviceExecutionID);
     ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken));
   } catch {
     // Checkout already exists; a display-only title lookup cannot hide its official handoff.
@@ -209,9 +210,9 @@ export async function runServicesQuote(
   serviceExecutionID: string,
   capabilityID: string,
   input: Record<string, unknown>,
-  options: ServicesCommandOptions & { email?: string; deliveryContact?: Record<string, unknown>; jsonOutput?: boolean } = {},
+  options: ServicesCommandOptions & { readModel?: ServiceExecutionReadModel; email?: string; deliveryContact?: Record<string, unknown>; jsonOutput?: boolean } = {},
 ): Promise<void> {
-  const model = await backend.getServiceExecution(serviceExecutionID);
+  const model = options.readModel ?? await backend.getServiceExecution(serviceExecutionID);
   const capability = model.capabilities.find((item) => item.capability_id === capabilityID);
   if (!capability || !capability.requires_payment) {
     throw new CommandContractError(
@@ -264,7 +265,7 @@ export async function runServicesQuote(
     instruction: quote.approval_template
       ? "报价已锁定。先展示服务端商品名称、对象、范围、数量和金额；与用户请求不符时让用户决定，不自称基础报告或换商品。选择候选不是价格同意；模板中的user_approved=false表示尚未记录批准。仅在用户已有真实批准覆盖本范围时改为true并提交，不重复询问同条件已明确同意。用户授权预算时用capped及真实maximum_minor；仅委托准备入口、最终金额在官方页确认时用confirm_on_official_page。不要伪造接受未知金额或条款。"
       : "报价已锁定当前 Execution 的可信输入和价格；可单独付款，也可与其他独立 Execution 的报价合并。",
-    ...(quote.approval_template ? {interaction: {schema_version:"itpay.interaction.v1" as const,stage:"purchase_approval_required",input_template:{command:`itpay services action ${serviceExecutionID} --action approve_purchase --actor-type agent --status approved --input-json <file> --json`,input:quote.approval_template,required_input:["file"],executable:false}}} : {}),
+    ...(quote.approval_template ? {interaction: {schema_version:"itpay.interaction.v1" as const,stage:"purchase_approval_required",input_template:fileInputTemplate(`itpay services action ${serviceExecutionID} --action approve_purchase --actor-type agent --status approved --input-json <file> --json`,{...quote.approval_template},["user_approved"],{executionID:serviceExecutionID,userAnswerRequired:!quote.approval_template.user_approved})}} : {}),
     next: quote.approval_template ? null : {
       command: `itpay cart add --quote ${quote.service_quote_lock_id} --json`,
       reason: "加入 canonical Cart",

@@ -102,7 +102,7 @@ test('public operation recovery executes through main with the original operatio
    const forwarded=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(raw?{body:raw}:{})});res.statusCode=forwarded.status;res.setHeader('content-type','application/json');res.end(await forwarded.text());
   }); await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve)); const address=server.address();assert(address&&typeof address!=='string');const url=`http://127.0.0.1:${address.port}`;
   let entry=resolve('tests/cli_test_entry.ts');
-  if(process.env.ITPAY_REWORK_MAIN){entry=join(work,'packed-entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8').replace('await import("../src/main.js");',`await import(${JSON.stringify(process.env.ITPAY_REWORK_MAIN)});`));}
+  if(process.env.ITPAY_REWORK_MAIN){entry=join(work,'packed-entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8').replace('await import(process.env.ITPAY_CLI_PACKAGE_ENTRY ?? "../src/main.js");',`await import(${JSON.stringify(process.env.ITPAY_REWORK_MAIN)});`));}
   const executable=entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath;
   const run=async(args:string[])=>{try{return await promisify(execFile)(executable,[entry,...args],{env:{...process.env,NODE_ENV:'test',ITPAY_AGENT_TYPE:'codex-cli',HOME:work,ITPAY_CLI_TEST_TRANSPORT_URL:url},timeout:15000});}catch(error){const output=error as {stdout:string;stderr:string};return output;}};
   try {
@@ -219,4 +219,38 @@ test('refund manual and unknown watches return immediately with all owner facts'
   }
   for(const status of ['succeeded','cancelled','rejected'])assert.equal(refundStateEnvelope({...base,status},'shown').next,null);
  }finally{await mock.close();}
+});
+
+test('public expired prepare preserves typed adapter and complete original query file',async()=>{
+ const {runServicesRun}=await import('../src/commands/services.js');
+ const {loadConfig}=await import('../src/state/config.js');
+ const {HttpError}=await import('../src/client/http.js');
+ const {CommandContractError}=await import('../src/services/shared/envelope.js');
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',operation_id:'prepare_purchase'};
+  const query={endpoints:{origin:{kind:'station',text:'甲站'},destination:{kind:'place',text:'乙住宅'}},travel_date:'2030-10-15',passengers:1,priority:'fastest',reuse_from:{execution_id:'old'}};
+  for(const mode of ['fresh','existing','history_failed','unknown_contract','wrong_binding']) {
+   backend.startServiceExecution=async()=>{throw new HttpError(409,{code:'rail_selection_expired',message:'saved choice expired',execution_created:false,provider_called:false,service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',public_binding:{...binding,...(mode==='wrong_binding'?{public_service_id:'another_service'}:mode==='unknown_contract'?{service_definition_version:'unknown'}:{})},selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',query_public_binding:{...binding,operation_id:'query_smart'},expired_at:'2000-01-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_original'}:{}),...(mode==='history_failed'?{recovery_block_reason:'购买历史读取失败'}:{})}},'expired');};
+   await assert.rejects(runServicesRun(backend,loadConfig({}), 'itpay-rail',{selections:[],passengers:1},{operationID:'prepare_purchase'}),error=>{
+    if(mode==='unknown_contract'||mode==='wrong_binding'){assert(error instanceof HttpError);return true;}
+    assert(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);
+    const template=error.interaction?.input_template;
+    if(mode==='fresh'){
+     assert(template);assert.match(template.command,/services run itpay-rail --operation query_smart --input-json <file>/);
+     assert.deepEqual(template.file_content,{input:Object.fromEntries(Object.entries(query).filter(([key])=>key!=='reuse_from'))});
+     assert.deepEqual(template.input,template.file_content);assert.equal(template.user_answer_required,false);assert.equal(error.recovery.length,0);
+    }else{assert.equal(template,undefined);if(mode==='existing')assert.match(error.recovery[0]!.command,/next se_original/);else assert.match(error.instruction,/购买历史读取失败/);}
+    return true;
+   });
+  }
+ }finally{await mock.close();}
+});
+
+test('saved credential deadline is distinct from historical itinerary and missing expiry',async()=>{
+ const {purchaseCredentialFacts}=await import('../src/services/rail/results.js');
+ assert.equal(purchaseCredentialFacts(undefined).status,'unknown');
+ assert.equal(purchaseCredentialFacts('0001-01-01T00:00:00Z').status,'unknown');
+ assert.equal(purchaseCredentialFacts('2000-01-01T00:00:00Z').status,'expired');
+ assert.equal(purchaseCredentialFacts('2099-01-01T00:00:00Z').status,'not_expired');
 });

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "product_scope": "buyer",
+  "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "purchased-content",
   "title": "Previously Purchased Content And Account History",
   "purpose": "Distinguish a previous purchase from a new service request, obtain one time-limited read authorization, and resume the original list, orders, or read command.",

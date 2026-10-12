@@ -4,7 +4,7 @@ The official V3 CLI and the single ItPay entry point for services, purchases, ac
 
 ## One Entry Point, Several Human Intents
 
-`itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. The Agent first distinguishes a new service request, previously purchased content, order history, or a refund. Seller workflows use the existing `itpay sell` entry point.
+`itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. The Agent first distinguishes a new service request, previously purchased content, order history, or a refund. This public package provides Buyer workflows. Seller source remains maintained separately in this repository.
 
 Follow the official setup link for the authorized channel and matching Backend. Standard npm can use a host-managed persistent tool location or a global prefix; retain one exact executable.
 

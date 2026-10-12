@@ -45,6 +45,45 @@ try {
     throw new Error(`incomplete npm metadata for @itpay/cli@${version}`);
   }
 
+  // Inspect the exact tarball before choosing the historical or Buyer layout.
+  const inspected=join(scratch,"inspected");mkdirSync(inspected);
+  let tarball=candidateTarball;
+  if(!tarball){
+    const packed=JSON.parse(execFileSync("npm",["pack",`@itpay/cli@${version}`,"--ignore-scripts","--json","--pack-destination",scratch],{encoding:"utf8"}));
+    tarball=join(scratch,packed[0].filename);
+    const integrity=`sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`;
+    if(integrity!==metadata["dist.integrity"])throw new Error("registry tarball integrity mismatch");
+  }
+  const names=execFileSync("tar",["-tzf",tarball],{encoding:"utf8"}).trim().split("\n");
+  if(names.some(name=>!name.startsWith("package/")||name.split("/").includes("..")))throw new Error("unsafe package path");
+  execFileSync("tar",["-xzf",tarball,"-C",inspected]);
+  const candidateRoot=join(inspected,"package");
+  const candidatePackage=JSON.parse(readFileSync(join(candidateRoot,"package.json"),"utf8"));
+  if(candidatePackage.version!==version)throw new Error("candidate version mismatch");
+  if(candidatePackage.itpayBundleFormat==="buyer-esm-v1"){
+    if(!includeLicenses)throw new Error("Buyer package licenses cannot be omitted");
+    for(const field of ["dependencies","optionalDependencies","peerDependencies","bundleDependencies"])if(candidatePackage[field]&&Object.keys(candidatePackage[field]).length)throw new Error("Buyer runtime dependencies are forbidden");
+    rmSync(vendor,{recursive:true,force:true});mkdirSync(vendor,{recursive:true});
+    cpSync(candidateRoot,join(vendor,"package"),{recursive:true});
+    writeFileSync(join(vendor,"itpay-cli.bundle.mjs"),'import "./package/dist/src/main.js";\n');
+    // Keep the host launcher and its Agent Type; relocate only published resources.
+    const launcherPath = join(output, "scripts", "itpay.mjs");
+    if (existsSync(launcherPath)) {
+      let launcher = readFileSync(launcherPath, "utf8");
+      const docsPath = `${bundleDirectory}/package/docs/agent/buyer`;
+      const skillsPath = `${bundleDirectory}/package/skills`;
+      launcher = launcher.replace(/ITPAY_CLI_DOCS_DIR:\s*resolve\(skillRoot,\s*"[^"]+"\)/g,
+        `ITPAY_CLI_DOCS_DIR: resolve(skillRoot, "${docsPath}")`);
+      launcher = launcher.replace(/ITPAY_CLI_SKILLS_DIR:\s*(?:dirname\(skillRoot\)|skillRoot|resolve\(skillRoot,\s*"[^"]+"\))/g,
+        `ITPAY_CLI_SKILLS_DIR: resolve(skillRoot, "${skillsPath}")`);
+      writeFileSync(launcherPath, launcher);
+    }
+    const coreSha256=createHash("sha256").update(readFileSync(join(candidateRoot,"dist/src/main.js"))).digest("hex");
+    writeFileSync(join(output,"bundle.lock.json"),JSON.stringify({schemaVersion:1,package:"@itpay/cli",version,format:"buyer-esm-v1",npmIntegrity:metadata["dist.integrity"],...(metadata.gitHead?{sourceGitSha:metadata.gitHead}:{}),candidateTarballSha256:createHash("sha256").update(readFileSync(tarball)).digest("hex"),coreSha256,node:candidatePackage.engines?.node ?? ">=18",bundleDirectory},null,2)+"\n");
+    const actual=execFileSync(process.execPath,[join(vendor,"itpay-cli.bundle.mjs"),"--version"],{encoding:"utf8"}).trim();
+    if(actual!==version)throw new Error("Buyer core version mismatch");
+    process.stdout.write(`built shared Buyer core @itpay/cli@${version} in ${output}\n`);
+  } else {
   writeFileSync(join(scratch, "package.json"), JSON.stringify({
     name: "itpay-platform-bundle",
     private: true,
@@ -116,6 +155,7 @@ try {
   const actual = execFileSync(process.execPath, [entry, "--version"], { encoding: "utf8" }).trim();
   if (actual !== version) throw new Error(`bundle reported ${actual}, expected ${version}`);
   process.stdout.write(`built @itpay/cli@${version} in ${output}\n`);
+  }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

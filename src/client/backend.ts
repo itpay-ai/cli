@@ -1,7 +1,7 @@
 // V3 endpoint wrappers. One function per route family; one file per domain.
 // Keep parameter shapes aligned with the typed request DTOs in ./types.ts.
 
-import type { HttpClient } from "./http.js";
+import type { HttpClient, RequestOptions } from "./http.js";
 import type {
   RailAftercareInput, RailAftercareView, RailAftercareDirectory, RailAftercareResponseInput,
   Cart,
@@ -53,12 +53,6 @@ import type {
 export class BackendClient {
   constructor(private readonly http: HttpClient) {}
   get localSimulation(): boolean { return this.http.localSimulation; }
-
-  // Called only through the fixed Sell operation contract, never arbitrary Agent URLs.
-  sellRequest(request: {path:string; method:"GET"|"POST"|"PUT"|"DELETE"; body?:unknown}): Promise<unknown> {
-    if (!request.path.startsWith("/v1/seller/organizations") && !request.path.startsWith("/v1/library/")) throw new Error("Invalid Sell route");
-    return this.http.request(request.path,{method:request.method,...(request.body!==undefined?{body:request.body}:{})});
-  }
 
   agentAccountStatus(): Promise<{status: string; phone_verified?: boolean}> {
     return this.http.get('/v1/agent-device-account-bindings');
@@ -227,12 +221,12 @@ export class BackendClient {
 
   // --- Service Execution ---
 
-  startServiceExecution(input: StartServiceExecutionRequest): Promise<ServiceStartResponse> {
-    return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input);
+  startServiceExecution(input: StartServiceExecutionRequest, options: RequestOptions = {}): Promise<ServiceStartResponse> {
+    return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input, options);
   }
 
-  advanceServiceExecution(id: string, input: Record<string, unknown> | undefined, idempotencyKey: string): Promise<ServiceExecutionReadModel> {
-    return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey });
+  advanceServiceExecution(id: string, input: Record<string, unknown> | undefined, idempotencyKey: string, options: RequestOptions = {}): Promise<ServiceExecutionReadModel> {
+    return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey },options);
   }
 
   getServiceExecutionResultItemPage(serviceExecutionID: string, resultItemID: string, offset: number, limit: number, view?: "summary"): Promise<ServiceResultItemPage> {
@@ -257,10 +251,11 @@ export class BackendClient {
   recordServiceExecutionAction(
     serviceExecutionID: string,
     input: RecordServiceExecutionActionRequest,
+    options: RequestOptions = {},
   ): Promise<ServiceExecutionAction | RailPlanningActionResponse> {
     return this.http.post<ServiceExecutionAction | RailPlanningActionResponse>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/actions`,
-      input,
+      input, options,
     );
   }
 
@@ -286,9 +281,9 @@ export class BackendClient {
     );
   }
 
-  getServiceExecution(serviceExecutionID: string, opts: { sinceSnapshot?: string } = {}): Promise<ServiceExecutionReadModel> {
+  getServiceExecution(serviceExecutionID: string, opts: { sinceSnapshot?: string; deadline?: number } = {}): Promise<ServiceExecutionReadModel> {
     const query = opts.sinceSnapshot ? `?since_snapshot=${encodeURIComponent(opts.sinceSnapshot)}` : "";
-    return this.http.get<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}${query}`);
+    return this.http.get<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}${query}`,opts);
   }
 
   listServiceExecutions(limit = 50): Promise<ListServiceExecutionsResponse> {

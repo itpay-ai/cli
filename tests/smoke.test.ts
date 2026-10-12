@@ -907,7 +907,7 @@ test("services run waits for a usable rail planning result", async () => {
     instruction: string;
   };
   assert.equal(envelope.status, "planning");
-  assert.equal(gets, 4);
+  assert.equal(gets, 3);
   assert.equal(envelope.result.rail_planning.expansion_status, "running");
   assert.ok(envelope.result.journeys?.length);
   assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --timeout 120 --since-snapshot rsnap_1 --json");
@@ -2772,7 +2772,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(untyped.result.content, /## Choose one entry/);
   assert.match(untyped.result.content, /## Follow one envelope/);
   assert.match(untyped.result.content, /itpay docs show rail-booking/);
-  assert.match(untyped.result.content, /itpay sell guide --json/);
+  assert.doesNotMatch(untyped.result.content, /itpay sell guide/);
+  assert.match(untyped.result.content, /itpay orders --json/);
   assert.equal(untyped.next.command, "itpay install --json");
 
   const typed = JSON.parse((await runCLI([
@@ -2979,7 +2980,8 @@ test("docs show returns only one complete topic with structured recovery", async
   assert.equal(envelope.status, "shown");
   assert.equal(envelope.result.topic, "quickstart");
   assert.equal(envelope.result.content.topic, "quickstart");
-  assert.match(envelope.result.content.product_scope, /Buyer services and the existing itpay sell Seller workflow/);
+  assert.match(envelope.result.content.product_scope, /single public Buyer CLI entry point/);
+  assert.doesNotMatch(envelope.result.content.product_scope, /Seller workflow/);
   assert.equal(envelope.next, null);
 
   await assert.rejects(
@@ -3806,7 +3808,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal(presentation.result.amount, "0.50 CNY");
 });
 
-test("checkout title lookup failure preserves an already created official handoff", async () => {
+test("checkout reuses the current model and preserves the official handoff", async () => {
  await approvePreparationFixture('se_demo','precise_report');
   const client = Object.create(backend) as BackendClient;
   let reads = 0;
@@ -3821,7 +3823,7 @@ test("checkout title lookup failure preserves an already created official handof
   const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; handoff: { url: string } };
   assert.equal(envelope.status, "human_checkout_required");
   assert.match(envelope.handoff.url, /\/v1\/checkouts\/chk_/);
-  assert.equal(reads, 2);
+  assert.equal(reads, 1);
 });
 
 test("OpenClaw Telegram checkout returns one native message action in the standard envelope", async () => {

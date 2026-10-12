@@ -1,6 +1,6 @@
 import { executionInputContext, operationInputTemplate } from "../shared/input.js";
 import { type ServiceExecutionReadModel } from "../../client/types.js";
-import { type CommandEnvelope } from "../shared/envelope.js";
+import { type CommandEnvelope, fileInputTemplate } from "../shared/envelope.js";
 import { requiredInputFields } from "../shared/platform.js";
 import { locationConfirmationEnvelope } from "./query.js";
 import { RAIL_LOCATION_EVIDENCE_REASONS, RAIL_QUOTE_FAILURE_GUIDANCE } from "./recovery.js";
@@ -167,13 +167,11 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
             schema_version: "itpay.interaction.v1",
             stage: "consent_required",
             consent_rule: "只有用户本人明确接受当前条款才将 false 改为 true。没有回答时问 consent_question 一次后等待；不要执行模板。Agent 提交只代表转述，不是官方页确认。",
-            input_template: {
-              command: `itpay services action ${id} --action ${action.action_type} --actor-type agent --status approved --input-json <file> --json`,
-              required_input: ["file", ...requiredFields],
-              input: review.input_template && typeof review.input_template === "object"
+            input_template: fileInputTemplate(
+              `itpay services action ${id} --action ${action.action_type} --actor-type agent --status approved --input-json <file> --json`,
+              review.input_template && typeof review.input_template === "object" && !Array.isArray(review.input_template)
                 ? review.input_template as Record<string, unknown> : serviceInputTemplate(action.input_schema ?? {}, review),
-              executable: false,
-            },
+              requiredFields, {executionID:id, userAnswerRequired:true}),
           },
           recovery: [],
         };

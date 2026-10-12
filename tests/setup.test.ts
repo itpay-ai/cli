@@ -1,9 +1,10 @@
+import { authStatePath } from '../src/state/auth_storage.js';
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
-import { sellerAuthPath } from "../src/state/account_auth.js";
+
 import { runSetup, validateSetup } from "../src/commands/setup.js";
 import { loadConfig, CLI_VERSION, API_CONTRACT_REVISION } from "../src/state/config.js";
 import { HttpError } from "../src/client/http.js";
@@ -27,7 +28,7 @@ for (const status of ["authenticated", "login_required", "unknown", "unbound", "
    async bindAgentAccount(): Promise<{status: string}> { throw new Error("setup must not bind or log in"); },
   };
   const config = loadConfig({ ITPAY_AGENT_TYPE: "workbuddy", ITPAY_BACKEND_URL: "https://dev.itpay.ai", ITPAY_IDEMPOTENCY_KEY: "setup-test" });
-  const sessionPath=sellerAuthPath(config.baseURL,process.env,"agent-login");
+  const sessionPath=authStatePath(config.baseURL,process.env,"agent-login");
   mkdirSync(root,{recursive:true});
   writeFileSync(sessionPath, ["unknown", "503", "unbound"].includes(status) ? "corrupt saved browser file" : JSON.stringify({baseURL:config.baseURL,sessionID:"completed-browser-session",pollToken:"synthetic",startToken:"synthetic"}));
   const sessionBefore=readFileSync(sessionPath);

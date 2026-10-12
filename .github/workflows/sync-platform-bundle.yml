@@ -116,6 +116,10 @@ jobs:
           set -euo pipefail
           case "$NPM_CHANNEL" in next|latest) ;; *) echo "Unsupported npm channel" >&2; exit 1 ;; esac
           VERSION=$(npm view "@itpay/cli@$NPM_CHANNEL" version)
+          DECLARED_FORMAT=$(npm view "@itpay/cli@$VERSION" itpayBundleFormat)
+          if [[ "$DECLARED_FORMAT" == "buyer-esm-v1" ]]; then BUNDLE_FORMAT=buyer-esm-v1;
+          elif [[ -n "$DECLARED_FORMAT" ]]; then echo "Unsupported declared bundle format" >&2; exit 1; fi
+          echo "format=$BUNDLE_FORMAT" >> "$GITHUB_OUTPUT"
           CURRENT_VERSION=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").version)')
           CURRENT_FORMAT=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").format)')
           CURRENT_BUNDLE_DIRECTORY=$(node -e 'console.log(require("./" + process.env.SKILL_PATH + "/bundle.lock.json").bundleDirectory || "vendor/itpay-cli")')
@@ -153,7 +157,7 @@ jobs:
           CANDIDATE_LOCK_PATH: ${{ steps.candidate.outputs.candidate_lock_path }}
           OPEN_PULL_REQUEST_URL: ${{ steps.candidate.outputs.pr_url }}
           PUBLISHED_VERSION: ${{ env.VERSION }}
-          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          BUNDLE_FORMAT: ${{ steps.target.outputs.format }}
           BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
         run: node scripts/platform-sync-decision.mjs
 
@@ -181,7 +185,7 @@ jobs:
         if: steps.decision.outputs.update == 'true'
         working-directory: cli
         env:
-          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          BUNDLE_FORMAT: ${{ steps.target.outputs.format }}
           SKILL_PATH: ${{ inputs.skill-path }}
           BUNDLE_DIRECTORY: ${{ inputs.bundle-directory }}
           INCLUDE_LICENSES: ${{ inputs.include-licenses }}
@@ -190,6 +194,7 @@ jobs:
           case "$BUNDLE_FORMAT" in
             npm-tree) EXTRA=() ;;
             single-file-esm) EXTRA=(--single-file) ;;
+            buyer-esm-v1) EXTRA=() ;;
             *) echo "Unsupported bundle format: $BUNDLE_FORMAT" >&2; exit 1 ;;
           esac
           if [[ "$INCLUDE_LICENSES" != "true" ]]; then EXTRA+=(--omit-licenses); fi
@@ -243,7 +248,7 @@ jobs:
         if: steps.decision.outputs.update == 'true'
         working-directory: platform
         env:
-          BUNDLE_FORMAT: ${{ inputs.bundle-format }}
+          BUNDLE_FORMAT: ${{ steps.target.outputs.format }}
           SKILL_PATH: ${{ inputs.skill-path }}
         run: |
           npm test

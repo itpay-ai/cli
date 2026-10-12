@@ -1,5 +1,7 @@
+import { operationInputTemplate } from "../shared/input.js";
+import { serviceAdapterKey } from "../registry.js";
 import { HttpError } from "../../client/http.js";
-import { CommandContractError } from "../shared/envelope.js";
+import { CommandContractError, fileInputTemplate } from "../shared/envelope.js";
 
 
 export const RAIL_LOCATION_EVIDENCE_REASONS = new Set(["endpoint_kind_conflict", "place_identity_uncertain", "endpoint_adcode_name_conflict", "endpoint_poi_name_conflict", "endpoint_station_name_code_conflict", "location_evidence_required", "coordinate_name_mismatch", "area_scope_too_broad", "address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"]);
@@ -22,22 +24,28 @@ export function railRunError(cause: unknown,serviceID: string,id?: string): void
           : reason === "stored_selection_inconsistent" ? "服务端凭据与已存目录不一致，补参数无法修复。停止购买并提供诊断标识 stored_selection_inconsistent；不猜字段、不重新创建购买。"
           : "购买凭据未通过校验，原因尚未确定且没有安全自动恢复。停止，不把推测报成原因或追加隐藏字段。",
         inputInvalid ? [{command:"itpay services list --json",reason:"定位原查询并读取当前完整购买模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式输入约束"}] : [],
-        undefined,{service_id:serviceID, ...(id?{service_execution_id:id}:{}), ...(reason?{reason}:{}), execution_created:Boolean(id)});
+        undefined,{service_id:serviceID, ...(id?{service_execution_id:id}:{}), ...(reason?{reason}:{}), execution_created:cause.payload?.execution_created ?? "unknown"});
     }
     if (cause instanceof HttpError && cause.code === "rail_selection_expired") {
       const expiry = cause.payload?.selection_expiry;
       const bookingID = expiry?.booking_execution_id ?? id;
       const refreshInput = !bookingID && expiry?.safe_new_query && ["itpay-rail-smart", "itpay-rail-exact"].includes(expiry.query_service_id) ? expiry.query_input : undefined;
-      const refresh = refreshInput !== undefined;
+      const sourceBinding = expiry?.query_public_binding;
+      const sourceSupported = !!expiry && serviceAdapterKey({service_id:expiry.query_service_id, service_contract_version_id:"", ...(sourceBinding ? {public_binding:sourceBinding} : {})}) === "rail.v1";
+      // Legacy errors retain their declared internal operation; public errors
+      // require the verified source binding to preserve the public query.
+      const refresh = refreshInput !== undefined && (!cause.payload?.public_binding || sourceSupported);
+      const originalInput = refreshInput ? {...refreshInput} : undefined;
+      if (originalInput) delete originalInput.reuse_from;
       throw new CommandContractError(cause.code, cause.message,
-        refresh ? "刚才余票信息已过时，按原条件刷新一次真实库存（可能消耗查询额度）；不需要重复批准同条件查票。有价格、库存或条款变化再确认；不复用旧库存、不换站或日期。"
+        refresh ? "刚才余票信息已过时，按原条件刷新一次真实库存（可能消耗查询额度）；不需要重复批准同条件查票。刷新后按完整路线、车次、席别及价格核对原选择，不按新排名盲选；有价格、库存或条款变化再确认。仅刷新一次，失败即报告原因；不复用旧库存、不换站或日期。"
           : bookingID ? "保留原购买执行，先读取订单与付款事实；不要重新查票、创建替代购买或重复付款。"
-          : "旧选择凭据已过期，历史详情不能续期；缺少完整原查询条件或安全购买状态证据，停止自动刷新。",
+          : `旧选择凭据已过期，历史详情不会刷新库存或续期；${expiry?.recovery_block_reason ?? "缺少完整原查询条件、受支持的源合同或安全购买状态证据"}，停止自动刷新。`,
         bookingID ? [{command: `itpay services next ${bookingID} --json`, reason: "核对原购买执行和付款状态"}] : [],
-        refreshInput && expiry ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template: {
-          command: `itpay services run ${expiry.query_service_id} --input-json <file> --json`, input: refreshInput, required_input: ["file"], executable: false,
-        }} : undefined,
-        {service_id: serviceID, ...(bookingID ? {service_execution_id: bookingID} : {}), ...(expiry ? {selection_expiry: expiry} : {})});
+        refresh && originalInput && expiry ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template:
+          operationInputTemplate({serviceID:sourceBinding?.public_service_id ?? expiry.query_service_id, ...(sourceBinding ? {operationID:sourceBinding.operation_id} : {})}, originalInput),
+        } : undefined,
+        {service_id: serviceID, ...(bookingID ? {service_execution_id: bookingID} : {}), execution_created: cause.payload?.execution_created ?? "unknown", ...(expiry ? {selection_expiry: expiry} : {})});
     }
     if (cause instanceof HttpError && cause.code === "rail_journey_selection_required") {
       throw new CommandContractError(cause.code!, cause.message,
@@ -68,7 +76,7 @@ export function railActionError(error:unknown,serviceExecutionID:string,actionTy
                 error.payload?.review?.input_template ? {
                   schema_version: "itpay.interaction.v1", stage: "consent_required",
                   consent_rule: "没有用户明确条款回答或等价已存同意时保持 false，展示 review.consent_question 后等待。技术修正不产生同意；Agent提交是转述。",
-                  input_template: {command: `itpay services action ${serviceExecutionID} --action ${actionType} --actor-type agent --status approved --input-json <file> --json`, input: error.payload?.review.input_template as Record<string, unknown>, required_input: ["file"], executable: false},
+                  input_template: fileInputTemplate(`itpay services action ${serviceExecutionID} --action ${actionType} --actor-type agent --status approved --input-json <file> --json`, error.payload.review.input_template as Record<string, unknown>, [], {executionID:serviceExecutionID,userAnswerRequired:true}),
                 } : undefined,
                 {service_execution_id: serviceExecutionID, review: error.payload?.review, input_errors: error.payload?.input_errors},
 			);

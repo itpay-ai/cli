@@ -1,9 +1,10 @@
+import { newSellerClient } from './client.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { SELL_GUIDE, SELL_OPERATIONS, sellRequest } from './contract.js';
 import { LOCAL_ACTIONS, localAction } from './local.js';
-import { newBackendClient, loadConfig } from '../state/config.js';
+import { loadConfig } from '../state/config.js';
 import { syncProject } from './sync.js';
 import { preview } from './preview.js';
 export async function serveSellMCP(directory: string) {
@@ -36,7 +37,7 @@ export async function serveSellMCP(directory: string) {
             try {
                 if (operation.confirmation && !args.confirmed)
                     throw new Error('Explicit user confirmation required');
-                const result = await newBackendClient(loadConfig()).sellRequest(sellRequest(operation, args, args.input));
+                const result = await newSellerClient(loadConfig()).sellRequest(sellRequest(operation, args, args.input));
                 return { content: [{ type: 'text', text: JSON.stringify(result ?? {}) }] };
             }
             catch (error) {

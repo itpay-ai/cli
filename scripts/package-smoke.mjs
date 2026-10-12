@@ -29,9 +29,9 @@ try {
   let packageRoot = join(install, "package");
   assert.equal(existsSync(join(packageRoot, "tests")), false, "test transport shim must not ship in the npm package");
   const metadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
-  assert.deepEqual([...metadata.bundleDependencies].sort(), Object.keys(metadata.dependencies).sort());
-  for (const dependency of metadata.bundleDependencies) assert(existsSync(join(packageRoot, "node_modules", dependency, "package.json")), `runtime dependency is absent: ${dependency}`);
-  for (const dependency of Object.keys(metadata.devDependencies)) assert.equal(existsSync(join(packageRoot, "node_modules", dependency)), false, `development dependency shipped: ${dependency}`);
+  assert.equal(metadata.itpayBundleFormat,"buyer-esm-v1");
+  assert.equal(existsSync(join(packageRoot,"node_modules")),false);
+  for(const field of ["dependencies","optionalDependencies","peerDependencies","bundleDependencies"])assert(!metadata[field]||Object.keys(metadata[field]).length===0,`${field} shipped`);
   const runtimeInstall = join(scratch, "runtime-install");
   execFileSync("npm", ["install", "--prefix", runtimeInstall, join(packed, tarballs[0]), "--offline", "--dry-run=false", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
     cwd: install,
@@ -76,76 +76,6 @@ try {
     ["services next", "commands/services/next.md"], ["services page", "commands/services/page.md"],
     ["services read-result", "commands/services/read-result.md"],
     ["services events", "commands/services/events.md"],
-    ["sell", "commands/sell.md"],
-    ...["sell auth", "sell auth login", "sell auth status", "sell auth logout"].map(command => [command, "commands/sell.md"]),
-    ["sell status", "commands/sell.md"],
-    ["sell guide", "commands/sell.md"],
-    ["sell library", "commands/sell.md"],
-    ["sell library search", "commands/sell.md"],
-    ["sell library get", "commands/sell.md"],
-    ["sell sources", "commands/sell.md"],
-    ["sell sources list", "commands/sell.md"],
-    ["sell sources inspect", "commands/sell.md"],
-    ["sell sources import", "commands/sell.md"],
-    ["sell sources library", "commands/sell.md"],
-    ["sell sources probe", "commands/sell.md"],
-    ["sell sources add", "commands/sell.md"],
-    ["sell credentials", "commands/sell.md"],
-    ["sell credentials status", "commands/sell.md"],
-    ["sell credentials bind", "commands/sell.md"],
-    ["sell credentials upload", "commands/sell.md"],
-    ["sell services", "commands/sell.md"],
-    ["sell services list", "commands/sell.md"],
-    ["sell services create", "commands/sell.md"],
-    ["sell services icon", "commands/sell.md"],
-    ["sell services get", "commands/sell.md"],
-    ["sell workflow", "commands/sell.md"],
-    ["sell workflow catalog", "commands/sell.md"],
-    ["sell workflow plan", "commands/sell.md"],
-    ["sell workflow plan-get", "commands/sell.md"],
-    ["sell workflow plan-apply", "commands/sell.md"],
-    ["sell workflow upload", "commands/sell.md"],
-    ["sell workflow validate-platform", "commands/sell.md"],
-    ["sell workflow versions", "commands/sell.md"],
-    ["sell workflow versions list-platform", "commands/sell.md"],
-    ["sell workflow versions save-platform", "commands/sell.md"],
-    ["sell workflow versions delete-platform", "commands/sell.md"],
-    ["sell workflow versions save", "commands/sell.md"],
-    ["sell workflow versions list", "commands/sell.md"],
-    ["sell workflow versions use", "commands/sell.md"],
-    ["sell workflow versions delete", "commands/sell.md"],
-    ["sell workflow import", "commands/sell.md"],
-    ["sell workflow validate", "commands/sell.md"],
-    ["sell workflow confirm", "commands/sell.md"],
-    ["sell workflow preview", "commands/sell.md"],
-    ["sell fixtures", "commands/sell.md"],
-    ["sell fixtures get", "commands/sell.md"],
-    ["sell fixtures set", "commands/sell.md"],
-    ["sell pricing", "commands/sell.md"],
-    ["sell pricing get", "commands/sell.md"],
-    ["sell pricing set", "commands/sell.md"],
-    ["sell verify", "commands/sell.md"],
-    ["sell runs", "commands/sell.md"],
-    ["sell runs get", "commands/sell.md"],
-    ["sell runs confirm", "commands/sell.md"],
-    ["sell submission", "commands/sell.md"],
-    ["sell submission preview", "commands/sell.md"],
-    ["sell submission submit", "commands/sell.md"],
-    ["sell submission get", "commands/sell.md"],
-    ["sell submission withdraw", "commands/sell.md"],
-    ["sell submission watch", "commands/sell.md"],
-    ["sell init", "commands/sell.md"],
-    ["sell config", "commands/sell.md"],
-    ["sell tests", "commands/sell.md"],
-    ["sell tests start-checkout", "commands/sell.md"],
-    ["sell tests accept-checkout", "commands/sell.md"],
-    ["sell test", "commands/sell.md"],
-    ["sell test run", "commands/sell.md"],
-    ["sell test resume", "commands/sell.md"],
-    ["sell test get", "commands/sell.md"],
-    ["sell push", "commands/sell.md"],
-    ["sell pull", "commands/sell.md"],
-    ["sell mcp", "commands/sell.md"],
   ]);
   for(const path of ["aftercare","aftercare list","aftercare create","aftercare get","aftercare respond","aftercare cancel"]) commandDocs.set(path,"commands/aftercare.md");
   const commandPaths = discoverCommandPaths(entry, env);
@@ -240,16 +170,16 @@ try {
   assert.match(errorOutput, /agent type is required/);
   await verifyPackedDeviceUpgrade(packageRoot, scratch);
   // Pin the actual previous released binary, not a renamed current-code fixture.
-  const previousPath = join(scratch, "previous-cli-2.1.45.tgz");
+  const previousPath = join(scratch, "previous-cli-2.1.46.tgz");
   let previousBytes;
   if (process.argv.length === 4 && process.argv[2] === "--previous-tarball") previousBytes = readFileSync(process.argv[3]);
   else {
     assert.equal(process.argv.length, 2, "unsupported package smoke arguments");
-    const response = await fetch("https://registry.npmjs.org/@itpay/cli/-/cli-2.1.45.tgz", { signal: AbortSignal.timeout(120000) });
+    const response = await fetch("https://registry.npmjs.org/@itpay/cli/-/cli-2.1.46.tgz", { signal: AbortSignal.timeout(120000) });
     assert.equal(response.status, 200, "previous official release must be readable");
     previousBytes = Buffer.from(await response.arrayBuffer());
   }
-  assert.equal(createHash("sha256").update(previousBytes).digest("hex"), "560dd9b262e7742347cacbfdd46dea69ed5600fbdc761f1bdc38b667c2c14c36", "previous release bytes must match the verified official artifact");
+  assert.equal(createHash("sha256").update(previousBytes).digest("hex"), "cb47fe371c28c51d0812c5aa63c1894eeaaf34311ea603236cef2ff4ea98779e", "previous release bytes must match the verified official artifact");
   writeFileSync(previousPath, previousBytes);
   const nativeSetup = await verifyNativeSetup(join(packed, tarballs[0]), scratch, previousPath);
   process.stdout.write(JSON.stringify(nativeSetup) + "\n");

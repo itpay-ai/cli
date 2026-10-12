@@ -1,4 +1,4 @@
-import { serviceAdapter, serviceClientFeatures } from "../../services/registry.js";
+import { serviceAdapter, serviceClientFeatures, errorServiceAdapter } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { HttpTransportError } from "../../client/transport.js";
@@ -180,7 +180,7 @@ export function invokedEnvelope(
     const id = response.execution.service_execution_id;
     return { value: { status: "running", result: {service_execution_id: id, execution_request_id: response.execution_request_id},
       instruction: "查询已排队或正在运行。告知用户稍候，只读取同一任务的状态；不要重新发起查询，也不要把暂未返回结果说成没有车。",
-      next: {command: `itpay services next ${id} --json`, reason: "稍后读取同一查询结果"}, recovery: [] },
+      next: {command: `itpay services next ${id} --timeout 60 --json`, reason: "有界等待同一查询；宿主返回session_id时先收集该命令输出，不并行启动next", poll_after_ms:1500}, recovery: [] },
       plainResult: ["status: running", `service_execution_id: ${id}`] };
   }
   const items = response.result_items.map((item) => ({
@@ -316,7 +316,7 @@ export async function runServicesGet(
 }
 
 export function shouldWaitForServiceResult(model: ServiceExecutionReadModel): boolean {
-  if (model.current_delivery || isTerminalServiceExecutionStatus(model.execution.status)) return false;
+  if (model.current_delivery || model.workflow?.human_action || model.payment_bindings.some(binding => typeof binding.status === "string" && ["pending","outcome_unknown","unknown","processing"].includes(binding.status)) || isTerminalServiceExecutionStatus(model.execution.status)) return false;
   const adapter=serviceAdapter(model.execution);
   if(!adapter.supported)return false;
   const wait=adapter.shouldWait(model);if(wait!==undefined)return wait;
@@ -326,20 +326,22 @@ export function shouldWaitForServiceResult(model: ServiceExecutionReadModel): bo
 export async function runServicesNext(
   backend: BackendClient,
   serviceExecutionID: string,
-  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void> } = {},
+  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void>; initialModel?: ServiceExecutionReadModel; deadline?: number; startedAt?: number } = {},
 ): Promise<void> {
-  const started = Date.now();
-  const until = started + (options.timeoutSeconds ?? 0) * 1000;
+  const started = options.startedAt ?? Date.now();
+  const until = options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000;
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
-  let response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
+  let response = options.initialModel ?? await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(until>started ? {deadline:until}: {})});
   while (shouldWaitForServiceResult(response) && Date.now() < until) {
-    await sleep(options.pollIntervalMS ?? Math.max(1500, serviceAdapter(response.execution).pollAfter(response)));
-    response = await backend.getServiceExecution(serviceExecutionID, options.sinceSnapshot ? { sinceSnapshot: options.sinceSnapshot } : {});
+    await sleep(Math.min(Math.max(1500, options.pollIntervalMS ?? serviceAdapter(response.execution).pollAfter(response)), Math.max(0,until-Date.now())));
+    if (Date.now() >= until) break;
+    try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(until>started ? {deadline:until}: {})});}
+    catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
   }
   const envelope = servicesNextEnvelope(response);
   if (shouldWaitForServiceResult(response) && options.timeoutSeconds) {
     envelope.result = { ...envelope.result, waited_seconds: Math.round((Date.now() - started) / 1000), wait_timed_out: true };
-    envelope.next = { command: `itpay services next ${serviceExecutionID} --timeout 120 --json`, reason: "稍后继续等待同一任务；不重新提交查询" };
+    envelope.next = { command: `itpay services next ${serviceExecutionID} --timeout 60 --json`, reason: "仍在处理，未失败；累计自动等待最多120秒，继续同一任务，不重新提交查询", poll_after_ms: 1500 };
   }
   journalTaskState(serviceExecutionID, envelope, options.env ?? process.env);
   writeCommandEnvelope(envelope, {
@@ -368,6 +370,8 @@ export async function runServicesRun(
   input: Record<string, unknown> | undefined,
   options: ServicesRunOptions = {},
 ): Promise<void> {
+  const startedAt = Date.now();
+  const deadline = startedAt + (options.timeoutSeconds ?? 120) * 1000;
   let id = options.executionID;
   let adapter = serviceAdapter({service_id:serviceID,service_contract_version_id:""});
   let inputContext = {serviceID, operationID:options.operationID, executionID:options.executionID, continuation:options.continuation};
@@ -379,21 +383,21 @@ export async function runServicesRun(
  ...(options.continuation ? {continuation:options.continuation}:{}),
         client_context: { host: options.host ?? "terminal", features: serviceClientFeatures(), ...(options.target ? { target: options.target } : {}) },
         ...(input !== undefined ? { input } : {}),
-      });
+      },options.timeoutSeconds===0 ? {} : {deadline});
       if ("overview_only" in started) {writeServiceOverview(started.service_definition,options);return;}
       id = started.execution.service_execution_id;
       if (!started.workflow_entry) {
-        await runServicesNext(backend, id, options);
+        await runServicesNext(backend, id, {...options, deadline, startedAt});
         return;
       }
     }
-    let model = await backend.getServiceExecution(id);
+    let model = await backend.getServiceExecution(id,options.timeoutSeconds===0?{}:{deadline});
     adapter = serviceAdapter(model.execution);
     if (model.execution.public_binding) inputContext = {...inputContext,...executionInputContext(model.execution),...(options.continuation ? {continuation:options.continuation} : {})};
     if (model.execution.service_id !== serviceID && model.execution.public_binding?.public_service_id !== serviceID) throw new Error("execution belongs to another service");
  if(options.operationID && model.execution.public_binding?.operation_id !== options.operationID) throw new Error("execution belongs to another operation");
     if (!model.workflow_entry || (input === undefined && !model.workflow)) {
-      await runServicesNext(backend, id, options);
+      await runServicesNext(backend, id, {...options, deadline, startedAt});
       return;
     }
     if (!serviceAdapter(model.execution).supported) {
@@ -405,46 +409,49 @@ export async function runServicesRun(
       return;
     }
     if (input !== undefined) {
-      model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`);
+      model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`,options.timeoutSeconds===0?{}:{deadline});
     } else if (model.workflow?.status === "quota_paused") {
-      model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`);
+      model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`,options.timeoutSeconds===0?{}:{deadline});
     }
-    const until = Date.now() + (options.timeoutSeconds ?? 120) * 1000;
+    const until = deadline;
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     // A planning projection can exist before any usable result or user action.
     // Keep the existing bounded wait until there is something to hand over.
     while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && shouldWaitForServiceResult(model) && Date.now() < until) {
-      await sleep(options.pollIntervalMS ?? 1500);
-      model = await backend.getServiceExecution(id);
+      await sleep(Math.min(Math.max(1500,options.pollIntervalMS ?? 1500),Math.max(0,until-Date.now())));
+      if (Date.now() >= until) break;
+      try {model = await backend.getServiceExecution(id,{deadline});}
+      catch(error) {if(error instanceof HttpTransportError && Date.now()>=deadline) break;throw error;}
     }
     if (model.refunds.some(refund => refund.access_locked)) {
-      await runServicesNext(backend, id, options);
+      await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, timeoutSeconds:options.timeoutSeconds ?? 120});
       return;
     }
     if (model.workflow?.status === "payment" && !paid()) {
       await runServicesCheckout(backend, config, id, model.workflow_entry?.capability_id, {
         ...options,
+        readModel:model,
         ...(config.agentType ? { agentType: config.agentType } : {}),
         resume: model.checkout_bindings.length > 0,
       });
       return;
     }
-    await runServicesNext(backend, id, options);
+    await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, timeoutSeconds:options.timeoutSeconds ?? 120});
   } catch (cause) {
-    if (cause instanceof HttpError && cause.payload?.service_id && cause.payload.service_contract_version_id) adapter = serviceAdapter({service_id:cause.payload.service_id,service_contract_version_id:cause.payload.service_contract_version_id});
+    if (cause instanceof HttpError) adapter = errorServiceAdapter(cause.payload, serviceID) ?? adapter;
  if(cause instanceof HttpError && cause.code==="public_operation_invalid")throw new CommandContractError(cause.code,cause.message,"按返回的固定service_definition核对声明操作；购买仍使用原结果详情的完整continuation模板，不改owner/snapshot、不猜operation、不重建原购买。",cause.payload?.service_definition?[]:[{command:`itpay services start ${serviceID} --json`,reason:"只读当前公开定义；不创建执行"}],undefined,{service_id:serviceID,...(cause.payload?.service_definition?{service_definition:cause.payload.service_definition}:{}),execution_created:false,provider_called:false});
 
     if (cause instanceof HttpError && cause.code === "capability_input_invalid") {
       const schema = cause.payload?.input_schema;
       const executionID = cause.payload?.service_execution_id ?? id;
-      const errorAdapter = cause.payload?.service_id && cause.payload?.service_contract_version_id ? serviceAdapter({service_id:cause.payload.service_id, service_contract_version_id:cause.payload.service_contract_version_id}) : adapter;
+      const errorAdapter = errorServiceAdapter(cause.payload, serviceID) ?? adapter;
       if (!errorAdapter.supported) throw new CommandContractError("presentation_contract_unavailable",cause.message,"当前锁定合同不受此CLI支持；保留原输入和执行并停止，使用兼容CLI，不猜业务或提交修正模板。",[],undefined,{service_id:serviceID,...(executionID?{service_execution_id:executionID}:{}),original_error_code:cause.code});
       throw new CommandContractError(cause.code, cause.message,
         errorAdapter.inputInstruction,
         schema ? [] : [{command: executionID ? `itpay services get ${executionID} --json` : "itpay catalog list --json", reason: "获取当前锁定合同；仍缺合同则停止，不猜旧写法"}],
         schema ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template: operationInputTemplate({...inputContext, executionID}, errorAdapter.inputTemplate(schema,input), requiredInputFields(schema))} : undefined,
-        {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? Boolean(executionID), ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
+        {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? "unknown", ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
     }
     adapter.runError(cause, serviceID, id);
     if (cause instanceof CommandContractError || cause instanceof HttpError || cause instanceof DeviceStateError) throw cause;

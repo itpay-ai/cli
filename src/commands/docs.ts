@@ -1,11 +1,10 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { packageResourcePath } from "../state/package_resources.js";
 
 import type { OutputSink } from "../render/sink.js";
 import { CommandContractError, shellArgument, writeCommandEnvelope } from "./guidance.js";
 
-const commandDir = dirname(fileURLToPath(import.meta.url));
 
 interface AgentDoc extends Record<string, unknown> {
   schema_version: string;
@@ -110,9 +109,7 @@ function loadDocs(): AgentDoc[] {
 
 function findDocsDir(): string {
   if (process.env.ITPAY_CLI_DOCS_DIR) return resolve(process.env.ITPAY_CLI_DOCS_DIR);
-  const packagePath = resolve(commandDir, "..", "..", "..", "docs", "agent", "buyer");
-  if (existsSync(packagePath)) return packagePath;
-  return resolve(commandDir, "..", "..", "docs", "agent", "buyer");
+  return packageResourcePath("docs","agent","buyer");
 }
 
 function parseDoc(raw: string, file: string): AgentDoc {

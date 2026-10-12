@@ -12,11 +12,11 @@ const exec=promisify(execFile);
 
 // Exercise actual npm entrances and compiled setup; only synthetic local accounts.
 export async function verifyNativeSetup(tarball,scratch,previousTarball) {
- let status='login_required';const paths=[];
+ let status='login_required';const paths=[];let activeAPI=API_CONTRACT_REVISION;
  const server=createServer((req,res)=>{
   const path=new URL(req.url,'http://fixture').pathname;paths.push(path);
   let body;
-  if(path==='/v1/platform/compatibility')body={api_contract_revision:API_CONTRACT_REVISION,minimum_cli_version:'2.1.40',maximum_cli_major:2,platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture'};
+  if(path==='/v1/platform/compatibility')body={api_contract_revision:activeAPI,minimum_cli_version:'2.1.40',maximum_cli_major:2,platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture'};
   else if(path==='/v1/agent-device-enrollments')body={agent_device_enrollment_id:'enr_fixture',challenge:'fixture'};
   else if(path==='/v1/agent-device-enrollments/enr_fixture/verify')body={agent_device_id:'adev_fixture',agent_device_key_id:'akey_fixture',quota_lineage_id:'qln_fixture',agent_instance_id:'ain_fixture',agent_type:'workbuddy'};
   else if(path==='/v1/agent-device-session-challenges')body={agent_device_session_challenge_id:'ses_fixture',challenge:'fixture'};
@@ -38,9 +38,11 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const invoke=(argv,target=entry)=>exec(process.execPath,[target,...argv],{env,timeout:30000});
    let oldKey; let upgradeRequestStart; let conflictProof;
    if(previousTarball){
+    activeAPI='sha256:c1e1f459c1d3844f6eeae21535b532abb2e48c3e320173c4faccd62992890dcd';
     await exec('npm',[...args,previousTarball],{env,timeout:90000});
     await invoke(['auth','status','--agent-type','workbuddy','--json']);
     oldKey=readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem'));
+    activeAPI=API_CONTRACT_REVISION;
     // Reproduce the concrete npm retirement collision, without user installation cleanup.
     const suffix=createHash('sha1').update(packageRoot).digest('base64').replace(/[^a-zA-Z0-9]/g,'').slice(0,8);
     const retirement=join(packageRoot,'..',`.cli-${suffix}`);mkdirSync(retirement);writeFileSync(join(retirement,'retained-fixture'),'old fixture');
@@ -88,7 +90,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
     const bundleEntry=join(bundleRoot,'vendor','itpay-cli','itpay-cli.bundle.mjs');
     const bundled=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'],bundleEntry)).stdout);
     assert.equal(bundled.status,'setup_ready');
-    assert.equal(bundled.result.skill_path,realpathSync(join(bundleRoot,'vendor','itpay-cli','skills','itpay','SKILL.md')));
+    assert.equal(bundled.result.skill_path,realpathSync(join(bundleRoot,'vendor','itpay-cli','package','skills','itpay','SKILL.md')));
     assert.equal(readFileSync(bundled.result.skill_path,'utf8'),readFileSync(value.result.skill_path,'utf8'));
     assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),key);
     proof.push({mode:'single-file-bundle',version:bundled.result.cli_version,json:bundled});

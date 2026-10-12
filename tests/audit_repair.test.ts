@@ -1,3 +1,4 @@
+import type { ServiceExecutionReadModel } from "../src/client/types.js";
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {BackendClient} from '../src/client/backend.js';
@@ -185,7 +186,7 @@ test('local repair: selection errors distinguish input from server inconsistency
  const mock=await startMockBackend();try {
   const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
   for(const reason of ['input_constraint_invalid','stored_selection_inconsistent']) {
-   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'invalid_selection',service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',reason,message:reason},'invalid');};
+   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'invalid_selection',service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',execution_created:false,reason,message:reason},'invalid');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:1,selections:[]}),error=>{
     assert.ok(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);assert.equal(error.result?.service_execution_id,undefined);
     if(reason==='stored_selection_inconsistent'){assert.equal(error.recovery.length,0);assert.match(error.instruction,/补参数无法修复/);}else assert.ok(error.recovery.length>0);
@@ -314,4 +315,20 @@ test('aftercare feedback: restored cancelled purchase does not advance or relock
   let output='';await runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:2},{executionID:'se_mock_next',jsonOutput:true,output:s=>output+=s});
   const envelope=JSON.parse(output);assert.equal(envelope.status,'cancelled');assert.equal(envelope.next,null);
  }finally{await mock.close()}
+});
+
+
+test('bounded wait keeps the pending task and avoids a duplicate read after the deadline',async()=>{
+ const mock=await startMockBackend();try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const base=await backend.getServiceExecution('se_check');
+  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:'running'},workflow:{status:'running',current_step:'query',revision:1,steps:{}},delivery_bindings:[],current_result_items:[],payment_bindings:[],checkout_bindings:[],execution_requests:[{execution_request_id:'er_wait',execution_kind:'service.execution.run',status:'started',aggregate_type:'service_execution',aggregate_id:'se_check',operation:'run',dispatch_attempts:0}]};
+  delete model.current_delivery;
+  delete model.workflow_entry;delete model.rail_planning;
+  let gets=0;backend.getServiceExecution=async()=>{gets++;return model;};
+  const originalNow=Date.now;let now=originalNow();Date.now=()=>now;
+  try {let output='';await runServicesNext(backend,'se_check',{timeoutSeconds:2,jsonOutput:true,output:s=>output+=s,sleep:async ms=>{now+=ms;}});
+   const result=JSON.parse(output);assert.equal(gets,2);assert.equal(result.status,'running');assert.equal(result.result.wait_timed_out,true);assert.equal(result.result.waited_seconds,2);assert.match(result.next.command,/--timeout 60/);assert.match(result.next.reason,/未失败/);
+  }finally{Date.now=originalNow;}
+ }finally{await mock.close();}
 });

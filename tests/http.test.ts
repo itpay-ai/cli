@@ -187,3 +187,29 @@ test("does not retry aborts or permanent TLS certificate failures", async () => 
     assert.equal(calls, 1);
   }
 });
+
+
+test("one deadline includes retry backoff and masks request paths and credentials", async () => {
+  let calls=0;
+  const diagnostics: unknown[]=[];
+  const client=new HttpClient({baseURL:"https://test.itpay.ai",transportRetryDelayMs:100,onDiagnostic:d=>diagnostics.push(d),fetchImpl:async()=>{calls++;throw transportFailure("ECONNRESET");}});
+  await assert.rejects(()=>client.get("/v1/service-executions/private-id?token=secret",{deadline:Date.now()+30}),error=>error instanceof HttpTransportError && error.code==="network_timeout");
+  assert.equal(calls,1);
+  assert.doesNotMatch(JSON.stringify(diagnostics),/private-id|secret|token/);
+});
+
+test("body timeout retains the server correlation and never replays an unsafe write", async () => {
+  let calls=0;
+  const client=new HttpClient({baseURL:"https://test.itpay.ai",fetchImpl:async()=>{
+    calls++;
+    return new Response(new ReadableStream({start(){}}),{headers:{"X-ItPay-Request-ID":"req_abcdef"}});
+  }});
+  await assert.rejects(()=>client.post("/v1/service-executions/se_sensitive/actions",{user_approved:true},{deadline:Date.now()+30}),error=>{
+    assert(error instanceof HttpTransportError);
+    assert.equal(error.diagnostics[0]?.phase,"response_body");
+    assert.equal(error.diagnostics[0]?.request_id,"req_abcdef");
+    assert.equal(error.diagnostics[0]?.route_template,"/v1/service-executions/{value}/actions");
+    return true;
+  });
+  assert.equal(calls,1);
+});

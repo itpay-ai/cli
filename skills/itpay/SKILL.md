@@ -2,7 +2,7 @@
 name: itpay
 description: >
   Use ItPay to find or buy a service, plan or book rail travel, read a previous
-  purchase, inspect orders, request a refund, or sell a service.
+  purchase, inspect orders, or request a refund.
 ---
 
 # ItPay
@@ -35,8 +35,6 @@ Run `itpay setup --agent-type <actual_type> --json` once after installation or u
   `itpay order <order_id> --json`.
 - Refund: read `itpay docs show orders-refunds` and continue from the
   known order or refund.
-- Selling: `itpay sell guide --json`, then `itpay sell status --json` and the
-  packaged seller guide.
 
 Reuse the Skill and business documents already read in this context while their
 version is unchanged; do not repeat docs/install/readyz at every step. Keep initial
@@ -54,6 +52,13 @@ exit. Empty output is not a business failure. Do not submit again, background th
 command with `&`, or use process checks instead of collecting its result. Report
 host tool facts if continuation fails; do not guess a map failure. Collect the
 current command before following the CLI business `next`.
+
+For a running task, follow the returned bounded `next --timeout` (up to 60 seconds
+per continuation and 120 seconds total automatic waiting). Respect its poll interval.
+Collect the same host command/session output before another continuation; never
+start parallel polls or repeat the supplier query. An exhausted wait budget means
+the task is still processing, not failed. Stop for human consent, unknown payment
+or terminal outcomes; do not turn those into automatic wait loops.
 
 Read `result` and status first, then `instruction` and the applicable `next`,
 `interaction`, `handoff` or `recovery`. Commands are executable only when all required
@@ -73,7 +78,8 @@ state follows the current official page and is not a universal email requirement
 Read normal CLI output directly. If the host saves it to a file, use its file reader or `cat`.
 JSON stdout contains one object: keep stderr separate; do not use tail, regex,
 Python/Node/jq parsers for normal ticket selection. If truncated, use the returned small-page reader.
-Use the existing file tool to write a small JSON from the current template and
+Use the existing file tool to write exactly the current template `file_content`
+(`input` is its compatibility alias) as a small JSON file and
 run its `--input-json` command. Preserve server references and real user conditions;
 a template has not been submitted.
 

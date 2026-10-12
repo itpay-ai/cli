@@ -1,4 +1,5 @@
-import { newBackendClient, loadConfig } from "../state/config.js";
+import { newSellerClient } from './client.js';
+import { loadConfig } from "../state/config.js";
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
@@ -130,7 +131,7 @@ export async function localAction(action: string, directory: string, options: Lo
                 throw new Error('Missing credential environment for ' + field);
             secrets[field] = value;
         }
-        const result = await newBackendClient(loadConfig()).sellRequest({ method: 'POST', path: '/v1/seller/organizations/' + encodeURIComponent(options.merchantId) + '/provider-credential-profiles', body: { provider_key: options.providerKey, profile_key: options.profile, display_name: options.name ?? options.profile, environment: options.environment ?? 'sandbox', secrets, metadata: options.file ? read(resolve(options.file)) : {} } });
+        const result = await newSellerClient(loadConfig()).sellRequest({ method: 'POST', path: '/v1/seller/organizations/' + encodeURIComponent(options.merchantId) + '/provider-credential-profiles', body: { provider_key: options.providerKey, profile_key: options.profile, display_name: options.name ?? options.profile, environment: options.environment ?? 'sandbox', secrets, metadata: options.file ? read(resolve(options.file)) : {} } });
         return result;
     }
     const versionsPath = join(state, 'versions.json');

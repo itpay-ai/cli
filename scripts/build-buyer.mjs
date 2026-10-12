@@ -1,0 +1,42 @@
+import { build } from 'esbuild';
+import { builtinModules } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const output=resolve(root,'dist/src');
+rmSync(resolve(root,'dist'),{recursive:true,force:true});
+mkdirSync(resolve(output,'state'),{recursive:true});
+await build({absWorkingDir:root,entryPoints:['src/state/release_identity.ts'],outfile:resolve(output,'state/config.js'),platform:'node',format:'esm',target:'node18'});
+const result=await build({absWorkingDir:root,entryPoints:['src/main.ts'],outfile:resolve(output,'main.js'),bundle:true,platform:'node',format:'esm',target:'node18',minify:false,keepNames:true,legalComments:'inline',metafile:true,
+ banner:{js:"import {createRequire as __itpayCreateRequire} from 'node:module';const require=__itpayCreateRequire(import.meta.url);"},
+ plugins:[{name:'release-identity',setup(builder){builder.onResolve({filter:/release_identity\.js$/},()=>({path:'./state/config.js',external:true}));}}]});
+const imports=Object.values(result.metafile.outputs).flatMap(value=>value.imports);
+for(const item of imports)if(!builtinModules.includes(item.path)&&!item.path.startsWith('node:')&&item.path!=='./state/config.js')throw new Error('unexpected external Buyer import: '+item.path);
+for(const name of Object.keys(result.metafile.inputs))if(name.startsWith('src/sell/')||name.includes('@modelcontextprotocol/'))throw new Error('Seller dependency entered Buyer core: '+name);
+mkdirSync(resolve(root,'build'),{recursive:true});
+writeFileSync(resolve(root,'build/buyer-metafile.json'),JSON.stringify(result.metafile,null,2)+'\n');
+const packages=new Map();
+for(const input of Object.keys(result.metafile.inputs)){
+ if(!input.includes('node_modules/'))continue;
+ let directory=dirname(resolve(root,input));
+ while(directory!==dirname(directory)){
+  const path=resolve(directory,'package.json');
+  if(existsSync(path)){
+   const pkg=JSON.parse(readFileSync(path,'utf8'));
+   if(pkg.name&&pkg.version){packages.set(directory,pkg);break;}
+  }
+  directory=dirname(directory);
+ }
+}
+const expected=new Set(['commander','qrcode','zod','pngjs','dijkstrajs']);
+let notices='Third-party packages reachable from the ItPay Buyer runtime.\n\n';
+for(const [directory,pkg] of [...packages].sort((a,b)=>a[1].name.localeCompare(b[1].name))){
+ if(!expected.has(pkg.name))throw new Error('unreviewed Buyer dependency: '+pkg.name);
+ const licenses=readdirSync(directory).filter(name=>/^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i.test(name));
+ if(!licenses.length)throw new Error('missing complete license text for '+pkg.name);
+ notices+=`===== ${pkg.name}@${pkg.version} (${pkg.license ?? 'see license text'}) =====\n`;
+ for(const name of licenses)notices+=`--- ${name} ---\n${readFileSync(resolve(directory,name),'utf8')}\n\n`;
+}
+writeFileSync(resolve(root,'THIRD-PARTY-NOTICES.txt'),notices);
+console.log(JSON.stringify({format:'buyer-esm-v1',runtimePackages:[...packages.values()].map(pkg=>({name:pkg.name,version:pkg.version})),externalImports:imports.map(item=>item.path)}));

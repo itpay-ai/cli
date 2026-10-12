@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+const pkg=JSON.parse(readFileSync('package.json','utf8'));
+for(const field of ['dependencies','optionalDependencies','peerDependencies','bundleDependencies'])assert(!pkg[field]||Object.keys(pkg[field]).length===0,`${field} must not ship`);
+for(const hook of ['prepare','install','postinstall'])assert(!pkg.scripts[hook],`consumer ${hook} hook must not exist`);
+const files=JSON.parse(execFileSync('npm',['pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}))[0];
+assert(files.size<=600000,`compressed package ${files.size} exceeds 600000 bytes`);
+assert(files.unpackedSize<=3000000,`unpacked package ${files.unpackedSize} exceeds 3000000 bytes`);
+assert(files.files.length<=120,`package has ${files.files.length} files`);
+for(const file of files.files)assert(!/(?:^|\/)(?:node_modules|tests|reviews|assets|sell|sell-preview|build)(?:\/|\.)|\.map$|\.d\.ts$|\/sell\.md$/.test(file.path),'forbidden package file: '+file.path);
+assert.equal(files.files.filter(file=>/^docs\/agent\/buyer\/.*\.json$/.test(file.path)).length,12);
+assert(files.files.some(file=>file.path==='THIRD-PARTY-NOTICES.txt'));
+assert(files.files.some(file=>file.path==='dist/src/state/config.js'));
+console.log(JSON.stringify({compressed:files.size,unpacked:files.unpackedSize,files:files.files.length}));

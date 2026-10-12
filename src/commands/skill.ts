@@ -1,13 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { packageResourcePath } from "../state/package_resources.js";
 
 import type { OutputSink } from "../render/sink.js";
 import { CODEX_WAIT_GUIDANCE } from "./install.js";
 import { declaredAgentType } from "../state/agent_type.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 
-const commandDir = dirname(fileURLToPath(import.meta.url));
 const ITPAY_SKILL = "itpay";
 
 export interface SkillOptions {
@@ -81,11 +80,7 @@ function findSkillPath(allowOverride = true): string {
     if (existsSync(directPath)) return directPath;
     return resolve(configuredRoot, ITPAY_SKILL, "SKILL.md");
   }
-  const bundlePath = resolve(commandDir, "skills", ITPAY_SKILL, "SKILL.md");
-  if (existsSync(bundlePath)) return bundlePath;
-  const packagePath = resolve(commandDir, "..", "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
-  if (existsSync(packagePath)) return packagePath;
-  return resolve(commandDir, "..", "..", "skills", ITPAY_SKILL, "SKILL.md");
+  return packageResourcePath("skills",ITPAY_SKILL,"SKILL.md");
 }
 
 function validateSkill(content: string): void {

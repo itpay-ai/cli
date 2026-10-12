@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point for Buyer services and the existing itpay sell Seller workflow; $itpay is its user-facing Skill invocation.",
+  "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "orders-refunds",
   "title": "Order, Delivery, Customer Care And Refund Recovery",
   "purpose": "Explain paid-order and delivery problems to the human, then read or manage the same owned Order without guessing payment, consumption, or refund state.",

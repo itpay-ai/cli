@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point. Service feedback records one safe Agent postmortem for an existing order item; a human rating and comment are optional and it never replaces delivery recovery, refund policy, or customer care.",
+  "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "service-feedback",
   "title": "Record A Completed Service Postmortem",
   "purpose": "Finish the original order outcome first, then persist safe process context and any explicit human rating or comment without exposing commands or internal identifiers.",

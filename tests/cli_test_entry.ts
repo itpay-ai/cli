@@ -27,4 +27,4 @@ globalThis.fetch = (input, init) => {
   return nativeFetch(routed, init);
 };
 
-await import("../src/main.js");
+await import(process.env.ITPAY_CLI_PACKAGE_ENTRY ?? "../src/main.js");

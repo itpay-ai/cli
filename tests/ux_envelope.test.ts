@@ -1,3 +1,4 @@
+import { authStatePath } from '../src/state/auth_storage.js';
 // UX handoff contract tests (W6): the two-goal interaction/communication
 // plane, placeholder-free continuations, staged auth sessions with exact
 // resume, the deterministic presentation resolver, secure browser URL
@@ -14,7 +15,7 @@ import { dirname, join } from "node:path";
 import { HttpTransportError } from "../src/client/transport.js";
 import { HttpError, HttpClient } from "../src/client/http.js";
 import { BackendClient } from "../src/client/backend.js";
-import { agentAuth, sellerAuthPath } from "../src/state/account_auth.js";
+import { agentAuth } from "../src/state/account_auth.js";
 import { TaskJournal } from "../src/state/task_journal.js";
 import { isPresentableURL } from "../src/render/browser.js";
 import { resolvePresentation, resolveRelay } from "../src/commands/presentation.js";
@@ -132,7 +133,7 @@ test("browser opener only accepts https official origins (loopback only via expl
 // --- staged auth sessions (AUTH01/02/03/07) ---------------------------------
 
 function seedOpenAuthSession(sessionID = "dash_mock"): void {
-  const path = sellerAuthPath(mock.url, env, "agent-login");
+  const path = authStatePath(mock.url, env, "agent-login");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify({
     baseURL: mock.url,
@@ -179,7 +180,7 @@ test("AUTH03: a transport failure keeps the saved session and reports unknown, n
   assert.equal(envelope.status, "auth_status_unknown");
   assert.match(envelope.instruction, /不要新建授权/);
   // The open session survived the failed read.
-  assert.equal(existsSync(sellerAuthPath(mock.url, env, "agent-login")), true);
+  assert.equal(existsSync(authStatePath(mock.url, env, "agent-login")), true);
   // And login on the same machine does not mint a second auth session either.
   const login = await agentAuth("login", mock.url, backend, env) as { status: string };
   assert.equal(login.status, "auth_status_unknown");
@@ -201,7 +202,7 @@ test("AUTH07: terminal auth states are distinct and do not pretend to be pending
   mock.setAuthSessionStage("cancelled");
   const cancelled = await agentAuth("status", mock.url, backend, env) as { status: string };
   assert.equal(cancelled.status, "auth_cancelled");
-  assert.equal(existsSync(sellerAuthPath(mock.url, env, "agent-login")), false);
+  assert.equal(existsSync(authStatePath(mock.url, env, "agent-login")), false);
 });
 
 test("AUTH04: a successful bind resumes the exact journaled task — no placeholders", async () => {
@@ -333,7 +334,7 @@ test("setup: binding probe retains a real saved session and preserves definite e
   const response = await agentAuth("status", mock.url, unavailable, env) as { result: Record<string, unknown>; next: unknown };
   assert.equal(response.result.dashboard_auth_session_id, "dash_mock");
   assert.ok(response.next);
-  assert.ok(existsSync(sellerAuthPath(mock.url, env, "agent-login")));
+  assert.ok(existsSync(authStatePath(mock.url, env, "agent-login")));
   for (const status of [401, 403, 404, 426]) {
     const failure = new HttpError(status, undefined, "definite backend failure");
     await assert.rejects(agentAuth("status", mock.url, { ...unavailable, agentAccountStatus: async () => { throw failure; } }, env), (error) => error === failure);
@@ -344,7 +345,7 @@ test("setup: binding probe retains a real saved session and preserves definite e
 test("setup: a saved authorization rejected with HTTP401 preserves the definite error", async () => {
   seedOpenAuthSession();
   await assert.rejects(agentAuth("status", mock.url, backend, env, async () => new Response("unauthorized", {status:401})), (error: unknown) => error instanceof Error && error.name === "AuthRequestError");
-  assert.ok(existsSync(sellerAuthPath(mock.url, env, "agent-login")));
+  assert.ok(existsSync(authStatePath(mock.url, env, "agent-login")));
 });
 
 
