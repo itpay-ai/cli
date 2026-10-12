@@ -8,7 +8,7 @@
 
 **上游：** 当前 npm CLI 或平台 bundle 已经可执行。
 
-**下游：** 先读取本包完整 Skill，使用真实 Agent Type 执行 `readyz`，再按返回的同 Backend/type 命令检查 `auth status`。authenticated 或成功 login_required 才证明设备访问可用；后者仍未登录，不自动发起授权或业务。
+**下游：** 使用真实 Agent Type 执行 `setup`，再读取并启用同包 Skill。authenticated 或成功 login_required 才证明设备访问可用；后者仍未登录，不自动发起授权或业务。
 
 ## 语法与参数
 
@@ -35,8 +35,8 @@ itpay install [target] [--json]
   },
   "instruction": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "next": {
-    "command": "itpay --agent-type codex-desktop readyz --json",
-    "reason": "验证当前官方 ItPay API 的可用性"
+    "command": "itpay --agent-type codex-desktop setup --json",
+    "reason": "准备当前宿主并确认设备与账号状态"
   },
   "recovery": [
     {
@@ -63,8 +63,8 @@ OpenClaw 额外明确没有默认入口：
   },
   "instruction": "保持 openclaw Agent Type；每个展示命令都从当前可信会话上下文显式传 --host，IM 入口同时传 --target。Telegram 使用返回的原生 message action，其他入口展示标准二维码和付款链接。",
   "next": {
-    "command": "itpay --agent-type openclaw readyz --json",
-    "reason": "验证当前官方 ItPay API 的可用性"
+    "command": "itpay --agent-type openclaw setup --json",
+    "reason": "准备当前宿主并确认设备与账号状态"
   },
   "recovery": [
     {
@@ -100,7 +100,7 @@ OpenClaw 额外明确没有默认入口：
       }
     ]
   },
-  "instruction": "识别当前真实运行平台，从 result.agent_types 选择对应 agent_type，并由 Agent 自行运行 itpay install <agent_type> --json；不要让用户运行命令，也不要临时更换 Agent Type。",
+  "instruction": "识别当前真实运行平台，从 result.agent_types 选择对应 agent_type，并由 Agent 自行运行 itpay setup --agent-type <agent_type> --json；不要让用户运行命令，也不要临时更换 Agent Type。",
   "next": null,
   "recovery": [
     {

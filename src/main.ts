@@ -8,12 +8,13 @@ import { runServicesRun } from "./commands/services.js";
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, cliDistribution, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
 import { HttpError } from "./client/http.js";
 import { HttpTransportError } from "./client/transport.js";
+import { runSetup, validateSetup } from "./commands/setup.js";
 import { runReadyz } from "./commands/readyz.js";
 import { runBuy } from "./commands/buy.js";
 import { runCatalogList } from "./commands/catalog.js";
@@ -66,9 +67,9 @@ program
   .version(CLI_VERSION)
   .addHelpText("after", `
 Agent quick start:
-  1. Run: itpay install --json
-  2. Select the real Agent Type and execute each returned next.command unchanged.
-  3. Read the packaged Skill, then route the human's natural-language intent.
+  1. Use one official package in the host's permitted persistent npm location.
+  2. Run: itpay setup --agent-type <actual_type> --json
+  3. Read and enable the returned same-package Skill before business commands.
 
 Common human intents:
   New service or query       catalog list
@@ -329,23 +330,10 @@ function docsErrorFallback(jsonOutput: boolean): {
     jsonOutput,
     code: "docs_unavailable",
     instruction: "内置文档缺失或损坏；通过当前分发方式恢复同版本 CLI 后重试。",
-    recovery: [distributionUpgradeAction(CLI_VERSION)],
+    recovery: [],
   };
 }
 
-function distributionUpgradeAction(version: string): CommandAction {
-  switch (cliDistribution()) {
-    case "openclaw-skill-bundle":
-      return { command: "openclaw skills update itpay", reason: `更新包含 ItPay CLI ${version} 的 Skill bundle` };
-    case "kimi-plugin-bundle":
-      return {
-        command: "/plugins install https://github.com/itpay-ai/itpay-plugin-kimi-work",
-        reason: `更新包含 ItPay CLI ${version} 的 Kimi plugin`,
-      };
-    default:
-      return { command: `npm install -g @itpay/cli@${version}`, reason: "恢复当前 CLI 版本的完整安装包" };
-  }
-}
 
 
 program
@@ -368,6 +356,20 @@ program
         instruction: `当前官方 Backend ${config.baseURL} 不可用；恢复前不要继续下单，也不要切换环境。`,
         recovery: [],
       });
+    }
+  });
+
+program.command("setup")
+  .description("Prepare this actual Agent and report device/account readiness without starting login")
+  .option("--json", "output JSON instead of terminal text")
+  .action(async (options) => {
+    try {
+      const config = loadConfig();
+      const skillPath = validateSetup(config.agentType);
+      await runSetup(newBackendClient(config), config, skillPath, { jsonOutput: Boolean(options.json) });
+    } catch (error) {
+      reportCLIError(error, { jsonOutput: Boolean(options.json), code: "setup_failed", initialization: true,
+        instruction: "准备未完成；保留现有身份，按返回的具体原因处理。", recovery: [] });
     }
   });
 
@@ -541,7 +543,7 @@ skillCmd
         jsonOutput: Boolean(options.json),
         code: "skill_unavailable",
         instruction: "内置 Skill 缺失或损坏；通过当前分发方式恢复同版本 CLI 后重试。",
-        recovery: [distributionUpgradeAction(CLI_VERSION)],
+        recovery: [],
       });
     }
   });

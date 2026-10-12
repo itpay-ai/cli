@@ -68,7 +68,7 @@ test("CLI version matches package version", () => {
 test("top-level help gives one Agent-owned setup path and human intent map", async () => {
   const result = await runCLI(["--help"], {});
   assert.match(result.stdout, /Agent quick start:/);
-  assert.match(result.stdout, /itpay install --json/);
+  assert.match(result.stdout, /itpay setup --agent-type <actual_type> --json/);
   assert.match(result.stdout, /Previously purchased item vault list/);
   assert.match(result.stdout, /The Agent runs commands/);
   assert.doesNotMatch(result.stdout, /ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai/);
@@ -2341,8 +2341,8 @@ test("readyz probes /v1/readyz", async () => {
   assert.deepEqual(JSON.parse(stdoutCapture.join("")), {
     status: "ready",
     result: { backend: "available", backend_url: "https://app.itpay.ai", environment: "production" },
-    instruction: "ItPay 可用。只证明后端存活。尚未读此次包 Skill 时完整读取；已读同版本则无需重复，继续设备状态检查；不自动登录或开始业务。",
-    next: { command: "itpay install --json", reason: "选择实际宿主，再检查设备访问；尚未读本包 Skill 时先完整读取" },
+    instruction: "ItPay 正式环境 https://app.itpay.ai 可用。只证明后端存活；首次使用或更新后运行 setup，不自动登录或开始业务。",
+    next: { command: "itpay install --json", reason: "识别实际宿主类型后执行 setup" },
     recovery: [],
   });
 });
@@ -2352,7 +2352,7 @@ test("readyz with a declared host continues to device status without repeating S
   const envelope = JSON.parse(stdoutCapture.join(""));
   assert.equal(envelope.status, "ready");
   assert.equal(envelope.result.agent_type, "workbuddy");
-  assert.equal(envelope.next.command, "itpay --agent-type workbuddy auth status --json");
+  assert.equal(envelope.next.command, "itpay --agent-type workbuddy setup --json");
   assert.match(envelope.instruction, /只证明后端存活/);
   assert.doesNotMatch(envelope.next.command, /skill show/);
 });
@@ -2668,7 +2668,7 @@ test("ITPAY_AGENT_TYPE is preserved in generated commands", async () => {
   });
   const envelope = JSON.parse(result.stdout) as { result: { agent_type: string }; next: { command: string } };
   assert.equal(envelope.result.agent_type, "claude-code-cli");
-  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli auth status --json");
+  assert.equal(envelope.next.command, "itpay --agent-type claude-code-cli setup --json");
 });
 
 test("sandbox Backend is explicit and preserved in every next command", async () => {
@@ -2688,8 +2688,8 @@ test("sandbox Backend is explicit and preserved in every next command", async ()
     agent_type: "workbuddy",
   });
   assert.ok(envelope.instruction.includes(SANDBOX_BASE_URL));
-  assert.match(envelope.instruction, /同一 Backend/);
-  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy auth status --json`);
+  assert.match(envelope.next.command, /ITPAY_BACKEND_URL=/);
+  assert.equal(envelope.next.command, `ITPAY_BACKEND_URL=${SANDBOX_BASE_URL} itpay --agent-type workbuddy setup --json`);
 });
 
 test("forbidden Backend override fails before any request", async () => {
@@ -2791,8 +2791,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   ], {})).stdout) as typeof typed;
   assert.deepEqual(Object.keys(workbuddy).sort(), Object.keys(typed).sort());
   assert.equal(workbuddy.next, null);
-  assert.match(workbuddy.instruction, /同一 CLI launcher/);
-  assert.match(workbuddy.instruction, /宿主允许的持久化权限/);
+  assert.match(workbuddy.instruction, /同一入口和 Backend/);
+  assert.match(workbuddy.instruction, /只有实际持久化操作被拒时才沿宿主正式流程申请/);
   assert.doesNotMatch(workbuddy.instruction, /dangerouslyDisableSandbox/);
   assert.doesNotMatch(workbuddy.result.content, /tools.exec_command|session_id|functions.exec/);
 });
@@ -2819,6 +2819,30 @@ test("skill show accepts a direct Skill root and the legacy parent directory", a
   assert.equal(legacy.result.content, content);
 });
 
+test("missing override keeps the usable canonical Skill and does not reinstall globally", async () => {
+  const emptyRoot=mkdtempSync(join(tmpdir(),"itpay-missing-skill-root-"));
+  await assert.rejects(runCLI(["skill","show","itpay","--json"],{ITPAY_CLI_SKILLS_DIR:emptyRoot}),
+    (error: unknown)=>{
+      const output=error && typeof error==="object" && "stdout" in error ? String(error.stdout) : "";
+      const x=JSON.parse(output);assert.equal(x.error.code,"skill_override_unavailable");
+      assert.equal(x.result.cause_code,"ENOENT");assert.equal(x.next,null);assert.deepEqual(x.recovery,[]);
+      assert.match(x.result.skill_path,/skills\/itpay\/SKILL.md$/);return true;
+    });
+});
+
+test("skill show rejects stale valid overrides instead of contradicting setup", async () => {
+  const staleRoot=mkdtempSync(join(tmpdir(),"itpay-stale-skill-root-"));
+  const content=readFileSync(join(CLI_ROOT,"skills","itpay","SKILL.md"),"utf8");
+  writeFileSync(join(staleRoot,"SKILL.md"),content+"\nStale host-edited business guidance.\n");
+  await assert.rejects(runCLI(["skill","show","itpay","--json"],{ITPAY_CLI_SKILLS_DIR:staleRoot}),
+    (error: unknown)=>{
+      const output=error && typeof error==="object" && "stdout" in error ? String(error.stdout) : "";
+      const x=JSON.parse(output);assert.equal(x.error.code,"skill_override_mismatch");
+      assert.equal(x.next,null);assert.deepEqual(x.recovery,[]);assert.match(x.result.skill_path,/skills\/itpay\/SKILL.md$/);
+      assert(!output.includes("Stale host-edited business guidance"));return true;
+    });
+});
+
 test("skill show rejects unknown or damaged packaged skills with bounded recovery", async () => {
   await assert.rejects(
     runCLI(["skill", "show", "missing", "--json"], {}),
@@ -2838,7 +2862,7 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
     runCLI(["skill", "show", "itpay", "--json"], { ITPAY_CLI_SKILLS_DIR: skillsDir }),
     (error: unknown) => {
       const failure = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as { error: { code: string } };
-      assert.equal(failure.error.code, "skill_unavailable");
+      assert.equal(failure.error.code, "skill_override_mismatch");
       return true;
     },
   );
@@ -2889,7 +2913,7 @@ test("install returns one official contract for every supported Agent Type", asy
     }
     if (agentType === "kimi-code") assert.match(envelope.instruction, /标准 CLI/);
     if (agentType === "openclaw") assert.match(envelope.instruction, /--host/);
-    assert.equal(envelope.next.command, `itpay --agent-type ${agentType} readyz --json`);
+    assert.equal(envelope.next.command, `itpay --agent-type ${agentType} setup --json`);
     assert.equal(result.stderr, "");
   }
 });
@@ -2906,7 +2930,7 @@ test("install lists supported types and rejects obsolete Host targets", async ()
   assert.deepEqual(listEnvelope.result.agent_types.map((item) => item.agent_type), [
     "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw",
   ]);
-  assert.match(listed.stdout, /由 Agent 自行运行 itpay install <agent_type> --json/);
+  assert.match(listed.stdout, /由 Agent 自行运行 itpay setup --agent-type <agent_type> --json/);
   assert.match(listed.stdout, /不要让用户运行命令/);
 
   await assert.rejects(
@@ -3042,7 +3066,7 @@ test("docs reports a damaged packaged document without exposing its path", async
       };
       assert.equal(failure.error.code, "docs_unavailable");
       assert.doesNotMatch(failure.error.message, new RegExp(docsDir));
-      assert.equal(failure.recovery[0]?.command, `npm install -g @itpay/cli@${CLI_VERSION}`);
+      assert.deepEqual(failure.recovery, []);
       return true;
     },
   );
@@ -6042,7 +6066,7 @@ test("multi-service catalog text keeps each real entry without a guessed top-lev
 
 test("auth CLI exit distinguishes verified device access from technical initialization failure", async () => {
   const home = mkdtempSync(join(tmpdir(), "itpay-auth-command-"));
-  mock.setAgentBinding({status:"unbound"});
+  mock.setAgentBinding({status:"login_required"});
   for (const json of [false,true]) {
     const out=await runCLI(["--agent-type","workbuddy","auth","status",...(json?["--json"]:[])],{HOME:home});
     if(json) assert.equal(JSON.parse(out.stdout).status,"login_required");
@@ -6062,5 +6086,15 @@ test("auth CLI exit distinguishes verified device access from technical initiali
       assert.equal(out.next,null);
       return true;
     });
-  } finally {mock.setAuthSessionError(undefined);mock.setAgentBinding({status:"unbound"});}
+  } finally {mock.setAuthSessionError(undefined);mock.setAgentBinding({status:"login_required"});}
 });
+
+ test("setup command accepts documented option order and reads account without login/business", async () => {
+  mock.setAgentBinding({status:"login_required"});
+  const result=await runCLI(["setup", "--agent-type", "workbuddy", "--json"],{});
+  const x=JSON.parse(result.stdout);
+  assert.equal(x.status,"setup_ready");assert.equal(x.result.account_status,"login_required");assert.equal(x.next,null);
+  assert.equal(x.result.agent_type,"workbuddy");assert.equal(result.stderr,"");
+  assert(mock.requests.some(r=>r.path==="/v1/agent-device-account-bindings"));
+  assert(!mock.requests.some(r=>/auth-sessions|services|orders|readyz/.test(r.path)));
+ });

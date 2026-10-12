@@ -35,8 +35,8 @@ export function sellerSessionToken(baseURL: string, env = process.env): string |
 export function sellerAuth(action: 'login' | 'status' | 'logout', baseURL: string, env = process.env, fetcher: typeof fetch = fetch): Promise<unknown> {
   return accountAuth(action, baseURL, env, fetcher);
 }
-export function agentAuth(action: 'login' | 'status', baseURL: string, backend: BindingClient, env = process.env, fetcher: typeof fetch = fetch): Promise<unknown> {
-  return accountAuth(action, baseURL, env, fetcher, backend);
+export function agentAuth(action: 'login' | 'status', baseURL: string, backend: BindingClient, env = process.env, fetcher: typeof fetch = fetch, options: { readOnlyStatus?: boolean } = {}): Promise<unknown> {
+  return accountAuth(action, baseURL, env, fetcher, backend, options.readOnlyStatus === true && action === 'status');
 }
 
 // AUTH01: dashboard session stages stay distinct — the human must know exactly
@@ -148,18 +148,21 @@ function authenticatedEnvelope(env: NodeJS.ProcessEnv, phoneVerified: boolean): 
   return { status: 'authenticated', result, instruction, next, recovery: [] };
 }
 
-async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: string, env: NodeJS.ProcessEnv, fetcher: typeof fetch, backend?: BindingClient): Promise<unknown> {
+async function accountAuth(action: 'login' | 'status' | 'logout', baseURL: string, env: NodeJS.ProcessEnv, fetcher: typeof fetch, backend?: BindingClient, readOnlyStatus = false): Promise<unknown> {
   const purpose = backend ? 'agent-login' : 'seller';
   const command = backend ? 'itpay auth status' : 'itpay sell auth status';
   if (backend) {
     try {
       const current = await backend.agentAccountStatus();
+      if (current.status !== 'authenticated' && current.status !== 'login_required') throw new Error('Unexpected account binding status');
+      // Preparation must not poll, bind or consume a saved browser authorization.
+      if (readOnlyStatus) return { status: current.status, result: { bound: current.status === 'authenticated' }, instruction: '设备账号状态已读取。', next: null, recovery: [] };
       if (current.status === 'authenticated') return authenticatedEnvelope(env, current.phone_verified === true);
     } catch (error) {
       if (error instanceof AuthRequestError) throw error;
       // AUTH03: even the binding-status probe can hit transport failure; the
       // truthful state is "unknown", never an implicit unbound or a fresh login.
-      return authStatusUnknown(read(baseURL, env, purpose)?.sessionID, error, "account_binding_probe");
+      return authStatusUnknown(readOnlyStatus ? undefined : read(baseURL, env, purpose)?.sessionID, error, "account_binding_probe");
     }
   }
   async function request(path: string, init: RequestInit = {}) {

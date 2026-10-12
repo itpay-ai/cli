@@ -36,7 +36,7 @@ before(async () => {
 
 beforeEach(() => {
   mock.requests.length = 0;
-  mock.setAgentBinding({ status: "unbound" });
+  mock.setAgentBinding({ status: "login_required" });
   mock.setAuthSessionStage("waiting_provider");
   mock.setAuthSessionError(undefined);
   stdoutCapture = [];

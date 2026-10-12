@@ -14,9 +14,11 @@ human the useful result or action, not the internal steps.
 
 ## Installation readiness
 
-The current setup link chooses the channel: production is latest/app; beta is next/dev. Keep this choice even if old memory or a bundled CLI suggests another version. Run any installation separately, read its full output and preserve its exit code; a failed installation ends preparation even when an old CLI still runs. Reuse requires verified executable, current channel version, contract and official package source. Do not force installation or bypass host protection.
+使用宿主允许的持久安装方式运行官方 ItPay CLI，不要求全局安装。固定本次安装的入口、实际 Agent Type 和 Backend。首次使用或更新后运行 setup；setup_ready 证明设备准备完成，账号授权状态单独列出。完整读取当前包 Skill，并按宿主方式保存启用；同版本已读且已启用时无需重复。业务请求需要真人授权时使用返回的官方入口，不以安装授权代替购买同意。安装位置变化不要求清除设备身份。
 
-Read this installed package Skill before network checks. Select the actual Agent Type from `itpay install --json` and retain the same executable and Backend. readyz proves liveness only; after success, `itpay auth status --json` checks device access and binding. A successful authenticated or login_required response proves the device request worked; login_required does not require login during setup. Preserve any existing authorization. Unknown, missing-command, compatibility or exhausted network checks end this round without guessing commands/versions or reporting ready. minimum_cli_version is a protocol floor, not a verified artifact recommendation. Do not use services, orders or paid operations to prove installation. Already read same-version Skill needs no repeat.
+The public setup link selects latest/app for production or next/dev for testing. Use standard npm in the host's permitted persistent tool location or global prefix; choose one location and keep the verified entry for every returned command. Do not use floating npx, change HOME/npm configuration, modify an existing project's dependencies, or bypass protection. Preserve npm's actual output and exit status; failed installation is not ready even when an older executable runs.
+
+Run `itpay setup --agent-type <actual_type> --json` once after installation or upgrade. Read and enable this exact package Skill before business commands. If the host cannot persist or discover a Skill, record its accurate persistent path and that limitation; do not claim it has been enabled. No repeated install/readyz/auth sequence is needed for ordinary tasks. Unknown, incompatible, or unavailable device/account status stops preparation; preserve identity and report the actual cause. Do not start login or business merely to prove readiness.
 
 ## Choose one entry
 

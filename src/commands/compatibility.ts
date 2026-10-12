@@ -2,7 +2,7 @@ import type { BackendClient } from "../client/backend.js";
 import { HttpError } from "../client/http.js";
 import { API_CONTRACT_REVISION, CLI_VERSION } from "../state/config.js";
 
-export async function requirePlatformCompatibility(backend: BackendClient): Promise<void> {
+export async function requirePlatformCompatibility(backend: Pick<BackendClient, "compatibility">): Promise<void> {
   const platform = await backend.compatibility();
   const compatible = platform.api_contract_revision === API_CONTRACT_REVISION
     && compareVersions(CLI_VERSION, platform.minimum_cli_version) >= 0

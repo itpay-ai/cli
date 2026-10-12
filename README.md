@@ -6,26 +6,16 @@ The official V3 CLI and the single ItPay entry point for services, purchases, ac
 
 `itpay` is the only public CLI entry point, and `$itpay` is its user-facing Skill invocation. The Agent first distinguishes a new service request, previously purchased content, order history, or a refund. Seller workflows use the existing `itpay sell` entry point.
 
+Follow the official setup link for the authorized channel and matching Backend. Standard npm can use a host-managed persistent tool location or a global prefix; retain one exact executable.
+
 ```bash
-npm install -g @itpay/cli
-itpay install --json
-itpay --agent-type codex-desktop readyz --json
-# execute the returned next.command until the typed Skill is loaded
+itpay setup --agent-type <actual_type> --json
+# read and enable the same-package Skill returned by setup
 ```
 
-Official Agent install prompt（可直接复制给 Agent）：
+使用宿主允许的持久安装方式运行官方 ItPay CLI，不要求全局安装。固定本次安装的入口、实际 Agent Type 和 Backend。首次使用或更新后运行 setup；setup_ready 证明设备准备完成，账号授权状态单独列出。完整读取当前包 Skill，并按宿主方式保存启用；同版本已读且已启用时无需重复。业务请求需要真人授权时使用返回的官方入口，不以安装授权代替购买同意。安装位置变化不要求清除设备身份。
 
-> 安装或更新官方 `@itpay/cli`。从 `itpay install --json` 开始，选择你真实
-> 所在的平台，完整执行 iTPay 返回的每个 `next.command` 并读取内置 Skill。
-> 初始化后，根据我的自然语言需求自行使用 iTPay，不要让我运行命令，也不要向
-> 我讲解命令、内部 ID 或技术步骤。只有需要我选择、授权、付款、提供联系方式
-> 或确认退款时，才用通俗语言询问我；展示官方操作入口后停止等待。不要猜命令、
-> 切换身份或环境、绕过授权或重复创建资源。准备完成后只回复“iTPay 已就绪”。
-
-Use a separate test prompt to set the exact official Dev Backend. Never put a
-Dev override in the public install prompt.
-
-The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit sandbox runs may set `ITPAY_BACKEND_URL=https://sandbox.itpay.ai`; every other Backend URL is rejected before network or local state access.
+The CLI defaults to the production Backend `https://app.itpay.ai`. Explicit test runs may set `ITPAY_BACKEND_URL=https://sandbox.itpay.ai` or `https://dev.itpay.ai`; nonofficial Backend URLs are rejected before network or local state access.
 
 ## Output Contract
 
@@ -134,3 +124,7 @@ Source boundaries:
 Use `itpay services run <service_id> --input-json ./input.json --json` for a published workflow. The input file must contain a JSON object matching the service input schema. With no input file, the CLI reports required fields and a command to continue the same execution.
 
 Use `itpay services run <service_id> --execution <execution_id> --json` to resume. At payment, the CLI uses the existing Checkout QR/card handoff. The backend continues after verified payment even if the CLI exits. `--timeout <seconds>` controls initial status polling (default 120, maximum 600). Use existing order/refund commands for refund requests; an application is not a successful refund until its final status confirms success.
+
+## Agent preparation
+
+Install the official package using standard npm in one host-permitted persistent tool location or a global prefix. Retain the exact callable entry. Run `itpay setup --agent-type <actual_type> --json`, then read and enable its same-package Skill before business commands. Account login is separate and occurs only when needed. See [setup](docs/cli-reference/commands/setup.md).

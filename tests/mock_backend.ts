@@ -77,7 +77,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
   let accountOrders: Array<Record<string, unknown>> = [];
   let serviceError: Parameters<MockBackendHandle["setServiceError"]>[0];
   let feedbackError: Parameters<MockBackendHandle["setFeedbackError"]>[0];
-  let agentBinding: { status: string; phone_verified?: boolean } = { status: "unbound" };
+  let agentBinding: { status: string; phone_verified?: boolean } = { status: "login_required" };
   let authSessionStage = "waiting_provider";
   let authSessionError: Parameters<MockBackendHandle["setAuthSessionError"]>[0];
   const feedbacks: Array<Record<string, unknown>> = [];
