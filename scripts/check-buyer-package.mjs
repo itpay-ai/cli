@@ -4,7 +4,7 @@ import {execFileSync} from 'node:child_process';
 const pkg=JSON.parse(readFileSync('package.json','utf8'));
 for(const field of ['dependencies','optionalDependencies','peerDependencies','bundleDependencies'])assert(!pkg[field]||Object.keys(pkg[field]).length===0,`${field} must not ship`);
 for(const hook of ['prepare','install','postinstall'])assert(!pkg.scripts[hook],`consumer ${hook} hook must not exist`);
-const files=JSON.parse(execFileSync('npm',['pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}))[0];
+const files=JSON.parse(execFileSync(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),'pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}))[0];
 assert(files.size<=600000,`compressed package ${files.size} exceeds 600000 bytes`);
 assert(files.unpackedSize<=3000000,`unpacked package ${files.unpackedSize} exceeds 3000000 bytes`);
 assert(files.files.length<=120,`package has ${files.files.length} files`);

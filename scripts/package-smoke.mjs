@@ -18,7 +18,7 @@ mkdirSync(install);
 mkdirSync(home);
 
 try {
-  execFileSync("npm", ["pack", "--dry-run=false", "--ignore-scripts", "--pack-destination", packed], {
+  execFileSync(process.env.npm_execpath ? process.execPath : "npm", [...(process.env.npm_execpath ? [process.env.npm_execpath] : []),"pack", "--dry-run=false", "--ignore-scripts", "--pack-destination", packed], {
     cwd: root,
     stdio: "pipe",
   });
@@ -33,7 +33,7 @@ try {
   assert.equal(existsSync(join(packageRoot,"node_modules")),false);
   for(const field of ["dependencies","optionalDependencies","peerDependencies","bundleDependencies"])assert(!metadata[field]||Object.keys(metadata[field]).length===0,`${field} shipped`);
   const runtimeInstall = join(scratch, "runtime-install");
-  execFileSync("npm", ["install", "--prefix", runtimeInstall, join(packed, tarballs[0]), "--offline", "--dry-run=false", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
+  execFileSync(process.env.npm_execpath ? process.execPath : "npm", [...(process.env.npm_execpath ? [process.env.npm_execpath] : []),"install", "--prefix", runtimeInstall, join(packed, tarballs[0]), "--offline", "--dry-run=false", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
     cwd: install,
     env: { ...process.env, npm_config_cache: join(scratch, "npm-cache") },
     stdio: "pipe"
