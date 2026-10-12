@@ -15,7 +15,7 @@ test("setup validates actual type and current package Skill before any backend r
   assert.equal(isAbsolute(validateSetup("workbuddy")), true);
 });
 
-for (const status of ["authenticated", "login_required", "unknown", "404", "426", "503"]) {
+for (const status of ["authenticated", "login_required", "unknown", "unbound", "404", "426", "503"]) {
  test(`setup ${status} keeps preparation separate from login and business`, async () => {
   const root = mkdtempSync(join(tmpdir(), "itpay-setup-contract-"));
   const oldFetch=globalThis.fetch; globalThis.fetch=async()=>{throw Error("setup must not poll browser authorization");};
