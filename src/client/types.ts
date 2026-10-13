@@ -846,6 +846,7 @@ export interface RailPlanningCatalog {
 }
 
 export interface ServiceExecutionReadModel {
+ purchase_review?:ServicePurchaseReview;
   rail_booking?: RailBookingStatus;
   rail_planning?: RailPlanningProjection;
   workflow_entry?: { capability_id: string; input_schema: Record<string, unknown> };
@@ -941,4 +942,26 @@ export interface RailAftercareResponseInput { expected_revision: number; proposa
 export interface RailAftercareAdminInput {
  expected_revision: number; action: "needs_input"|"reject"|"start"|"propose_change"|"complete_change"|"confirm_refund"|"note";
  note: string; proposal?: RailChangeProposal; supplier_result?: NonNullable<RailAftercareCase["supplier_result"]>; rail_refund?: {supplier_completed:boolean;tickets:Array<{leg_index:number;passenger_index:number;fare_minor:number;source:string; supplier_refund_ref?:string}>};
+}
+
+export interface PurchasePricePolicy {
+ mode: "exact" | "capped" | "confirm_on_official_page" | "";
+ currency: string;
+ amount_minor?: number;
+ maximum_minor?: number;
+}
+export interface PurchaseConfirmation {
+ review_ref: string; request_key: string; user_approved: boolean; user_answer: string; price_policy: PurchasePricePolicy;
+}
+export interface ServicePurchaseReview {
+ review_ref: string;
+ binding: {service_execution_id:string;owner_ref:string;service_contract_version_id:string;contract_hash:string;capability_id:string;material_hash:string;accepted_material_hash:string;revision:number;terms_version:string;price_kind:"fixed"|"estimated"|"locked"|"unknown";expires_at:string};
+ summary: Record<string,unknown>;
+ confirmation_template: PurchaseConfirmation;
+}
+export interface ServicePurchaseState {
+ status:"confirmation_required"|"confirmation_changed"|"running"|"blocked"|"expired"|"checkout_ready";
+ service_execution_id:string;completed_stage:string;poll_after_ms?:number;auto_wait_remaining_ms?:number;
+ review?:ServicePurchaseReview;checkout?:ServiceExecutionCheckoutCreated;
+ effects:{page_created:boolean;page_reused:boolean;payment_requested:false;charged:false;human_page_action_required:boolean};
 }

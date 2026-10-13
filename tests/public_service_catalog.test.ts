@@ -25,10 +25,11 @@ test('formal Skill keeps service orchestration and railway guide owns its busine
  const skill=readFileSync(new URL('../skills/itpay/SKILL.md',import.meta.url),'utf8');
  const rail=readFileSync(new URL('../docs/agent/buyer/rail-booking.json',import.meta.url),'utf8');
  assert.match(skill,/services start itpay-rail/);
- assert.match(skill,/scoped approve_purchase/);
+ assert.match(skill,/services purchase --input-json/);
+ assert.match(skill,/original quote-bound\n?approval protection remains/);
  assert.doesNotMatch(skill,/Fastest means|Raw legs support|seat-request or whole-journey|no-seat option|reuse_from/);
  assert.match(rail,/within the searched scope/);
  assert.match(rail,/no-seat, overnight/);
  assert.match(rail,/complete ordered selections template/);
- assert.match(rail,/unchanged explicit consent/);
+ assert.match(rail,/reuse an existing explicit human approval/);
 });

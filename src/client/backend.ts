@@ -40,6 +40,8 @@ import type {
   ServiceExecutionAction,
   RailPlanningActionResponse,
   ServiceExecutionCheckoutCreated,
+  ServicePurchaseState,
+  PurchaseConfirmation,
   ServiceExecutionEvents,
   ServiceExecutionReadModel,
   ServiceExecutionStarted,
@@ -258,6 +260,16 @@ export class BackendClient {
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/actions`,
       input, options,
     );
+  }
+
+  getServicePurchaseReview(serviceExecutionID:string,options:RequestOptions={}):Promise<ServicePurchaseState> {
+    return this.http.get<ServicePurchaseState>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/purchase`,options);
+  }
+  confirmServicePurchase(serviceExecutionID:string,input:PurchaseConfirmation,options:RequestOptions={}):Promise<ServicePurchaseState> {
+    return this.http.post<ServicePurchaseState>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/purchase/confirm`,input,{...options,replaySafe:true});
+  }
+  resumeServicePurchase(serviceExecutionID:string,options:RequestOptions={}):Promise<ServicePurchaseState> {
+    return this.http.post<ServicePurchaseState>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/purchase/resume`,{},{...options,replaySafe:true});
   }
 
   createServiceExecutionCheckout(

@@ -6,7 +6,7 @@
   "title": "Agent Type And Human Handoff Rendering",
   "purpose": "Use only the handoff fields returned for the current Agent Type and make Checkout or read authorization genuinely visible on that surface.",
   "when_to_use": [
-    "buy, services checkout, checkout, pay, or vault access returned a human handoff.",
+    "services purchase or an existing Checkout/authorization reader returned a human handoff.",
     "The human cannot see a Checkout or authorization QR image or link."
   ],
   "host_contracts": [
@@ -33,7 +33,7 @@
     {
       "agent_type": "workbuddy",
       "default_host": "plain-chat",
-      "responsibility": "execute handoff.agent_action exactly once to open the fully rendered handoff.url with present_files, then send handoff.mobile_url as a clickable link that jumps straight into Alipay or WeChat Pay on a phone; show the amount and stop"
+      "responsibility": "If present_files is already available, execute the returned agent_action once; otherwise show the original official URL in this turn. Show mobile_url when present and the amount, then stop."
     },
     {
       "agent_type": "zcode",
@@ -57,7 +57,7 @@
       "native_hosts": [
         "telegram"
       ],
-      "responsibility": "pass the native OpenClaw entry target explicitly; for Telegram execute handoff.agent_action unchanged, then treat itp:grant_confirmed callbacks only as permission to query the same Checkout and follow Backend grant state; otherwise show the returned HTTPS QR image and Checkout URL"
+      "responsibility": "Preserve the trusted native Host/target. Use the returned message action only if its tool is available now; otherwise show the official URL in this turn. Callbacks only permit reading the same state, never prove payment."
     }
   ],
   "commands": [
@@ -75,7 +75,7 @@
   "agent_rules": [
     "Agent Type is stable identity; Host is presentation and may be explicitly overridden. Once the official handoff is available, show it on this host before optional memory/log work; retain necessary safety and permissions.",
     "A local QR path is not visible until a desktop Agent attaches or renders that file on the human-facing surface; WorkBuddy Checkout handoff uses its returned Card Link and mobile URL; auth login may separately return a local QR path.",
-    "For workbuddy with plain-chat, execute handoff.agent_action exactly once; it calls present_files with handoff.url as the only files element and opens the rendered Card Link in the right-side browser, then send handoff.mobile_url so phone users can tap straight into Alipay or WeChat Pay.",
+    "For WorkBuddy, use present_files once only if already available; otherwise show the original handoff.url immediately. Send mobile_url when present. Do not research or install a tool before delivering the entry.",
     "For zcode with plain-chat, open handoff.url in the built-in browser and also send handoff.mobile_url as the phone entry; do not only paste text, download or rebuild a QR, or invent a private browser-tool payload; when the built-in browser is unavailable show both clickable links.",
     "For doubao-work with plain-chat, show two labeled official links: handoff.mobile_url for direct same-phone opening and handoff.qr_image_url for saving or scanning on another device; do not parse credentials, download or rebuild the QR, or create an alternative resource.",
     "If the WorkBuddy action fails, send the original handoff.url and handoff.mobile_url, report that it did not auto-open, and stop without creating another payment resource.",
@@ -83,7 +83,8 @@
     "Do not claim a handoff was shown until the official entry supported by this Host is genuinely visible. A link-only Host does not require a QR.",
     "IM Hosts that require a target must receive --target before Checkout creation. OpenClaw has no default Host; Kimi Code uses terminal.",
     "OpenClaw Telegram uses flat url/value buttons for deployed-version compatibility. A grant_confirmed callback carries only the Checkout ID, never a display token, and never proves payment or an active grant.",
-    "Business flow is the same across hosts. Vault grants apply only to protected purchased-content access, not every railway step."
+    "Business flow is the same across hosts. Vault grants apply only to protected purchased-content access, not every railway step.",
+    "Image preparation has a short budget. A failed or slow image does not invalidate an already verified, currently payable official URL; show that URL in the same turn, without creating another Checkout."
   ],
   "forbidden": [
     "Do not expose display tokens separately from the tokenized Checkout handoff.",

@@ -56,8 +56,7 @@
     },
     {
       "condition": "Non-rail Buyer selected a service and wants to purchase",
-      "topic": "cart-checkout",
-      "file": "docs/agent/buyer/cart-checkout.json"
+      "topic": "quickstart"
     }
   ],
   "search_terms": [
@@ -69,6 +68,5 @@
     "what to buy",
     "有哪些",
     "服务列表"
-  ],
-  "purchase_consent": "Candidate selection is not price approval. Service-backed quote/cart/checkout requires a current scoped approve_purchase record; use the complete server template, default false. Only genuine matching approval allows true; material price/subject/terms changes invalidate it. Restore an existing Checkout before creating anything."
+  ]
 }

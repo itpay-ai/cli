@@ -53,7 +53,7 @@ export async function runServicesAction(
       status: "purchase_preparation_approved",
       result: {service_execution_id: serviceExecutionID, evidence_source: "agent_reported", scope: "prepare_checkout", service_quote_lock_id: quoteID},
       instruction: "已记录同范围的准备付款入口批准；这是Agent报告的真实会话同意，不是已付款或出票。继续使用本报价；条件未变不重复询问，官方页实际支付仍由用户完成。",
-      next: quoteID ? {command: `itpay cart add --quote ${quoteID} --json`, reason: "加入本次已批准报价，准备同一个付款入口"} : null,
+      next: quoteID ? {command: `itpay services purchase ${serviceExecutionID} --resume --json`, reason: "复用原报价批准，生成同一个官方页面"} : null,
       recovery: [{command: `itpay services next ${serviceExecutionID} --json`, reason: "读取原执行与付款状态，不重新购买"}],
     }, { ...(options.jsonOutput !== undefined ? {jsonOutput: options.jsonOutput} : {}), ...(options.output ? {output:options.output} : {}) });
     return;

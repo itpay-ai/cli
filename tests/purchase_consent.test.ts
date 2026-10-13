@@ -27,7 +27,7 @@ test('quote renders complete scoped approval and approval leads to the same quot
   backend.recordServiceExecutionAction=async(_id,input)=>({service_execution_action_id:'approval_fixture',service_execution_id:'se_fixture',action_type:input.action_type,status:'approved',actor_type:'agent'});
   let approved='';
   await runServicesAction(backend,'se_fixture','approve_purchase',{...template,user_approved:true},{actorType:'agent',status:'approved',jsonOutput:true,output:s=>approved+=s});
-  assert.equal(JSON.parse(approved).next.command,'itpay cart add --quote q_fixture --json');
+  assert.equal(JSON.parse(approved).next.command,'itpay services purchase se_fixture --resume --json');
   assert.ok(Buffer.byteLength(json)<12*1024);
   if(process.env.ITPAY_CONSENT_EVIDENCE) writeFileSync(process.env.ITPAY_CONSENT_EVIDENCE,JSON.stringify({scope:'CLI renders controlled server facts; not natural UX',json:result,text,approved:JSON.parse(approved),bytes:Buffer.byteLength(json)},null,2));
  }finally{await mock.close();}

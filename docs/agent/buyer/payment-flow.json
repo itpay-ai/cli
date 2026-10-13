@@ -6,13 +6,13 @@
   "title": "Human Checkout Handoff And Payment Verification",
   "purpose": "Show the ItPay Checkout to the human and recover authoritative payment state without creating duplicate payment resources.",
   "when_to_use": [
-    "buy or services checkout returned human_checkout_required.",
+    "services purchase, buy or historical services checkout returned an official human handoff.",
     "The agent restarted or lost the Checkout output before payment was confirmed."
   ],
   "commands": [
     {
       "intent": "present the Checkout handoff",
-      "command": "<execute the exact command returned by buy or services checkout>",
+      "command": "<show the already-returned official handoff on the current Host>",
       "success_signal": "the returned official URL and/or QR supported by the actual Host is visible to the human"
     },
     {
@@ -22,12 +22,12 @@
     },
     {
       "intent": "recover a service Checkout handoff",
-      "command": "itpay services checkout <service_execution_id> --resume --json",
+      "command": "itpay services purchase <service_execution_id> --resume --json",
       "success_signal": "the same unpaid Checkout is reused with a fresh short-lived handoff"
     }
   ],
   "agent_rules": [
-    "Normal buyer flow opens the ItPay Checkout page; itpay pay and buy --pay are operator escape hatches.",
+    "Normal preparation generates an official filling/payment page; it does not call payment or charge. The human completes actual payment on that page.",
     "Use only handoff fields returned for the current Host and make them actually visible to the human.",
     "Obtain only missing required agreement or material price/term changes. Reuse a valid explicit confirmation for unchanged terms; never invent it.",
     "For a railway journey, show one official checkout for all legs: one total/payment, separate issuance. The page shares its authoritative payment_deadline_at/server_now/payment_remaining_seconds; reaching zero requires reading current status, not declaring cancellation.",
@@ -66,6 +66,5 @@
     "付款后",
     "不要重复付款",
     "支付确认"
-  ],
-  "purchase_consent": "Candidate selection is not price approval. Service-backed quote/cart/checkout requires a current scoped approve_purchase record; use the complete server template, default false. Only genuine matching approval allows true; material price/subject/terms changes invalidate it. Restore an existing Checkout before creating anything."
+  ]
 }

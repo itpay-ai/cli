@@ -73,7 +73,7 @@ export async function runBuy(
   const paymentWaitSec=options.pay && !options.noWait ? (options.payTimeoutSec ?? 120) : 0;
   const deadline=options.deadline ?? Date.now()+60000+paymentWaitSec*1000;
   const fetchWithinBudget: typeof fetch = async(url,init)=>{
-    const remaining=deadline-Date.now();
+    const remaining=Math.min(2000,deadline-Date.now());
     if(remaining<=0) throw new DOMException("command deadline reached","TimeoutError");
     return (options.fetchImpl ?? globalThis.fetch)(url,{...init,signal:AbortSignal.timeout(remaining)});
   };

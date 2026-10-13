@@ -45,7 +45,7 @@
     "Use --target only for a Host presentation destination. Use --input key=value only for simple scalars; nested objects use a small JSON file with the existing --input-json command.",
     "For non-rail delivery that explicitly requires email, ask only that missing value and explain its purpose. Railway identity and notification contact are handled on the protected official checkout page; never guess them.",
     "Explain useful service facts in ordinary language; never ask the human to run commands or learn internal IDs.",
-    "Normal payment uses the returned ItPay Checkout handoff.",
+    "Normal selected service purchase uses its complete services purchase confirmation template, then the returned official handoff; no manual quote/cart/buy chain.",
     "A railway query execution and its separate booking execution may serve one purchase intent; keep both references."
   ],
   "forbidden": [
@@ -67,7 +67,7 @@
       "topic": "purchased-content"
     },
     {
-      "condition": "Need Cart and Checkout routing",
+      "condition": "Explicit multi-service Cart or historical Cart recovery",
       "topic": "cart-checkout"
     },
     {
@@ -108,5 +108,5 @@
     "input"
   ],
   "reading_results": "Read normal CLI text directly, or parse the complete --json envelope with the host file reader. If saving stdout to a file, first check the command exit code, then read the whole file with cat or the existing file tool. Keep stderr separate; do not use head, tail, regex or a custom script to recover truncated results. Write complex input as a small JSON file and use --input-json.",
-  "purchase_consent": "Candidate selection is not price approval. Service-backed quote/cart/checkout requires a current scoped approve_purchase record; use the complete server template, default false. Only genuine matching approval allows true; material price/subject/terms changes invalidate it. Restore an existing Checkout before creating anything."
+  "purchase_consent": "Follow the same-package Skill purchase preparation rule: current complete review → reuse matching real consent or ask only what is missing → write flat file_content → services purchase → show the official entry. This step does not request payment."
 }

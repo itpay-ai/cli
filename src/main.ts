@@ -1,3 +1,4 @@
+import {runServicesPurchase} from "./commands/services/purchase.js";
 import {runAftercareList,runAftercareCreate,runAftercareGet,runAftercareRespond} from "./commands/aftercare.js";
 import { agentAuth } from "./state/account_auth.js";
 import { readFileSync as readWorkflowInputFile, statSync as statWorkflowInputFile } from "node:fs";
@@ -1785,6 +1786,25 @@ services
       });
     }
   });
+
+services
+ .command("purchase")
+ .description("Review, confirm or resume one official page; never requests payment")
+ .argument("<service_execution_id>")
+ .option("--input-json <file>","complete returned confirmation file; no outer input wrapper")
+ .option("--resume","continue the original recorded purchase")
+ .option("--timeout <seconds>","total bounded command budget", "60")
+ .option("--host <host>")
+ .option("--target <target>")
+ .option("--locale <locale>","official page language","zh-CN")
+ .option("--json")
+ .action(async(id:string,options)=>{
+  try {
+   const config=loadConfig();
+   const input=options.inputJson ? readInputJsonObject(options.inputJson,"purchase_input_invalid",[]):undefined;
+   await runServicesPurchase(newBackendClient(config),config,id,input,{resume:Boolean(options.resume),timeoutSeconds:Number(options.timeout),host:withHost(options.host,config.agentType,options.target),...(config.agentType ? {agentType:config.agentType}:{}),...(options.target ? {target:options.target}:{}),locale:options.locale,jsonOutput:Boolean(options.json)});
+  }catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"purchase_failed",instruction:"保留原购买及真实确认；按实际原因继续原 purchase，不重新查询或建单。",recovery:[{command:`itpay services purchase ${id} --resume --json`,reason:"核对原购买进度"}]});}
+ });
 
 services
   .command("checkout")
