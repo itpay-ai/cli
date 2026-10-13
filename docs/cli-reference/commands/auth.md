@@ -93,4 +93,3 @@ Terminal and error states:
 - Login never grants Vault content, passenger history, or another Agent's authority. Other devices/platforms enroll and authorize separately.
 - After `authenticated`, server-side identity is re-read; an anonymous execution blocked at the quota step resumes with `services run <service> --execution <id> --json` — no new execution, no re-asked itinerary.
 - Refusing or cancelling login deletes nothing: saved results and purchase options remain usable.
-- Seller authoring uses `itpay sell auth` separately.

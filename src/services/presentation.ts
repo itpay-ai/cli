@@ -24,18 +24,20 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
     const terminal = terminalExecutionEnvelope(model);
     if (terminal) return terminal;
   }
+  const businessState = adapter.projectState(model);
+  if (businessState) return businessState;
+  const availableResult = adapter.savedResult(model);
+  if (availableResult && adapter.shouldWait(model) === false) return availableResult;
   const latestRun = model.execution_requests?.filter((request) => request.execution_kind === "service.execution.run").at(-1);
   if (latestRun && ["pending", "started"].includes(latestRun.status) && model.workflow?.status !== "failed") {
     return {
       status: "running",
       result: { service_execution_id: execution.service_execution_id, execution_request_id: latestRun.execution_request_id },
       instruction: "任务仍在排队或执行中，稍后读取同一任务。不要重新查询、重复提交输入或把等待状态当作零结果。",
-      next: { command: `itpay services next ${execution.service_execution_id} --json`, reason: "稍后读取同一任务状态" },
+      next: { command: `itpay services next ${execution.service_execution_id} --timeout 60 --json`, reason: "有界等待同一任务，累计最多120秒；收集宿主同一命令最终输出", poll_after_ms:1500 },
       recovery: [],
     };
   }
-  const businessState = adapter.projectState(model);
-  if (businessState) return businessState;
   if (latestRun && ["failed", "cancelled"].includes(latestRun.status) && !model.workflow_entry) {
     return {
       status: latestRun.status,

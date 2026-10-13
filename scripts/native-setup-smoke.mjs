@@ -12,11 +12,11 @@ const exec=promisify(execFile);
 
 // Exercise actual npm entrances and compiled setup; only synthetic local accounts.
 export async function verifyNativeSetup(tarball,scratch,previousTarball) {
- let status='login_required';const paths=[];
+ let status='login_required';const paths=[];let activeAPI=API_CONTRACT_REVISION;
  const server=createServer((req,res)=>{
   const path=new URL(req.url,'http://fixture').pathname;paths.push(path);
   let body;
-  if(path==='/v1/platform/compatibility')body={api_contract_revision:API_CONTRACT_REVISION,minimum_cli_version:'2.1.40',maximum_cli_major:2,platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture'};
+  if(path==='/v1/platform/compatibility')body={api_contract_revision:activeAPI,minimum_cli_version:'2.1.40',maximum_cli_major:2,platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture'};
   else if(path==='/v1/agent-device-enrollments')body={agent_device_enrollment_id:'enr_fixture',challenge:'fixture'};
   else if(path==='/v1/agent-device-enrollments/enr_fixture/verify')body={agent_device_id:'adev_fixture',agent_device_key_id:'akey_fixture',quota_lineage_id:'qln_fixture',agent_instance_id:'ain_fixture',agent_type:'workbuddy'};
   else if(path==='/v1/agent-device-session-challenges')body={agent_device_session_challenge_id:'ses_fixture',challenge:'fixture'};
@@ -38,16 +38,22 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const invoke=(argv,target=entry)=>exec(process.execPath,[target,...argv],{env,timeout:30000});
    let oldKey; let upgradeRequestStart; let conflictProof;
    if(previousTarball){
-    await exec('npm',[...args,previousTarball],{env,timeout:90000});
+    activeAPI='sha256:c1e1f459c1d3844f6eeae21535b532abb2e48c3e320173c4faccd62992890dcd';
+    // The pinned old bundle extracts 3,883 files; Windows CI needs a separate legacy installation budget.
+    // Keep the compact candidate's installation and all setup timeouts unchanged.
+    const previousInstallStart=performance.now();
+    await exec(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),...args,previousTarball],{env,timeout:process.platform==='win32'?300000:90000});
+    process.stdout.write(JSON.stringify({mode:global?'global':'managed-prefix',previousInstallationMs:Math.round(performance.now()-previousInstallStart)})+'\n');
     await invoke(['auth','status','--agent-type','workbuddy','--json']);
     oldKey=readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem'));
+    activeAPI=API_CONTRACT_REVISION;
     // Reproduce the concrete npm retirement collision, without user installation cleanup.
     const suffix=createHash('sha1').update(packageRoot).digest('base64').replace(/[^a-zA-Z0-9]/g,'').slice(0,8);
     const retirement=join(packageRoot,'..',`.cli-${suffix}`);mkdirSync(retirement);writeFileSync(join(retirement,'retained-fixture'),'old fixture');
     // Newer npm can resolve its own retirement collision; older npm returns ENOTEMPTY.
     // Preserve both real outcomes, never misclassify a successful native upgrade as failure.
     try {
-     await exec('npm',[...args,tarball],{env,timeout:90000});
+     await exec(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),...args,tarball],{env,timeout:90000});
      conflictProof={code:'npm_resolved_retirement',exit:0};
     } catch(error){assert(Number.isInteger(error.code) && error.code !== 0);assert.match(error.stderr,/ENOTEMPTY/);conflictProof={code:'ENOTEMPTY',exit:error.code};}
     if(conflictProof.exit===0){
@@ -59,7 +65,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
     rmSync(retirement,{recursive:true,force:true}); // Only this test's explicit synthetic fixture.
     upgradeRequestStart=paths.length;
    }
-   const installStart=performance.now();await exec('npm',[...args,tarball],{env,timeout:90000});
+   const installStart=performance.now();await exec(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),...args,tarball],{env,timeout:90000});
    const installationMs=Math.round(performance.now()-installStart);
    const setupStart=performance.now();const output=await invoke(['setup','--agent-type','workbuddy','--json']);
    const setupMs=Math.round(performance.now()-setupStart);const value=JSON.parse(output.stdout);
@@ -88,7 +94,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
     const bundleEntry=join(bundleRoot,'vendor','itpay-cli','itpay-cli.bundle.mjs');
     const bundled=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'],bundleEntry)).stdout);
     assert.equal(bundled.status,'setup_ready');
-    assert.equal(bundled.result.skill_path,realpathSync(join(bundleRoot,'vendor','itpay-cli','skills','itpay','SKILL.md')));
+    assert.equal(bundled.result.skill_path,realpathSync(join(bundleRoot,'vendor','itpay-cli','package','skills','itpay','SKILL.md')));
     assert.equal(readFileSync(bundled.result.skill_path,'utf8'),readFileSync(value.result.skill_path,'utf8'));
     assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),key);
     proof.push({mode:'single-file-bundle',version:bundled.result.cli_version,json:bundled});

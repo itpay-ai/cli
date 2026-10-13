@@ -1,4 +1,4 @@
-import { shellArgument } from "./envelope.js";
+import { shellArgument, fileInputTemplate } from "./envelope.js";
 import { requiredInputFields } from "./platform.js";
 
 // Generate only declared required fields and preserve safe known query facts.
@@ -27,11 +27,10 @@ export interface OperationInputContext {
   continuation?: { service_execution_id: string; snapshot_id: string } | undefined;
 }
 export function operationInputTemplate(context: OperationInputContext, input: Record<string, unknown>, required: string[] = []) {
-  return {
-    command: `itpay services run ${shellArgument(context.serviceID)}${context.operationID ? ` --operation ${shellArgument(context.operationID)}` : ""}${context.executionID ? ` --execution ${shellArgument(context.executionID)}` : ""} --input-json <file> --json`,
-    input: context.operationID ? { input, ...(context.continuation ? { continuation: context.continuation } : {}) } : input,
-    required_input: ["file", ...required], executable: false as const,
-  };
+  return fileInputTemplate(
+    `itpay services run ${shellArgument(context.serviceID)}${context.operationID ? ` --operation ${shellArgument(context.operationID)}` : ""}${context.executionID ? ` --execution ${shellArgument(context.executionID)}` : ""} --input-json <file> --json`,
+    context.operationID ? {input, ...(context.continuation ? {continuation: context.continuation} : {})} : input,
+    required, {executionID: context.executionID});
 }
 
 export function executionInputContext(execution: import("../../client/types.js").ServiceExecution): OperationInputContext {

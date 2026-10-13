@@ -102,7 +102,7 @@ test('public operation recovery executes through main with the original operatio
    const forwarded=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(raw?{body:raw}:{})});res.statusCode=forwarded.status;res.setHeader('content-type','application/json');res.end(await forwarded.text());
   }); await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve)); const address=server.address();assert(address&&typeof address!=='string');const url=`http://127.0.0.1:${address.port}`;
   let entry=resolve('tests/cli_test_entry.ts');
-  if(process.env.ITPAY_REWORK_MAIN){entry=join(work,'packed-entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8').replace('await import("../src/main.js");',`await import(${JSON.stringify(process.env.ITPAY_REWORK_MAIN)});`));}
+  if(process.env.ITPAY_REWORK_MAIN){entry=join(work,'packed-entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8').replace('await import(process.env.ITPAY_CLI_PACKAGE_ENTRY ?? "../src/main.js");',`await import(${JSON.stringify(process.env.ITPAY_REWORK_MAIN)});`));}
   const executable=entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath;
   const run=async(args:string[])=>{try{return await promisify(execFile)(executable,[entry,...args],{env:{...process.env,NODE_ENV:'test',ITPAY_AGENT_TYPE:'codex-cli',HOME:work,ITPAY_CLI_TEST_TRANSPORT_URL:url},timeout:15000});}catch(error){const output=error as {stdout:string;stderr:string};return output;}};
   try {
@@ -218,5 +218,183 @@ test('refund manual and unknown watches return immediately with all owner facts'
    if(patch.failure_class)assert.equal(envelope.result.failure_class,'outcome_unknown');
   }
   for(const status of ['succeeded','cancelled','rejected'])assert.equal(refundStateEnvelope({...base,status},'shown').next,null);
+ }finally{await mock.close();}
+});
+
+test('public expired prepare preserves typed adapter and complete original query file',async()=>{
+ const {runServicesRun}=await import('../src/commands/services.js');
+ const {loadConfig}=await import('../src/state/config.js');
+ const {HttpError}=await import('../src/client/http.js');
+ const {CommandContractError}=await import('../src/services/shared/envelope.js');
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',operation_id:'prepare_purchase'};
+  const query={endpoints:{origin:{kind:'station',text:'甲站'},destination:{kind:'place',text:'乙住宅'}},travel_date:'2030-10-15',passengers:1,priority:'fastest',reuse_from:{execution_id:'old'}};
+  for(const mode of ['fresh','existing','history_failed','unknown_contract','wrong_binding']) {
+   backend.startServiceExecution=async()=>{throw new HttpError(409,{code:'rail_selection_expired',message:'saved choice expired',execution_created:false,provider_called:false,service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',public_binding:{...binding,...(mode==='wrong_binding'?{public_service_id:'another_service'}:mode==='unknown_contract'?{service_definition_version:'unknown'}:{})},selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',query_public_binding:{...binding,operation_id:'query_smart'},expired_at:'2000-01-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_original'}:{}),...(mode==='history_failed'?{recovery_block_reason:'购买历史读取失败'}:{})}},'expired');};
+   await assert.rejects(runServicesRun(backend,loadConfig({}), 'itpay-rail',{selections:[],passengers:1},{operationID:'prepare_purchase'}),error=>{
+    if(mode==='unknown_contract'||mode==='wrong_binding'){assert(error instanceof HttpError);return true;}
+    assert(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);
+    const template=error.interaction?.input_template;
+    if(mode==='fresh'){
+     assert(template);assert.match(template.command,/services run itpay-rail --operation query_smart --input-json <file>/);
+     assert.deepEqual(template.file_content,{input:Object.fromEntries(Object.entries(query).filter(([key])=>key!=='reuse_from'))});
+     assert.deepEqual(template.input,template.file_content);assert.equal(template.user_answer_required,undefined);assert.equal(error.recovery.length,0);
+    }else{assert.equal(template,undefined);if(mode==='existing')assert.match(error.recovery[0]!.command,/next se_original/);else assert.match(error.instruction,/购买历史读取失败/);}
+    return true;
+   });
+  }
+ }finally{await mock.close();}
+});
+
+test('saved credential deadline is distinct from historical itinerary and missing expiry',async()=>{
+ const {purchaseCredentialFacts}=await import('../src/services/rail/results.js');
+ assert.equal(purchaseCredentialFacts(undefined).status,'unknown');
+ assert.equal(purchaseCredentialFacts('0001-01-01T00:00:00Z').status,'unknown');
+ assert.equal(purchaseCredentialFacts('2000-01-01T00:00:00Z').status,'expired');
+ assert.equal(purchaseCredentialFacts('2099-01-01T00:00:00Z').status,'not_expired');
+});
+
+test('run shares the remaining deadline with quote and authoritative checkout presentation',async()=>{
+ const {createServer}=await import('node:http');const {mkdtempSync,readFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const mock=await startMockBackend();
+ try{
+  const base=await new BackendClient(new HttpClient({baseURL:mock.url})).getServiceExecution('se_budget');
+  const results:unknown[]=[];
+  for(const stage of ['quote','presentation']){
+   const calls:string[]=[];const home=mkdtempSync(join(tmpdir(),'itpay-run-budget-'));
+   const model={...base,execution_requests:[],current_result_items:[],delivery_bindings:[],payment_bindings:[],checkout_bindings:[],execution:{...base.execution,status:'running'},workflow_entry:{capability_id:'precise_report',input_schema:{}},workflow:{status:'payment',current_step:'payment',revision:1,steps:{}},capabilities:base.capabilities.map(c=>({...c,input_schema:{},delivery_email_required:false})),actions:stage==='presentation'?[{action_type:'approve_purchase',status:'approved'}]:[]};
+   const server=createServer(async(req,res)=>{
+    const path=req.url!;calls.push(`${req.method} ${path.split('?')[0]}`);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
+    if(path==='/v1/service-executions/se_budget'){await new Promise(resolve=>setTimeout(resolve,700));res.setHeader('content-type','application/json');res.end(JSON.stringify(model));return;}
+    if(path.endsWith('/quotes')||path.includes('/presentation')){await new Promise(resolve=>setTimeout(resolve,600));}
+    if(res.destroyed)return;
+    const forwarded=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});res.statusCode=forwarded.status;res.setHeader('content-type','application/json');res.end(await forwarded.text());
+   });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+   let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
+   const started=Date.now();let output='';
+   try{await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,'services','run','svc_qizhidao_company_lookup','--execution','se_budget','--timeout','1','--json'],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:5000});assert.fail('slow command should reach its shared budget');}
+   catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);assert(Date.now()-started<2200,'actual CLI process exits without another 30s request budget');}
+   finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+   assert.equal(calls.filter(x=>x.includes('/quotes')).length,stage==='quote'?1:0);
+   assert.equal(calls.filter(x=>x.endsWith('/checkout')).length,stage==='presentation'?1:0);
+   assert.equal(calls.filter(x=>x.includes('/presentation')).length,stage==='presentation'?1:0);
+   results.push({stage,elapsed_ms:Date.now()-started,calls,output:JSON.parse(output)});
+  }
+  if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R1-real-http-budget.json'),JSON.stringify(results,null,2));
+ }finally{await mock.close();}
+});
+
+test('real CLI authorization timeout exits without late verification or original business write',async()=>{
+ const {createServer}=await import('node:http');const {mkdtempSync,readFileSync,readdirSync,existsSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const mock=await startMockBackend();const home=mkdtempSync(join(tmpdir(),'itpay-process-auth-budget-'));const calls:string[]=[];
+ const server=createServer(async(req,res)=>{
+  const path=req.url!;calls.push(`${req.method} ${path.split('?')[0]}`);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
+  if(path==='/v1/agent-device-enrollments')await new Promise(resolve=>setTimeout(resolve,2200));
+  if(res.destroyed)return;
+  const f=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});res.statusCode=f.status;res.setHeader('content-type','application/json');res.end(await f.text());
+ });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+ let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
+ const file=join(home,'query.json');writeFileSync(file,JSON.stringify({keyword:'fixture'}));const started=Date.now();let output='';
+ try{
+  try{await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,'services','run','svc_qizhidao_company_lookup','--input-json',file,'--timeout','1','--json'],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:5000});assert.fail('expected timeout');}catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);}
+  const elapsed=Date.now()-started;assert(elapsed<2100,'CLI exits before slow enrollment returns');
+  const stateRoot=join(home,'.itpay-v3');const snapshots=()=>JSON.stringify(existsSync(stateRoot)?readdirSync(stateRoot,{recursive:true}).filter(x=>String(x).endsWith('.json')).map(x=>[x,readFileSync(join(stateRoot,String(x)),'utf8')]):[]);const snapshot=snapshots();
+  await new Promise(resolve=>setTimeout(resolve,2300));assert.equal(snapshots(),snapshot);
+  assert.equal(calls.filter(x=>x.includes('/agent-device-enrollments')).length,1);assert.equal(calls.filter(x=>x==='POST /v1/service-executions').length,0);
+  if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R2-real-authority-process.json'),JSON.stringify({scope:'real DeviceAuthority and fetch, synthetic isolated key, loopback server',elapsed_ms:elapsed,requests:calls,late_state_write:false,original_business_post:false,output:JSON.parse(output)},null,2));
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await mock.close();}
+});
+
+test('candidate lookup consumes the action budget before any write',async()=>{
+ const {createServer}=await import('node:http');let writes=0;
+ const server=createServer(async(req,res)=>{
+  if(req.method==='POST')writes++;
+  await new Promise(resolve=>setTimeout(resolve,160));
+  if(!res.destroyed){res.setHeader('content-type','application/json');res.end('{}');}
+ });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const address=server.address();assert(address&&typeof address!=='string');
+ try{
+  const backend=new BackendClient(new HttpClient({baseURL:`http://127.0.0.1:${address.port}`}));
+  const start=Date.now();
+  await assert.rejects(runServicesAction(backend,'se_candidate','select_candidate',{}, {candidateRank:1,deadline:start+60}),/request|timeout|network/i);
+  assert.ok(Date.now()-start<150);assert.equal(writes,0);
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
+
+test('actual CLI keeps chat consent unknown and branches saved-result guidance on returned facts',async()=>{
+ const {createServer}=await import('node:http');const {mkdtempSync,readFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const mock=await startMockBackend();const base=await new BackendClient(new HttpClient({baseURL:mock.url})).getServiceExecution('se_fixture');const home=mkdtempSync(join(tmpdir(),'itpay-consent-facts-'));let scenario='no_consent';let approvals=0;const evidence:unknown[]=[];
+ const diagnostic={journey_id:'j_diag',qualification_status:'ineligible',qualification_reasons:['INVENTORY_INSUFFICIENT'],booking_support:'none',rides:[{train_code:'G1',departure:'2030-10-01 09:00',arrival:'2030-10-01 10:00'}]};
+ const server=createServer(async(req,res)=>{
+  const path=req.url!;const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();res.setHeader('content-type','application/json');
+  if(path==='/v1/service-executions/se_fixture'){
+   const reading=scenario.startsWith('page_');res.end(JSON.stringify({...base,execution:{...base.execution,service_id:reading?'itpay-rail-smart':base.execution.service_id,service_contract_version_id:reading?'scv_itpay_rail_smart_v6':base.execution.service_contract_version_id},workflow_entry:{capability_id:'precise_report',input_schema:{}},capabilities:base.capabilities.map(c=>({...c,input_schema:{},delivery_email_required:false}))}));return;
+  }
+  if(path.includes('/result-items/')){
+   const empty=scenario==='page_empty'||scenario==='page_empty_next'||scenario==='page_empty_history';const unknown=scenario==='page_history'||scenario==='page_empty_history';
+   res.end(JSON.stringify({snapshot_id:'snap',plan_id:'plan',query_revision:1,page:{result:{journey_page:{total:empty?(scenario==='page_empty_next'?2:0):1,next_offset:scenario==='page_empty_next'?1:null,...(!unknown?{qualification_counts:{eligible:0,ineligible:empty?0:1,unknown:0}}:{})},journeys:empty?[]:[diagnostic]}}}));return;
+  }
+  if(path.endsWith('/actions'))approvals++;
+  const f=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});let response=JSON.parse(await f.text());
+  if(path.endsWith('/quotes')&&scenario==='changed_terms'){response={...response,amount_minor:700,approval_template:{...response.approval_template,terms_version:'changed-terms',price_policy:{...response.approval_template.price_policy,amount_minor:700}}};}
+  res.statusCode=f.status;res.end(JSON.stringify(response));
+ });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
+ let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
+ const run=async(args:string[])=>{const r=await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,...args],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:10000});return r.stdout;};
+ try{
+  for(scenario of ['no_consent','existing_chat_consent','changed_terms']){
+   // Conversation consent is deliberately not supplied to the CLI, which cannot know it.
+   const args=['services','quote','se_fixture','--capability','precise_report'];const json=JSON.parse(await run([...args,'--json']));const plain=await run(args);
+   assert.equal(json.interaction.input_template.user_answer_required,undefined);assert.equal(json.interaction.input_template.file_content.user_approved,false);assert.equal(json.next,null);assert.match(json.interaction.consent_rule,/false/);assert.ok(plain.includes(json.instruction));
+   if(scenario==='changed_terms')assert.equal(json.result.approval_template.terms_version,'changed-terms');
+   evidence.push({scenario,scope:'output semantics only; no human consent submitted',json,plain});
+  }
+  for(scenario of ['page_empty','page_diagnostic','page_history','page_empty_history','page_empty_next']){
+   const args=['services','read-result','se_fixture','--snapshot','snap'];const json=JSON.parse(await run([...args,'--json']));const plain=await run(args);assert.ok(plain.includes(json.instruction));
+   if(scenario==='page_empty'||scenario==='page_empty_history'){assert.equal(json.result.total,0);assert.equal(json.next,null);assert.doesNotMatch(json.instruction,/detail\.command/);}
+   else if(scenario==='page_empty_next'){assert.equal(json.result.count,0);assert.match(json.next.command,/--offset 1/);assert.doesNotMatch(json.instruction,/detail\.command/);}
+   else{assert.match(json.result.journeys[0].detail.command,/--journey j_diag/);assert.match(json.instruction,/detail\.command/);}
+   evidence.push({scenario,json,plain});
+  }
+  assert.equal(approvals,0);
+  if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R4-R5-package-output.json'),JSON.stringify({scope:'exact package with real HTTP and isolated DeviceAuthority; fixed Backend response fixtures; no approval action',approvals,outputs:evidence},null,2));
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await mock.close();}
+});
+
+test('creation validation protects both cached checkout handoffs while valid presentation failures retain recovery',async()=>{
+ const {runBuy}=await import('../src/commands/buy.js');
+ const {runServicesCheckout}=await import('../src/commands/services/commerce.js');
+ const {CartSession}=await import('../src/state/cart_session.js');
+ const {loadConfig}=await import('../src/state/config.js');
+ const {mkdtempSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const mock=await startMockBackend();
+ try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const config={...loadConfig({ITPAY_STATE_DIR:mkdtempSync(join(tmpdir(),'itpay-created-checkout-'))}),idempotencyKey:'isolated-checkout-validation'};
+  const cart={cart_id:'cart_fixture',status:'draft',amount_minor:500,currency:'CNY',items:[]};
+  backend.getCart=async()=>cart;
+  const serviceFacts={service_quote_lock_id:'quote_fixture',capability_id:'fixture',locked_input:{},binding:{service_checkout_binding_id:'binding_fixture',service_execution_id:'se_fixture',service_quote_lock_id:'quote_fixture',checkout_id:'chk_fixture',status:'active'},handoff_reissued:true};
+  let presentationReads=0,paymentWrites=0;
+  backend.getCheckoutPresentation=async()=>{presentationReads++;throw new Error('fixture presentation unavailable');};
+  backend.createPaymentIntent=async()=>{paymentWrites++;throw new Error('must not pay');};
+  for(const values of [{cartID:'other_cart',token:'fixture',status:'payment_required'},{cartID:cart.cart_id,token:'',status:'payment_required'},{cartID:cart.cart_id,token:'fixture',status:'payment_pending'}]) {
+   const checkout={checkout:{checkout_id:'chk_rejected',cart_id:values.cartID,status:values.status,next_action:'none',amount_minor:500,currency:'CNY'},display_token:values.token,checkout_url:'http://fixture/checkout/chk_rejected',qr_payload:''};
+   backend.createCheckout=async()=>checkout;
+   backend.createServiceExecutionCheckout=async()=>({...serviceFacts,binding:{...serviceFacts.binding,checkout_id:checkout.checkout.checkout_id},cart,checkout});
+   const session=new CartSession('CNY');let persisted=0;
+   await assert.rejects(runBuy(backend,config,{cartSession:session,cartID:cart.cart_id,host:'plain-chat',pay:true,jsonOutput:true}),/current payable entry/);
+   assert.equal(session.show().lastCheckoutID,undefined);
+   await assert.rejects(runServicesCheckout(backend,config,'se_fixture',undefined,{resume:true,host:'plain-chat',persistHandoff:()=>{persisted++;}}),/current payable entry/);
+   assert.equal(persisted,0);
+  }
+  assert.equal(presentationReads,0);assert.equal(paymentWrites,0);
+  const checkout={checkout:{checkout_id:'chk_valid',cart_id:cart.cart_id,status:'payment_required',next_action:'none',amount_minor:500,currency:'CNY'},display_token:'fixture',checkout_url:'http://fixture/checkout/chk_valid',qr_payload:''};
+  backend.createCheckout=async()=>checkout;backend.createServiceExecutionCheckout=async()=>({...serviceFacts,binding:{...serviceFacts.binding,checkout_id:checkout.checkout.checkout_id},cart,checkout});
+  const session=new CartSession('CNY');let persisted='';
+  await assert.rejects(runBuy(backend,config,{cartSession:session,cartID:cart.cart_id,host:'plain-chat',jsonOutput:true}),/fixture presentation unavailable/);
+  assert.equal(session.show().lastCheckoutID,'chk_valid');
+  await assert.rejects(runServicesCheckout(backend,config,'se_fixture',undefined,{resume:true,host:'plain-chat',persistHandoff:h=>{persisted=h.checkoutID;}}),/fixture presentation unavailable/);
+  assert.equal(persisted,'chk_valid');assert.equal(paymentWrites,0);
  }finally{await mock.close();}
 });

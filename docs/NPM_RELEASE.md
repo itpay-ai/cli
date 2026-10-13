@@ -59,3 +59,24 @@ Default host bundles track production npm `latest`; they have no periodic schedu
 `dispatch-platform-sync.yml` dispatches the five default channels after a successful main CD, or manually after registry verification. Configure `ITPAY_BUNDLE_APP_ID` and `ITPAY_BUNDLE_APP_PRIVATE_KEY` in CLI using the existing bundle App, installed on those five repositories with contents-write permission for repository_dispatch. npm OIDC and CLI's GITHUB_TOKEN cannot supply cross-repository permissions. Without the paired secrets the job explicitly reports automatic sync inactive; channel workflow_dispatch remains available. Do not add npm tokens for this purpose.
 
 If npm accepted publication but CD failed during immediate visibility verification, verify exact version/integrity/latest first, then manually dispatch this workflow. Do not republish. Each channel's existing tests still fail for real update defects; no failure is hidden by continue-on-error. Channel PRs remain subject to normal review and checks.
+
+## Buyer ESM candidate artifact
+
+The Buyer build is readable Node 18+ ESM. `src/state/release_identity.ts` owns
+version/API constants; the bundle imports the published pure constants at
+`dist/src/state/config.js`. Trusted release evidence reads those constants without
+executing the candidate. Legacy artifacts retain the explicit old config path.
+
+`npm run build` generates the Buyer bundle and complete third-party notices.
+`npm run test:package` verifies the packed limits and excluded Seller files;
+`npm run test:package` installs the artifact with scripts disabled and checks its
+actual entry and upgrades in isolated state. No runtime dependency download or
+Seller runner is part of installation. CI additionally checks Node 18/20/22/24
+on Linux, Windows and macOS; configured jobs are not evidence until run.
+
+`itpayBundleFormat: buyer-esm-v1` identifies the prebuilt package for host sync.
+The synchronizer copies this exact package, including notices, Skill and Buyer
+resources, and uses a thin launcher. It does not install/rebundle the new format.
+Old published formats keep their explicit compatibility paths. Default sync still
+tracks latest; a dev candidate must stay in isolated testing channels until an
+approved next activation. Do not change default channel tags for a local check.

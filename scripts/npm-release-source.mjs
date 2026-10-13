@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -18,6 +18,8 @@ export function releaseSource({ source, mainSha, approvals }) {
 
 export function checkPackage(pkg, config, source) {
   if (pkg.name !== '@itpay/cli' || !/^2\.\d+\.\d+$/.test(pkg.version)) throw new Error('Unexpected release package');
+  const sourceVersion=config.match(/CLI_VERSION\s*=\s*["']([^"']+)["']/)?.[1];
+  if(sourceVersion && sourceVersion!==pkg.version)throw new Error('Source version differs from package');
   const api = config.match(/API_CONTRACT_REVISION\s*=\s*["'](sha256:[a-f0-9]{64})["']/)?.[1];
   if (!api || (source.version && source.version !== pkg.version) || (source.api && source.api !== api)) {
     throw new Error('Package version or API does not match its approved source');
@@ -37,7 +39,9 @@ function main() {
   const cwd = resolve(process.env.RELEASE_CHECKOUT);
   if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim() !== source.sha) throw new Error('Checkout does not match approved source');
   const pkg = JSON.parse(readFileSync(resolve(cwd, 'package.json'), 'utf8'));
-  const api = checkPackage(pkg, readFileSync(resolve(cwd, 'src/state/config.ts'), 'utf8'), source);
+  const identityPath=resolve(cwd,'src/state/release_identity.ts');
+  if(pkg.itpayBundleFormat==='buyer-esm-v1' && !existsSync(identityPath))throw new Error('Buyer release identity source is missing');
+  const api = checkPackage(pkg, readFileSync(existsSync(identityPath)?identityPath:resolve(cwd,'src/state/config.ts'), 'utf8'), source);
   // Record actual package source; the trusted workflow SHA can differ on maintenance releases.
   pkg.gitHead = source.sha;
   writeFileSync(resolve(cwd, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');

@@ -1,7 +1,7 @@
 // V3 endpoint wrappers. One function per route family; one file per domain.
 // Keep parameter shapes aligned with the typed request DTOs in ./types.ts.
 
-import type { HttpClient } from "./http.js";
+import type { HttpClient, RequestOptions } from "./http.js";
 import type {
   RailAftercareInput, RailAftercareView, RailAftercareDirectory, RailAftercareResponseInput,
   Cart,
@@ -54,12 +54,6 @@ export class BackendClient {
   constructor(private readonly http: HttpClient) {}
   get localSimulation(): boolean { return this.http.localSimulation; }
 
-  // Called only through the fixed Sell operation contract, never arbitrary Agent URLs.
-  sellRequest(request: {path:string; method:"GET"|"POST"|"PUT"|"DELETE"; body?:unknown}): Promise<unknown> {
-    if (!request.path.startsWith("/v1/seller/organizations") && !request.path.startsWith("/v1/library/")) throw new Error("Invalid Sell route");
-    return this.http.request(request.path,{method:request.method,...(request.body!==undefined?{body:request.body}:{})});
-  }
-
   agentAccountStatus(): Promise<{status: string; phone_verified?: boolean}> {
     return this.http.get('/v1/agent-device-account-bindings');
   }
@@ -83,12 +77,12 @@ export class BackendClient {
 
   // --- Cart ---
 
-  createCart(input: CreateCartRequest): Promise<Cart> {
-    return this.http.post<Cart>("/v1/carts", input);
+  createCart(input: CreateCartRequest, options: RequestOptions = {}): Promise<Cart> {
+    return this.http.post<Cart>("/v1/carts", input,options);
   }
 
-  getCart(cartID: string): Promise<Cart> {
-    return this.http.get<Cart>(`/v1/carts/${encodeURIComponent(cartID)}`);
+  getCart(cartID: string, options: RequestOptions = {}): Promise<Cart> {
+    return this.http.get<Cart>(`/v1/carts/${encodeURIComponent(cartID)}`,options);
   }
 
   addCartItem(cartID: string, input: AddCartItemRequest): Promise<Cart> {
@@ -107,14 +101,14 @@ export class BackendClient {
 
   // --- Checkout ---
 
-  createCheckout(input: CreateCheckoutRequest, idempotencyKey?: string): Promise<CheckoutCreated> {
-    return this.http.post<CheckoutCreated>("/v1/checkouts", input, idempotencyKey ? { idempotencyKey } : undefined);
+  createCheckout(input: CreateCheckoutRequest, idempotencyKey?: string, options: RequestOptions = {}): Promise<CheckoutCreated> {
+    return this.http.post<CheckoutCreated>("/v1/checkouts", input, {...options,...(idempotencyKey ? {idempotencyKey}: {})});
   }
 
-  getCheckoutPresentation(checkoutID: string, displayToken: string, locale?: "zh-CN" | "en"): Promise<CheckoutPresentation> {
+  getCheckoutPresentation(checkoutID: string, displayToken: string, locale?: "zh-CN" | "en", options: RequestOptions = {}): Promise<CheckoutPresentation> {
     const qs = new URLSearchParams({ display_token: displayToken });
     if (locale) qs.set("locale", locale);
-    return this.http.get<CheckoutPresentation>(`/v1/checkouts/${encodeURIComponent(checkoutID)}/presentation?${qs}`);
+    return this.http.get<CheckoutPresentation>(`/v1/checkouts/${encodeURIComponent(checkoutID)}/presentation?${qs}`,options);
   }
 
   // --- Payment intents ---
@@ -122,10 +116,11 @@ export class BackendClient {
   createPaymentIntent(
     checkoutID: string,
     input: CreatePaymentIntentRequest,
+    options: RequestOptions = {},
   ): Promise<PaymentIntent> {
     return this.http.post<PaymentIntent>(
       `/v1/checkouts/${encodeURIComponent(checkoutID)}/payment-intents`,
-      input,
+      input,options,
     );
   }
 
@@ -227,12 +222,12 @@ export class BackendClient {
 
   // --- Service Execution ---
 
-  startServiceExecution(input: StartServiceExecutionRequest): Promise<ServiceStartResponse> {
-    return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input);
+  startServiceExecution(input: StartServiceExecutionRequest, options: RequestOptions = {}): Promise<ServiceStartResponse> {
+    return this.http.post<ServiceExecutionStarted>("/v1/service-executions", input, options);
   }
 
-  advanceServiceExecution(id: string, input: Record<string, unknown> | undefined, idempotencyKey: string): Promise<ServiceExecutionReadModel> {
-    return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey });
+  advanceServiceExecution(id: string, input: Record<string, unknown> | undefined, idempotencyKey: string, options: RequestOptions = {}): Promise<ServiceExecutionReadModel> {
+    return this.http.post<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(id)}/advance`, { input, idempotency_key: idempotencyKey },options);
   }
 
   getServiceExecutionResultItemPage(serviceExecutionID: string, resultItemID: string, offset: number, limit: number, view?: "summary"): Promise<ServiceResultItemPage> {
@@ -257,38 +252,41 @@ export class BackendClient {
   recordServiceExecutionAction(
     serviceExecutionID: string,
     input: RecordServiceExecutionActionRequest,
+    options: RequestOptions = {},
   ): Promise<ServiceExecutionAction | RailPlanningActionResponse> {
     return this.http.post<ServiceExecutionAction | RailPlanningActionResponse>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/actions`,
-      input,
+      input, options,
     );
   }
 
   createServiceExecutionCheckout(
     serviceExecutionID: string,
     input: CreateServiceExecutionCheckoutRequest,
+    options: RequestOptions = {},
   ): Promise<ServiceExecutionCheckoutCreated> {
     return this.http.post<ServiceExecutionCheckoutCreated>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/checkout`,
       input,
-      { replaySafe: true },
+      { ...options, replaySafe: true },
     );
   }
 
   prepareServiceQuote(
     serviceExecutionID: string,
     input: CreateServiceExecutionCheckoutRequest,
+    options: RequestOptions = {},
   ): Promise<ServiceQuotePrepared> {
     return this.http.post<ServiceQuotePrepared>(
       `/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/quotes`,
       input,
-      { replaySafe: true },
+      { ...options, replaySafe: true },
     );
   }
 
-  getServiceExecution(serviceExecutionID: string, opts: { sinceSnapshot?: string } = {}): Promise<ServiceExecutionReadModel> {
+  getServiceExecution(serviceExecutionID: string, opts: { sinceSnapshot?: string; deadline?: number } = {}): Promise<ServiceExecutionReadModel> {
     const query = opts.sinceSnapshot ? `?since_snapshot=${encodeURIComponent(opts.sinceSnapshot)}` : "";
-    return this.http.get<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}${query}`);
+    return this.http.get<ServiceExecutionReadModel>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}${query}`,opts);
   }
 
   listServiceExecutions(limit = 50): Promise<ListServiceExecutionsResponse> {

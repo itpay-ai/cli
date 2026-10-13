@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer_agent",
-  "product_scope": "itpay_rail",
+  "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "rail-fast-checkout",
   "title": "Rail Fast Checkout — Delegated Purchase Supplement",
   "purpose": "Short delegated-purchase supplement to rail-booking; host presentation differences only.",

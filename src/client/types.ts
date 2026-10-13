@@ -330,10 +330,11 @@ export interface PlatformCompatibility {
 }
 
 export interface ErrorResponse {
+ public_binding?: ServiceExecution["public_binding"];
  service_definition?:PublicServiceDefinition;
  service_id?:string;
  service_contract_version_id?:string;
-  selection_expiry?: { query_execution_id: string; query_service_id: string; expired_at: string; query_input?: Record<string, unknown>; safe_new_query: boolean; booking_execution_id?: string };
+  selection_expiry?: { query_execution_id: string; query_service_id: string; expired_at: string; query_input?: Record<string, unknown>; safe_new_query: boolean; booking_execution_id?: string; query_public_binding?: ServiceExecution["public_binding"]; recovery_block_reason?: string };
   reason?: string;
   input_schema?: Record<string, unknown>;
   input_errors?: string[];
@@ -823,7 +824,7 @@ export interface RailJourneyCard {
   booking_support?: "single_leg" | "separate_legs_only" | "none" | string;
   // Server-issued purchase handle: present only on single_leg cards. The token
   // is opaque — submit it verbatim to itpay-rail-booking, never decode it.
-  booking_offer?: { service_id: string; selection_token: string };
+  booking_offer?: { service_id: string; selection_token: string; expires_at?: string };
   purchase_operation?:PublicOperationInput;
   candidate_ids?: string[];
 }

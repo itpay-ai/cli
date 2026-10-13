@@ -1,4 +1,5 @@
-import {assertCheckoutPayable} from "../checkout_handoff.js";
+import type { ServiceExecutionReadModel } from "../../client/types.js";
+import {assertCheckoutCreation,assertCheckoutPayable} from "../checkout_handoff.js";
 import { serviceAdapter } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
@@ -11,7 +12,7 @@ import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../../ren
 import { platformKeyForHost } from "../../render/plan.js";
 import { renderTerminalQR } from "../../render/qr.js";
 import { buildCheckoutQRPlan } from "../../render/checkout_plan.js";
-import { CommandContractError, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
+import { CommandContractError, fileInputTemplate, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
 import { ServicesCommandOptions, missingRequiredInput, checkoutCommand, formatInputOptions, tokenizedCheckoutURL, absolutePublicURL, fallbackCardURL, fallbackCardPNGURL, buildServicesCheckoutEnvelope, quoteCommand, formatMoney } from "../../services/shared/platform.js";
 
 export async function runServicesCheckout(
@@ -20,6 +21,7 @@ export async function runServicesCheckout(
   serviceExecutionID: string,
   capabilityID: string | undefined,
   options: ServicesCommandOptions & {
+    readModel?: ServiceExecutionReadModel;
     email?: string;
     deliveryContact?: Record<string, unknown>;
 		lockedInput?: Record<string, unknown>;
@@ -42,6 +44,7 @@ export async function runServicesCheckout(
     }) => void;
   } = {},
 ): Promise<void> {
+  const deadline = options.deadline ?? Date.now()+60000;
   const host = options.host ?? "terminal";
   const contextError = validateContext(host, options.target);
   if (contextError) {
@@ -56,10 +59,8 @@ export async function runServicesCheckout(
     ...(options.deliveryContact ?? {}),
     ...(options.email ? { email: options.email } : {}),
   };
-  if (!options.resume && !capabilityID) {
-    const model = await backend.getServiceExecution(serviceExecutionID);
-    capabilityID = model.workflow_entry?.capability_id;
-  }
+  const currentModel = options.readModel ?? (!options.resume ? await backend.getServiceExecution(serviceExecutionID,{deadline}) : undefined);
+  if (!options.resume && !capabilityID) capabilityID = currentModel?.workflow_entry?.capability_id;
   if (!options.resume && !capabilityID) {
     throw new CommandContractError(
       "capability_required",
@@ -69,7 +70,8 @@ export async function runServicesCheckout(
     );
   }
   if (!options.resume) {
-    const readModel = await backend.getServiceExecution(serviceExecutionID);
+    if (!currentModel) throw new Error("current execution model is required for checkout validation");
+    const readModel = currentModel;
     const capability = readModel.capabilities.find((item) => item.capability_id === capabilityID);
     if (!capability || !capability.requires_payment) {
       throw new CommandContractError(
@@ -80,7 +82,7 @@ export async function runServicesCheckout(
       );
     }
     if(readModel.checkout_bindings.length===0 && !readModel.actions.some(action=>action.action_type==="approve_purchase"&&action.status==="approved")) {
-      await runServicesQuote(backend,serviceExecutionID,capability.capability_id,options.lockedInput ?? {},options);
+      await runServicesQuote(backend,serviceExecutionID,capability.capability_id,options.lockedInput ?? {},{...options,readModel,deadline});
       return;
     }
     const lockedInput = options.lockedInput ?? {};
@@ -108,7 +110,7 @@ export async function runServicesCheckout(
     ...(Object.keys(deliveryContact).length > 0 ? { delivery_contact: deliveryContact } : {}),
 		...(options.lockedInput && Object.keys(options.lockedInput).length > 0 ? { locked_input: options.lockedInput } : {}),
     ...(options.resume ? { resume: true } : {}),
-  });
+  },{deadline});
   } catch(error) {
     if(error instanceof HttpError && error.code === "purchase_approval_required") {
       throw new CommandContractError(error.code,error.message,"先读当前报价及完整范围模板。沿用覆盖同条件的真实批准；缺少哪部分才补哪部分，不把候选选择当作价格同意，也不代付。",[{command:capabilityID ? `itpay services quote ${serviceExecutionID} --capability ${capabilityID}${formatInputOptions(options.lockedInput ?? {})} --json` : `itpay services next ${serviceExecutionID} --json`,reason:"读取同一执行的当前批准范围，不新建购买"}]);
@@ -116,7 +118,15 @@ export async function runServicesCheckout(
     throw error;
   }
   const checkout = response.checkout;
-  const authoritative = checkout.display_token ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id,checkout.display_token) : undefined;
+  assertCheckoutCreation(checkout,response.cart.cart_id,serviceExecutionID);
+  options.persistHandoff?.({
+    serviceExecutionID,
+    cartID: response.cart.cart_id,
+    checkoutID:checkout.checkout.checkout_id,
+    displayToken:checkout.display_token,
+    checkoutURL:tokenizedCheckoutURL(checkout.checkout_url,checkout.display_token,checkout.qr_payload),
+  });
+  const authoritative = checkout.display_token ? await backend.getCheckoutPresentation(checkout.checkout.checkout_id,checkout.display_token,undefined,{deadline}) : undefined;
   assertCheckoutPayable(checkout,authoritative,response.cart.cart_id,serviceExecutionID);
   if (authoritative) response.cart.items=authoritative.items;
   const checkoutID = checkout.checkout.checkout_id;
@@ -134,8 +144,8 @@ export async function runServicesCheckout(
   let itineraryTitle: string | undefined;
   let itinerary: Record<string, unknown> | undefined;
   try {
-    const booking = await backend.getServiceExecution(serviceExecutionID);
-    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken));
+    const booking = currentModel ?? await backend.getServiceExecution(serviceExecutionID,{deadline});
+    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken,authoritative));
   } catch {
     // Checkout already exists; a display-only title lookup cannot hide its official handoff.
   }
@@ -160,15 +170,14 @@ export async function runServicesCheckout(
     locale,
   });
 
-  options.persistHandoff?.({
-    serviceExecutionID,
-    cartID: response.cart.cart_id,
-    checkoutID,
-    displayToken,
-    checkoutURL,
-  });
+
 
   const platform = platformKeyForHost(plan.host);
+  const fetchWithinBudget: typeof fetch = async (url,init) => {
+    const remaining=deadline-Date.now();
+    if(remaining<=0) throw new DOMException("command deadline reached","TimeoutError");
+    return (options.fetchImpl ?? globalThis.fetch)(url,{...init,signal:AbortSignal.timeout(remaining)});
+  };
   if (!options.jsonOutput && (platform === "telegram" || platform === "feishu" || platform === "lark")) {
     await dispatchRender(plan, {
       host,
@@ -176,7 +185,7 @@ export async function runServicesCheckout(
       ...(options.qrFormat ? { qrFormat: options.qrFormat } : {}),
       ...(options.qrFilePath ? { qrFilePath: options.qrFilePath } : {}),
       ...(options.output ? { output: options.output } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      fetchImpl:fetchWithinBudget,
       baseURL: config.baseURL,
     });
     return;
@@ -185,7 +194,7 @@ export async function runServicesCheckout(
     await ensureIdeImageAttach(plan, {
       enabled: config.ideImageAttach,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      fetchImpl:fetchWithinBudget,
     });
   }
   const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, options.agentType, options.target);
@@ -209,9 +218,10 @@ export async function runServicesQuote(
   serviceExecutionID: string,
   capabilityID: string,
   input: Record<string, unknown>,
-  options: ServicesCommandOptions & { email?: string; deliveryContact?: Record<string, unknown>; jsonOutput?: boolean } = {},
+  options: ServicesCommandOptions & { readModel?: ServiceExecutionReadModel; email?: string; deliveryContact?: Record<string, unknown>; jsonOutput?: boolean } = {},
 ): Promise<void> {
-  const model = await backend.getServiceExecution(serviceExecutionID);
+  const deadline = options.deadline ?? Date.now()+60000;
+  const model = options.readModel ?? await backend.getServiceExecution(serviceExecutionID,{deadline});
   const capability = model.capabilities.find((item) => item.capability_id === capabilityID);
   if (!capability || !capability.requires_payment) {
     throw new CommandContractError(
@@ -248,7 +258,7 @@ export async function runServicesQuote(
     capability_id: capabilityID,
     ...(Object.keys(deliveryContact).length > 0 ? { delivery_contact: deliveryContact } : {}),
     ...(Object.keys(input).length > 0 ? { locked_input: input } : {}),
-  });
+  },{deadline});
   const result = {
     service_quote_lock_id: quote.service_quote_lock_id,
     service_execution_id: quote.service_execution_id,
@@ -264,7 +274,7 @@ export async function runServicesQuote(
     instruction: quote.approval_template
       ? "报价已锁定。先展示服务端商品名称、对象、范围、数量和金额；与用户请求不符时让用户决定，不自称基础报告或换商品。选择候选不是价格同意；模板中的user_approved=false表示尚未记录批准。仅在用户已有真实批准覆盖本范围时改为true并提交，不重复询问同条件已明确同意。用户授权预算时用capped及真实maximum_minor；仅委托准备入口、最终金额在官方页确认时用confirm_on_official_page。不要伪造接受未知金额或条款。"
       : "报价已锁定当前 Execution 的可信输入和价格；可单独付款，也可与其他独立 Execution 的报价合并。",
-    ...(quote.approval_template ? {interaction: {schema_version:"itpay.interaction.v1" as const,stage:"purchase_approval_required",input_template:{command:`itpay services action ${serviceExecutionID} --action approve_purchase --actor-type agent --status approved --input-json <file> --json`,input:quote.approval_template,required_input:["file"],executable:false}}} : {}),
+    ...(quote.approval_template ? {interaction: {schema_version:"itpay.interaction.v1" as const,stage:"purchase_approval_required",consent_rule:"先核对聊天明确确认或已存同意是否覆盖当前对象、范围、数量、价格及条款；已覆盖则沿用，不重复询问。缺少同意或实质变化才问缺失或变化部分；模板false只表示尚未记录批准，不判断聊天事实。",input_template:fileInputTemplate(`itpay services action ${serviceExecutionID} --action approve_purchase --actor-type agent --status approved --input-json <file> --json`,{...quote.approval_template},["user_approved"],{executionID:serviceExecutionID})}} : {}),
     next: quote.approval_template ? null : {
       command: `itpay cart add --quote ${quote.service_quote_lock_id} --json`,
       reason: "加入 canonical Cart",

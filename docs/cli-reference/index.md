@@ -2,7 +2,7 @@
 
 本目录是 ItPay CLI 的规范性命令合同。它定义命令应向人和 Agent 返回什么、如何指导下一步，以及失败后如何恢复。当前实现与本文档不一致时，以本文档作为后续校准目标。
 
-> **统一产品边界：** `itpay` 是唯一公开的 CLI 入口，`$itpay` 是对应的用户侧 Skill 调用方式。当前入口同时覆盖购买新服务、查询订单、查看经用户授权的已购内容和退款；Seller 流程使用同一入口的 `itpay sell` 命令。不得为这些意图拆分新的产品入口。
+> **统一产品边界：** `itpay` 是唯一公开的 CLI 入口，`$itpay` 是对应的用户侧 Skill 调用方式。当前入口同时覆盖购买新服务、查询订单、查看经用户授权的已购内容和退款。当前公开安装包仅提供 Buyer 能力。不得为这些意图拆分新的产品入口。
 
 企知道可以作为示例数据出现，但任何命令、字段、状态和 instruction 都不得依赖某个服务。服务差异只能来自 Catalog、Service Contract、Capability metadata 和服务端状态。
 
@@ -94,7 +94,6 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
   - [`itpay services read-result`](commands/services/read-result.md)
   - [`itpay services events`](commands/services/events.md)
 
-- [Sell: create, test and submit services](commands/sell.md)
 
 - [Run a published service](commands/services/run.md)
 

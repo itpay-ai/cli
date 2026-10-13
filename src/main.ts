@@ -1,6 +1,5 @@
 import {runAftercareList,runAftercareCreate,runAftercareGet,runAftercareRespond} from "./commands/aftercare.js";
 import { agentAuth } from "./state/account_auth.js";
-import {registerSell} from "./sell/commands.js";
 import { readFileSync as readWorkflowInputFile, statSync as statWorkflowInputFile } from "node:fs";
 import { runServicesRun } from "./commands/services.js";
 // V3 CLI entrypoint. Each command maps 1:1 to a route family in
@@ -249,6 +248,7 @@ function reportCLIError(
         result: {
           attempts: transportError.attempts,
           automatic_retry_performed: transportError.attempts > 1,
+          network_diagnostics: transportError.diagnostics,
         },
       } : error instanceof HttpError && error.payload?.service_execution_id ? {
         result: {
@@ -1965,7 +1965,6 @@ services
     }
   });
 
-registerSell(program);
 
 program.parseAsync(process.argv).catch((error) => {
   reportCLIError(error);

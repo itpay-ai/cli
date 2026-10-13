@@ -1,9 +1,11 @@
+import { sellerSessionToken } from '../src/sell/auth.js';
+import { authStatePath } from '../src/state/auth_storage.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync, rmSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {agentAuth, sellerAuthPath, sellerSessionToken} from '../src/state/account_auth.js';
+import {agentAuth} from '../src/state/account_auth.js';
 
 test('Agent login binds the signed device after Web completion without storing an account bearer', async () => {
   const home=mkdtempSync(join(tmpdir(),'itpay-agent-login-'));
@@ -25,7 +27,7 @@ test('Agent login binds the signed device after Web completion without storing a
   try {
     assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'login_required');
     await agentAuth('login',base,backend,env,fetcher);
-    const path=sellerAuthPath(base,env,'agent-login');
+    const path=authStatePath(base,env,'agent-login');
     assert.equal(statSync(path).mode&0o777,0o600);
     assert.equal((await agentAuth('status',base,backend,env,fetcher) as any).status,'auth_pending');
     const historical=await agentAuth('status',base,backend,env,fetcher) as any;

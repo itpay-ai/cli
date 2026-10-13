@@ -1,7 +1,7 @@
 import { railAdapterFor } from "./rail/adapter.js";
 import { schemaAdapter, unsupportedAdapter } from "./schema.js";
 import type { ServiceAdapter } from "./adapter.js";
-import type { ServiceExecution } from "../client/types.js";
+import type { ServiceExecution, ErrorResponse } from "../client/types.js";
 
 // Published identities are frozen compatibility contracts. Fields named
 // endpoints/review/search, titles and ID prefixes never choose a business adapter.
@@ -30,4 +30,13 @@ export function serviceClientFeatures(): string[] {
 export function serviceAdapter(execution: Parameters<typeof serviceAdapterKey>[0]): ServiceAdapter {
  const key = serviceAdapterKey(execution);
  return key === "rail.v1" ? railAdapterFor(execution) : key === "schema.v1" ? schemaAdapter : unsupportedAdapter;
+}
+
+// Error identity is emitted by Backend after definition/owner validation. A
+// conflicting public binding must not select another service's presentation.
+export function errorServiceAdapter(payload: ErrorResponse | undefined, requestedServiceID: string): ServiceAdapter | undefined {
+ if (!payload?.service_id || !payload.service_contract_version_id) return undefined;
+ if (payload.public_binding && payload.public_binding.public_service_id !== requestedServiceID) return unsupportedAdapter;
+ return serviceAdapter({service_id:payload.service_id,service_contract_version_id:payload.service_contract_version_id,
+   ...(payload.public_binding ? {public_binding:payload.public_binding} : {})});
 }

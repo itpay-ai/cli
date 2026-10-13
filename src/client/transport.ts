@@ -1,3 +1,14 @@
+export interface RequestDiagnostic {
+  method: string;
+  route_template: string;
+  attempt: number;
+  attempt_ms: number;
+  total_ms: number;
+  phase: "unknown" | "response_body";
+  request_id?: string;
+  cause_code?: string;
+}
+
 export type TransportErrorCode =
   | "network_connection_reset"
   | "network_timeout"
@@ -9,6 +20,7 @@ export type TransportErrorCode =
 
 export class HttpTransportError extends Error {
   readonly retryable = true;
+  diagnostics: RequestDiagnostic[] = [];
 
   constructor(
     readonly code: TransportErrorCode,

@@ -1,4 +1,5 @@
-import { serviceAdapter } from "../../services/registry.js";
+import { serviceAdapter, errorServiceAdapter } from "../../services/registry.js";
+import { HttpError } from "../../client/http.js";
 import { type BackendClient } from "../../client/backend.js";
 import { type RecordServiceExecutionActionRequest } from "../../client/types.js";
 import { CommandContractError, writeCommandEnvelope } from "../../services/shared/envelope.js";
@@ -20,7 +21,8 @@ export async function runServicesAction(
     jsonOutput?: boolean;
   } = {},
 ): Promise<void> {
-  const selection = await resolveCandidateSelection(backend, serviceExecutionID, actionType, options);
+  const deadline=options.deadline ?? Date.now()+60000;
+  const selection = await resolveCandidateSelection(backend, serviceExecutionID, actionType, {...options,deadline});
   const request: RecordServiceExecutionActionRequest = {
     action_type: actionType,
     input_snapshot: input,
@@ -33,10 +35,15 @@ export async function runServicesAction(
   if (options.requiredBefore) request.required_before = options.requiredBefore;
 	let response;
 	try {
-		response = await backend.recordServiceExecutionAction(serviceExecutionID, request);
+		response = await backend.recordServiceExecutionAction(serviceExecutionID, request,{deadline});
 	} catch (error) {
         // A failed write is never replayed. Only the locked execution identifies its adapter.
-        try { const model = await backend.getServiceExecution(serviceExecutionID); serviceAdapter(model.execution).actionError(error,serviceExecutionID,actionType); }
+        if (error instanceof HttpError) {
+          const identity=error.payload?.public_binding?.public_service_id ?? error.payload?.service_id;
+          const adapter=identity ? errorServiceAdapter(error.payload,identity):undefined;
+          if(adapter?.supported) {adapter.actionError(error,serviceExecutionID,actionType);throw error;}
+        }
+        try { const model = await backend.getServiceExecution(serviceExecutionID,{deadline}); serviceAdapter(model.execution).actionError(error,serviceExecutionID,actionType); }
         catch (recoveryError) { if (recoveryError instanceof CommandContractError) throw recoveryError; }
 		throw error;
 	}
@@ -52,7 +59,7 @@ export async function runServicesAction(
     return;
   }
 	if ("state" in response) {
-		const updated = await backend.getServiceExecution(serviceExecutionID);
+		const updated = await backend.getServiceExecution(serviceExecutionID,{deadline});
 		const envelope = servicesNextEnvelope(updated);
 		envelope.result = {
 			...envelope.result,
@@ -65,7 +72,7 @@ export async function runServicesAction(
 		return;
 	}
 	if (selection && actionType === "select_candidate" && response.status === "approved") {
-		const updated = await backend.getServiceExecution(serviceExecutionID);
+		const updated = await backend.getServiceExecution(serviceExecutionID,{deadline});
 		const preferred = updated.allowed_actions?.[0];
 		const continuation = preferred?.type === "prepare_quote"
 			? paidContinuation(updated, preferred, {})
@@ -123,7 +130,7 @@ export async function resolveCandidateSelection(
   backend: BackendClient,
   serviceExecutionID: string,
   actionType: string,
-	options: { candidateRank?: number; resultItemID?: string },
+	options: { candidateRank?: number; resultItemID?: string; deadline?: number },
 ): Promise<{ resultItemID: string; rank: number; title: string } | undefined> {
   if (options.candidateRank === undefined) return undefined;
   if (actionType !== "select_candidate") {
@@ -135,7 +142,7 @@ export async function resolveCandidateSelection(
   if (!Number.isInteger(options.candidateRank) || options.candidateRank < 1) {
     throw actionInputError(serviceExecutionID, "--candidate must be a positive integer result rank");
   }
-  const execution = await backend.getServiceExecution(serviceExecutionID);
+  const execution = await backend.getServiceExecution(serviceExecutionID,options.deadline!==undefined?{deadline:options.deadline}:{});
 	const currentItems = execution.current_result_items ?? [];
 	const result = currentItems.find((item) => item.rank === options.candidateRank);
   if (!result) {

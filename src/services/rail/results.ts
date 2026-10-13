@@ -1,7 +1,14 @@
 import { railAvailableActions } from "./actions.js";
 import { type ServiceExecutionReadModel, type RailJourneyCard } from "../../client/types.js";
-import { type CommandAction, type CommandEnvelope } from "../shared/envelope.js";
+import { type CommandAction, type CommandEnvelope, fileInputTemplate } from "../shared/envelope.js";
 import { publicPurchaseTemplate, formatMoney } from "../shared/platform.js";
+
+export function purchaseCredentialFacts(value: unknown): Record<string, unknown> {
+  const expiresAt = typeof value === "string" && Number.isFinite(Date.parse(value)) && !value.startsWith("0001-") ? value : undefined;
+  return {status: expiresAt ? (Date.parse(expiresAt) > Date.now() ? "not_expired" : "expired") : "unknown",
+    ...(expiresAt ? {expires_at:expiresAt} : {}),
+    meaning:"保存的行程是历史查询事实；重新读详情不会刷新库存或延长购买凭据。not_expired只表示期限未过，购买仍须服务端校验。"};
+}
 
 // Public summaries and saved details use the same evidenced units and scopes.
 export function railJourneyFacts(card: RailJourneyCard): Record<string, unknown> {
@@ -55,7 +62,8 @@ export function compactRailJourney(card: RailJourneyCard, serviceExecutionID: st
     route: card.route_text ?? (card.route_names ?? card.route ?? []).join("→"),
     rides,
     ...(card.booking_support === "single_leg" && card.qualification_status === "eligible" && card.booking_offer ? {
-      booking_template: {command: `itpay services run ${card.booking_offer.service_id} --input-json <购票.json> --json`, executable: false,
+      purchase_credentials: purchaseCredentialFacts(card.booking_offer.expires_at),
+      booking_template: {...fileInputTemplate(`itpay services run ${card.booking_offer.service_id} --input-json <file> --json`, {selection:{token:card.booking_offer.selection_token,seat_type:"<返回席别代码>"},passengers:card.passengers ?? offer?.ticket_offers?.[0]?.passengers ?? "<真实人数>"}),
         seat_choices: ticketSeats.map(seat => ({seat_type: seat.seat_type, seat_name: seat.seat_name})),
         input_example: {selection: {token: card.booking_offer.selection_token, seat_type: "<返回席别代码>"}, passengers: card.passengers ?? offer?.ticket_offers?.[0]?.passengers ?? "<真实人数>"},
         required_input: ["file", "真实席别选择及人数"],
@@ -88,6 +96,7 @@ export function compactRailTicketPlan(raw: Record<string, unknown>, journeyEligi
   const tickets = Array.isArray(raw.ticket_offers) ? raw.ticket_offers as Record<string, unknown>[] : [];
   return {
     ticket_plan_ref: raw.ticket_plan_ref,
+    purchase_credentials: purchaseCredentialFacts(raw.purchase_credentials && typeof raw.purchase_credentials === "object" && "expires_at" in raw.purchase_credentials ? raw.purchase_credentials.expires_at : undefined),
     passengers: raw.passenger_count ?? (Array.isArray(raw.ticket_offers) ? (raw.ticket_offers[0] as Record<string, unknown> | undefined)?.passengers : null) ?? null,
     purchase_support: raw.purchase_support === "separate_legs_only" ? "read_only" : raw.purchase_support ?? "none",
     ...(legs.length > 1 && !raw.booking_input ? {booking_unavailable: "这份快照只有历史铁路事实，没有完整整程购买凭据；不能拆腿或拼接其他快照凭据。读取同一执行当前状态，按其购买准备或过期恢复动作继续。"} : {}),
@@ -97,7 +106,7 @@ export function compactRailTicketPlan(raw: Record<string, unknown>, journeyEligi
     service_fee_fen: raw.service_fee_fen ?? null,
     price_verified: raw.rail_amount_verified === true,
     ...(journeyEligible && raw.qualification_status === "eligible" && raw.booking_input && typeof raw.booking_input === "object" ? {
-      booking_template: {command: "itpay services run itpay-rail-booking --input-json <journey.json> --json", executable: false, ticket_plan_ref: raw.ticket_plan_ref, input_example: raw.booking_input, required_input: ["file", "passengers"],...(publicPurchaseTemplate(raw.purchase_operation) ?? {})},
+      booking_template: {...fileInputTemplate("itpay services run itpay-rail-booking --input-json <file> --json", raw.booking_input as Record<string, unknown>, ["passengers"]), ticket_plan_ref: raw.ticket_plan_ref, input_example: raw.booking_input,...(publicPurchaseTemplate(raw.purchase_operation) ?? {})},
     } : {}),
     legs: legs.map((leg, index) => ({
       leg_index: index,
@@ -106,7 +115,7 @@ export function compactRailTicketPlan(raw: Record<string, unknown>, journeyEligi
         const ticket = tickets.find(ticket => ticket.leg_index === index) ?? (tickets[index]?.leg_index === undefined ? tickets[index] : undefined);
         const offer = ticket?.booking_offer as {service_id?: string; selection_token?: string} | undefined;
         return legs.length === 1 && offer?.service_id && offer.selection_token && journeyEligible && raw.qualification_status === "eligible" ? {
-          booking_template: { command: `itpay services run ${offer.service_id} --input-json <购票.json> --json`, executable: false,
+          booking_template: {...fileInputTemplate(`itpay services run ${offer.service_id} --input-json <file> --json`, {selection:{token:offer.selection_token,seat_type:ticket?.seat_type ?? "<该方案席别代码>"},passengers:ticket?.passengers ?? raw.passenger_count ?? "<真实人数>"}),
             ticket_plan_ref: raw.ticket_plan_ref, leg_index: index,
             seat_choices: [{seat_type: ticket?.seat_type, seat_name: ticket?.seat_name}],
             input_example: {selection: {token: offer.selection_token, seat_type: ticket?.seat_type ?? "<该方案席别代码>"},

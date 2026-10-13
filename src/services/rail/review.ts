@@ -1,6 +1,6 @@
 import { executionInputContext, operationInputTemplate } from "../shared/input.js";
 import { type ServiceExecutionReadModel } from "../../client/types.js";
-import { type CommandEnvelope } from "../shared/envelope.js";
+import { type CommandEnvelope, fileInputTemplate } from "../shared/envelope.js";
 import { requiredInputFields } from "../shared/platform.js";
 import { locationConfirmationEnvelope } from "./query.js";
 import { RAIL_LOCATION_EVIDENCE_REASONS, RAIL_QUOTE_FAILURE_GUIDANCE } from "./recovery.js";
@@ -161,19 +161,17 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
             action_type: action.action_type, required_fields: requiredFields,
             ...(requirementsRemaining ? { requirements_remaining: requirementsRemaining } : {}) },
           ...(reviewURL ? { handoff: { url: reviewURL, kind: "booking_review" } } : {}),
-          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 先展示 consent_question，只补缺失同意；代码修正且车次、实际席别、人数、价格及条款未变时沿用已有明确确认（真实同意），实质变化只确认差异。复制模板对象，不额外套 input；身份信息只在官方 Checkout 页填写。`,
+          instruction: `${state === "failed" ? `${typeof model.workflow?.failure?.affected_leg === "number" ? `第${model.workflow.failure.affected_leg+1}段` : ""}报价失败：${RAIL_QUOTE_FAILURE_GUIDANCE[model.workflow?.failure?.reason_code ?? ""] ?? "报价核验未完成。"} 当前无完整报价、无付款入口。按用户意愿有界地重新核验一次同一购买；复制下方当前确认模板，未变条款沿用真实同意，价格/车次/席别/人数/条款变化须确认差异。无票或车次变化时先让用户决定，不能自动换路线。支付尝试后不得修订。 ` : ""}${reviewURL ? "官方确认页见 handoff.url，打开不等于确认；沿用已知人数和席别。" : "当前草稿见 review。"} 缺少同意或实质变化时再展示 consent_question，只补缺失同意；代码修正且车次、实际席别、人数、价格及条款未变时沿用已有明确确认（真实同意），实质变化只确认差异。复制模板对象，不额外套 input；身份信息只在官方 Checkout 页填写。`,
           next: null,
           interaction: {
             schema_version: "itpay.interaction.v1",
             stage: "consent_required",
-            consent_rule: "只有用户本人明确接受当前条款才将 false 改为 true。没有回答时问 consent_question 一次后等待；不要执行模板。Agent 提交只代表转述，不是官方页确认。",
-            input_template: {
-              command: `itpay services action ${id} --action ${action.action_type} --actor-type agent --status approved --input-json <file> --json`,
-              required_input: ["file", ...requiredFields],
-              input: review.input_template && typeof review.input_template === "object"
+            consent_rule: "只有用户本人明确接受当前条款才将false改为true。先核对聊天明确确认或等价已存同意是否覆盖当前范围、人数、价格及条款；覆盖则转述已有同意，不重复询问。缺少真实同意或条件实质变化时，只问缺失或变化部分并等待，不能执行模板。模板false仅表示尚未记录批准，不能据此判断需要用户新增回答；Agent提交是转述，不是官方页确认。",
+            input_template: fileInputTemplate(
+              `itpay services action ${id} --action ${action.action_type} --actor-type agent --status approved --input-json <file> --json`,
+              review.input_template && typeof review.input_template === "object" && !Array.isArray(review.input_template)
                 ? review.input_template as Record<string, unknown> : serviceInputTemplate(action.input_schema ?? {}, review),
-              executable: false,
-            },
+              requiredFields, {executionID:id}),
           },
           recovery: [],
         };
@@ -244,8 +242,8 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
       instruction: failedInstruction
         ?? (state === "payment"
           ? (model.workflow?.human_action?.context?.review
-            ? "服务已到付款步骤，可直接 Checkout 付款；如需调整席别/座位偏好，先用 confirm_booking 动作修订（会重新报价并锁定新价），完成后再付款。"
-            : "服务已到付款步骤，使用现有 Checkout 完成扫码付款。")
+            ? "已具备准备锁价与付款入口的条件；当前状态不等于已有 Checkout。沿返回动作取得报价、批准同范围价格，再准备官方入口；未变化的真实同意不重复询问。如需修订席别或座位偏好，先用 confirm_booking 动作；这会重新报价，变化须确认。"
+            : "先核对当前返回的报价和 Checkout 事实；已有可付款入口先展示，实际支付由用户完成，不以 payment 状态推定已创建入口。")
           : state === "input_required" && guidance
             ? RAIL_ENDPOINT_BRIEF + "按 result.guidance 的字段契约填写输入后继续同一服务执行；不要臆造字段名。"
             : "继续读取同一执行；缺少输入时按服务声明补齐。"),

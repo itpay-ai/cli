@@ -1,11 +1,12 @@
-import { sellerAuth } from "../state/account_auth.js";
+import { newSellerClient } from './client.js';
+import { sellerAuth } from "./auth.js";
 import { registerSync } from "./sync.js";
 import { preview } from "./preview.js";
 import { serveSellMCP } from "./mcp.js";
 import { registerLocal } from "./local.js";
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
-import { loadConfig, newBackendClient } from '../state/config.js';
+import { loadConfig } from '../state/config.js';
 import { SELL_GUIDE, SELL_OPERATIONS, sellRequest } from './contract.js';
 export function registerSell(program: Command) {
     const sell = program.command('sell').description('Create, test and submit your service for review');
@@ -48,7 +49,7 @@ export function registerSell(program: Command) {
                 for (const field of required)
                     params[field] = options[field.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())];
                 const request = sellRequest(operation, params, input);
-                const result = await newBackendClient(loadConfig()).sellRequest(request);
+                const result = await newSellerClient(loadConfig()).sellRequest(request);
                 process.stdout.write(JSON.stringify({ status: 'ok', operation: operation.command, result: result ?? null }, null, 2) + '\n');
             }
             catch (error) {
@@ -66,7 +67,7 @@ export function registerSell(program: Command) {
         const timeout = Number(options.timeout);
         if (!Number.isFinite(timeout) || timeout < 0 || timeout > 600)
             throw new Error("timeout must be between 0 and 600");
-        const backend = newBackendClient(loadConfig()), until = Date.now() + timeout * 1000;
+        const backend = newSellerClient(loadConfig()), until = Date.now() + timeout * 1000;
         for (;;) {
             const result = await backend.sellRequest({ method: "GET", path: "/v1/seller/organizations/" + encodeURIComponent(options.merchantId) + "/service-submissions/" + encodeURIComponent(options.submissionId) }) as {
                 status: string;

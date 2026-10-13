@@ -1,8 +1,9 @@
+import { newSellerClient } from './client.js';
 import { HttpError } from "../client/http.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { newBackendClient, loadConfig } from '../state/config.js';
+import { loadConfig } from '../state/config.js';
 import { companion, project, localDependencies, type LocalData } from './local.js';
 import type { Command } from 'commander';
 const encode = encodeURIComponent;
@@ -22,7 +23,7 @@ export async function syncProject(action: 'push' | 'pull', directory: string, op
         throw new Error('--merchant-id is required');
     if (cloud.merchant_id && cloud.merchant_id !== merchant)
         throw new Error('Project is bound to a different merchant');
-    const api = newBackendClient(loadConfig()), org = '/v1/seller/organizations/' + encode(merchant);
+    const api = newSellerClient(loadConfig()), org = '/v1/seller/organizations/' + encode(merchant);
     const call = async (method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown) => await api.sellRequest({ method, path, ...(body !== undefined ? { body } : {}) }) as LocalData;
     if (action === 'pull') {
         const draftID = options.draftId ?? cloud.draft_id;

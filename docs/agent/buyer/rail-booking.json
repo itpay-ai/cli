@@ -1,7 +1,7 @@
 {
   "schema_version": "itp.agent_doc.v1",
   "role": "buyer",
-  "product_scope": "itpay is the single public CLI entry point, and $itpay is its user-facing Skill invocation. Under that one product entry point, the two top-level commerce actions are buy and sell: Buyer workflows are available now; Seller workflows use the same entry point via itpay sell.",
+  "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "rail-booking",
   "title": "Railway Query, Planning, and Ticket Booking",
   "purpose": "One railway route from understanding the request to saved results, booking, protected checkout, order status and refunds.",
@@ -125,21 +125,22 @@
     "whole_journey": "Use the returned complete ticket plan booking_template: ordered selections (2–3 legs) from one owner/snapshot/revision/plan, or selection for one leg. One booking, one refreshed whole quote, one checkout, one order and one payment; each leg issues separately without connection or joint-seat guarantees. Raw legs are single-leg compatibility only; never hand-compose multi-leg legs when complete selections are missing or expired. Do not combine different plans or choose per-leg payment by default. Historical details without a whole-journey template do not prove whole-journey support."
   },
   "review_and_checkout": {
-    "review": "Copy the returned complete interaction.input_template.input, current revision and notice. For a whole journey, each ordered leg has its own seat_type and an object preference per passenger; default auto, never null/string arrays. Use known choices and confirm only missing genuine terms consent or material changes. Set accept_non_guaranteed=true only after real consent; delegation or choosing a train alone is not terms consent. The false default is protection, not a broken template; if consent is missing, ask the returned review.consent_question once. Seat/berth placement requests differ from the whole-journey separate-issuance and partial-outcome terms; use the current notice.",
+    "review": "Copy the returned complete interaction.input_template.file_content (input is the identical compatibility alias), current revision and notice. For a whole journey, each ordered leg has its own seat_type and an object preference per passenger; default auto, never null/string arrays. Use known choices and confirm only missing genuine terms consent or material changes. Set accept_non_guaranteed=true only after real consent; delegation or choosing a train alone is not terms consent. The false default is protection, not a broken template; if consent is missing, ask the returned review.consent_question once. Seat/berth placement requests differ from the whole-journey separate-issuance and partial-outcome terms; use the current notice.",
     "equivalent_correction": "If only seat code spelling changes while train, actual seat class, party, price and terms are identical, reuse an existing explicit human approval. Material draft changes or missing approval require human confirmation. Reuse accepted original endpoints, no-seat, overnight and incomplete-coverage facts when unchanged; never silently substitute the destination.",
     "checkout": "Present the complete itinerary, total and single official handoff: one payment, separate issuance. The human enters one passenger set on that page; verified account notification email is reused there and can be changed for this order. Do not ask or guess traveler identity/email in chat. Use the returned checkout payment deadline, not an estimated duration. Handoff is not payment, and payment is not all legs issued."
   },
   "continue_and_aftercare": {
     "same_execution": "Read the same booking/checkout/order. Report issued only when every leg is confirmed issued; partial or unknown outcomes keep the same order and successful tickets, reconcile before retry, and explain the affected leg. No automatic rebuy or full-refund promise.",
     "saved_vs_live": "A saved snapshot remains historical evidence after expiry. Real-time booking or quote credentials may expire and require the documented fresh validation path; rereading an old token does not renew it.",
-    "refund": "For railway refund/change use itpay aftercare list --order <order_id> --json. Select returned leg/passenger targets from the user’s request, explain scope and manual processing, submit the complete current template. Request acceptance is not supplier success or money returned. Read the same case; concrete change proposals need current-revision consent and actual fee facts. No automatic change payment or replacement purchase."
+    "refund": "For railway refund/change use itpay aftercare list --order <order_id> --json. Select returned leg/passenger targets from the user’s request, explain scope and manual processing, submit the complete current template. Request acceptance is not supplier success or money returned. Read the same case; concrete change proposals need current-revision consent and actual fee facts. No automatic change payment or replacement purchase.",
+    "waiting": "Use the returned bounded same-task next command: up to 60 seconds per continuation, 120 seconds cumulative automatic waiting. Collect the same host session output before continuing. Budget expiry means still processing, not no trains or failed. Human terms, unresolved payment and terminal outcomes stop automatic polling."
   },
   "exceptional_branches": {
     "login_required": "Use itpay auth login --json, complete the official handoff, then execute the returned recovery command for the same paused query. Login returning a command does not execute it.",
     "rate_limited": "Respect returned retry_after and continue the same execution.",
     "booking_review_invalid": "Read the same booking review and use the returned seat code; reuse real consent only under the strict equivalent-correction rule.",
     "booking_review_changed": "Read the current revision and compare material terms; confirm new terms only when changed.",
-    "selection_stale": "Saved result stays readable, but follow the current owner action for new live inventory and quote evidence; do not assume reread refreshes the token.",
+    "selection_stale": "Saved details never refresh inventory or renew credentials. Only when the current server response proves safe_new_query and no existing purchase, write the complete original public query file, without reuse_from, and refresh once. Match the full itinerary, trains, seat classes and price to the original choice rather than selecting the new rank 1. Reuse genuine unchanged consent; explain and confirm material changes. Existing booking or unknown payment restores only the same purchase. Failed purchase-history evidence stops automatic refresh; do not loop on historical details.",
     "unknown_paid_outcome": "Read the same checkout/order before any mutation. Never repeat payment or create a new order on an unknown outcome.",
     "lock": "Normal device authorization uses no legacy lock. Preserve identity and old lock files; follow the actual error stage, not a generic lock-repair command.",
     "empty": "Report verified scope, failures and missing evidence separately. Do not guess a new date or station as a generic repair. Explain checked scope first, then propose at most two evidence-backed directions. Ask consent before changing a locked endpoint; after consent copy the complete original input and change only the accepted side in a new query.",
@@ -172,5 +173,6 @@
     "journey_terms": "workflow:confirm_booking and booking_review_invalid recovery accept agent-reported genuine consent; default false, never infer from purchase delegation.",
     "ordinary_human_action": "Use its published actor rule; do not generalize railway permission.",
     "price_approval": "approve_purchase uses actor-type agent with the unchanged server-scoped approval template and genuine matching approval; candidate choice is not price approval."
-  }
+  },
+  "consent_template_semantics": "Template false means approval is not recorded, not that the human must answer again. When user_answer_required is absent, check explicit chat or recorded consent for the current scope, party, price and terms; reuse it unchanged, ask only for missing consent or material differences, and never invent approval."
 }

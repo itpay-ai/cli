@@ -10,7 +10,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -907,7 +907,7 @@ test("services run waits for a usable rail planning result", async () => {
     instruction: string;
   };
   assert.equal(envelope.status, "planning");
-  assert.equal(gets, 4);
+  assert.equal(gets, 3);
   assert.equal(envelope.result.rail_planning.expansion_status, "running");
   assert.ok(envelope.result.journeys?.length);
   assert.equal(envelope.next.command, "itpay services next se_rail_plan_running --timeout 120 --since-snapshot rsnap_1 --json");
@@ -1251,7 +1251,7 @@ test("rail saved page with no qualified journey explains the evidence gap", asyn
 			qualification_counts: { eligible: 0, ineligible: 1, unknown: 0 } }, journeys: [diagnostic] } } }) } as unknown as BackendClient;
 	await runServicesReadResult(saved, "se_diag", { snapshot: "rps_diag", jsonOutput: true, output: stdoutSink });
 	const result = JSON.parse(stdoutCapture.join("")) as { instruction: string; result: { journeys: Array<{ qualification_status: string; qualification_reasons: string[]; detail: { reason: string } }> } };
-	assert.match(result.instruction, /查到 1 个时刻组合，当前 0 条满足购票资格/);
+	assert.match(result.instruction, /查到 1 个时刻组合，当前没有已确认满足购票资格的线路/);
 	assert.equal(result.result.journeys[0]?.qualification_status, "ineligible");
 	assert.deepEqual(result.result.journeys[0]?.qualification_reasons, ["INVENTORY_INSUFFICIENT"]);
 	assert.match(result.result.journeys[0]?.detail.reason ?? "", /不可购买原因/);
@@ -2160,6 +2160,31 @@ test("runBuy --pay sends display_token to payment intent creation", async () => 
   assert.equal((req!.body as { display_token?: string }).display_token, `cdt_${session.show().lastCheckoutID}_secret`);
 });
 
+test("runBuy payment after sixty seconds retains the declared wait and image handoff budget", async (t) => {
+ const session = new CartSession("CNY");
+ runCartAdd(session,{catalogItemID:"item_1",catalogVariantID:"v_late_payment",offerID:"o_late_payment",quantity:1,output:silent});
+ const now=Date.now.bind(Date);let elapsed=0;
+ t.mock.method(Date,"now",()=>now()+elapsed);
+ t.mock.method(backend,"streamCheckoutEvents",async (_id: string,_token: string,onEvent: (event: import("../src/client/types.js").SSEEvent)=>void) => {
+  elapsed=61000;
+  onEvent({aggregateType:"checkout",aggregateId:_id,type:"payment_intent.verified",sequence:1,payload:{}});
+ });
+ const result=await runBuy(backend,config,{cartSession:session,host:"codex",pay:true,jsonOutput:true,output:silent});
+ assert.equal(result.kind,"checkout_rendered");
+ assert.equal(result.plan.ideImageAttach?.status,"downloaded");
+ assert.equal(mock.requests.filter(r=>r.path.endsWith("/payment-intents")).length,1);
+});
+
+test("runBuy an ended payment stream returns same-checkout recovery without another payment intent", async (t) => {
+ const session = new CartSession("CNY");
+ runCartAdd(session,{catalogItemID:"item_1",catalogVariantID:"v_ended_payment",offerID:"o_ended_payment",quantity:1,output:silent});
+ t.mock.method(backend,"streamCheckoutEvents",async()=>{});
+ const result=await runBuy(backend,{...config,ideImageAttach:false},{cartSession:session,host:"plain-chat",pay:true,jsonOutput:true,output:silent});
+ assert.equal(result.checkoutID,session.show().lastCheckoutID);
+ assert.equal(mock.requests.filter(r=>r.path.endsWith("/payment-intents")).length,1);
+ assert.equal(result.envelope?.result.wait_status,"timeout");
+});
+
 test("dispatchInteractionRequest (terminal) renders input fields", async () => {
   await dispatchInteractionRequest(
     "terminal",
@@ -2772,7 +2797,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(untyped.result.content, /## Choose one entry/);
   assert.match(untyped.result.content, /## Follow one envelope/);
   assert.match(untyped.result.content, /itpay docs show rail-booking/);
-  assert.match(untyped.result.content, /itpay sell guide --json/);
+  assert.doesNotMatch(untyped.result.content, /itpay sell guide/);
+  assert.match(untyped.result.content, /itpay orders --json/);
   assert.equal(untyped.next.command, "itpay install --json");
 
   const typed = JSON.parse((await runCLI([
@@ -2979,7 +3005,8 @@ test("docs show returns only one complete topic with structured recovery", async
   assert.equal(envelope.status, "shown");
   assert.equal(envelope.result.topic, "quickstart");
   assert.equal(envelope.result.content.topic, "quickstart");
-  assert.match(envelope.result.content.product_scope, /Buyer services and the existing itpay sell Seller workflow/);
+  assert.match(envelope.result.content.product_scope, /single public Buyer CLI entry point/);
+  assert.doesNotMatch(envelope.result.content.product_scope, /Seller workflow/);
   assert.equal(envelope.next, null);
 
   await assert.rejects(
@@ -3052,6 +3079,21 @@ test("docs search routes payment and refund concerns to customer-care guidance",
     assert.deepEqual(envelope.result.topics.map((topic) => topic.topic), ["orders-refunds"]);
     assert.equal(envelope.next.command, "itpay docs show orders-refunds --json");
   }
+});
+
+test("docs refuses stale valid overrides while accepting the same packaged directory", async () => {
+  const same = await runCLI(["docs", "list", "--json"], {ITPAY_CLI_DOCS_DIR: resolve(CLI_ROOT,"docs/agent/buyer")});
+  assert.equal(JSON.parse(same.stdout).result.topics.length,12);
+  const dir=mkdtempSync(join(tmpdir(),"itpay-stale-docs-"));
+  for(const file of readdirSync(resolve(CLI_ROOT,"docs/agent/buyer"))) {
+    const doc=JSON.parse(readFileSync(resolve(CLI_ROOT,"docs/agent/buyer",file),"utf8"));
+    if(file==="rail-booking.json") doc.purpose="obsolete valid guidance";
+    writeFileSync(join(dir,file),JSON.stringify(doc));
+  }
+  await assert.rejects(runCLI(["docs","list","--json"],{ITPAY_CLI_DOCS_DIR:dir}),error=>{
+    const out=JSON.parse(String((error as {stdout?:string}).stdout));
+    assert.equal(out.error.code,"docs_override_mismatch");assert.ok(out.result.docs_path);return true;
+  });
 });
 
 test("docs reports a damaged packaged document without exposing its path", async () => {
@@ -3806,7 +3848,7 @@ test("services checkout JSON returns ItPay checkout handoff, not provider QR", a
   assert.equal(presentation.result.amount, "0.50 CNY");
 });
 
-test("checkout title lookup failure preserves an already created official handoff", async () => {
+test("checkout reuses the current model and preserves the official handoff", async () => {
  await approvePreparationFixture('se_demo','precise_report');
   const client = Object.create(backend) as BackendClient;
   let reads = 0;
@@ -3821,7 +3863,7 @@ test("checkout title lookup failure preserves an already created official handof
   const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; handoff: { url: string } };
   assert.equal(envelope.status, "human_checkout_required");
   assert.match(envelope.handoff.url, /\/v1\/checkouts\/chk_/);
-  assert.equal(reads, 2);
+  assert.equal(reads, 1);
 });
 
 test("OpenClaw Telegram checkout returns one native message action in the standard envelope", async () => {
@@ -4220,6 +4262,7 @@ test("booking review human action guides --input-json submission", async () => {
   assert.equal(result.next, null);
   assert.match(result.interaction.input_template.command, /--input-json <file>/);
   assert.equal(result.interaction.input_template.executable, false);
+  assert.equal("user_answer_required" in result.interaction.input_template, false);
   assert.match(result.interaction.consent_rule, /只有用户本人明确接受/);
   assert.ok(result.interaction.input_template.required_input.includes("draft_revision"));
   assert.match(result.instruction, /只补缺失同意/);

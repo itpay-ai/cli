@@ -15,8 +15,18 @@ export interface CommandAction {
 export interface InputTemplate {
   command: string;
   input?: Record<string, unknown>;
+  file_content?: Record<string, unknown>;
+  target_execution_id?: string;
+  user_answer_required?: boolean;
   required_input: string[];
   executable: false;
+}
+
+// input remains a compatibility alias of the exact file content.
+export function fileInputTemplate(command: string, input: Record<string, unknown>, required: string[] = [], options: {executionID?: string | undefined; userAnswerRequired?: boolean} = {}): InputTemplate {
+  return {command, input, file_content: input, required_input: ["file", ...required.filter(field => field !== "file")], executable: false,
+    ...(options.userAnswerRequired !== undefined ? {user_answer_required: options.userAnswerRequired} : {}),
+    ...(options.executionID ? {target_execution_id: options.executionID} : {})};
 }
 
 // itpay.interaction.v1 — the structured counterpart of `instruction`. Same
@@ -108,7 +118,13 @@ export function plainValueLines(value: unknown, label = "", depth = 0): string[]
   if (value === null || typeof value !== "object") return [`${indent}${label ? `${label}: ` : ""}${String(value ?? "unknown")}`];
   const lines = label ? [`${indent}${label}:`] : [];
   const entries = Array.isArray(value) ? value.map((v, i) => [String(i + 1), v] as const) : Object.entries(value);
-  for (const [key, child] of entries) lines.push(...plainValueLines(child, key, depth + (label ? 1 : 0)));
+  const fileTemplate = !Array.isArray(value) && "file_content" in value && "command" in value && "executable" in value;
+  for (const [key, child] of entries) {
+    if (fileTemplate && (key === "input" || key === "input_example")) continue;
+    if (fileTemplate && key === "file_content") {
+      lines.push(`${indent}  file_content（原样保存为 JSON 文件）:`, `${indent}  \`\`\`json`, ...JSON.stringify(child, null, 2).split("\n").map(line => `${indent}  ${line}`), `${indent}  \`\`\``);
+    } else lines.push(...plainValueLines(child, key, depth + (label ? 1 : 0)));
+  }
   if (!entries.length) lines.push(`${indent}  （无记录）`);
   return lines;
 }
