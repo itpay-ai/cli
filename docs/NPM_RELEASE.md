@@ -68,7 +68,7 @@ version/API constants; the bundle imports the published pure constants at
 executing the candidate. Legacy artifacts retain the explicit old config path.
 
 `npm run build` generates the Buyer bundle and complete third-party notices.
-`npm run check:buyer-package` verifies the packed limits and excluded Seller files;
+`npm run test:package` verifies the packed limits and excluded Seller files;
 `npm run test:package` installs the artifact with scripts disabled and checks its
 actual entry and upgrades in isolated state. No runtime dependency download or
 Seller runner is part of installation. CI additionally checks Node 18/20/22/24

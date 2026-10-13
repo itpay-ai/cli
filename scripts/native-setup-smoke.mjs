@@ -39,7 +39,11 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    let oldKey; let upgradeRequestStart; let conflictProof;
    if(previousTarball){
     activeAPI='sha256:c1e1f459c1d3844f6eeae21535b532abb2e48c3e320173c4faccd62992890dcd';
-    await exec(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),...args,previousTarball],{env,timeout:90000});
+    // The pinned old bundle extracts 3,883 files; Windows CI needs a separate legacy installation budget.
+    // Keep the compact candidate's installation and all setup timeouts unchanged.
+    const previousInstallStart=performance.now();
+    await exec(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),...args,previousTarball],{env,timeout:process.platform==='win32'?300000:90000});
+    process.stdout.write(JSON.stringify({mode:global?'global':'managed-prefix',previousInstallationMs:Math.round(performance.now()-previousInstallStart)})+'\n');
     await invoke(['auth','status','--agent-type','workbuddy','--json']);
     oldKey=readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem'));
     activeAPI=API_CONTRACT_REVISION;
