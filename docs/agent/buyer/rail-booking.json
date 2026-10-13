@@ -13,7 +13,7 @@
     "query_vs_booking": "Exact/Smart returns a query execution and saved evidence. Booking creates a separate execution from a server-issued selection; it is not a repeated search.",
     "comparison": "If the human only asked to compare, answer within the searched scope and stop without a buy-or-not question. Reuse already-read unchanged Skill/docs in this context; do not repeat install/readyz/docs at each step. A clear purchase delegation permits selection under their rules, subject to required human terms.",
     "public_entry": "One public service itpay-rail declares query_exact, query_smart and prepare_purchase. Query, booking, Checkout and order remain separate identities. Legacy IDs are only for recovering their pinned historical executions.",
-    "price_approval": "Choosing a candidate or confirming seat/whole-journey terms is not approving price. Read the current scoped approve_purchase template after quote; record true only for genuine matching exact-price or capped-budget approval, or an explicitly authorized official-page confirmation. Reuse matching approval; never fabricate it."
+    "price_approval": "Use the complete purchase review and price policy under the formal Skill consent rule; one confirmation covers the actual itinerary, party, price policy and terms. Selection alone is not consent. The coordinator compares the real supplier quote; changed material conditions cannot reuse narrower approval."
   },
   "flow_at_a_glance": [
     {
@@ -49,13 +49,13 @@
     {
       "step": "review",
       "command": "itpay services next <booking_execution_id> --json",
-      "returns": "current review revision, material terms and a non-executable confirm_booking input_template",
-      "next": "submit the returned actor-type agent template only after genuine consent; reuse an unchanged explicit consent for code-only correction"
+      "returns": "complete purchase summary, current server reference and flat purchase confirmation file",
+      "next": "reuse genuine matching consent, ask only missing conditions, then execute the returned services purchase input template"
     },
     {
       "step": "checkout",
-      "command": "use the returned next or handoff for the same booking execution",
-      "returns": "an official protected payment entry",
+      "command": "itpay services purchase <booking_execution_id> --input-json <purchase-confirmation.json> --json",
+      "returns": "one original official page, or original progress with a bounded purchase --resume action; no payment requested",
       "next": "show the official entry using the current host immediately before optional memory/log writing, then stop; retain necessary safety/permissions, do not infer paid or issued"
     },
     {
@@ -125,7 +125,7 @@
     "whole_journey": "Use the returned complete ticket plan booking_template: ordered selections (2–3 legs) from one owner/snapshot/revision/plan, or selection for one leg. One booking, one refreshed whole quote, one checkout, one order and one payment; each leg issues separately without connection or joint-seat guarantees. Raw legs are single-leg compatibility only; never hand-compose multi-leg legs when complete selections are missing or expired. Do not combine different plans or choose per-leg payment by default. Historical details without a whole-journey template do not prove whole-journey support."
   },
   "review_and_checkout": {
-    "review": "Copy the returned complete interaction.input_template.file_content (input is the identical compatibility alias), current revision and notice. For a whole journey, each ordered leg has its own seat_type and an object preference per passenger; default auto, never null/string arrays. Use known choices and confirm only missing genuine terms consent or material changes. Set accept_non_guaranteed=true only after real consent; delegation or choosing a train alone is not terms consent. The false default is protection, not a broken template; if consent is missing, ask the returned review.consent_question once. Seat/berth placement requests differ from the whole-journey separate-issuance and partial-outcome terms; use the current notice.",
+    "review": "Read every ordered leg, seat class, party size, whole-journey terms and current price policy in the purchase summary. Copy the complete flat file_content, preserving server review_ref/request_key. Use the formal Skill rule to reuse genuine unchanged consent or ask only missing conditions. The coordinator applies the original railway review template and checks the real supplier quote; do not separately assemble confirm_booking, approve_purchase, cart or buy.",
     "equivalent_correction": "If only seat code spelling changes while train, actual seat class, party, price and terms are identical, reuse an existing explicit human approval. Material draft changes or missing approval require human confirmation. Reuse accepted original endpoints, no-seat, overnight and incomplete-coverage facts when unchanged; never silently substitute the destination.",
     "checkout": "Present the complete itinerary, total and single official handoff: one payment, separate issuance. The human enters one passenger set on that page; verified account notification email is reused there and can be changed for this order. Do not ask or guess traveler identity/email in chat. Use the returned checkout payment deadline, not an estimated duration. Handoff is not payment, and payment is not all legs issued."
   },
@@ -170,9 +170,9 @@
   "saved_followup": "Use returned refine_preferences with expected_query_revision for arrival/departure times, passengers, seat preference or priority; rerank uses existing facts. Only endpoints/date/new scope require a new query. Profiles compare within one journey, not the whole catalog. Fares and service fees are whole-journey totals for the stated people; observed available is not proof of ample inventory. Page limit is 1-20; follow next_offset exactly, never infer full-catalog optimality from the visible page. Byte-limited pages may contain fewer rows than limit. Area station candidates are not guaranteed nearest; transfer wait/minimum are facts, not a low-risk guarantee.",
   "actor_conventions": {
     "location_confirmation": "Use the returned human template only for the user's real place choice; no delegated human action.",
-    "journey_terms": "workflow:confirm_booking and booking_review_invalid recovery accept agent-reported genuine consent; default false, never infer from purchase delegation.",
+    "journey_terms": "Normal preparation uses the purchase confirmation file and real user_answer. Historical workflow:confirm_booking recovery retains its original agent-reported genuine consent rule; default false.",
     "ordinary_human_action": "Use its published actor rule; do not generalize railway permission.",
-    "price_approval": "approve_purchase uses actor-type agent with the unchanged server-scoped approval template and genuine matching approval; candidate choice is not price approval."
+    "price_approval": "Historical approve_purchase keeps its exact server-scoped quote binding and actor-type agent; it is not the new default route."
   },
   "consent_template_semantics": "Template false means approval is not recorded, not that the human must answer again. When user_answer_required is absent, check explicit chat or recorded consent for the current scope, party, price and terms; reuse it unchanged, ask only for missing consent or material differences, and never invent approval."
 }

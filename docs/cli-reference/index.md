@@ -85,6 +85,7 @@ Commander 自动提供的 `itpay help [command]` 与 `itpay <group> help [subcom
   - [`itpay services start`](commands/services/start.md)
   - [`itpay services invoke`](commands/services/invoke.md)
   - [`itpay services action`](commands/services/action.md)
+  - [`itpay services purchase`](commands/services/purchase.md)
   - [`itpay services quote`](commands/services/quote.md)
   - [`itpay services checkout`](commands/services/checkout.md)
   - [`itpay services list`](commands/services/list.md)

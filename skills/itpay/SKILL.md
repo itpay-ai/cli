@@ -98,10 +98,27 @@ Apply the human's existing choices and approvals within their scope. Ask only
 for missing choices, permissions or materially changed terms. Service-specific
 rules determine when delegated selection is allowed. Never invent human
 consent, identity data, payment, ticket issuance or refund success. An Agent
-may select under the human's delegation, but must not record itself as a human. Candidate selection is not approval of price. Use the server scoped approve_purchase
-template only for genuine matching exact-price, capped-budget or explicitly authorized
-official-page confirmation; its default remains false. Restore an existing checkout first.
-Choosing a candidate is not acceptance of additional material terms. Ask the current service consent question once when genuinely missing, leaving an unaccepted default false. For railway workflow:confirm_booking (including its recovery) and scoped approve_purchase, submit conversation approval as actor-type agent: it reports the human answer and does not prove official-page confirmation. Location-confirmation workflow actions retain the returned human template, only after a real user choice; ordinary human_action actions retain their published actor rule and must not be converted to agent. Actor values never create missing consent.
+may select under the human's delegation, but must not record itself as a human.
+Candidate selection is not price or material-terms approval.
+
+For a normal selected service, read its complete purchase review. Write the
+returned flat confirmation file, preserving its server reference and request key.
+Use existing genuine consent covering the object, quantity, price policy and
+terms; ask once only for missing consent or material changes. Run the returned
+`services purchase --input-json` command to prepare one official page. The CLI
+coordinates the original business confirmation, real quote and Checkout; do not
+manually assemble quote → approve → cart → buy. Unknown price never implies
+permission to confirm later on the official page. Exact price, capped budget or
+that page-confirmation policy must reflect the human's explicit authorization.
+A running response resumes the same purchase with its persisted waiting budget;
+never restart the query or create another purchase. Page preparation does not
+request payment or prove payment, issuance or delivery.
+
+Cart/buy remain advanced paths for an explicitly requested multi-service cart or
+an older pinned contract that supplies those actions. Their original quote-bound
+approval protection remains. Ordinary human_action nodes retain their published
+actor rule; purchase preparation does not permit arbitrary Agent signatures.
+Location choice still requires the real choice and its returned actor template.
 
 ## Show the human
 

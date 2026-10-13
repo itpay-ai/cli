@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.47",
+  "version": "2.1.48",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -72,6 +72,7 @@
     "docs/cli-reference/commands/services/list.md",
     "docs/cli-reference/commands/services/next.md",
     "docs/cli-reference/commands/services/page.md",
+    "docs/cli-reference/commands/services/purchase.md",
     "docs/cli-reference/commands/services/quote.md",
     "docs/cli-reference/commands/services/read-result.md",
     "docs/cli-reference/commands/services/run.md",

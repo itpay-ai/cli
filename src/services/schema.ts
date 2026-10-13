@@ -16,6 +16,6 @@ export const schemaAdapter: ServiceAdapter = {
  readResult: async (_backend, _model, id, options) => {
   if(options.snapshot || options.journey) throw new CommandContractError("result_selector_unsupported", "locked service does not support these result selectors", "保留同一执行；使用当前服务返回的结果读取动作，不猜其他业务选择器。", [{command:`itpay services next ${id} --json`,reason:"读取当前服务声明的动作"}]);
   return undefined;
- }, renderPage: () => false, checkout: async () => ({}),
+ }, renderPage: () => false, checkout: () => ({}),
 };
 export const unsupportedAdapter: ServiceAdapter = {...schemaAdapter, supported:false, workflow:()=>null, readResult:async()=>{throw new CommandContractError("presentation_contract_unavailable","locked contract unsupported","保留原执行与已有结果并停止，使用兼容CLI读取；不猜模式。",[]);}};

@@ -6,9 +6,9 @@
 
 服务支持的 Quote/Cart/Checkout 共用服务端范围校验。缺少有效价格批准时返回完整 `approve_purchase` 模板，默认 `user_approved:false`；Agent 只在真实会话已同意当前主体、内容、价格或预算和条款时提交 true。选择候选或完成席别 review 不代替价格批准。同条件有效批准复用，已有 Checkout/未知付款先恢复原单，不补事后批准或创建替代订单。
 
-## 范围与意义
+## 历史合同兼容与高级入口
 
-为单个 Service Execution 快速创建或恢复 Checkout，并按 Host 向人交接付款入口。它是 `services quote -> cart add --quote -> buy --cart` 的单项快捷方式，必须复用相同的 Quote、Cart 和 Checkout Use Case。
+普通新服务使用 `services purchase` 完整确认与官方入口。此命令保留历史合同和高级兼容，为单个 Service Execution 创建或恢复 Checkout，并按 Host 向人交接付款入口。它是 `services quote -> cart add --quote -> buy --cart` 的单项快捷方式，必须复用相同的 Quote、Cart 和 Checkout Use Case。
 
 未注册/未登录用户不要求先执行 `itpay auth login`（Path B）：官方 checkout 页内完成必要的钱包认证、创建或复用账号并取得页面权限；人在页面上确认旅客、通知联系方式和最终报价后付款。支付确认沿用既有设备绑定机制，不再独立绑定。checkout 内完成账号认证不等于账号已通过手机号验证；钱包显示名、账号手机号与乘车人身份互相独立。
 

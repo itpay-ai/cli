@@ -136,7 +136,7 @@ itpay services run itpay-rail --operation query_exact --input-json query.json --
 
 旧 `itpay-rail-exact/smart/booking` ID 仅用于已有执行和历史模板的兼容恢复；新公共模板与旧凭据共用原购买去重。存在或未知购买先恢复，过期库存不等于能新建购买。
 
-候选选择和席别条款确认不等于价格批准。实时报价返回完整有范围的 `approve_purchase` JSON，默认 `user_approved:false`。仅已有真实、匹配价格/上限/条款/主体同意才改 true；内容未变可复用。付款与出票事实仍由后端及官方页确认。
+候选选择不等于价格和条款同意。正常流程读取返回的 `services purchase` 完整确认；已有真实、匹配价格/上限/条款/主体的同意可复用，缺失或实质变化才补确认。服务端核对实际报价并衔接原有批准；旧执行的 approve_purchase 模板保留原范围保护。付款与出票事实仍由后端及官方页确认。
 
 ## 终态和异常
 

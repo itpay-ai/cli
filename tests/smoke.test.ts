@@ -3180,7 +3180,8 @@ test("workbuddy checkout JSON returns one executable action for the rendered Car
     tool: "present_files",
     arguments: { files: [envelope.handoff.url] },
   });
-  assert.match(envelope.instruction, /严格按 handoff\.agent_action\.tool 和 handoff\.agent_action\.arguments 原样执行一次/);
+  assert.match(envelope.instruction, /若当前可用 present_files/);
+  assert.match(envelope.instruction, /不可用则当轮直接展示原链接/);
   assert.doesNotMatch(envelope.instruction, /mobile_url/);
   assert.match(envelope.instruction, /若工具失败，只发送原始 handoff\.url/);
   assert.match(envelope.instruction, /不要用 present_files 打开本地文件或二维码 PNG/);
@@ -3308,7 +3309,7 @@ test("zcode checkout opens only the rendered URL in the built-in browser", async
   assert.match(String(envelope.handoff.url), /\/card\?/);
   assert.match(envelope.instruction, /ZCode 内置浏览器打开 handoff\.url/);
   assert.doesNotMatch(envelope.instruction, /mobile_url/);
-  assert.match(envelope.instruction, /不要只粘贴文字链接/);
+  assert.match(envelope.instruction, /工具不可用时直接展示链接/);
   assert.match(envelope.instruction, /内置浏览器明确不可用/);
   assert.doesNotMatch(envelope.instruction, /present_files|qr_image_url/);
   assert.equal(envelope.next.command, "itpay --agent-type zcode checkout --id chk_pending --token cdt_pending --json");
@@ -3509,7 +3510,7 @@ test("buy derives the handoff Host from every supported Agent Type", async () =>
     } else if (agentType === "zcode") {
       assert.match(envelope.handoff.url, /\/card\?/);
       assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
-      assert.match(envelope.instruction, /不要只粘贴文字链接/);
+      assert.match(envelope.instruction, /工具不可用时直接展示链接/);
       assert.equal(envelope.handoff.agent_action, undefined);
     } else if (agentType === "doubao-work") {
       assert.match(envelope.handoff.url, /\/checkout\//);

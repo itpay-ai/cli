@@ -32,5 +32,5 @@ export interface ServiceAdapter {
   actionError(error: unknown, executionID: string, action: string): void;
   readResult(backend: BackendClient, model: ServiceExecutionReadModel, id: string, options: ResultReadOptions): Promise<"handled" | "state" | undefined>;
   renderPage(response: Awaited<ReturnType<BackendClient["getServiceExecutionResultItemPage"]>>, id: string, item: string, offset: number, limit: number, options: ResultReadOptions): boolean;
-  checkout(backend: BackendClient, model: ServiceExecutionReadModel, id: string, token: string, presentation?: import("../client/types.js").CheckoutPresentation): Promise<{itinerary?: Record<string, unknown>; itineraryTitle?: string}>;
+  checkout(model: ServiceExecutionReadModel | undefined, presentation: import("../client/types.js").CheckoutPresentation): {itinerary?: Record<string, unknown>; itineraryTitle?: string};
 }

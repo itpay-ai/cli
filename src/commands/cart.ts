@@ -161,7 +161,7 @@ export async function runCartAddQuoteServer(options: {
       total: formatMoney(cart.amount_minor, cart.currency),
     },
     instruction: "付费服务报价已加入同一 Cart；每个项目仍保持独立 Execution 和交付。",
-    next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "仅已有购买授权且项目齐全时创建一次合并付款" },
+    next: { command: `itpay buy --cart ${cart.cart_id} --json`, reason: "仅已有购买授权且项目齐全时生成官方填写与付款页面（本步骤不发起支付）" },
     recovery: [{ command: "itpay cart show --json", reason: "检查当前合并 Cart" }],
   };
   writeCommandEnvelope(envelope, {

@@ -2,7 +2,7 @@
 //
 // The V3 backend serves a brand QR PNG that must end up visible inside
 // the IDE chat window (Trae `Read` tool, Codex, Claude Code) because
-// the human can only scan it from there. This module is the single
+// the official link remains usable when image presentation is unavailable. This module is the single
 // source of truth for the download → local file → plan.attach flow:
 //
 //   1. download the brand image from the backend
@@ -34,13 +34,7 @@ import type { IdeImageAttach, RenderPlan } from "./plan.js";
 
 export type IdeImageStatus = "downloaded" | "failed" | "disabled" | "fallback";
 
-const IDE_ATTACH_REASON =
-  "Human cannot scan a remote URL: the IDE chat window is the only " +
-  "surface they can pay from. The agent MUST render this PNG into the " +
-  "IDE chat (Trae `Read` tool with the localPath or one of the mirrors) " +
-  "and wait for the human to confirm they see + scan it. If the image is " +
-  "not visible in chat, the checkout is considered failed — re-render " +
-  "and ask again, do not mark the order complete.";
+const IDE_ATTACH_REASON = "立即展示已核验官方链接和真实期限；图片只是增强呈现。已有工具支持时展示图片，失败或不可用则当轮交付同一链接，不研究工具、不等待图片确认、不重建页面或宣称付款。";
 
 export interface DownloadQRResult {
   ok: boolean;
@@ -218,7 +212,13 @@ export async function downloadBrandQRToTmp(
   const fetchURL = resolveFetchURL(url, options.baseURL);
   try {
     const fetchFn = options.fetchImpl ?? globalThis.fetch;
-    const detected = await detectImageFormat(fetchURL, fetchFn);
+    const controller=new AbortController();
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    let detected:DetectedImage;
+    try {
+      detected=await Promise.race([detectImageFormat(fetchURL,(url,init)=>fetchFn(url,{...init,signal:controller.signal})),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error("optional image budget exceeded; use the verified official link"));},kind==="auth" ? 15000 : 2000);})]);
+    } finally {if(timer)clearTimeout(timer);}
+
     const fileName = `${stem}${detected.ext}`;
     const filePath = join(canonical, fileName);
     atomicWrite(filePath, detected.body);
@@ -345,7 +345,7 @@ export function ideImageAttachBlock(attach: IdeImageAttach): string[] {
   lines.push(
     "> action: agent must read the canonical local path (or any mirror) " +
       "into the IDE chat window and wait for the human to confirm the image is visible. " +
-      "If the image does not appear in chat, the checkout is considered failed.",
+      "If the image does not appear, deliver the same verified official link immediately.",
   );
   return lines;
 }

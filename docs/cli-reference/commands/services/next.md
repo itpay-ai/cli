@@ -250,7 +250,7 @@ itpay services next <service_execution_id> [--timeout <seconds>] [--since-snapsh
 
 - 每段保留相连行程、对应席别、每位乘客偏好；不要恢复固定单腿 scalar 模板。
 - `booking_review_changed` 重新读取当前服务端 revision，不自行递增、不重放旧 revision。
-- 候选/条款确认不等于价格批准；实时报价后使用完整有范围 approve_purchase 模板，仅真实匹配批准允许 true。
+- 候选选择不等于真实同意。正常流程使用返回的 `services purchase` 完整模板，服务端核对准备同意与实际 quote 后才生成原有价格批准；旧执行的 approve_purchase 模板仅按原范围兼容恢复。
 - 未付且允许修改时修订同一 booking 重新报价；支付已在途/完成、结果未知或退款锁定时按原单读取，不新建替代购买。
 - 乘客身份、电话、邮箱修改只在保护页完成，不在聊天或 workflow 输入收集。
 

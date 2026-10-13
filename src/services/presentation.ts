@@ -1,3 +1,4 @@
+import {purchaseEnvelope} from "./shared/purchase.js";
 import { serviceAdapter } from "./registry.js";
 import { type ServiceExecutionReadModel } from "../client/types.js";
 import { refundStateEnvelope } from "./shared/refund.js";
@@ -24,6 +25,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
     const terminal = terminalExecutionEnvelope(model);
     if (terminal) return terminal;
   }
+  if(model.purchase_review) return purchaseEnvelope({status:"confirmation_required",service_execution_id:execution.service_execution_id,completed_stage:"selected",review:model.purchase_review,effects:{page_created:false,page_reused:false,payment_requested:false,charged:false,human_page_action_required:false}});
   const businessState = adapter.projectState(model);
   if (businessState) return businessState;
   const availableResult = adapter.savedResult(model);

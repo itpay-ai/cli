@@ -1,6 +1,7 @@
-import type { ServiceExecutionReadModel } from "../../client/types.js";
+import {purchaseEnvelope} from "../../services/shared/purchase.js";
+import type { ServiceExecutionReadModel, ServiceExecutionCheckoutCreated } from "../../client/types.js";
 import {assertCheckoutCreation,assertCheckoutPayable} from "../checkout_handoff.js";
-import { serviceAdapter } from "../../services/registry.js";
+import { projectCheckoutPresentation } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { type CLIConfig } from "../../state/config.js";
@@ -60,6 +61,7 @@ export async function runServicesCheckout(
     ...(options.email ? { email: options.email } : {}),
   };
   const currentModel = options.readModel ?? (!options.resume ? await backend.getServiceExecution(serviceExecutionID,{deadline}) : undefined);
+  if(!options.resume && currentModel?.purchase_review){writeCommandEnvelope(purchaseEnvelope({status:"confirmation_required",service_execution_id:serviceExecutionID,completed_stage:"selected",review:currentModel.purchase_review,effects:{page_created:false,page_reused:false,payment_requested:false,charged:false,human_page_action_required:false}}),options);return;}
   if (!options.resume && !capabilityID) capabilityID = currentModel?.workflow_entry?.capability_id;
   if (!options.resume && !capabilityID) {
     throw new CommandContractError(
@@ -117,6 +119,13 @@ export async function runServicesCheckout(
     }
     throw error;
   }
+  return presentServiceCheckout(backend,config,serviceExecutionID,response,{...options,...(currentModel ? {readModel:currentModel}:{}),deadline});
+}
+
+export async function presentServiceCheckout(backend:BackendClient,config:CLIConfig,serviceExecutionID:string,response:ServiceExecutionCheckoutCreated,options:NonNullable<Parameters<typeof runServicesCheckout>[4]>={}):Promise<void> {
+ const deadline=options.deadline ?? Date.now()+60000;
+ const host=options.host ?? "terminal";
+ const currentModel=options.readModel;
   const checkout = response.checkout;
   assertCheckoutCreation(checkout,response.cart.cart_id,serviceExecutionID);
   options.persistHandoff?.({
@@ -141,14 +150,7 @@ export async function runServicesCheckout(
     config.baseURL,
     checkout.card_png_url ?? checkout.qr_png_url ?? fallbackCardPNGURL(config.baseURL, checkoutID, displayToken),
   ), locale);
-  let itineraryTitle: string | undefined;
-  let itinerary: Record<string, unknown> | undefined;
-  try {
-    const booking = currentModel ?? await backend.getServiceExecution(serviceExecutionID,{deadline});
-    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken,authoritative));
-  } catch {
-    // Checkout already exists; a display-only title lookup cannot hide its official handoff.
-  }
+  const {itinerary,itineraryTitle} = authoritative ? projectCheckoutPresentation(authoritative,currentModel) : {};
   const plan = buildCheckoutQRPlan({
     localSimulation: backend.localSimulation,
     host,
@@ -174,7 +176,7 @@ export async function runServicesCheckout(
 
   const platform = platformKeyForHost(plan.host);
   const fetchWithinBudget: typeof fetch = async (url,init) => {
-    const remaining=deadline-Date.now();
+    const remaining=Math.min(2000,deadline-Date.now());
     if(remaining<=0) throw new DOMException("command deadline reached","TimeoutError");
     return (options.fetchImpl ?? globalThis.fetch)(url,{...init,signal:AbortSignal.timeout(remaining)});
   };
@@ -198,6 +200,7 @@ export async function runServicesCheckout(
     });
   }
   const envelope = buildServicesCheckoutEnvelope(response, checkoutURL, plan, options.agentType, options.target);
+  envelope.result = {...envelope.result,effects:{page_created:!response.handoff_reissued,page_reused:response.handoff_reissued===true,payment_requested:false,charged:false,human_page_action_required:true}};
   if (itinerary) {
     envelope.result = {...envelope.result, itinerary};
     envelope.instruction = "整程一次付款，各段分别出票；展示入口不等于付款，付款成功不等于全部出票。" + envelope.instruction;
