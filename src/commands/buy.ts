@@ -70,7 +70,8 @@ export async function runBuy(
   config: CLIConfig,
   options: BuyOptions,
 ): Promise<BuyResult> {
-  const deadline=options.deadline ?? Date.now()+60000;
+  const paymentWaitSec=options.pay && !options.noWait ? (options.payTimeoutSec ?? 120) : 0;
+  const deadline=options.deadline ?? Date.now()+60000+paymentWaitSec*1000;
   const fetchWithinBudget: typeof fetch = async(url,init)=>{
     const remaining=deadline-Date.now();
     if(remaining<=0) throw new DOMException("command deadline reached","TimeoutError");
@@ -200,7 +201,7 @@ export async function runBuy(
     }
 
     if (!options.noWait) {
-      waitStatus = await waitForPaymentSSE(backend, checkoutID, displayToken, options.payTimeoutSec ?? 120);
+      waitStatus = await waitForPaymentSSE(backend, checkoutID, displayToken, Math.min(paymentWaitSec,Math.max(0,(deadline-Date.now())/1000)));
       if (!options.jsonOutput) {
         process.stdout.write(`  wait:    ${waitStatus}\n`);
       }
@@ -370,9 +371,10 @@ async function waitForPaymentSSE(
       },
       controller.signal,
     ).catch(() => {
-      // stream ended or aborted
+      // No verification fact was observed; resume the same checkout.
     }).finally(() => {
       clearTimeout(timeout);
+      resolve("timeout");
     });
   });
 }

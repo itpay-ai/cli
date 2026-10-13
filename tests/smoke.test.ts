@@ -2160,6 +2160,31 @@ test("runBuy --pay sends display_token to payment intent creation", async () => 
   assert.equal((req!.body as { display_token?: string }).display_token, `cdt_${session.show().lastCheckoutID}_secret`);
 });
 
+test("runBuy payment after sixty seconds retains the declared wait and image handoff budget", async (t) => {
+ const session = new CartSession("CNY");
+ runCartAdd(session,{catalogItemID:"item_1",catalogVariantID:"v_late_payment",offerID:"o_late_payment",quantity:1,output:silent});
+ const now=Date.now.bind(Date);let elapsed=0;
+ t.mock.method(Date,"now",()=>now()+elapsed);
+ t.mock.method(backend,"streamCheckoutEvents",async (_id: string,_token: string,onEvent: (event: import("../src/client/types.js").SSEEvent)=>void) => {
+  elapsed=61000;
+  onEvent({aggregateType:"checkout",aggregateId:_id,type:"payment_intent.verified",sequence:1,payload:{}});
+ });
+ const result=await runBuy(backend,config,{cartSession:session,host:"codex",pay:true,jsonOutput:true,output:silent});
+ assert.equal(result.kind,"checkout_rendered");
+ assert.equal(result.plan.ideImageAttach?.status,"downloaded");
+ assert.equal(mock.requests.filter(r=>r.path.endsWith("/payment-intents")).length,1);
+});
+
+test("runBuy an ended payment stream returns same-checkout recovery without another payment intent", async (t) => {
+ const session = new CartSession("CNY");
+ runCartAdd(session,{catalogItemID:"item_1",catalogVariantID:"v_ended_payment",offerID:"o_ended_payment",quantity:1,output:silent});
+ t.mock.method(backend,"streamCheckoutEvents",async()=>{});
+ const result=await runBuy(backend,{...config,ideImageAttach:false},{cartSession:session,host:"plain-chat",pay:true,jsonOutput:true,output:silent});
+ assert.equal(result.checkoutID,session.show().lastCheckoutID);
+ assert.equal(mock.requests.filter(r=>r.path.endsWith("/payment-intents")).length,1);
+ assert.equal(result.envelope?.result.wait_status,"timeout");
+});
+
 test("dispatchInteractionRequest (terminal) renders input fields", async () => {
   await dispatchInteractionRequest(
     "terminal",

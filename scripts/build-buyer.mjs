@@ -38,5 +38,5 @@ for(const [directory,pkg] of [...packages].sort((a,b)=>a[1].name.localeCompare(b
  notices+=`===== ${pkg.name}@${pkg.version} (${pkg.license ?? 'see license text'}) =====\n`;
  for(const name of licenses)notices+=`--- ${name} ---\n${readFileSync(resolve(directory,name),'utf8')}\n\n`;
 }
-writeFileSync(resolve(root,'THIRD-PARTY-NOTICES.txt'),notices);
+writeFileSync(resolve(root,'THIRD-PARTY-NOTICES.txt'),notices.trimEnd()+'\n');
 console.log(JSON.stringify({format:'buyer-esm-v1',runtimePackages:[...packages.values()].map(pkg=>({name:pkg.name,version:pkg.version})),externalImports:imports.map(item=>item.path)}));

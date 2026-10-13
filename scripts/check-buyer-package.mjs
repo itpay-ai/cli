@@ -11,5 +11,6 @@ assert(files.files.length<=120,`package has ${files.files.length} files`);
 for(const file of files.files)assert(!/(?:^|\/)(?:node_modules|tests|reviews|assets|sell|sell-preview|build)(?:\/|\.)|\.map$|\.d\.ts$|\/sell\.md$/.test(file.path),'forbidden package file: '+file.path);
 assert.equal(files.files.filter(file=>/^docs\/agent\/buyer\/.*\.json$/.test(file.path)).length,12);
 assert(files.files.some(file=>file.path==='THIRD-PARTY-NOTICES.txt'));
+assert(!/\n\s*\n$/.test(readFileSync('THIRD-PARTY-NOTICES.txt','utf8')),'generated notices must not end with blank lines that fail platform git diff --check');
 assert(files.files.some(file=>file.path==='dist/src/state/config.js'));
 console.log(JSON.stringify({compressed:files.size,unpacked:files.unpackedSize,files:files.files.length}));
