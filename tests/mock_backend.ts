@@ -1035,6 +1035,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       respond(res, 201, {
         checkout: {
           checkout_id: checkoutID,
+          cart_id: payload.cart_id,
           status: "quote_bound",
           next_action: "open_checkout",
 					amount_minor: Number(cart?.amount_minor ?? 100),
@@ -1089,6 +1090,7 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         checkout: {
           checkout: {
             checkout_id: checkoutID,
+            cart_id: cartID,
             status: "quote_bound",
             next_action: "open_checkout",
             amount_minor: 50,

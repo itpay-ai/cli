@@ -361,3 +361,40 @@ test('actual CLI keeps chat consent unknown and branches saved-result guidance o
   if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'R4-R5-package-output.json'),JSON.stringify({scope:'exact package with real HTTP and isolated DeviceAuthority; fixed Backend response fixtures; no approval action',approvals,outputs:evidence},null,2));
  }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await mock.close();}
 });
+
+test('creation validation protects both cached checkout handoffs while valid presentation failures retain recovery',async()=>{
+ const {runBuy}=await import('../src/commands/buy.js');
+ const {runServicesCheckout}=await import('../src/commands/services/commerce.js');
+ const {CartSession}=await import('../src/state/cart_session.js');
+ const {loadConfig}=await import('../src/state/config.js');
+ const {mkdtempSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const mock=await startMockBackend();
+ try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const config={...loadConfig({ITPAY_STATE_DIR:mkdtempSync(join(tmpdir(),'itpay-created-checkout-'))}),idempotencyKey:'isolated-checkout-validation'};
+  const cart={cart_id:'cart_fixture',status:'draft',amount_minor:500,currency:'CNY',items:[]};
+  backend.getCart=async()=>cart;
+  const serviceFacts={service_quote_lock_id:'quote_fixture',capability_id:'fixture',locked_input:{},binding:{service_checkout_binding_id:'binding_fixture',service_execution_id:'se_fixture',service_quote_lock_id:'quote_fixture',checkout_id:'chk_fixture',status:'active'},handoff_reissued:true};
+  let presentationReads=0,paymentWrites=0;
+  backend.getCheckoutPresentation=async()=>{presentationReads++;throw new Error('fixture presentation unavailable');};
+  backend.createPaymentIntent=async()=>{paymentWrites++;throw new Error('must not pay');};
+  for(const values of [{cartID:'other_cart',token:'fixture',status:'payment_required'},{cartID:cart.cart_id,token:'',status:'payment_required'},{cartID:cart.cart_id,token:'fixture',status:'payment_pending'}]) {
+   const checkout={checkout:{checkout_id:'chk_rejected',cart_id:values.cartID,status:values.status,next_action:'none',amount_minor:500,currency:'CNY'},display_token:values.token,checkout_url:'http://fixture/checkout/chk_rejected',qr_payload:''};
+   backend.createCheckout=async()=>checkout;
+   backend.createServiceExecutionCheckout=async()=>({...serviceFacts,binding:{...serviceFacts.binding,checkout_id:checkout.checkout.checkout_id},cart,checkout});
+   const session=new CartSession('CNY');let persisted=0;
+   await assert.rejects(runBuy(backend,config,{cartSession:session,cartID:cart.cart_id,host:'plain-chat',pay:true,jsonOutput:true}),/current payable entry/);
+   assert.equal(session.show().lastCheckoutID,undefined);
+   await assert.rejects(runServicesCheckout(backend,config,'se_fixture',undefined,{resume:true,host:'plain-chat',persistHandoff:()=>{persisted++;}}),/current payable entry/);
+   assert.equal(persisted,0);
+  }
+  assert.equal(presentationReads,0);assert.equal(paymentWrites,0);
+  const checkout={checkout:{checkout_id:'chk_valid',cart_id:cart.cart_id,status:'payment_required',next_action:'none',amount_minor:500,currency:'CNY'},display_token:'fixture',checkout_url:'http://fixture/checkout/chk_valid',qr_payload:''};
+  backend.createCheckout=async()=>checkout;backend.createServiceExecutionCheckout=async()=>({...serviceFacts,binding:{...serviceFacts.binding,checkout_id:checkout.checkout.checkout_id},cart,checkout});
+  const session=new CartSession('CNY');let persisted='';
+  await assert.rejects(runBuy(backend,config,{cartSession:session,cartID:cart.cart_id,host:'plain-chat',jsonOutput:true}),/fixture presentation unavailable/);
+  assert.equal(session.show().lastCheckoutID,'chk_valid');
+  await assert.rejects(runServicesCheckout(backend,config,'se_fixture',undefined,{resume:true,host:'plain-chat',persistHandoff:h=>{persisted=h.checkoutID;}}),/fixture presentation unavailable/);
+  assert.equal(persisted,'chk_valid');assert.equal(paymentWrites,0);
+ }finally{await mock.close();}
+});

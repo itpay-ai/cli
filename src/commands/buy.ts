@@ -25,7 +25,7 @@ import { buildAgentChatHandoff } from "../render/markdown.js";
 import type { Cart, PaymentIntent, SSEEvent } from "../client/types.js";
 import { formatMoney } from "../render/output.js";
 import { CommandContractError, type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
-import { assertCheckoutPayable, buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
+import { assertCheckoutCreation, assertCheckoutPayable, buildCheckoutHandoff, shouldPrepareLocalCheckoutImage } from "./checkout_handoff.js";
 
 
 export type ContactField = "email" | "phone";
@@ -138,6 +138,7 @@ export async function runBuy(
   };
   const checkout = await backend.createCheckout(checkoutRequest, idempotencyKey,{deadline});
 
+  assertCheckoutCreation(checkout,cart.cart_id,latestLine?.service_execution_id);
   options.cartSession.rememberCheckout({
     checkoutID: checkout.checkout.checkout_id,
     displayToken: checkout.display_token,

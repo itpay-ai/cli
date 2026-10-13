@@ -1,5 +1,5 @@
 import type { ServiceExecutionReadModel } from "../../client/types.js";
-import {assertCheckoutPayable} from "../checkout_handoff.js";
+import {assertCheckoutCreation,assertCheckoutPayable} from "../checkout_handoff.js";
 import { serviceAdapter } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
@@ -118,6 +118,7 @@ export async function runServicesCheckout(
     throw error;
   }
   const checkout = response.checkout;
+  assertCheckoutCreation(checkout,response.cart.cart_id,serviceExecutionID);
   options.persistHandoff?.({
     serviceExecutionID,
     cartID: response.cart.cart_id,
