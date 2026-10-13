@@ -15,8 +15,8 @@
 - 任何 capability 输入都必须在状态写入、锁价、订单创建和 Provider 调用前通过 schema 校验。
 - `invoke` 只运行当前阶段允许且不需付款的 Agent-visible capability。
 - 依赖候选的付费 capability 必须继续来源 Execution；`action --candidate` 不能跨 Execution 搬运候选。
-- `services quote` 只创建 Quote Lock；`cart add --quote` 聚合交易；`buy --cart` 创建一次 Checkout。
-- `services checkout` 是单项快捷方式，内部复用 Quote、Cart 和 Checkout 的相同规则。
+- 普通已选服务使用 `services purchase` 读取完整确认、提交真实同意并交付官方页面；此操作不请求支付。
+- `services quote`、`cart add --quote`、`buy --cart` 保留为用户明确要求多服务组合的高级路径；旧 `services checkout` 保留已有执行兼容。
 - `agent_visible_result` 从 `services next` 读取；`vault_artifact` 只有人授权后才能 `read-result`。
 
 ## 子命令
@@ -26,6 +26,7 @@
 - [`invoke`](invoke.md)
 - [`action`](action.md)
 - [`quote`](quote.md)
+- [`purchase`](purchase.md)
 - [`checkout`](checkout.md)
 - [`list`](list.md)
 - [`get`](get.md)
@@ -41,7 +42,7 @@
 itpay services --help
 ```
 
-输出十一个子命令及一句选择规则：运行已发布服务使用 `run`，正常推进使用 `next`，深度诊断才使用 `get/events`。未知子命令返回参数错误和本 help，不创建 Execution。
+输出当前子命令：运行已发布服务使用 `run`，查询推进使用 `next`，选定后的完整购买确认使用 `purchase`，深度诊断才使用 `get/events`。未知子命令返回参数错误和本 help，不创建 Execution。
 
 ## Agent Type / Host
 

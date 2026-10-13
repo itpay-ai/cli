@@ -61,7 +61,7 @@ Provider 已收到请求但没有匹配项时，该 invocation 成功完成、�
 
 ## 额度耗尽
 
-额度耗尽时，普通单 Execution 流程返回完整的 `services checkout` 单项快捷命令；`services quote -> cart add --quote -> buy --cart` 只用于用户明确要求把多个独立 Execution 合并付款的高级流程。
+额度耗尽且需要购买时，支持通用购买的 Execution 返回 `services purchase` 完整确认；未支持的新合同不能猜测授权，已有执行保留原兼容恢复。`services quote -> cart add --quote -> buy --cart` 只用于用户明确要求把多个独立 Execution 合并付款的高级流程。
 
 ```json
 {

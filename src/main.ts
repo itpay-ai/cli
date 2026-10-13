@@ -1801,7 +1801,14 @@ services
  .action(async(id:string,options)=>{
   try {
    const config=loadConfig();
-   const input=options.inputJson ? readInputJsonObject(options.inputJson,"purchase_input_invalid",[]):undefined;
+   let input: Record<string, unknown> | undefined;
+   if (options.inputJson) {
+    try { input = readInputJsonObject(options.inputJson, "purchase_input_invalid", []); }
+    catch (error) {
+     if (!(error instanceof CommandContractError)) throw error;
+     throw new CommandContractError(error.code, error.message, "购买确认文件未发送；按当前返回的平面 file_content 修正本地文件后再提交，不要重新查询或建单。", [], undefined, { request_sent: false });
+    }
+   }
    await runServicesPurchase(newBackendClient(config),config,id,input,{resume:Boolean(options.resume),timeoutSeconds:Number(options.timeout),host:withHost(options.host,config.agentType,options.target),...(config.agentType ? {agentType:config.agentType}:{}),...(options.target ? {target:options.target}:{}),locale:options.locale,jsonOutput:Boolean(options.json)});
   }catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"purchase_failed",instruction:"保留原购买及真实确认；按实际原因继续原 purchase，不重新查询或建单。",recovery:[{command:`itpay services purchase ${id} --resume --json`,reason:"核对原购买进度"}]});}
  });
