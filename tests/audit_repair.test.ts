@@ -145,6 +145,10 @@ test('journey harness: one official checkout carries all leg facts',async()=>{
   base.execution.public_binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:'query_smart',adapter_key:'rail.v1'};
   const legs=[{leg_index:0,train_code:'G1',from:'甲站',to:'乙站',travel_date:'2030-10-01',departure:'23:00',arrival:'00:00',arrival_days:1,state:'pending',issued:false,seat_name:'二等座'},{leg_index:1,train_code:'D2',from:'乙站',to:'丙站',travel_date:'2030-10-02',departure:'01:00',arrival:'02:00',arrival_days:0,state:'pending',issued:false,seat_name:'二等座'}];
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-booking'},rail_booking:{state:'pending',issued_legs:0,message:'待付款',legs}});
+  // Current presentation supplies authoritative journey facts; no extra
+  // execution read is permitted after the official page is verified.
+  const present=backend.getCheckoutPresentation.bind(backend);
+  backend.getCheckoutPresentation=async(...args)=>({...await present(...args),rail_quote:{amount_minor:12400,currency:'CNY',expires_at:'2099-01-01T00:00:00Z',passengers:1,legs:legs.map(leg=>({...leg,train_no:leg.train_code,from_station_code:'AAA',to_station_code:'BBB',seat_type:'O',unit_fare_minor:6200,fare_minor:6200,service_fee_minor:0}))}});
   let writes=0;const create=backend.createServiceExecutionCheckout.bind(backend);backend.createServiceExecutionCheckout=async(...args)=>{writes++;const result=await create(...args);result.checkout.checkout.amount_minor=12400;result.cart.items=result.cart.items.map(item=>({...item,amount_minor:12400}));return result;};
   for(const jsonOutput of [true,false]){
    let output='';await runServicesCheckout(backend,loadConfig({ITPAY_API_BASE_URL:mock.url}),'se_mock_next','itpay_service',{resume:true,host:'plain-chat',agentType:'workbuddy',jsonOutput,output:s=>output+=s});

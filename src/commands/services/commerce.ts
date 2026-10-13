@@ -1,7 +1,7 @@
 import {purchaseEnvelope} from "../../services/shared/purchase.js";
 import type { ServiceExecutionReadModel, ServiceExecutionCheckoutCreated } from "../../client/types.js";
 import {assertCheckoutCreation,assertCheckoutPayable} from "../checkout_handoff.js";
-import { serviceAdapter } from "../../services/registry.js";
+import { projectCheckoutPresentation } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { type CLIConfig } from "../../state/config.js";
@@ -150,14 +150,7 @@ export async function presentServiceCheckout(backend:BackendClient,config:CLICon
     config.baseURL,
     checkout.card_png_url ?? checkout.qr_png_url ?? fallbackCardPNGURL(config.baseURL, checkoutID, displayToken),
   ), locale);
-  let itineraryTitle: string | undefined;
-  let itinerary: Record<string, unknown> | undefined;
-  try {
-    const booking = currentModel ?? await backend.getServiceExecution(serviceExecutionID,{deadline});
-    ({itinerary,itineraryTitle} = await serviceAdapter(booking.execution).checkout(backend,booking,checkoutID,displayToken,authoritative));
-  } catch {
-    // Checkout already exists; a display-only title lookup cannot hide its official handoff.
-  }
+  const {itinerary,itineraryTitle} = authoritative ? projectCheckoutPresentation(authoritative,currentModel) : {};
   const plan = buildCheckoutQRPlan({
     localSimulation: backend.localSimulation,
     host,

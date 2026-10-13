@@ -1,8 +1,8 @@
 import type { ServiceExecutionReadModel, CheckoutPresentation } from "../../client/types.js";
-export function railCheckoutItinerary(booking: ServiceExecutionReadModel,presentation:CheckoutPresentation): {itinerary?:Record<string,unknown>;itineraryTitle?:string} {
-      const review = booking.workflow?.human_action?.context?.review as Record<string, unknown> | undefined;
+export function railCheckoutItinerary(booking: ServiceExecutionReadModel | undefined,presentation:CheckoutPresentation): {itinerary?:Record<string,unknown>;itineraryTitle?:string} {
+      const review = booking?.workflow?.human_action?.context?.review as Record<string, unknown> | undefined;
       const quote = presentation.rail_quote;
-      const facts = quote?.legs ?? booking.rail_booking?.legs ?? (Array.isArray(review?.legs) ? review.legs : []);
+      const facts = quote?.legs ?? booking?.rail_booking?.legs ?? (Array.isArray(review?.legs) ? review.legs : []);
       const legs = facts.filter(value=>value && typeof value==="object").map(value=>{
         const leg=value as Record<string,unknown>;
         return {travel_date:leg.travel_date,train_code:leg.train_code,

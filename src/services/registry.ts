@@ -1,4 +1,4 @@
-import { railAdapterFor } from "./rail/adapter.js";
+import { railAdapter, railAdapterFor } from "./rail/adapter.js";
 import { schemaAdapter, unsupportedAdapter } from "./schema.js";
 import type { ServiceAdapter } from "./adapter.js";
 import type { ServiceExecution, ErrorResponse } from "../client/types.js";
@@ -39,4 +39,11 @@ export function errorServiceAdapter(payload: ErrorResponse | undefined, requeste
  if (payload.public_binding && payload.public_binding.public_service_id !== requestedServiceID) return unsupportedAdapter;
  return serviceAdapter({service_id:payload.service_id,service_contract_version_id:payload.service_contract_version_id,
    ...(payload.public_binding ? {public_binding:payload.public_binding} : {})});
+}
+
+// Presentation is already owner/payability-verified. Business projection is pure:
+// it cannot delay the authoritative handoff with a second network read.
+export function projectCheckoutPresentation(presentation: import("../client/types.js").CheckoutPresentation, model?: import("../client/types.js").ServiceExecutionReadModel): ReturnType<ServiceAdapter["checkout"]> {
+ const adapter = model ? serviceAdapter(model.execution) : presentation.rail_quote ? railAdapter : schemaAdapter;
+ return adapter.checkout(model,presentation);
 }

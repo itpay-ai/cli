@@ -51,3 +51,30 @@ test('review exposes complete flat file and does not require asking again',()=>{
  assert.equal(out.next,null);
  assert.ok(Buffer.byteLength(JSON.stringify(out))<12*1024);
 });
+
+test('verified official presentation is delivered without optional execution HTTP reads', async()=>{
+ const {startMockBackend}=await import('./mock_backend.js');
+ const {createServer}=await import('node:http');
+ const mock=await startMockBackend();
+ const source=new BackendClient(new HttpClient({baseURL:mock.url}));
+ const quote=await source.prepareServiceQuote('se_fixture',{capability_id:'precise_report'});
+ assert.ok(quote.approval_template);
+ await source.recordServiceExecutionAction('se_fixture',{action_type:'approve_purchase',actor_type:'agent',status:'approved',input_snapshot:{...quote.approval_template,user_approved:true}});
+ const checkout=await source.createServiceExecutionCheckout('se_fixture',{capability_id:'precise_report'});
+ try {for(const slow of ['headers','body']){
+  let optionalRequests=0;
+  const server=createServer(async(req,res)=>{
+   if(req.url==='/v1/service-executions/se_fixture'){optionalRequests++;if(slow==='body'){res.writeHead(200,{'Content-Type':'application/json'});res.write('{');}return;}
+   const response=await fetch(mock.url+req.url,{method:req.method??'GET'});res.writeHead(response.status,{'Content-Type':'application/json'});res.end(await response.text());
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const address=server.address();assert.ok(address&&typeof address==='object');
+  const backend=new BackendClient(new HttpClient({baseURL:`http://127.0.0.1:${address.port}`}));
+  backend.getServicePurchaseReview=async()=>({...running,status:'checkout_ready',completed_stage:'official_page',checkout,effects:{...effects,page_reused:true,human_page_action_required:true}});
+  const started=Date.now();let output='';
+  try {
+   await runServicesPurchase(backend,config,'se_fixture',undefined,{jsonOutput:true,output:s=>output+=s});
+   const result=JSON.parse(output);assert.ok(result.handoff.url);assert.equal(result.result.effects.payment_requested,false);assert.equal(optionalRequests,0);assert.ok(Date.now()-started<2000);
+  }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+ }}finally{await mock.close();}
+});
