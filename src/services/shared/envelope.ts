@@ -142,7 +142,7 @@ export function writeCommandEnvelope(
   const agentType = options.agentType ?? declaredAgentType();
   const qualified = qualifyEnvelope(value, agentType);
   if (options.jsonOutput) {
-    const pretty = JSON.stringify(qualified, null, 2) + "\n";
+    const pretty = JSON.stringify(qualified, null, 1) + "\n";
     out(pretty);
     return;
   }
