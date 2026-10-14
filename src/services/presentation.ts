@@ -32,7 +32,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
   const availableResult = adapter.savedResult(model);
   if (availableResult && adapter.shouldWait(model) === false) return availableResult;
   const latestRun = model.execution_requests?.filter((request) => request.execution_kind === "service.execution.run").at(-1);
-  if (latestRun && ["pending", "started"].includes(latestRun.status) && model.workflow?.status !== "failed") {
+  if (latestRun && ["pending", "started"].includes(latestRun.status) && !["failed","quota_paused","human_action"].includes(model.workflow?.status ?? "")) {
     return {
       status: "running",
       result: { service_execution_id: execution.service_execution_id, execution_request_id: latestRun.execution_request_id },

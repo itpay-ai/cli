@@ -6156,3 +6156,11 @@ test("service quote and checkout accept the current flat file template without g
     assert.equal(mock.requests.some(request=>request.method==="POST"&&request.path===`/v1/service-executions/${id}/checkout`),false);
   }
 });
+
+
+test("current login pause overrides a pending worker record without another query", async()=>{
+ const {servicesNextEnvelope}=await import("../src/services/presentation.js");
+ const base=await backend.getServiceExecution("se_demo");
+ const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"quota_exhausted"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"quota_paused",current_step:"quota",revision:2,steps:{},error_code:"login_required"},execution_requests:[{execution_request_id:"exr_pending_auth",execution_kind:"service.execution.run",aggregate_type:"service_execution",aggregate_id:base.execution.service_execution_id,status:"pending",operation:"start",dispatch_attempts:0}]};
+ const envelope=servicesNextEnvelope(model);assert.equal(envelope.status,"login_required");assert.equal(envelope.result?.service_execution_id,base.execution.service_execution_id);assert.equal(envelope.next?.command,"itpay auth login --json");assert.equal(envelope.recovery.length,0);
+});
