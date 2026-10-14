@@ -315,6 +315,8 @@ export function shouldWaitForServiceResult(model: ServiceExecutionReadModel): bo
   const adapter=serviceAdapter(model.execution);
   if(!adapter.supported)return false;
   const wait=adapter.shouldWait(model);if(wait!==undefined)return wait;
+  const run=model.execution_requests?.filter(request=>request.execution_kind==="service.execution.run").at(-1);
+  if(model.workflow?.status==="quota_paused" && run?.operation==="resume" && ["pending","started"].includes(run.status))return true;
   return ["queued", "running", "delivery"].includes(model.workflow?.status ?? "");
 }
 
@@ -423,7 +425,7 @@ export async function runServicesRun(
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     // A planning projection can exist before any usable result or user action.
     // Keep the existing bounded wait until there is something to hand over.
-    while ((["queued", "running", "delivery"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && shouldWaitForServiceResult(model) && Date.now() < until) {
+    while ((["queued", "running", "delivery", "quota_paused"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && shouldWaitForServiceResult(model) && Date.now() < until) {
       await sleep(Math.min(Math.max(1500,options.pollIntervalMS ?? 1500),Math.max(0,until-Date.now())));
       if (Date.now() >= until) break;
       try {model = await backend.getServiceExecution(id,{deadline});}

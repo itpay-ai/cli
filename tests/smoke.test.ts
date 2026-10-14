@@ -6163,4 +6163,7 @@ test("current login pause overrides a pending worker record without another quer
  const base=await backend.getServiceExecution("se_demo");
  const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"quota_exhausted"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"quota_paused",current_step:"quota",revision:2,steps:{},error_code:"login_required"},execution_requests:[{execution_request_id:"exr_pending_auth",execution_kind:"service.execution.run",aggregate_type:"service_execution",aggregate_id:base.execution.service_execution_id,status:"pending",operation:"start",dispatch_attempts:0}]};
  const envelope=servicesNextEnvelope(model);assert.equal(envelope.status,"login_required");assert.equal(envelope.result?.service_execution_id,base.execution.service_execution_id);assert.equal(envelope.next?.command,"itpay auth login --json");assert.equal(envelope.recovery.length,0);
+ const resumed:ServiceExecutionReadModel={...model,execution_requests:model.execution_requests?.map(request=>({...request,operation:"resume"}))};
+ assert.equal(servicesNextEnvelope(resumed).status,"running");
+ const {shouldWaitForServiceResult}=await import("../src/commands/services/lifecycle.js");assert.equal(shouldWaitForServiceResult(model),false);assert.equal(shouldWaitForServiceResult(resumed),true);
 });
