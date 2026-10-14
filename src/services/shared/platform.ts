@@ -33,6 +33,13 @@ export function journalTaskState(serviceExecutionID: string, envelope: CommandEn
   }
 }
 
+export function remainingAutomaticWait(id:string,env:NodeJS.ProcessEnv):number {
+ try{return new TaskJournal(taskJournalPath(env)).remainingAutomaticWait(id);}catch{return 0;}
+}
+export function recordAutomaticWait(id:string,milliseconds:number,env:NodeJS.ProcessEnv):number {
+ try{return new TaskJournal(taskJournalPath(env)).recordAutomaticWait(id,milliseconds);}catch{return 0;}
+}
+
 export const serviceActionStatuses = new Set(["pending", "approved", "rejected", "expired", "cancelled"]);
 
 export function requiredInputFields(schema: Record<string, unknown> | undefined): string[] {

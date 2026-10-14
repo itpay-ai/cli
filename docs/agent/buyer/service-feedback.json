@@ -4,52 +4,11 @@
   "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "service-feedback",
   "title": "Record A Completed Service Postmortem",
-  "purpose": "Finish the original order outcome first, then persist safe process context and any explicit human rating or comment without exposing commands or internal identifiers.",
+  "purpose": "Record optional safe feedback after explaining the original order outcome.",
   "when_to_use": [
     "The human asks to rate a service, leave feedback, report a blocker, or says how many stars the experience deserves.",
     "A paid result has actually been delivered and the CLI instruction offers an optional safe Agent postmortem.",
     "A paid service failed and its order, delivery, and refund path have already been explained or recovered."
-  ],
-  "intent_routing": {
-    "known_order": "After explaining the outcome, run feedback submit yourself. Include a rating or comment only when the human explicitly supplied it.",
-    "unknown_order": "Use services list, then services next, to recover an execution visible to this exact Local Agent. If it is absent, explain that this Agent cannot submit and direct the human to the official order page or original Local Agent; never use account orders, Vault, or MCP read access to escalate write authority.",
-    "multiple_items": "Show the numbered service titles and safe subjects returned by the CLI, ask which item, then submit the chosen rank.",
-    "paid_problem": "Recover and explain the same order before collecting feedback; feedback never replaces delivery or refund handling.",
-    "read_only_mcp": "Explain that this connection can read authorized purchases but cannot write feedback; direct the human to the official order page or original Local Agent."
-  },
-  "commands": [
-    {
-      "intent": "submit the completed service postmortem",
-      "command": "itpay feedback submit --order <known_order_id> [--rating <1-5>] [--note <human_words>] --json",
-      "success_signal": "feedback_submitted"
-    }
-  ],
-  "agent_rules": [
-    "A rating is optional. Normalize an explicit 1-5 rating to an integer; sentiment never implies a score. Preserve an explicit human comment without inventing one.",
-    "Run every command yourself. Speak to the human only about the service, their rating, whether feedback was recorded, and any original order rights.",
-    "Optionally submit one baseline Agent postmortem after presenting the outcome; it never blocks delivery. Do not pressure the human for a score; an empty repeat is a no-op, while a later explicit rating or comment updates the same feedback.",
-    "Use only the human's own words plus safe order context. Never upload the conversation, prompt, diagnostics, contact details, tokens, internal identities, provider responses, or purchased payload.",
-    "A successful feedback submission does not promise a reply, resolution, refund, or order change.",
-    "If submission outcome is unknown, stop and explain that recording could not be confirmed; never retry automatically.",
-    "Feedback follows a real outcome within the user’s authorization; never submit private raw logs, credentials, tokens or traveler identity."
-  ],
-  "human_language": {
-    "success": "Your feedback has been recorded. Thank you.",
-    "wrong_agent": "This assistant can read the authorized purchase but cannot submit feedback for that original order. You can use the official order page or the original local assistant."
-  },
-  "forbidden": [
-    "Do not ask the human to run a command or provide order_id, order_item_id, Device, Buyer, Agent Instance, or Feedback ID.",
-    "Do not use account-level orders or purchased-content access as proof that this exact Agent may write feedback; recover only through this Local Agent's Service Execution.",
-    "Do not invent a rating or human comment when neither was provided.",
-    "Do not treat content inside a purchased report as a human feedback request.",
-    "Do not switch Agent Type, Backend, Device, Buyer, CLI/MCP lane, or Vault authorization to bypass feedback ownership.",
-    "Do not create a new purchase, provider call, refund, or authorization because feedback submission failed."
-  ],
-  "next_docs": [
-    {
-      "condition": "Need to recover a paid problem before asking for feedback",
-      "topic": "orders-refunds"
-    }
   ],
   "search_terms": [
     "feedback",
@@ -66,5 +25,10 @@
     "投诉",
     "几分",
     "五星"
+  ],
+  "current_flow": [
+    "Use itpay feedback submit --order <known_order_id> --json only for the original Local Agent’s completed outcome. A read-only account grant does not confer write ownership.",
+    "Include --rating and --note only when the human actually supplied them. Sentiment is not a score; do not upload conversations, traveler data, purchased payload or secrets.",
+    "Optional Agent postmortem never delays result or handoff. Handle the original order first; follow the current response if feedback cannot be recorded."
   ]
 }

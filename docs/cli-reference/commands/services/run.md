@@ -1,152 +1,23 @@
-# `itpay services run`
+# itpay services run
 
-## 范围与意义
-
-运行 Catalog 中已发布的通用 Buyer workflow。CLI 只提交服务声明要求的输入，并复用现有 Service Execution、Checkout、交付和退款命令；它不解释或执行 Seller 提供的任意命令文本。
-
-没有提供输入且未指定现有 execution 时，本命令创建一次 Execution，返回已发布的 JSON input schema，并要求 Agent 继续同一 Execution。已有 Execution 必须通过 `--execution` 恢复，不能创建替代 Execution。
-
-## 语法与参数
-
-```bash
-itpay services run <service_id>
-  [--input-json <file>]
-  [--execution <service_execution_id>]
-  [--timeout <seconds>]
-  [--host <host>]
-  [--target <target>]
-  [--json]
-```
-
-| 参数 | 说明 |
-| --- | --- |
-| `service_id` | Catalog 返回的服务 ID。恢复时必须与 Execution 所属服务一致。 |
-| `--input-json` | UTF-8 JSON 文件；顶层必须是 object，并符合服务发布的 input schema；文件不超过 256 KiB。文件不可读、非合法 JSON 或顶层非 object 时在本地报 `workflow_input_invalid`，不发生网络写。 |
-| `--execution` | 恢复同一 Execution。不得用它切换服务或绕过原状态。 |
-| `--timeout` | 本次等待 workflow 状态变化的秒数，默认 120，范围 0–600；超时只返回当前状态。 |
-| `--host` / `--target` | Host 展示上下文，不是业务输入或 Buyer 身份。 |
-| `--json` | 输出稳定 JSON 信封。 |
-
-## 缺少输入
-
-```json
-{
-  "status": "input_required",
-  "result": {
-    "service_execution_id": "<execution_id>",
-    "service_id": "<service_id>",
-    "input_schema": { "type": "object", "required": ["<field>"] }
-  },
-  "instruction": "根据服务声明填写输入，然后继续同一服务执行。",
-  "next": {
-    "command": "itpay services run <service_id> --execution <execution_id> --input-json <file> --json",
-    "reason": "提交买家输入"
-  },
-  "recovery": []
-}
-```
-
-Agent 必须展示 schema 所需信息并等待用户提供真实输入；不得猜值，也不得为补输入创建新 Execution。
-
-铁路 Smart 新版 schema 使用 `endpoints.origin` / `endpoints.destination`，每端独立填写区域 `area`、具体地点 `place` 或准确车站 `station` 与原文 `text`；类型未确定可省略 `kind`。区域、地点和车站的九种组合共用这一输入。以当前执行返回的 `input_schema` 为准：旧 v4 执行仍使用旧字段；新版不可混填旧 `origin` / `destination`、坐标或锁站布尔值。地点/日期实质变更发起关联新查询，沿已保存结果返回的 `new_query_template` 填写真实变化；偏好、人数和期限在相同端点/日期下使用已有 `refine_preferences` 动作。
-
-## 执行与付款
-
-提供输入后，CLI 使用稳定 idempotency key 向同一 Execution 提交一次。`queued` 或 `running` 只轮询该 Execution。进入付款步骤时，CLI 调用现有 `services checkout`，返回其标准 `human_checkout_required` 输出和 Host handoff；不会实现第二套付款逻辑。
-
-付款完成后即使 CLI 已退出，Backend 仍继续该 workflow。再次运行：
-
-```bash
-itpay services run <service_id> --execution <execution_id> --json
-```
-
-只恢复当前状态。交付、Vault 授权和退款继续使用 `services next`、`services read-result`、`vault` 与 `refund` 的既有合同。
-
-## 免费试用额度与 `login_required`
-
-铁路查询类服务对未登录设备提供按服务独立计数的免费试用（`itpay-rail-exact` 与 `itpay-rail-smart` 各 2 次，互不共享）。额度在查询产生供应商副作用前由服务端原子记账：地点确认、内部多阶段、轮询和已保存结果分页不重复扣次；参数校验失败且未执行查询时不扣次。
-
-试用耗尽时，查询在供应商调用**之前**被暂停，Execution 不失败，已提交的输入服务端保留：
-
-```json
-{
-  "status": "login_required",
-  "result": {
-    "service_execution_id": "<execution_id>",
-    "service_id": "itpay-rail-exact",
-    "admission": "login_required",
-    "query_quota": [
-      { "service_id": "itpay-rail-exact", "used": 2, "limit": 2, "remaining": 0 },
-      { "service_id": "itpay-rail-smart", "used": 0, "limit": 2, "remaining": 2 }
-    ]
-  },
-  "instruction": "该服务的免费查询次数已用完（exact 2/2，smart 仍剩 2/2）。请用户在官方页面完成登录后继续免费查询；本次查询输入已保留，登录后恢复同一执行即可，不要新建执行或让用户重述行程。smart 额度属于另一类服务，不能拿它顶替 exact 查询。",
-  "next": {
-    "command": "itpay auth login --json",
-    "reason": "完成官方登录绑定后继续免费查询"
-  },
-  "recovery": [
-    {
-      "command": "itpay services run itpay-rail-exact --execution <execution_id> --json",
-      "when": "auth_bound",
-      "reason": "登录绑定完成后恢复同一查询执行"
-    }
-  ]
-}
-```
-
-`query_quota` 如实报告各查询服务自己的 `used`、`limit`、`remaining`。是否暂停只以本次服务端 `admission` 为准；已有结果先正常交付，不把另一服务的额度当作本次授权。
-
-登录绑定完成后，再次运行同一条 `services run <service> --execution <id> --json`（不带输入文件）：服务端重新读取当前设备绑定身份，被暂停的 Execution 从额度节点继续，不重放已成功的供应商调用，不要求重新输入。`failed`、`recovery_required` 或已完成付款的 Execution 不能以这种方式恢复。
-
-## `rate_limited`
-
-已注册账号查询不设累计次数上限，但受正常每分钟限流：
-
-```json
-{
-  "status": "rate_limited",
-  "result": {
-    "service_execution_id": "<execution_id>",
-    "service_id": "<service_id>",
-    "admission": "rate_limited",
-    "retry_after_ms": 42000
-  },
-  "instruction": "触发正常限流；等待后恢复同一执行，不要新建查询。",
-  "next": {
-    "command": "itpay services run <service_id> --execution <execution_id> --json",
-    "after_ms": 42000,
-    "reason": "限流窗口过后继续同一查询"
-  },
-  "recovery": []
-}
-```
-
-限流不是收费、不是试用耗尽、不需要重新登录。等待中不得重复扣试用或发起新的供应商请求。
-
-## 公开操作与完整购买承接
-
-铁路是一项 `itpay-rail` 服务，`query_exact`、`query_smart`、`prepare_purchase` 是固定定义内的操作。查询输入按返回模板填写 `{ "input": { ... } }`；不要把内部实现当三项公开服务重新发现。
+执行公开定义返回的当前 operation 或继续原执行。先读取该定义/原结果提供的完整 input_template；复制 file_content 到文件，只填声明的缺失字段。
 
 ```sh
-itpay services run itpay-rail --operation query_exact --input-json query.json --json
+itpay services run <service_id> --operation <operation_id> --input-json <file> --json
 ```
 
-所选行程详情返回完整准备购买模板，含 `continuation.service_execution_id`、`continuation.snapshot_id` 和 `input.selections`。原样保留当前 owner、快照、完整段数、席别代码和人数，写入文件并执行其命令。不要手拼腿、站码、时刻、付款批准或缺失的 snapshot。一次整程对应一个 booking、一个官方付款入口，各段分别出票。
+公共 operation 文件有外层 input，并按返回保留 continuation。已有执行加 --execution <execution_id>；购买确认文件的形状由 purchase 模板决定，不能混用。
 
-旧 `itpay-rail-exact/smart/booking` ID 仅用于已有执行和历史模板的兼容恢复；新公共模板与旧凭据共用原购买去重。存在或未知购买先恢复，过期库存不等于能新建购买。
+--timeout 控制本次等待（默认120秒，0表示立即返回）；查询累计自动等待由原任务日志记录，恢复不重置。读取 status/result 和当次 next；没有可执行动作就停止。完整铁路路线理解见 rail-booking；必要购买同意见正式 Skill。创建结果未知不自动重发，已知执行编号必须保留。
 
-候选选择不等于价格和条款同意。正常流程读取返回的 `services purchase` 完整确认；已有真实、匹配价格/上限/条款/主体的同意可复用，缺失或实质变化才补确认。服务端核对实际报价并衔接原有批准；旧执行的 approve_purchase 模板保留原范围保护。付款与出票事实仍由后端及官方页确认。
+## 当前参数
 
-## 终态和异常
-
-- 成功、付款、交付、授权、退款锁等状态使用既有命令的标准信封，不额外包装 Seller 专用格式。
-- 既有 Checkout、身份、兼容性和网络错误保持原错误码、instruction 与 recovery；`services run` 不得覆盖可执行的邮箱、登录、升级或状态恢复指令。
-- 如果创建 Execution 后未收到完整响应，返回 `workflow_start_outcome_unknown`，只允许先执行 `itpay services list --json` 查找刚创建的 Execution；不得直接重跑 `services run` 创建替代 Execution。
-- `recovery_required` 或 `failed` 返回当前 workflow step，`next: null`，并明确禁止重建 Execution 或重放结果未知的 Provider 请求。
-- service 不匹配、输入文件不是 JSON object、timeout 越界或 Backend 错误返回 `workflow_run_failed`。
-- `--timeout` 到期不是失败，只返回同一 Execution 当前可恢复状态。
-
-## Agent Type / Host
-
-所有 Local Agent Type 共享同一状态机和 JSON 事实。Host 只改变付款链接、二维码或附件的展示方式，不改变身份、价格、workflow 或交付权限。
+```text
+--operation <operation_id>  operation declared by the public service
+--input-json <file>         JSON object containing the service input
+--execution <execution_id>  resume the same execution
+--timeout <seconds>         maximum wait before returning current progress
+--host <host>
+--target <target>
+--json                      output JSON
+```

@@ -1,5 +1,8 @@
 import type { ServiceExecutionReadModel } from "../src/client/types.js";
-import {test} from 'node:test';
+import {test,after} from 'node:test';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import assert from 'node:assert/strict';
 import {BackendClient} from '../src/client/backend.js';
 import {loadConfig} from '../src/state/config.js';
@@ -9,6 +12,11 @@ import {startMockBackend} from './mock_backend.js';
 import {runServicesCheckout, runServicesNext, runServicesPage, runServicesReadResult, runServicesStart, runServicesRun} from '../src/commands/services.js';
 import {runOrder} from '../src/commands/order.js';
 import {runGetRefund} from '../src/commands/refund.js';
+
+const taskDirectory=mkdtempSync(join(tmpdir(),'itpay-audit-tasks-'));
+const previousTaskPath=process.env.ITPAY_TASK_JOURNAL_PATH;
+process.env.ITPAY_TASK_JOURNAL_PATH=join(taskDirectory,'tasks.json');
+after(()=>{if(previousTaskPath===undefined)delete process.env.ITPAY_TASK_JOURNAL_PATH;else process.env.ITPAY_TASK_JOURNAL_PATH=previousTaskPath;rmSync(taskDirectory,{recursive:true,force:true});});
 
 test('audit repair: saved geo reason, empty candidates and real choices', async () => {
   const mock = await startMockBackend();
@@ -113,7 +121,7 @@ test('journey harness: endpoint recovery keeps area/place/station and untouched 
    const query={endpoints:{origin:{kind:origin,text:'甲原意'},destination:{kind:destination,text:'乙原意'}},travel_date:'2030-10-01',passengers:2};
    backend.getServiceExecution=async()=>({...base,workflow_entry:{capability_id:'itpay_service',input_schema:{type:'object',required:['endpoints','travel_date'],properties:{endpoints:{type:'object',required:['origin','destination'],properties:{origin:{type:'object',required:['text'],properties:{text:{type:'string'},kind:{type:'string'}}},destination:{type:'object',required:['text'],properties:{text:{type:'string'},kind:{type:'string'}}}}},travel_date:{type:'string'},passengers:{type:'integer'}}}},workflow:{query_input:query,status:'failed',current_step:'geo',revision:1,steps:{},failure:{step_id:'resolved',reason_code:'address_required',endpoint:'destination'}}});
    let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);
-   assert.deepEqual(result.result.query,query);assert.deepEqual(result.result.new_query_template.input.endpoints.origin,query.endpoints.origin);assert.equal(result.result.new_query_template.input.endpoints.destination.kind,destination);assert.notEqual(result.result.new_query_template.input.endpoints.destination.text,query.endpoints.destination.text);assert.equal(result.result.new_query_template.input.travel_date,query.travel_date);assert.equal(result.result.new_query_template.input.passengers,query.passengers);assert.doesNotMatch(result.instruction,/最近站/);
+   assert.deepEqual(result.result.query,query);assert.deepEqual(result.result.new_query_template.file_content.input.endpoints.origin,query.endpoints.origin);assert.equal(result.result.new_query_template.file_content.input.endpoints.destination.kind,destination);assert.notEqual(result.result.new_query_template.file_content.input.endpoints.destination.text,query.endpoints.destination.text);assert.equal(result.result.new_query_template.file_content.input.travel_date,query.travel_date);assert.equal(result.result.new_query_template.file_content.input.passengers,query.passengers);assert.doesNotMatch(result.instruction,/最近站/);
   }
  }finally{await mock.close();}
 });
@@ -165,7 +173,7 @@ test('journey repair: raw multi-leg rejection points to saved complete plan',asy
   for(const code of ['rail_journey_selection_required']) {
    backend.startServiceExecution=async()=>{throw new HttpError(400,{code,service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',message:'complete saved plan required'},'invalid');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{legs:[{seat_type:'O'},{seat_type:'O'}]}),error=>{
-    assert.ok(error instanceof CommandContractError);assert.equal(error.code,code);assert.match(error.instruction,/手填 legs 只兼容单腿/);assert.ok(error.recovery.some(item=>item.command==='itpay services list --json'));return true;
+    assert.ok(error instanceof CommandContractError);assert.equal(error.code,code);assert.match(error.instruction,/不手拼票段或拆单/);assert(!error.recovery.some(item=>/docs show/.test(item.command)));assert.ok(error.recovery.some(item=>item.command==='itpay services list --json'));return true;
    });
   }
  }finally{await mock.close();}
@@ -180,7 +188,7 @@ test('journey repair: station coordinate system gap only offers Exact for comple
    backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{query_input:query,status:'failed',current_step:'geo',revision:1,steps:{},failure:{step_id:'resolved',reason_code:'station_location_evidence_required',endpoint:'destination'}}});
    let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const value=JSON.parse(output);
    assert.equal(value.status,'system_evidence_required');assert.deepEqual(value.result.query,query);
-   if(kind==='station') {assert.deepEqual(value.result.new_query_template.input,{origin:'甲站',destination:'乙站',travel_date:'2030-10-01'});assert.match(value.result.new_query_template.command,/itpay-rail-exact/);}
+   if(kind==='station') {assert.deepEqual(value.result.new_query_template.file_content.input,{origin:'甲站',destination:'乙站',travel_date:'2030-10-01'});assert.match(value.result.new_query_template.command,/itpay-rail --operation query_exact/);}
    else {assert.equal(value.result.new_query_template,undefined);assert.match(value.instruction,/当前无可执行恢复/);}
   }
  }finally{await mock.close();}
@@ -242,12 +250,12 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
   const schema={type:'object',required:['travel_date'],oneOf:[{required:['endpoints']},{required:['origin','destination']}],properties:{endpoints:{type:'object',required:['origin','destination'],properties:{origin:side,destination:side}},origin:{type:'string'},destination:{type:'string'},travel_date:{type:'string'},passengers:{type:'integer'},priority:{type:'string'}}};
   for(const query of [{},{origin:'原起点住宅',destination:'原目的区域',travel_date:'2030-10-09',passengers:2,priority:'fastest'},{endpoints:{origin:{kind:'place',text:'原起点住宅'},destination:{kind:'area',text:'原目的区域'}},travel_date:'2030-10-09',passengers:2,priority:'fastest'}]){
    backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'input_required',current_step:'input',revision:1,steps:{},query_input:query}});
-   let text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const entry=JSON.parse(text);assert.match(entry.instruction,/端点理解摘要/);
+   let text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const entry=JSON.parse(text);assert.match(entry.instruction,/rail-booking|完整text/);
    const input=entry.interaction.input_template.input.input;
    if('origin' in query){assert.equal(input.endpoints,undefined);assert.equal(input.origin,query.origin);}else assert(input.endpoints.origin.text);
    if(Object.keys(query).length){
     backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'failed',current_step:'geo',revision:1,steps:{},query_input:query,failure:{step_id:'resolved',reason_code:'place_identity_uncertain',endpoint:'origin'}}});
-    text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const recovery=JSON.parse(text).result.new_query_template.input;
+    text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const recovery=JSON.parse(text).result.new_query_template.file_content.input;
     if('origin' in query){assert.equal(recovery.endpoints,undefined);assert.equal(recovery.destination,query.destination);}else{assert.ok(query.endpoints);assert.equal(recovery.origin,undefined);assert.deepEqual(recovery.endpoints.destination,query.endpoints.destination);}
     assert.equal(recovery.passengers,2);assert.equal(recovery.priority,'fastest');
    }
@@ -334,5 +342,27 @@ test('bounded wait keeps the pending task and avoids a duplicate read after the 
   try {let output='';await runServicesNext(backend,'se_check',{timeoutSeconds:2,jsonOutput:true,output:s=>output+=s,sleep:async ms=>{now+=ms;}});
    const result=JSON.parse(output);assert.equal(gets,2);assert.equal(result.status,'running');assert.equal(result.result.wait_timed_out,true);assert.equal(result.result.waited_seconds,2);assert.match(result.next.command,/--timeout 60/);assert.match(result.next.reason,/未失败/);
   }finally{Date.now=originalNow;}
+ }finally{await mock.close();}
+});
+
+test('full flow: created initial read failure preserves operation, input and unknown provider fact',async()=>{
+ const mock=await startMockBackend();try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const base=await backend.getServiceExecution('se_mock_next');
+  backend.startServiceExecution=async()=>({...base,execution:{...base.execution,service_execution_id:'se_original'},workflow_entry:{capability_id:'itpay_service',input_schema:{}}});
+  backend.getServiceExecution=async()=>{throw new HttpError(500,{code:'internal_error',message:'read unavailable'},'read unavailable');};
+  const input={travel_date:'2030-10-09',passengers:2};
+  await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail',input,{operationID:'query_exact'}),error=>{
+   assert(error instanceof CommandContractError);assert.equal(error.code,'internal_error');assert.equal(error.result?.service_execution_id,'se_original');assert.equal(error.result?.execution_created,true);assert.equal(error.result?.failure_stage,'read_initial_state');assert.equal(error.result?.provider_called,undefined);assert.deepEqual(error.interaction?.input_template?.file_content,{input});assert.match(error.interaction!.input_template!.command,/--operation query_exact --execution se_original/);return true;
+  });
+ }finally{await mock.close();}
+});
+
+test('full flow: missing expired review never falls back to quote or checkout',async()=>{
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+  backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_execution_id:'se_original'},purchase_preparation:'expired',workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'payment',current_step:'payment',revision:1,steps:{}}});
+  let writes=0;backend.prepareServiceQuote=async()=>{writes++;throw new Error('must not quote');};backend.createServiceExecutionCheckout=async()=>{writes++;throw new Error('must not checkout');};
+  let output='';await runServicesNext(backend,'se_original',{jsonOutput:true,output:s=>output+=s});const out=JSON.parse(output);assert.equal(out.status,'purchase_review_expired');assert.equal(out.next,null);assert.match(out.recovery[0].command,/services purchase se_original/);assert.equal(writes,0);
  }finally{await mock.close();}
 });

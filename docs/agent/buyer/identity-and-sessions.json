@@ -3,78 +3,10 @@
   "role": "buyer",
   "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "identity-and-sessions",
-  "title": "Device Identity And Session Recovery",
-  "purpose": "Explain stable local identity, official Backend-scoped registrations, Agent Type instances, and bounded automatic session recovery.",
+  "title": "Account Login And Identity Binding",
+  "purpose": "Explain current account identity and official login/binding when requested.",
   "when_to_use": [
-    "A different Agent window or runtime starts using an existing CLI installation.",
-    "The CLI reports device_state_unwritable, or the Backend reports agent_identity_required, agent_device_session_required, agent_device_not_found, or agent_device_revoked.",
-    "An operator confirms that the currently selected official Backend registration database was reset."
-  ],
-  "identity_model": {
-    "local_key": "One owner-only Ed25519 private key for the local installation.",
-    "backend_registration": "One registration per configured official Backend. Follow the current CLI backend allowlist; do not switch to evade failures.",
-    "agent_instance": "One instance per agent_type under each Backend registration; same-type windows and chats reuse it.",
-    "presentation": "Host and target route output only and never identify the Agent or provide business input."
-  },
-  "automatic_recovery": [
-    "The CLI reuses a valid cached device session.",
-    "On one HTTP 401 with code agent_device_session_required, it invalidates only the current Backend and Agent Type session, renews it, and retries the exact request once.",
-    "A second failure is returned to the Agent. The CLI does not loop, switch Agent Type, rotate the key, or create a replacement v2 device.",
-    "A new actual Agent Type proves possession of the original key to the selected Backend; the Backend resolves its original Device and idempotent Instance. Revoked Device, key or requested Instance is not replaced or reactivated.",
-    "An unknown Backend registration is re-attached once with the same key; only that Backend cache changes. The old identity file is read-only and other contexts remain intact.",
-    "A revoked v2 registration requires explicit operator recovery; it is never silently replaced.",
-    "Re-enrolling the same public key preserves the Backend Device and quota lineage after proof. internal_error is a server failure: preserve the key. Rotated/conflicting keys stop this round. This version does not support device reset-key; it returns device_key_reset_unavailable without changing identity."
-  ],
-  "local_state_recovery": [
-    "The original key is retained; old identity is read-only. Each Backend/Agent Type/key fingerprint has an independent atomic session cache and generation marker. Normal authorization needs no legacy lock or process probe. Old lock files are not read, moved or deleted.",
-    "Operation idempotency uses one immutable owner-only record per operation key. Different commands and Agent processes do not share a global operation-journal lock; legacy operations.json is read only.",
-    "On device_state_unwritable, use the reported operation and errno to diagnose the failing stage without exposing local paths; keep the same Agent Type and CLI/Node launcher, restore Host-approved persistent access to ~/.itpay-v3, then retry the original command.",
-    "Do not delete a live lock, switch Node runtimes, delete identity, or rotate Agent Type as a retry strategy."
-  ],
-  "commands": [
-    {
-      "intent": "reload the complete rules",
-      "command": "itpay --agent-type <agent_type> skill show itpay --json",
-      "success_signal": "the full Skill is returned and next keeps the same Agent Type"
-    },
-    {
-      "intent": "confirm the selected official Backend is available",
-      "command": "itpay --agent-type <agent_type> readyz --json",
-      "success_signal": "Backend liveness only; next checks auth status with the same Backend and Agent Type"
-    },
-    {
-      "intent": "recover after an operator-confirmed reset of the selected official Backend registration database",
-      "command": "itpay --agent-type <agent_type> device recover --confirm-backend-reset --json",
-      "success_signal": "Only the selected Backend session caches are invalidated; key, old identity and other Backends remain"
-    },
-    {
-      "intent": "compatibility explanation only; not a normal recovery action",
-      "command": "itpay device repair-lock --json",
-      "success_signal": "device_legacy_lock_unmanaged; old files are untouched, not repaired"
-    }
-  ],
-  "agent_rules": [
-    "Use the real runtime type and keep it stable across every command in the flow.",
-    "Keep the same CLI/Node launcher and Host-approved permission context for the whole flow.",
-    "Treat a new window, chat, task, or process of the same runtime as the same Agent Type, not a new identity.",
-    "Production defaults to https://app.itpay.ai; explicit sandbox or dev testing uses https://sandbox.itpay.ai or https://dev.itpay.ai. Keep the complete returned Backend-prefixed command for that flow.",
-    "After automatic recovery fails, stop and report the exact code, selected official Backend, Agent Type, and command family without exposing private keys or tokens."
-  ],
-  "forbidden": [
-    "Do not delete ~/.itpay-v3, rotate the key, switch Agent Type, or repeatedly retry to obtain fresh quota.",
-    "Do not use device recover for session expiry, revocation, quota recovery, or an unconfirmed Backend failure.",
-    "Do not switch Backend to evade a failure. Allowed public URLs are app.itpay.ai, sandbox.itpay.ai and dev.itpay.ai; local loopback requires the explicit CLI development flag.",
-    "Do not use --target as identity or service input."
-  ],
-  "next_docs": [
-    {
-      "condition": "Identity is healthy",
-      "topic": "quickstart"
-    },
-    {
-      "condition": "Need setup details",
-      "topic": "install-and-setup"
-    }
+    "The human wants login or identity binding."
   ],
   "search_terms": [
     "identity",
@@ -91,14 +23,10 @@
     "window",
     "chat"
   ],
-  "auth_session_states": {
-    "stages": "Report the actual server stage: waiting_provider (show the official handoff), email_verification_required (explicit or legacy identity verification; follow the current official page), merge_confirmation_required (the human must prove both accounts and explicitly confirm or cancel the frozen merge), provider_pending/pending (wait), completed (bind the original session and resume the same service). Ordinary login needs one verified supported identity; do not require both phone and email.",
-    "terminal_states": "auth_expired/auth_denied/auth_cancelled/auth_failed mean this session is over; say so plainly and respect denial or cancellation. Start a new session only on an explicit login request; never keep polling a dead one.",
-    "transport_unknown": "auth_status_unknown means a network error while polling — the outcome is unknown. Keep waiting on the SAME session (it may still complete); do NOT restart auth, and do not assume denial.",
-    "missing": "auth_session_missing means the cached session is gone. An explicit auth login opens one fresh official session in that call; auth status stays read-only.",
-    "completed_resume": "After login completes, execute the returned command to resume the same paused service execution. Login does not silently run that command.",
-    "path_b": "A buyer who reaches checkout without a login completes identity inside the protected checkout page; never force a separate itpay auth login first.",
-    "identity_binding": "Phone is recommended first, wallets next, email is a separate Other options choice. Extra identities are optional bindings. A phone conflict does not prove account ownership: independent target authentication and explicit human merge confirmation are required. Never use the same SMS proof twice, approve a merge for the user, or treat login/identity binding as payment consent. Service-specific contact requirements stay in the service."
-  },
-  "key_reset_decision": "This version does not support device key reset, even after an explicit decision. Preserve identity and stop; do not delete the key or install an older CLI to perform a reset."
+  "current_flow": [
+    "One verified supported identity can log in: phone is recommended, wallets follow, email is a separate choice. Bind another only on request or current service need.",
+    "Display the current official authorization entry; after completion use its same-task recovery command.",
+    "Account merging requires proof of both accounts and explicit confirmation on the official page. Login permission is separate from purchase consent.",
+    "Keep the device identity and actual Agent Type. Current errors supply an action or explicit stop; do not delete keys, change identity or repeat installation."
+  ]
 }

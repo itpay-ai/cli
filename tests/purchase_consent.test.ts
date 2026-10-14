@@ -71,7 +71,7 @@ test('public overview uses complete rail endpoints and structured actions never 
  const {serviceInputTemplate}=await import('../src/services/shared/input.js');
  const actions=railAvailableActions({plan_id:'p',query_revision:2,readiness:'ready',snapshot_id:'snap',available_actions:[{type:'read_updates',command:'curl https://invalid.test',provider_effect:'none'},{type:'expand_search',command:'rm -rf /',provider_effect:'bounded_provider_batch',target:{service_execution_id:'se',query_revision:2,snapshot_id:'snap'},input:{action_request_id:'handle',expected_query_revision:2,snapshot_id:'snap'}}]},'se');
  assert.equal(actions[0]?.command,'itpay services next se --since-snapshot snap --json');
- assert.match(String(actions[1]?.command),/workflow:expand_search.*--input-json/);
+ const expansion=actions[1]?.input_template;assert(expansion && typeof expansion==="object" && "command" in expansion && "file_content" in expansion);assert.equal(actions[1]?.command,undefined);assert.match(String(expansion.command),/workflow:expand_search.*--input-json/);assert.deepEqual(expansion.file_content,{action_request_id:"handle",expected_query_revision:2,snapshot_id:"snap"});
  assert.doesNotMatch(JSON.stringify(actions),/curl|rm -rf/);
  assert.deepEqual(serviceInputTemplate({required:['count','priority'],properties:{count:{type:'integer',minimum:1,default:1},priority:{type:'string',enum:['fastest','cheapest']}}}),{count:'<count>',priority:'<priority>'});
 });
@@ -132,7 +132,7 @@ test('same error codes and result selectors cannot cross a locked service bounda
  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
  for(const identity of [{service_id:'ordinary',service_contract_version_id:'v1'},{service_id:'itpay-rail-smart',service_contract_version_id:'unknown'}]) {
   backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'invalid_selection',message:'bad candidate',reason:'input_constraint_invalid'},'invalid');};
-  await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{endpoints:{},review:{},search:{}}),error=>{assert(error instanceof HttpError);return true;});
+  await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{endpoints:{},review:{},search:{}}),error=>{assert(error instanceof Error);assert.equal((error as import('../src/services/shared/envelope.js').CommandContractError).code,'invalid_selection');assert.doesNotMatch(JSON.stringify(error),/rail-booking/);return true;});
   backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'capability_input_invalid',message:'missing endpoints',input_schema:{type:'object',properties:{endpoints:{type:'string'}},required:['endpoints']}},'invalid');};
   await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{}),error=>{assert(error instanceof Error);const recovery=error as import('../src/services/shared/envelope.js').CommandContractError;assert.doesNotMatch(JSON.stringify({instruction:recovery.instruction,interaction:recovery.interaction}),/铁路|席别|rail-booking/);if(identity.service_contract_version_id==='unknown'){assert.equal(recovery.code,'presentation_contract_unavailable');assert.equal(recovery.interaction,undefined);}return true;});
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,...identity}});
@@ -233,7 +233,7 @@ test('public expired prepare preserves typed adapter and complete original query
   for(const mode of ['fresh','existing','history_failed','unknown_contract','wrong_binding']) {
    backend.startServiceExecution=async()=>{throw new HttpError(409,{code:'rail_selection_expired',message:'saved choice expired',execution_created:false,provider_called:false,service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',public_binding:{...binding,...(mode==='wrong_binding'?{public_service_id:'another_service'}:mode==='unknown_contract'?{service_definition_version:'unknown'}:{})},selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',query_public_binding:{...binding,operation_id:'query_smart'},expired_at:'2000-01-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_original'}:{}),...(mode==='history_failed'?{recovery_block_reason:'购买历史读取失败'}:{})}},'expired');};
    await assert.rejects(runServicesRun(backend,loadConfig({}), 'itpay-rail',{selections:[],passengers:1},{operationID:'prepare_purchase'}),error=>{
-    if(mode==='unknown_contract'||mode==='wrong_binding'){assert(error instanceof HttpError);return true;}
+    if(mode==='unknown_contract'||mode==='wrong_binding'){assert(error instanceof CommandContractError);assert.equal(error.code,'rail_selection_expired');assert.equal(error.interaction,undefined);return true;}
     assert(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);
     const template=error.interaction?.input_template;
     if(mode==='fresh'){

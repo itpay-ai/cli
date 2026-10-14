@@ -15,7 +15,7 @@
 itpay cart show [--json] [--local]
 ```
 
-默认只读取本地保存的 canonical Cart 句柄并调用服务端。`--local` 只查看显式本地兼容草稿，不发 HTTP，也不会把该草稿解释成 canonical Cart。
+默认只读取本地保存的 canonical Cart 句柄并调用服务端。`--local` 只查看显式本地未验证草稿，不发 HTTP，也不会把该草稿解释成 canonical Cart。
 
 ## 标准输出
 
@@ -52,7 +52,7 @@ canonical 输出不得包含 Catalog variant/offer、line input、Service quote 
       }
     ]
   },
-  "instruction": "这是未验证的本地兼容草稿，只能用于明确的普通商品流程；不要把它当作 canonical Cart。",
+  "instruction": "这是未验证的本地未验证草稿，只能用于明确的普通商品流程；不要把它当作 canonical Cart。",
   "next": { "command": "itpay buy --json", "reason": "将普通本地草稿提交为 canonical Cart" },
   "recovery": []
 }

@@ -1,3 +1,4 @@
+import { operationInputTemplate } from "../shared/input.js";
 import { railAvailableActions } from "./actions.js";
 import { type ServiceExecutionReadModel, type RailJourneyCard } from "../../client/types.js";
 import { type CommandAction, type CommandEnvelope, fileInputTemplate } from "../shared/envelope.js";
@@ -242,8 +243,7 @@ export function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandE
     ...(cards.length ? { journeys: cards } : {}),
     ...((plan.catalog_snapshot_id ?? plan.snapshot_id) ? { full_result: { command: `itpay services read-result ${se} --snapshot ${plan.catalog_snapshot_id ?? plan.snapshot_id} --json`, meaning: "读取已保存的完整目录；推荐和journeys仅是摘要" } } : {}),
     ...(!hasEligible && ["paused", "complete", "expired"].includes(expansion) && plan.query_input && plan.catalog_snapshot_id ? { new_query_template: {
-      command: "itpay services run itpay-rail-smart --input-json <file> --json",
-      executable: false,
+      ...operationInputTemplate({serviceID:model.execution.public_binding?.public_service_id ?? model.execution.service_id,...(model.execution.public_binding ? {operationID:model.execution.public_binding.operation_id}: {})},{...plan.query_input,reuse_from:{execution_id:se,snapshot_id:plan.catalog_snapshot_id}}),
       input_example: { ...plan.query_input, reuse_from: { execution_id: se, snapshot_id: plan.catalog_snapshot_id } },
       meaning: "先取得真实范围变更同意，再复制完整input_example，仅改获准端。换具体站用station及匹配名称/站码；考虑原站周边用place及原站名，删除station_code，经正常地点解析或使用已核实POI/坐标；只有明确同意整个市才用area及完整行政名，删除POI/坐标/站码。日期、人数、时限及偏好保持；新执行不改变旧查询或订单。引用仅限同owner未过期事实，跨owner拒绝；日期变更不复用旧库存。",
     } } : {}),

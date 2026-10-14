@@ -1,119 +1,20 @@
-# `itpay services checkout`
+# itpay services checkout
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The public package provides Buyer workflows; Seller authoring source is maintained separately.
+恢复已知服务的原 Checkout 时，使用当次返回的具体命令。普通已选服务通过 services purchase 准备官方入口，不手工编排报价和购物车。
 
-## 服务报价的批准边界
+参数以 --help 及当前模板为准。保留同意范围、付款期限和未知结果保护；展示权威原入口，不创建替代购买。缺材料/过期/存储故障按当前返回处理，不自行切换路径。
 
-服务支持的 Quote/Cart/Checkout 共用服务端范围校验。缺少有效价格批准时返回完整 `approve_purchase` 模板，默认 `user_approved:false`；Agent 只在真实会话已同意当前主体、内容、价格或预算和条款时提交 true。选择候选或完成席别 review 不代替价格批准。同条件有效批准复用，已有 Checkout/未知付款先恢复原单，不补事后批准或创建替代订单。
-
-## 历史合同兼容与高级入口
-
-普通新服务使用 `services purchase` 完整确认与官方入口。此命令保留历史合同和高级兼容，为单个 Service Execution 创建或恢复 Checkout，并按 Host 向人交接付款入口。它是 `services quote -> cart add --quote -> buy --cart` 的单项快捷方式，必须复用相同的 Quote、Cart 和 Checkout Use Case。
-
-未注册/未登录用户不要求先执行 `itpay auth login`（Path B）：官方 checkout 页内完成必要的钱包认证、创建或复用账号并取得页面权限；人在页面上确认旅客、通知联系方式和最终报价后付款。支付确认沿用既有设备绑定机制，不再独立绑定。checkout 内完成账号认证不等于账号已通过手机号验证；钱包显示名、账号手机号与乘车人身份互相独立。
-
-**通知联系方式（铁路单）：** 订单级联系策略要求至少一个可用通道——邮箱，或在 checkout 页内经验证的大陆手机号（order-contact 验证码只校验收件人，不创建/合并登录身份）。有效邮箱即可独立完成 checkout；SMS 不是必填项，SMS 能力未配置时不得阻塞邮箱通道。该策略仅适用于铁路订单，企知道等既有服务的联系策略不变。乘客证件手机号、账号登录手机号与通知收件人是三个独立事实，互不替代。
-
-**上游：** `services next` 返回的 `prepare_quote` capability 和已验证输入。铁路购票执行必须先通过 `workflow:confirm_booking` review（见 `services next` 的 `booking_review_required`），后端才生成可支付报价；review 开放期间不创建 Checkout。
-**下游：** 人完成 Checkout，随后 `checkout` 或 `services next`。
-
-## 语法与参数
-
-```bash
-itpay services checkout <service_execution_id> --capability <capability_id>
-  [--input <key=value> ...] [--email <delivery_email>]
-  [--host <host>] [--target <target>] [--locale <zh-CN|en>]
-  [--qr-format <format>] [--qr-file <path>] [--json]
-
-itpay services checkout <service_execution_id> --resume
-  [--host <host>] [--target <target>] [--locale <zh-CN|en>] [--json]
-```
-
-创建时 `--capability` 必填。最终 locked input 必须满足 capability schema：显式输入来自 `--input`，服务端也可以按已发布 contract 从当前 Execution 的已批准 action 解析输入。解析后仍缺字段时，必须在创建 Quote、Cart 或 Checkout 前失败。只有 `delivery_email_required=true` 才要求 `--email`，并必须先向用户解释邮箱用于发送可 claim 的交付链接。`--resume` 复用同一个 Checkout 并轮换 handoff token，不再索取输入或邮箱。
-
-## 标准输出
-
-```json
-{
-  "status": "human_checkout_required",
-  "result": {
-    "service_execution_id": "<id>",
-    "checkout_id": "<checkout_id>",
-    "capability_id": "<logical_capability_id>",
-    "locked_input": { "<required_key>": "<value>" },
-    "amount": "<amount> <currency>"
-  },
-  "handoff": { "url": "<checkout_url>", "qr_local_path": "<desktop_optional_path>", "qr_image_url": "<chat_optional_absolute_https_png>", "markdown": "<desktop_optional_markdown>", "agent_action": "<openclaw_telegram_optional_native_message_action>" },
-  "instruction": "<exact_agent_type_instruction>",
-  "next": { "command": "itpay checkout --id <checkout_id> --token <display_token> --json", "reason": "仅在用户完成付款操作或要求查询后，读取同一 Checkout 的权威状态" },
-  "recovery": []
-}
-```
-
-`capability_id` 是 service contract 中 Agent 可调用的逻辑 ID，不是 `scc_...` 数据库记录 ID。`locked_input` 是后端按 capability policy 最终解析并校验后的输入，不由 CLI 根据服务名称推断。
-
-普通文本输出保持同一事实顺序。桌面 Host 输出可直接转发的 `handoff.markdown`；终端 Host 额外渲染一个可扫码终端二维码；`--json` 不内嵌终端二维码或图片二进制。
-
-不得返回 quote lock、单独 token、重复 next actions、镜像路径数组或渲染器内部原因。缺输入、缺必填邮箱、phase 不允许时不得创建任何付款资源。恢复时 token 失效应重发同一 Checkout handoff，不创建第二个 Checkout。
-
-## 异常处理
-
-缺少付费 capability 输入：
-
-```json
-{
-  "status": "error",
-  "error": { "code": "capability_input_invalid", "message": "missing required capability input: <field>" },
-  "instruction": "补齐付费 capability 的 required_input；本次没有创建 quote、Checkout 或订单。",
-  "next": null,
-  "recovery": [{ "command": "itpay services checkout <service_execution_id> --capability <capability_id> --input <field>=<value> --json", "reason": "提交完整且会被锁定的服务输入" }]
-}
-```
-
-缺少交付邮箱：
-
-```json
-{
-  "status": "error",
-  "error": { "code": "delivery_email_required", "message": "delivery email is required before creating this service checkout" },
-  "instruction": "该 capability 的交付链接会发送到用户邮箱；先向用户说明用途并询问邮箱，不要代填。",
-  "next": null,
-  "recovery": [{ "command": "itpay services checkout <service_execution_id> --capability <capability_id> --email <email> --json", "reason": "使用用户提供的邮箱创建 Checkout" }]
-}
-```
-
-## Agent Type / Host
-
-| Agent Type | Instruction |
-|---|---|
-| `codex-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
-| `codex-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
-| `claude-code-desktop` | `handoff={url,qr_local_path,markdown}`；把 `handoff.markdown` 原样发送到当前桌面对话。 |
-| `claude-code-cli` | `handoff={url}`；普通文本模式在用户可见终端渲染二维码。 |
-| `workbuddy` | `handoff={url,agent_action}`；原样执行一次 `present_files(files=[url])` 打开完整渲染的 HTML Card Link，然后停止；不得检查或生成本地文件。 |
-| `zcode` | `handoff={url}`；立即用 ZCode 内置浏览器打开，然后停止；只有浏览器不可用时才展示同一个可点击链接。 |
-| `doubao-work` | `handoff={url,qr_image_url}`；在当前对话中展示手机直达收银台链接和官方二维码图片链接，说明金额后停止。 |
-| `kimi-code` | `handoff={url}`；复用标准 CLI 终端展示。 |
-| `openclaw` | 必须显式传 Host；Telegram 还必须传 OpenClaw 原生 Target，并返回必须原样执行的 `message` action；其他入口返回标准 `url,qr_image_url`。 |
-
-WorkBuddy 的准确 instruction 语义必须完整包含：
+## 当前参数
 
 ```text
-Backend 尚未确认付款。立即严格按 handoff.agent_action.tool 和 handoff.agent_action.arguments 原样执行一次，在右侧打开 handoff.url；确认工具调用成功后说明金额，然后停止等待。若工具失败，只发送原始 handoff.url，报告未自动打开并停止。不要用 present_files 打开本地文件或二维码 PNG，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
+--capability <capability_id>
+--input <key=value>           input to lock into the paid service quote
+--email <delivery_email>
+--resume                      reissue the existing checkout handoff without
+--host <host>                 client host (terminal, codex, telegram, feishu,
+--target <target>             chat id / channel id / open id for IM hosts
+--qr-format <format>          unicode|utf8|ansi|terminal
+--qr-file <path>              explicit QR file path
+--locale <locale>             payment card language: zh-CN|en (default:
+--json                        output JSON instead of terminal text
 ```
-
-ZCode 的准确 instruction 语义必须完整包含：
-
-```text
-Backend 尚未确认付款。立即用 ZCode 内置浏览器打开 handoff.url，让用户完成付款；确认已发起打开后说明金额，然后停止等待。不要只粘贴文字链接，不要下载、解析或重建二维码，不要创建新 Checkout、Payment Intent 或 Execution。只有内置浏览器明确不可用时，才展示同一个可点击 handoff.url。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
-```
-
-Doubao Work 的准确 instruction 语义必须完整包含：
-
-```text
-Backend 尚未确认付款。在当前豆包工作对话中展示两个有标签的官方入口：将 handoff.url 标为“手机直接打开收银台”，将 handoff.qr_image_url 标为“二维码图片（保存或用另一台设备扫码）”。说明金额后停止等待。不要解析或单独输出 URL credential，不要下载或重建二维码，不要调用 pay，不要创建新 Checkout、Payment Intent 或 Execution。只有用户明确表示已付款或要求查询状态时，才执行 next.command；用户的话不是付款成功证明。
-```
-
-`--locale` 默认 `zh-CN`，可显式使用 `--locale en`。语言只影响 Card 渲染，不改变 Checkout、付款或恢复状态。
-
-OpenClaw 的 Host/Target 校验必须发生在读取 execution 后、创建 Checkout 前；校验失败不能调用 Checkout 创建接口。Telegram `agent_action.arguments.presentation` 只使用 `blocks.buttons`，其中 `📱 手机点这儿支付` 使用扁平 `url`，`📋 已授权给我读` 使用 `value=itp:grant_confirmed:<checkout_id>`。准确 instruction 必须要求 Agent 立即用原生 `message` tool 原样执行 `handoff.agent_action`，不得改写 Presentation、换工具或用普通回复冒充按钮已发送。收到该 callback 表示用户声明已在收银台授权读取；Agent 立即执行 `next.command` 查询同一 Checkout，再只按 Backend 返回的 `next.command` 进入同一 Execution grant 流程。callback 不包含 display token，也不证明付款或 grant active；Backend 未返回 `grant_active` 前不得读取结果。

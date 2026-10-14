@@ -36,7 +36,8 @@ test('persisted exhausted budget stops polling and preserves original recovery i
  assert.equal(confirmed,1);assert.equal(resumed,1);
  const out=JSON.parse(json);
  assert.equal(out.result.auto_wait_remaining_ms,0);
- assert.match(out.next.command,/services purchase se_original --resume/);
+ assert.equal(out.next,null);
+ assert.match(out.recovery[0].command,/services purchase se_original --resume/);
  assert.equal(out.result.effects.payment_requested,false);
  assert.equal(out.result.effects.charged,false);
  assert.match(text,/120秒上限/);assert.match(text,/quote_pending/);

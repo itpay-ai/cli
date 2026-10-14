@@ -2,13 +2,13 @@ import { z } from "zod";
 import type { BackendClient } from "../../client/backend.js";
 import type { RailAftercareView,RailAftercareDirectory,RailAftercareInput,RailAftercareResponseInput } from "../../client/types.js";
 import { operationID, type CLIConfig } from "../../state/config.js";
-import { CommandContractError, type CommandEnvelope } from "../shared/envelope.js";
+import { CommandContractError,fileInputTemplate, type CommandEnvelope } from "../shared/envelope.js";
 
 const target = z.object({leg_index:z.number().int().nonnegative(),passenger_index:z.number().int().nonnegative()}).strict();
 const inputSchema = z.object({operation:z.enum(["refund","change"]),targets:z.array(target).min(1).max(15),reason:z.string().trim().min(1).max(1000),scope_revision:z.literal(1),user_confirmed_scope:z.literal(true),change:z.object({travel_date:z.string().optional(),departure_after:z.string().optional(),arrival_before:z.string().optional(),seat_type:z.string().optional(),train_code:z.string().optional(),constraints:z.string().min(1).max(1000)}).strict().optional()}).strict();
 const responseSchema = z.object({expected_revision:z.number().int().positive(),proposal_revision:z.number().int().positive().optional(),user_approved:z.boolean().optional(),additional_information:z.string().max(1000).optional(),reason:z.string().max(1000).optional()}).strict();
 export function railAftercareList(directory:RailAftercareDirectory,orderID:string):CommandEnvelope{
- return {status:"aftercare_directory",result:{...directory},instruction:directory.instruction+"段/乘客索引从0起，按返回事实选目标；明确‘第二段’用leg_index:1。整程模板列全部可用目标，指定范围则仅保留对应目标，不手填票价/供应商单号。范围已明确只说明后提交；不重新询问整程选择。",next:null,recovery:[],interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_templates:Object.fromEntries(Object.entries(directory.input_templates).map(([operation,input])=>[operation,{command:`itpay aftercare create --order ${orderID} --input-json <file> --json`,input,executable:false,required_input:["file","targets","reason","user_confirmed_scope"]}]))}};
+ return {status:"aftercare_directory",result:{...directory},instruction:directory.instruction+"段/乘客索引从0起，按返回事实选目标；明确‘第二段’用leg_index:1。整程模板列全部可用目标，指定范围则仅保留对应目标，不手填票价/供应商单号。范围已明确只说明后提交；不重新询问整程选择。",next:null,recovery:[],interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_templates:Object.fromEntries(Object.entries(directory.input_templates).map(([operation,input])=>[operation,fileInputTemplate(`itpay aftercare create --order ${orderID} --input-json <file> --json`,{...input},["targets","reason","user_confirmed_scope"])]))}};
 }
 export function railAftercareEnvelope(view:RailAftercareView):CommandEnvelope{
  const c=view.case;
@@ -18,9 +18,9 @@ export function railAftercareEnvelope(view:RailAftercareView):CommandEnvelope{
  :c.status==="processing" ? "原申请正在人工办理或财务处理中；没有最终事实不说退票、改签或到账成功，不重试未知资金、不取消已发生操作。"
  :["cancelled","rejected"].includes(c.status) ? "说明原申请已取消或被拒绝及原因；没有撤销已发生供应商操作，也不自动创建替代购买。"
  :"已提交人工受理，尚未确认供应商退票/改签或钱款到账。先交付申请状态入口，再按用户意愿查询原申请，不循环轮询。";
- const cancellation=view.can_cancel ? {cancel_template:{command:`itpay aftercare cancel ${c.case_id} --input-json <file> --json`,input:{expected_revision:c.revision,reason:""},executable:false,required_input:["file"]}} : {};
+ const cancellation=view.can_cancel ? {cancel_template:fileInputTemplate(`itpay aftercare cancel ${c.case_id} --input-json <file> --json`,{expected_revision:c.revision,reason:""},["reason"])} : {};
  const needsReply=["awaiting_confirmation","needs_input"].includes(c.status);
- return {status:c.status,result:{...view},instruction,next:needsReply||["completed","cancelled","rejected"].includes(c.status)?null:{command:`itpay aftercare get ${c.case_id} --json`,reason:"按用户要求读取同一人工申请"},recovery:[],...((needsReply||view.can_cancel)?{interaction:{schema_version:"itpay.interaction.v1",stage:c.status==="awaiting_confirmation"?"consent_required":"input_required",...cancellation,...(needsReply?{input_template:{command:`itpay aftercare respond ${c.case_id} --input-json <file> --json`,input:{expected_revision:c.revision,...(c.status==="awaiting_confirmation"?{proposal_revision:c.proposal_revision,user_approved:false}:{additional_information:""})},executable:false,required_input:["file"]}}:{})}}:{})};
+ return {status:c.status,result:{...view},instruction,next:needsReply||["completed","cancelled","rejected"].includes(c.status)?null:{command:`itpay aftercare get ${c.case_id} --json`,reason:"按用户要求读取同一人工申请"},recovery:[],...((needsReply||view.can_cancel)?{interaction:{schema_version:"itpay.interaction.v1",stage:c.status==="awaiting_confirmation"?"consent_required":"input_required",...cancellation,...(needsReply?{input_template:fileInputTemplate(`itpay aftercare respond ${c.case_id} --input-json <file> --json`,{expected_revision:c.revision,...(c.status==="awaiting_confirmation"?{proposal_revision:c.proposal_revision,user_approved:false}:{additional_information:""})},c.status==="awaiting_confirmation"?["user_approved"]:["additional_information"])}:{})}}:{})};
 }
 export async function railAftercareCreate(backend:BackendClient,config:CLIConfig,orderID:string,raw:unknown):Promise<CommandEnvelope>{
  const parsed=inputSchema.safeParse(raw);if(!parsed.success)throw new CommandContractError("rail_aftercare_input_invalid","Aftercare input fields or genuine scope confirmation are missing","Agent读取当前完整模板修正技术字段；只问缺失的真实范围/改签意向，不让用户填技术JSON。",[{command:`itpay aftercare list --order ${orderID} --json`,reason:"读取当前行程、目标和完整模板"}]);

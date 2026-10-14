@@ -1,5 +1,6 @@
 import type {ServiceExecutionReadModel} from "../../client/types.js";
-import {shellArgument} from "../shared/envelope.js";
+import {requiredInputFields} from "../shared/platform.js";
+import {fileInputTemplate,shellArgument} from "../shared/envelope.js";
 
 // Never copy server shell text. Known action facts select a fixed local CLI form.
 export function railAvailableActions(plan:NonNullable<ServiceExecutionReadModel["rail_planning"]>,executionID:string):Record<string,unknown>[] {
@@ -24,10 +25,10 @@ export function railAvailableActions(plan:NonNullable<ServiceExecutionReadModel[
       command=`itpay services action ${se} --action workflow:expand_search --actor-type human --status approved --input-json <file> --json`;
      }break;
     }
-    case "refine_preferences":input=action.input_example;command=`itpay services action ${se} --action workflow:refine_preferences --actor-type human --status approved --input-json <file> --json`;break;
+    case "refine_preferences":input=action.input_example;if(input)command=`itpay services action ${se} --action workflow:refine_preferences --actor-type human --status approved --input-json <file> --json`;break;
     case "stop_search":command=`itpay services action ${se} --action workflow:stop_search --actor-type human --status approved --json`;break;
    }
   }
-  return {type:action.type,provider_effect:action.provider_effect,...(action.when?{when:action.when}:{}),...(command?{command,...(input?{input_template:{input,executable:false},...(action.input_schema?{input_schema:action.input_schema}:{}),...(action.type==="refine_preferences"?{instruction:"仅填用户改变的偏好，保留 expected_query_revision；rerank 复用已存事实，不新增查车。示例不是用户选择，端点/日期改变须新查询。"}:{})}:{})}:{instruction:"缺少当前动作的结构化合同事实；保留原执行，不执行服务器命令文本。"})};
+  return {type:action.type,provider_effect:action.provider_effect,...(action.when?{when:action.when}:{}),...(command?{...(input?{input_template:fileInputTemplate(command,input,requiredInputFields(action.input_schema),{executionID}),...(action.input_schema?{input_schema:action.input_schema}:{}),...(action.type==="refine_preferences"?{instruction:"仅填用户改变的偏好，保留 expected_query_revision；rerank 复用已存事实，不新增查车。示例不是用户选择，端点/日期改变须新查询。"}:{})}:{command})}:{instruction:"缺少当前动作的结构化合同事实；保留原执行，不执行服务器命令文本。"})};
  });
 }

@@ -65,7 +65,7 @@ Catalog 模式下 `--item`、`--variant`、`--offer` 必须成组且来自同一
     "offer_id": "<offer_id>",
     "quantity": 1
   },
-  "instruction": "仅写入本地兼容草稿，未验证目录、价格或服务合同；不要把它当作 canonical Cart。",
+  "instruction": "仅写入本地未验证草稿，未验证目录、价格或服务合同；不要把它当作 canonical Cart。",
   "next": { "command": "itpay cart show --local", "reason": "检查本地草稿" },
   "recovery": []
 }

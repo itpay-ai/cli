@@ -254,7 +254,7 @@ function reportCLIError(
       } : error instanceof HttpError && error.payload?.service_execution_id ? {
         result: {
           service_execution_id: error.payload.service_execution_id,
-          provider_called: error.payload.provider_called === true,
+          ...(typeof error.payload.provider_called === "boolean" ? {provider_called:error.payload.provider_called} : {}),
           ...(error.payload.effective_quota ? {
             quota: {
               remaining: error.payload.effective_quota.remaining,
@@ -403,7 +403,7 @@ const deviceCmd = program.command("device").description("Recover the current off
 
 deviceCmd
   .command("repair-lock")
-  .description("Explain that this version does not manage legacy locks; no files are inspected or changed")
+  .description("Lock repair is unavailable; device identity remains unchanged")
   .option("--json", "output JSON instead of terminal text")
   .action((options) => {
     try {
@@ -416,7 +416,7 @@ deviceCmd
       writeCommandEnvelope({
         status: "device_legacy_lock_unmanaged",
         result: { lock_status: status, device_identity_preserved: true },
-        instruction: "新版不管理旧锁，普通授权不需要清锁。旧锁与身份现场均未读取或修改；继续原任务。",
+        instruction: "此操作不可用，身份未改变。普通任务无需执行此命令；按原任务当前返回继续。",
         next: null,
         recovery: [],
       }, { jsonOutput: Boolean(options.json), plainResult: [`lock: ${status}`, "device_identity: preserved"] });
@@ -427,7 +427,7 @@ deviceCmd
 
 deviceCmd
   .command("recover")
-  .description("Invalidate the current Backend session caches while preserving the private key and legacy identity")
+  .description("Invalidate explicitly confirmed Backend session caches while preserving device identity")
   .option("--confirm-backend-reset", "confirm that an operator reset the selected Backend registration database")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
@@ -1540,15 +1540,16 @@ function readInputJsonObject(file: string, code: string, recovery: CommandAction
   let parsed: unknown;
   try {
     if (statWorkflowInputFile(file).size > WORKFLOW_INPUT_JSON_MAX_BYTES) {
-      throw new CommandContractError(code, `--input-json file exceeds ${WORKFLOW_INPUT_JSON_MAX_BYTES} bytes`, "输入文件过大；只提交服务端 input_schema 声明的字段。", recovery);
+      throw new CommandContractError(code, `--input-json file exceeds ${WORKFLOW_INPUT_JSON_MAX_BYTES} bytes`, "输入文件过大；只提交服务端 input_schema 声明的字段。", recovery,undefined,{request_sent:false,failure_stage:"local_input"});
     }
     parsed = JSON.parse(readWorkflowInputFile(file, "utf8"));
   } catch (error) {
     if (error instanceof CommandContractError) throw error;
-    throw new CommandContractError(code, `--input-json is not readable valid JSON: ${error instanceof Error ? error.message : String(error)}`, "确认文件存在且为合法 JSON；按服务端 input_schema 字段填写。", recovery);
+    const causeCode=error instanceof SyntaxError ? "invalid_json" : error && typeof error==="object" && "code" in error && typeof error.code==="string" ? error.code:"input_read_failed";
+    throw new CommandContractError(code, "--input-json is not readable valid JSON", "检查文件可读性与JSON语法；复制当前file_content，仅填声明字段。", recovery,undefined,{request_sent:false,failure_stage:"local_input",cause_code:causeCode});
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new CommandContractError(code, "--input-json must contain a JSON object", "确认输入必须是 JSON 对象；按服务端 input_schema 字段填写。", recovery);
+    throw new CommandContractError(code, "--input-json must contain a JSON object", "确认输入必须是 JSON 对象；按服务端 input_schema 字段填写。", recovery,undefined,{request_sent:false,failure_stage:"local_input"});
   }
   return parsed as Record<string, unknown>;
 }
@@ -1571,7 +1572,7 @@ services
     try {
       let input = options.inputJson
         ? readInputJsonObject(options.inputJson, "workflow_input_invalid", [
-            { command: `itpay services run ${serviceID} --json`, reason: "重新读取服务输入声明" },
+            { command: options.execution ? `itpay services get ${options.execution} --json` : "itpay catalog list --json", reason: "只读当前执行或公开合同，不创建执行" },
           ])
         : undefined;
       let continuation: {service_execution_id:string;snapshot_id:string}|undefined;
@@ -1598,6 +1599,9 @@ services
         timeoutSeconds: options.timeout,
       });
     } catch (error) {
+      if(error instanceof CommandContractError && ["workflow_input_invalid","operation_input_invalid"].includes(error.code)) {
+        error=new CommandContractError(error.code,error.message,error.instruction,error.recovery,error.interaction,{...error.result,service_id:serviceID,...(options.operation?{operation_id:options.operation}:{}),...(options.execution?{service_execution_id:options.execution}:{}),failure_stage:"local_input",request_sent:false});
+      }
       reportCLIError(error, {
         jsonOutput: Boolean(options.json), code: "workflow_run_failed",
         instruction: "本次操作失败；按已返回的具体原因和恢复动作处理。没有恢复动作时停止，不猜字段或重复创建购买。", recovery: [],
@@ -1810,7 +1814,9 @@ services
     }
    }
    await runServicesPurchase(newBackendClient(config),config,id,input,{resume:Boolean(options.resume),timeoutSeconds:Number(options.timeout),host:withHost(options.host,config.agentType,options.target),...(config.agentType ? {agentType:config.agentType}:{}),...(options.target ? {target:options.target}:{}),locale:options.locale,jsonOutput:Boolean(options.json)});
-  }catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"purchase_failed",instruction:"保留原购买及真实确认；按实际原因继续原 purchase，不重新查询或建单。",recovery:[{command:`itpay services purchase ${id} --resume --json`,reason:"核对原购买进度"}]});}
+  }catch(error){
+   const stop=error instanceof HttpError&&["purchase_preparation_unsupported","purchase_review_unavailable","purchase_review_expired","purchase_request_conflict"].includes(error.code);
+   reportCLIError(error,{jsonOutput:Boolean(options.json),code:"purchase_failed",instruction:stop?"原购买当前不能安全继续；按返回原因停止，不切换下单链或重新创建。":"保留原购买及真实确认；按实际原因继续原 purchase，不重新查询或建单。",recovery:stop?[]:[{command:`itpay services purchase ${id} --resume --json`,reason:"只核对原购买进度，不重放创建"}]});}
  });
 
 services

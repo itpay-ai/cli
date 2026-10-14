@@ -4,84 +4,11 @@
   "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "orders-refunds",
   "title": "Order, Delivery, Customer Care And Refund Recovery",
-  "purpose": "Explain paid-order and delivery problems to the human, then read or manage the same owned Order without guessing payment, consumption, or refund state.",
+  "purpose": "Read original orders and choose the current railway-aftercare or ordinary-refund path.",
   "when_to_use": [
     "An order or Service Execution was interrupted after payment.",
     "The buyer asks to request, track, or cancel a refund.",
     "The human says money was charged but no result arrived, delivery failed, or asks what the refund policy means."
-  ],
-  "commands": [
-    {
-      "intent": "read one order",
-      "command": "itpay --agent-type <agent_type> order <order_id> --json",
-      "success_signal": "one compact owned-order summary and one current next step are returned"
-    },
-    {
-      "intent": "read railway refund/change targets and complete current input templates",
-      "command": "itpay --agent-type <agent_type> aftercare list --order <order_id> --json",
-      "success_signal": "safe original itinerary, available leg/passenger targets, requests and full refund/change templates"
-    },
-    {
-      "intent": "request a refund",
-      "command": "itpay --agent-type <agent_type> refund create --order <order_id> --reason buyer_requested --json",
-      "success_signal": "the Refund Owner returns its request id, policy status, consumption state, and access lock"
-    },
-    {
-      "intent": "recover one refund",
-      "command": "itpay --agent-type <agent_type> refund get <refund_request_id> --json",
-      "success_signal": "one authoritative refund snapshot is returned"
-    },
-    {
-      "intent": "wait through provider processing",
-      "command": "itpay --agent-type <agent_type> refund watch <refund_request_id> --json",
-      "success_signal": "one terminal refund envelope or one resumable timeout envelope is returned"
-    },
-    {
-      "intent": "cancel before provider submission",
-      "command": "itpay --agent-type <agent_type> refund cancel <refund_request_id> --json",
-      "success_signal": "the Refund Owner returns the current cancellation and access state; old grants do not revive"
-    }
-  ],
-  "agent_rules": [
-    "Act as the human's ItPay service representative: explain payment, delivery, access, and refund facts in plain language before giving the next action.",
-    "After verified payment, say the Order is recorded and the human must not pay again. Recover that same Order or Service Execution if delivery is delayed or fails.",
-    "ItPay derives payment, amount, currency, account ownership, and refund policy from the owned order; explain only their user-facing meaning.",
-    "A railway order can contain 1–3 legs paid together and issued separately. Report all-issued only when every leg is issued; retain issued tickets on a partial failure or unknown result. Railway return and platform refund follow per-leg supplier facts; do not promise a full refund or create replacement tickets.",
-    "Read this order’s current refund policy. Railway return depends on supplier ticket facts and may require manual review; platform refund status alone does not prove a train ticket was returned.",
-    "A refund request freezes all delivery paths and revokes existing grants immediately.",
-    "Cancellation or rejection follows the returned order policy and never reactivates an old grant automatically.",
-    "Use get after interruption; explicit watch defaults to a bounded 20-second window and returns on change or manual attention. Do not restart watch automatically or infer success from elapsed time.",
-    "Never switch CLI/MCP lanes or identities to recover an order or refund error.",
-    "A read-only MCP Agent may explain policy and order facts, but directs refund actions to the ItPay Dashboard or a full Local CLI Agent.",
-    "Railway refund or manual change: use aftercare list for structured ticket targets. Match the user’s explicit legs/passengers; only ask when that scope is missing. Explain the scope and manual handling before create using the returned complete JSON. No supplier reference or amount is needed from the user.",
-    "Aftercare acceptance, supplier completion and platform money status are separate. Only real scope consent may set user_confirmed_scope=true. A concrete change proposal requires fresh approval of the current proposal revision and fees; the original purchase consent cannot approve it. This release has no automatic change payment link.",
-    "Partial refunds do not mean every ticket was returned. The platform delivery lock remains; use the safe aftercare journey for remaining-ticket facts, never promise validity from historical issued state. Protected ticket numbers still require account authorization."
-  ],
-  "human_explanations": {
-    "payment_verified": "Payment is confirmed and the Order is recorded. Do not ask the human to pay again; continue the same delivery.",
-    "delivery_preparing": "The paid result is still preparing. Keep the same Order and wait; do not create another purchase, authorization, or Provider request.",
-    "paid_delivery_failed": "The payment remains recorded but this service did not complete normally. Inspect the same Order and its refund state before proposing any new purchase.",
-    "refund_automatic": "The request is on the automatic policy path because the delivery is reported unconsumed; only the final server status proves success.",
-    "refund_manual": "The request requires human review, commonly because delivery was consumed. Manual review is not a rejection.",
-    "refund_unknown": "The payment channel outcome is unknown. Delivery stays locked while ItPay reconciles; never submit or replay another refund.",
-    "refund_succeeded": "ItPay confirms this request’s money refund succeeded. Verify its scope and the remaining-ticket facts separately; only the order’s full refunded state establishes all platform money returned."
-  },
-  "forbidden": [
-    "Do not fabricate Buyer sessions, Device IDs or payment references.",
-    "Do not consume locked platform delivery; authorized safe remaining-ticket status reads are separate.",
-    "Do not claim a refund succeeded before the Refund Owner says succeeded.",
-    "Do not promise an unconditional refund, instant arrival, or a channel result that ItPay has not confirmed.",
-    "Do not blame the human for a Provider, delivery, platform, or payment-channel failure."
-  ],
-  "next_docs": [
-    {
-      "condition": "Need the original purchase path",
-      "topic": "quickstart"
-    },
-    {
-      "condition": "The original order is handled and the human wants to rate the experience",
-      "topic": "service-feedback"
-    }
   ],
   "search_terms": [
     "order",
@@ -102,11 +29,12 @@
     "没有收到结果",
     "能不能退"
   ],
-  "rail_notifications": {
-    "channels": "Delivery notices reach the checkout-confirmed contact: email always works; a verified mainland SMS recipient is optional and checkout-scoped. The passenger phone, the login phone and the notification recipient are independent facts.",
-    "status_read": "Use the current returned reader for ticket state; order summaries do not expose per-leg notification delivery records. Do not infer a sent or delivered notification.",
-    "truthfulness": "Provider acceptance is not delivery; an uncertain send outcome is reconciled, not silently retried. A notification failure never changes ticket or refund state; report it as a delivery detail, not an order failure.",
-    "unavailable": "If SMS is not configured or a recipient is unverified, email still satisfies the contact policy — never present an unverified phone as enabled."
-  },
-  "consumption_and_access": "Platform content consumption is not train usage; access_locked freezes platform delivery and does not prove ticket validity. Read actual refund/ticket facts; a future departure does not guarantee eligibility."
+  "current_flow": [
+    "Use itpay orders --json or itpay order <order_id> --json. Verified payment means do not pay again; retain the same order while fulfillment is pending or partial.",
+    "Railway: itpay aftercare list --order <order_id> --json returns original itinerary, leg/passenger targets and complete refund/change templates. Match the human’s explicit scope; ask only for missing scope. Explain manual handling before submitting.",
+    "Railway application acceptance, supplier return/change, platform refund and remaining-ticket validity are separate facts. Concrete change terms/revision/fees need actual consent. No automatic change payment or replacement ticket.",
+    "Ordinary service: use the order’s current refund action/template and policy. itpay refund get <refund_request_id> --json reads that original request; explicit watch is bounded, not an automatic repeat loop.",
+    "Respect platform delivery/access locks; a safe remaining-ticket read does not unlock content. Partial refund does not prove all tickets returned; a historic issued state does not prove present validity.",
+    "Read actual notification facts separately from ticket and money facts. Email/contact are chosen on the protected official page, not inferred from traveler/login phone."
+  ]
 }

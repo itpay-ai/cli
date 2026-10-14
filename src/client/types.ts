@@ -846,6 +846,7 @@ export interface RailPlanningCatalog {
 }
 
 export interface ServiceExecutionReadModel {
+ purchase_preparation?:"ready"|"expired";
  purchase_review?:ServicePurchaseReview;
   rail_booking?: RailBookingStatus;
   rail_planning?: RailPlanningProjection;

@@ -6,8 +6,8 @@ import { DeviceStateError } from "../../state/device_authority.js";
 import { type ServiceCapability, type ServiceCapabilityInvoked, type ServiceExecutionReadModel } from "../../client/types.js";
 import { operationID, type CLIConfig } from "../../state/config.js";
 import { type ClientHost } from "../../state/client_context.js";
-import { CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
-import { ServicesCommandOptions, requiredInputFields, missingRequiredInput, stableInput, formatInputOptions, queryText, capabilityPrice, purchaseConfirmationInstruction, checkoutCommand, serviceResultPlainLines, serviceDeliveryMode, journalTaskState, servicesNextPlainResult } from "../../services/shared/platform.js";
+import { CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, writeCommandEnvelope, fileInputTemplate, plainValueLines } from "../../services/shared/envelope.js";
+import { ServicesCommandOptions, requiredInputFields, missingRequiredInput, stableInput, formatInputOptions, queryText, capabilityPrice, purchaseConfirmationInstruction, checkoutCommand, serviceResultPlainLines, serviceDeliveryMode, journalTaskState, remainingAutomaticWait, recordAutomaticWait, servicesNextPlainResult } from "../../services/shared/platform.js";
 import { servicesNextEnvelope } from "../../services/presentation.js";
 import { executionInputContext, operationInputTemplate } from "../../services/shared/input.js";
 import { runServicesCheckout } from "./commerce.js";
@@ -81,11 +81,7 @@ export async function runServicesStart(
       interaction: {
         schema_version: "itpay.interaction.v1" as const,
         stage: "input_required",
-        input_template: {
-          command: `itpay services invoke ${response.execution.service_execution_id} --capability ${capability.capability_id}${requiredInput.map((field) => ` --input ${field}=<value>`).join("")} --json`,
-          required_input: requiredInput,
-          executable: false as const,
-        },
+        input_template:fileInputTemplate(`itpay services invoke ${response.execution.service_execution_id} --capability ${capability.capability_id} --input-json <file> --json`,serviceAdapter(response.execution).inputTemplate(capability.input_schema ?? {}),requiredInput,{executionID:response.execution.service_execution_id}),
       },
     } : {}),
     recovery: [],
@@ -139,8 +135,7 @@ export async function runServicesInvoke(
       "只补缺失字段到小JSON文件，再提交同一执行；本次尚未调用供应商。",
       [],
       { schema_version: "itpay.interaction.v1", stage: "input_required",
-        input_template: { command: `itpay services invoke ${serviceExecutionID} --capability ${capabilityID} --input-json <file> --json`,
-          required_input: ["file", ...missingInput], executable: false } },
+        input_template:fileInputTemplate(`itpay services invoke ${serviceExecutionID} --capability ${capabilityID} --input-json <file> --json`,serviceAdapter(readModel.execution).inputTemplate(requestedCapability.input_schema ?? {},input),missingInput,{executionID:serviceExecutionID}) },
     );
   }
 
@@ -329,7 +324,9 @@ export async function runServicesNext(
   options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void>; initialModel?: ServiceExecutionReadModel; deadline?: number; startedAt?: number } = {},
 ): Promise<void> {
   const started = options.startedAt ?? Date.now();
-  const until = options.timeoutSeconds===0 ? started : options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000;
+  const env=options.env ?? process.env;
+  const budget=remainingAutomaticWait(serviceExecutionID,env);
+  const until = Math.min(started+budget,options.timeoutSeconds===0 ? started : options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000);
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
   let response = options.initialModel ?? await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});
   while (shouldWaitForServiceResult(response) && Date.now() < until) {
@@ -339,9 +336,12 @@ export async function runServicesNext(
     catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
   }
   const envelope = servicesNextEnvelope(response);
-  if (shouldWaitForServiceResult(response) && options.timeoutSeconds) {
-    envelope.result = { ...envelope.result, waited_seconds: Math.round((Date.now() - started) / 1000), wait_timed_out: true };
-    envelope.next = { command: `itpay services next ${serviceExecutionID} --timeout 60 --json`, reason: "仍在处理，未失败；累计自动等待最多120秒，继续同一任务，不重新提交查询", poll_after_ms: 1500 };
+  const remaining=recordAutomaticWait(serviceExecutionID,Date.now()-started,env);
+  if (shouldWaitForServiceResult(response)) {
+    envelope.result={...envelope.result,waited_seconds:Math.round((Date.now()-started)/1000),auto_wait_remaining_ms:remaining,wait_timed_out:Boolean(options.timeoutSeconds)};
+    const resume={command:`itpay services next ${serviceExecutionID} --timeout 60 --json`,reason:remaining>0 ? "仍在处理，未失败；在剩余预算内读取同一任务" : "仅用户明确要求继续时读取原任务",poll_after_ms:1500};
+    envelope.next=remaining>0 ? resume:null;
+    if(remaining===0){envelope.recovery=[resume];envelope.instruction="自动等待预算已耗尽，停止自动续读；原任务仍处理中，不是零结果。用户明确要求时只读取原执行。";}
   }
   journalTaskState(serviceExecutionID, envelope, options.env ?? process.env);
   writeCommandEnvelope(envelope, {
@@ -371,8 +371,9 @@ export async function runServicesRun(
   options: ServicesRunOptions = {},
 ): Promise<void> {
   const startedAt = Date.now();
-  const deadline = options.deadline ?? startedAt + (options.timeoutSeconds===0 ? 60 : options.timeoutSeconds ?? 120) * 1000;
+  const deadline = Math.min(options.deadline ?? Infinity,startedAt + (options.timeoutSeconds===0 ? 60 : Math.min(120,options.timeoutSeconds ?? 120)) * 1000);
   let id = options.executionID;
+  let failureStage = id ? "read_initial_state" : "create_execution";
   let adapter = serviceAdapter({service_id:serviceID,service_contract_version_id:""});
   let inputContext = {serviceID, operationID:options.operationID, executionID:options.executionID, continuation:options.continuation};
   try {
@@ -386,11 +387,13 @@ export async function runServicesRun(
       },{deadline});
       if ("overview_only" in started) {writeServiceOverview(started.service_definition,options);return;}
       id = started.execution.service_execution_id;
+      failureStage="read_initial_state";
       if (!started.workflow_entry) {
         await runServicesNext(backend, id, {...options, deadline, startedAt});
         return;
       }
     }
+    failureStage = "read_initial_state";
     let model = await backend.getServiceExecution(id,{deadline});
     adapter = serviceAdapter(model.execution);
     if (model.execution.public_binding) inputContext = {...inputContext,...executionInputContext(model.execution),...(options.continuation ? {continuation:options.continuation} : {})};
@@ -409,11 +412,13 @@ export async function runServicesRun(
       return;
     }
     if (input !== undefined) {
+      failureStage = "submit_input";
       model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`,{deadline});
     } else if (model.workflow?.status === "quota_paused") {
       model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`,{deadline});
     }
-    const until = options.timeoutSeconds===0 ? startedAt : deadline;
+    failureStage = "read_results";
+    const until = options.timeoutSeconds===0 ? startedAt : Math.min(deadline,startedAt+remainingAutomaticWait(id,options.env ?? process.env));
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     // A planning projection can exist before any usable result or user action.
@@ -428,6 +433,9 @@ export async function runServicesRun(
       await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, timeoutSeconds:options.timeoutSeconds ?? 120});
       return;
     }
+    if (model.purchase_preparation && !model.purchase_review) {
+      await runServicesNext(backend,id,{...options,initialModel:model,deadline,startedAt,timeoutSeconds:0});return;
+    }
     if (model.workflow?.status === "payment" && !paid()) {
       await runServicesCheckout(backend, config, id, model.workflow_entry?.capability_id, {
         ...options,
@@ -440,8 +448,9 @@ export async function runServicesRun(
     }
     await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, timeoutSeconds:options.timeoutSeconds ?? 120});
   } catch (cause) {
+    if(!id && cause instanceof HttpError && typeof cause.payload?.service_execution_id === "string") id=cause.payload.service_execution_id;
     if (cause instanceof HttpError) adapter = errorServiceAdapter(cause.payload, serviceID) ?? adapter;
- if(cause instanceof HttpError && cause.code==="public_operation_invalid")throw new CommandContractError(cause.code,cause.message,"按返回的固定service_definition核对声明操作；购买仍使用原结果详情的完整continuation模板，不改owner/snapshot、不猜operation、不重建原购买。",cause.payload?.service_definition?[]:[{command:`itpay services start ${serviceID} --json`,reason:"只读当前公开定义；不创建执行"}],undefined,{service_id:serviceID,...(cause.payload?.service_definition?{service_definition:cause.payload.service_definition}:{}),execution_created:false,provider_called:false});
+ if(cause instanceof HttpError && cause.code==="public_operation_invalid")throw new CommandContractError(cause.code,cause.message,"按返回的固定service_definition核对声明操作；购买仍使用原结果详情的完整continuation模板，不改owner/snapshot、不猜operation、不重建原购买。",cause.payload?.service_definition?[]:[{command:"itpay catalog list --json",reason:"只读公开目录与定义；不创建执行"}],undefined,{service_id:serviceID,...(cause.payload?.service_definition?{service_definition:cause.payload.service_definition}:{}),execution_created:id ? true : typeof cause.payload?.execution_created==="boolean" ? cause.payload.execution_created:"unknown",...(typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})});
 
     if (cause instanceof HttpError && cause.code === "capability_input_invalid") {
       const schema = cause.payload?.input_schema;
@@ -452,19 +461,27 @@ export async function runServicesRun(
         errorAdapter.inputInstruction,
         schema ? [] : [{command: executionID ? `itpay services get ${executionID} --json` : "itpay catalog list --json", reason: "获取当前锁定合同；仍缺合同则停止，不猜旧写法"}],
         schema ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template: operationInputTemplate({...inputContext, executionID}, errorAdapter.inputTemplate(schema,input), requiredInputFields(schema))} : undefined,
-        {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: cause.payload?.execution_created ?? "unknown", ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
+        {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: id ? true : cause.payload?.execution_created ?? "unknown", ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
+    }
+    if (cause instanceof HttpError && id) {
+      throw new CommandContractError(cause.code,cause.message,
+        "原执行已创建；读取未完成不代表没有结果。保留原输入和执行编号，先核对同一执行；初态需要输入时使用原输入模板，不新建查询。",
+        [{command:`itpay services get ${id} --json`,reason:"读取原执行及当前适用动作"}],
+        failureStage === "read_initial_state" && input !== undefined ? {schema_version:"itpay.interaction.v1",stage:"input_required",input_template:operationInputTemplate({...inputContext,executionID:id},input)} : undefined,
+        {service_id:serviceID,service_execution_id:id,...(cause.diagnostics.length?{network_diagnostics:cause.diagnostics}:{}),...(options.operationID?{operation_id:options.operationID}:{}),execution_created:true,failure_stage:failureStage,...(typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})});
     }
     adapter.runError(cause, serviceID, id);
-    if (cause instanceof CommandContractError || cause instanceof HttpError || cause instanceof DeviceStateError) throw cause;
+    if (cause instanceof CommandContractError || cause instanceof DeviceStateError) throw cause;
+    if (cause instanceof HttpError) throw new CommandContractError(cause.code,cause.message,"创建请求未确认成功；保留原请求，不依据列表为空自动重发。",[],undefined,{service_id:serviceID,failure_stage:failureStage,execution_created:typeof cause.payload?.execution_created === "boolean" ? cause.payload.execution_created:"unknown"});
     if (!id) {
       throw new CommandContractError(
         "workflow_start_outcome_unknown",
         cause instanceof Error ? cause.message : "service creation outcome unknown",
         "创建服务执行时没有收到完整响应。先查询当前身份可见的执行；不要直接重跑并创建替代执行。",
-        [{ command: "itpay services list --json", reason: "查找可能已经创建的服务执行" }],
+        [{ command: "itpay services list --json", reason: "只读可见执行；空列表不能证明创建未发生，不自动重发" }],undefined,{service_id:serviceID,failure_stage:failureStage,execution_created:"unknown",...(cause instanceof HttpTransportError?{original_error_code:cause.code,network_diagnostics:cause.diagnostics}: {})},
       );
     }
-    if (cause instanceof HttpTransportError) throw new CommandContractError("workflow_outcome_unknown", cause.message, "未收到完整响应；只读同一执行的权威事实，不重放写操作或创建替代执行。", [{ command: `itpay services next ${id} --json`, reason: "核对同一执行" }],undefined,{original_error_code:cause.code,network_diagnostics:cause.diagnostics});
+    if (cause instanceof HttpTransportError) throw new CommandContractError("workflow_outcome_unknown", cause.message, "未收到完整响应；只读同一执行的权威事实，不重放写操作或创建替代执行。", [{ command: `itpay services next ${id} --json`, reason: "核对同一执行" }],undefined,{service_id:serviceID,service_execution_id:id,execution_created:true,failure_stage:failureStage,original_error_code:cause.code,network_diagnostics:cause.diagnostics});
     throw new CommandContractError(
       "workflow_run_failed",
       cause instanceof Error ? cause.message : "workflow run failed",
@@ -479,5 +496,5 @@ export function writeServiceOverview(definition: import("../../client/types.js")
  if(!adapter.supported){writeCommandEnvelope({status:"presentation_contract_unavailable",result:{service_id:definition.service_id,definition_version:definition.definition_version},instruction:"当前公开定义不受此CLI支持；保留原任务并停止，使用兼容CLI，不猜操作或输入合同。",next:null,recovery:[]},options);return;}
  const operations=definition.operations.map(op=>({operation_id:op.id,title:op.display_names["zh-CN"],role:op.role,billing_mode:op.billing_mode,requires_continuation:op.requires_continuation ?? false,...(!op.requires_continuation?{input_schema:op.input_schema,input_template:operationInputTemplate({serviceID:definition.service_id,operationID:op.id},adapter.inputTemplate(op.input_schema),requiredInputFields(op.input_schema))}:{instruction:"使用已有结果详情返回的完整准备购买模板、输入合同和continuation；不自行拼凭据或重新发现购买服务。"})}));
  const result={service_id:definition.service_id,title:definition.display_names["zh-CN"],definition_version:definition.definition_version,...(definition.guide?{guide:`itpay docs show ${definition.guide.topic}`} : {}),operations};
- writeCommandEnvelope({status:"service_overview",result,instruction:adapter.overviewInstruction(definition.guide?.topic ?? ""),next:definition.guide?{command:`itpay docs show ${definition.guide.topic}`,reason:"首次操作前读取服务的完整指导"}:null,recovery:[]},{...options,plainResult:plainValueLines(result)});
+ writeCommandEnvelope({status:"service_overview",result,instruction:adapter.overviewInstruction(definition.guide?.topic ?? ""),next:null,recovery:[]},{...options,plainResult:plainValueLines(result)});
 }

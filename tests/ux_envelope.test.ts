@@ -358,3 +358,13 @@ test("setup host and unknown failures preserve stages without claiming network r
     assert.doesNotMatch(response.instruction,/网络.*恢复|private omitted/);
   }
 });
+
+
+test("full flow wait budget persists across journal instances and stage observations",()=>{
+ const directory=mkdtempSync(join(tmpdir(),"itpay-wait-budget-"));const path=join(directory,"tasks.json");
+ const first=new TaskJournal(path);assert.equal(first.recordAutomaticWait("se_wait",60000),60000);
+ const second=new TaskJournal(path);assert.equal(second.remainingAutomaticWait("se_wait"),60000);
+ second.record({service_execution_id:"se_wait",stage:"login_required"});assert.equal(second.remainingAutomaticWait("se_wait"),60000);
+ second.observe("se_wait","running");assert.equal(second.recordAutomaticWait("se_wait",60000),0);
+ assert.equal(new TaskJournal(path).remainingAutomaticWait("se_wait"),0);
+});

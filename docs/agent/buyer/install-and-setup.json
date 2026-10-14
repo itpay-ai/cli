@@ -4,56 +4,10 @@
   "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "install-and-setup",
   "title": "Install And Identify The ItPay Agent Runtime",
-  "purpose": "Install in one host-permitted persistent npm location, prepare the real Agent once, and enable the same-package Skill.",
+  "purpose": "Install once in a permitted persistent location and enable the same-package Skill.",
   "when_to_use": [
     "The CLI is being installed or upgraded.",
     "The agent needs to confirm its stable runtime identity and default output Host."
-  ],
-  "commands": [
-    {
-      "intent": "identify actual supported Agent Type if needed",
-      "command": "itpay install --json",
-      "success_signal": "select actual agent_type without asking the human"
-    },
-    {
-      "intent": "prepare device and report authoritative account state",
-      "command": "itpay setup --agent-type <agent_type> --json",
-      "success_signal": "setup_ready with device_status ready and account_status authenticated or login_required; not proof Skill is enabled"
-    },
-    {
-      "intent": "read and enable complete same-package Skill",
-      "command": "itpay skill show itpay --json",
-      "success_signal": "read original Skill and persist it using the host official skill mechanism; retain actual path/version"
-    }
-  ],
-  "agent_rules": [
-    "Use standard npm with one host-permitted persistent tool location or global prefix. Fix the exact entry, actual Agent Type and Backend; do not change HOME/npm configuration or an existing project dependency. Do not use floating npx.",
-    "Run setup once after installation or upgrade, then read and enable the current package Skill before business. Same-version already-read/enabled Skill needs no repeat. No automatic login or business to prove setup.",
-    "Preserve actual npm error and nonzero exit. ENOTEMPTY is an old package/retirement directory conflict, not proof host policy forbids writes; broker wrappers do not establish the underlying cause. Stop repeated installation; only precisely authorized old-package cleanup, never identity deletion. setup_ready requires authoritative device/account checks; unknown/404/incompatibility is not ready.",
-    "The current public setup link selects the channel and matching contract: latest/app for production, next/dev for beta. Do not let an old bundle or memory override this choice.",
-    "Production defaults to https://app.itpay.ai. Testing may set ITPAY_BACKEND_URL to the exact official URL the configured official test Backend only when explicitly requested; follow the CLI allowlist.",
-    "If Backend compatibility cannot be verified, stop this round. minimum_cli_version is a protocol floor, not a verified matching artifact. Ask the maintainer for the matching distribution; do not guess a version or downgrade.",
-    "Only install a replacement when its exact artifact and Backend contract have been verified; then reread that package Skill. Never change Agent Type or Device identity to recover compatibility.",
-    "Use one exact type: codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, zcode, doubao-work, kimi-code, or openclaw.",
-    "For compatibility, a global --agent-type codex declaration is normalized immediately to codex-desktop; all registration, output, and returned commands use codex-desktop. Never generate the alias, and do not use codex as an install target.",
-    "One local private key is reused, while Device registrations and quota lineage remain separate for app.itpay.ai, sandbox.itpay.ai and dev.itpay.ai.",
-    "Within each official Backend registration, each Agent Type has one Agent Instance; all windows and chats of the same type reuse it.",
-    "Agent Type identifies the runtime. Host and target only select a presentation destination; load render-hosts only when a handoff cannot be shown.",
-    "Keep the exact Agent Type in every next or recovery command; do not fall back to a type previously used by another runtime.",
-    "Do not change Agent Type or rotate local identity to reset quota or recover a failed command.",
-    "Skillhub and local host bundles are separate installed artifacts; verify their version and packaged Skill/docs instead of assuming an npm update changed them."
-  ],
-  "forbidden": [
-    "Do not use terminal, claude-code, or plain-chat as Agent Types. Do not generate codex as an Agent Type; it is accepted only as a legacy global declaration and becomes codex-desktop before any request.",
-    "Do not set or suggest a Backend outside the CLI allowlist: https://app.itpay.ai, https://sandbox.itpay.ai, https://dev.itpay.ai; local loopback requires the CLI development flag. Do not switch Backend to evade a failure.",
-    "Do not claim that install writes host configuration or registers a device; it only prints instructions.",
-    "Do not create a new identity for a different window, task, chat, or process of the same Agent Type."
-  ],
-  "next_docs": [
-    {
-      "condition": "Installation is verified",
-      "topic": "quickstart"
-    }
   ],
   "search_terms": [
     "install",
@@ -71,5 +25,11 @@
     "doubao work",
     "kimi code",
     "openclaw"
+  ],
+  "current_flow": [
+    "Use the authorized setup link’s channel/Backend and one host-permitted persistent npm tool location or global prefix. Retain that callable entry and actual Agent Type; no floating npx or project dependency edits.",
+    "Run itpay setup --agent-type <actual_type> --json once after installation/upgrade. setup_ready means device preparation; login_required can be a valid separate account status.",
+    "Read itpay skill show itpay --json and enable that exact package Skill via the host mechanism. Record the actual path and limitation if the host cannot enable it.",
+    "Do not repeat setup, installation or login for ordinary tasks. A nonzero install is not ready; keep the actual error and follow its current recovery."
   ]
 }

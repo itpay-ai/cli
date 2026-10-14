@@ -2794,8 +2794,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   };
   assert.equal(untyped.status, "shown");
   assert.equal(untyped.result.skill, "itpay");
-  assert.match(untyped.result.content, /## Choose one entry/);
-  assert.match(untyped.result.content, /## Follow one envelope/);
+  assert.match(untyped.result.content, /## One current flow/);
+  assert.match(untyped.result.content, /## Read and write directly/);
   assert.match(untyped.result.content, /itpay docs show rail-booking/);
   assert.doesNotMatch(untyped.result.content, /itpay sell guide/);
   assert.match(untyped.result.content, /itpay orders --json/);
@@ -2810,7 +2810,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(typed.result.content, /text\(await tools.exec_command/);
   assert.match(typed.result.content, /若使用 functions.exec 包装/);
   assert.match(typed.result.content, /没有该包装时按宿主实际工具操作/);
-  assert.match(untyped.result.content, /Empty output is not a business failure/);
+  assert.match(untyped.result.content, /Temporarily empty stdout is not failure/);
 
   const workbuddy = JSON.parse((await runCLI([
     "--agent-type", "workbuddy", "skill", "show", "itpay", "--json",
@@ -2996,15 +2996,15 @@ test("docs list is compact, sorted and identical across Agent Types", async () =
 });
 
 test("docs show returns only one complete topic with structured recovery", async () => {
-  const shown = await runCLI(["docs", "show", "quickstart", "--json"], {});
+  const shown = await runCLI(["docs", "show", "rail-booking", "--json"], {});
   const envelope = JSON.parse(shown.stdout) as {
     status: string;
     result: { topic: string; content: { topic: string; title: string; product_scope: string } };
     next: null;
   };
   assert.equal(envelope.status, "shown");
-  assert.equal(envelope.result.topic, "quickstart");
-  assert.equal(envelope.result.content.topic, "quickstart");
+  assert.equal(envelope.result.topic, "rail-booking");
+  assert.equal(envelope.result.content.topic, "rail-booking");
   assert.match(envelope.result.content.product_scope, /single public Buyer CLI entry point/);
   assert.doesNotMatch(envelope.result.content.product_scope, /Seller workflow/);
   assert.equal(envelope.next, null);
@@ -3083,7 +3083,8 @@ test("docs search routes payment and refund concerns to customer-care guidance",
 
 test("docs refuses stale valid overrides while accepting the same packaged directory", async () => {
   const same = await runCLI(["docs", "list", "--json"], {ITPAY_CLI_DOCS_DIR: resolve(CLI_ROOT,"docs/agent/buyer")});
-  assert.equal(JSON.parse(same.stdout).result.topics.length,12);
+  const topics=JSON.parse(same.stdout).result.topics.map((topic:{topic:string})=>topic.topic);
+  assert(topics.includes("rail-booking"));assert(!topics.includes("quickstart"));assert(!topics.includes("rail-fast-checkout"));
   const dir=mkdtempSync(join(tmpdir(),"itpay-stale-docs-"));
   for(const file of readdirSync(resolve(CLI_ROOT,"docs/agent/buyer"))) {
     const doc=JSON.parse(readFileSync(resolve(CLI_ROOT,"docs/agent/buyer",file),"utf8"));
@@ -4347,7 +4348,7 @@ test("services start returns only the documented capability entrypoint", async (
   assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
   // Input-bearing commands are templates; the executable next is a safe re-read.
   assert.equal(parsed.next.command, `itpay services next ${parsed.result.service_execution_id} --json`);
-  assert.match(parsed.interaction.input_template.command, /--input keyword=<value> --json$/);
+  assert.match(parsed.interaction.input_template.command, /--input-json <file> --json$/);
   assert.equal(parsed.interaction.input_template.executable, false);
   assert.equal("execution" in parsed, false);
   assert.equal("capabilities" in parsed, false);
@@ -5807,7 +5808,7 @@ test("rail location guidance precedes invocation and confirmation survives next"
   const output:string[]=[]; const opts={jsonOutput:true,output:(line:string)=>output.push(line)};
   await runServicesStart(fake,"svc_itpay_rail_smart",opts);
   let envelope=JSON.parse(output.join(""));
-  assert.match(envelope.instruction,/GCJ-02/); assert.match(envelope.instruction,/不追问门牌/);
+  assert.match(envelope.instruction,/原始完整地点和范围/); assert.match(envelope.instruction,/复制完整file_content/);
   assert.ok(envelope.result.capability.input_schema.properties.origin_location);
   output.length=0;
   await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
@@ -5963,7 +5964,7 @@ test("Smart endpoint guidance follows the published schema", async () => {
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
   assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"area");
   assert.equal(result.result.guidance.input_example.endpoints.destination.text,"<用户原始完整行政范围>");
-  assert.match(result.instruction,/端点理解摘要/);
+  assert.match(result.instruction,/已读rail-booking完成路线判断/); assert.match(result.instruction,/不重复读指南/);
   assert.equal(result.result.guidance.optional_fields.some((f:{name:string})=>f.name==="origin_location"),false);
 });
 
@@ -6050,7 +6051,7 @@ test("service creation without an ID recovers read-only for ordinary errors", as
  await assert.rejects(runServicesRun(client,config,"itpay-rail-smart",undefined,{output:stdoutSink}), (error: unknown) => {
   assert.ok(error instanceof CommandContractError);
   assert.equal(error.code,"workflow_start_outcome_unknown");
-  assert.deepEqual(error.recovery,[{command:"itpay services list --json",reason:"查找可能已经创建的服务执行"}]);
+  assert.deepEqual(error.recovery,[{command:"itpay services list --json",reason:"只读可见执行；空列表不能证明创建未发生，不自动重发"}]);
   assert.doesNotMatch(JSON.stringify(error.recovery),/undefined|null|--execution/);
   return true;
  });

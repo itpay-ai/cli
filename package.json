@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.48",
+  "version": "2.1.49",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -26,9 +26,7 @@
     "docs/agent/buyer/orders-refunds.json",
     "docs/agent/buyer/payment-flow.json",
     "docs/agent/buyer/purchased-content.json",
-    "docs/agent/buyer/quickstart.json",
     "docs/agent/buyer/rail-booking.json",
-    "docs/agent/buyer/rail-fast-checkout.json",
     "docs/agent/buyer/render-hosts.json",
     "docs/agent/buyer/service-feedback.json",
     "docs/cli-reference/agent-types.md",

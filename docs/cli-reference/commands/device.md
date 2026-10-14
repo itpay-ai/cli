@@ -1,39 +1,10 @@
-# `itpay device`
+# itpay device
 
-`itpay` is the single public CLI entry point; `$itpay` is its user-facing Skill invocation.
+保持当前设备身份和实际Agent Type。正常授权与会话续期由CLI处理；业务错误不能触发身份替换或缓存清理。安装准备见install-and-setup，当前账号登录见identity-and-sessions。
 
-## Stable identity and ordinary recovery
+## 当前操作
 
-The original Ed25519 key stays at its existing location. Old `identity.json` v1/v2 is read-only compatibility data. Normal authorization does not acquire legacy locks, inspect processes, or create transition tickets/archives. Old lock files remain untouched.
-
-Each official Backend, actual Agent Type and current key fingerprint has its own atomic session cache. On a rejected session the CLI invalidates only that context, renews it, and retries the original request once. A second failure stops. Corrupt identity, missing original key, permission denial or unknown results never cause automatic key replacement. Do not delete identity, switch runtime/type or disable host protection.
-
-## `itpay device recover`
-
-Only after an operator confirms the selected Backend registration database was reset:
-
-```sh
-itpay --agent-type <agent_type> device recover --confirm-backend-reset --json
-```
-
-This invalidates the selected Backend's caches, preserves the key, old identity and other Backend contexts, and returns a same-Backend/type `auth status` command. It does not contact the Backend itself or authorize business. Missing type or confirmation fails before mutation. Do not use it for expiry, revocation, quota or an unconfirmed failure.
-
-Success status is `backend_cache_invalidated` or `backend_cache_absent`; `result.invalidated_agent_types` records the affected types. The next device check proves the original key to the selected Backend and reuses its authoritative Device/key/quota lineage. No token or private key appears in output.
-
-## `itpay device repair-lock`
-
-```sh
-itpay device repair-lock --json
-```
-
-Compatibility explanation only: status `device_legacy_lock_unmanaged`, lock_status `unmanaged`, identity preserved. No legacy file is read, moved or deleted. This does not claim a lock was repaired. Ordinary authorization needs no lock cleanup.
-
-## `itpay device reset-key`
-
-This version does not support automatic device key reset. The command name and existing type/confirmation guards remain recognized:
-
-```sh
-itpay --agent-type <agent_type> device reset-key --confirm-key-reset --json
-```
-
-It returns nonzero `device_key_reset_unavailable`, next=null, recovery=[]; the original identity is unchanged. Do not delete a key manually, install an older version to reset it, or present this command as a recovery action. Restoring safe explicit key replacement requires a separately reviewed implementation.
+- status：读取当前设备状态。
+- recover：仅运营已确认当前Backend登记库重置，且用户明确授权时，带--confirm-backend-reset处理该Backend缓存。保留设备身份及其他环境状态；不是普通失败恢复动作。
+- repair-lock、reset-key：当前不可用，不能作为恢复动作；不改身份。reset-key保留--confirm-key-reset参数识别并返回明确错误。
+- --agent-type、--json：使用实际宿主类型和结构化输出。全部参数以当前--help为准；未知结果停止，不删除身份。
