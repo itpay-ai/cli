@@ -1618,8 +1618,9 @@ test("services list recovers executions without a local cart handle", async () =
   assert.equal(envelope.status, "listed");
   const firstID = String(envelope.result.executions[0]?.service_execution_id);
   assert.equal(firstID, "se_recovery");
-  assert.equal(envelope.next.command, `itpay services next ${firstID} --json`);
-  assert.match(stdoutCapture.join(""), /只有一条可恢复记录/);
+  assert.equal(envelope.next,null);
+  assert.deepEqual(envelope.result.executions[0]?.reader,{command:`itpay services next ${firstID} --json`,reason:"读取这笔已有服务"});
+  assert.match(stdoutCapture.join(""), /不能据数量判断唯一任务/);
   assert.deepEqual(Object.keys(envelope.result.executions[0] ?? {}), [
     "service_execution_id", "service_id", "status", "phase", "updated_at", "reader",
   ]);
@@ -1638,7 +1639,8 @@ test("services list validates limit and handles an empty server list", async () 
   await runServicesList(emptyBackend, { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
   assert.equal(envelope.status, "no_executions");
-  assert.equal(envelope.next.command, "itpay catalog list --json");
+  assert.equal(envelope.next,null);
+  assert.match(stdoutCapture.join(""),/不能证明超时创建未发生/);
 });
 
 test("services list is compact, fact-stable, and preserves every Agent Type", async () => {
@@ -1659,7 +1661,7 @@ test("services list is compact, fact-stable, and preserves every Agent Type", as
   const envelope = JSON.parse(outputs[0]!);
   assert.equal(envelope.status, "listed");
   assert.equal(envelope.next, null);
-  assert.match(envelope.instruction, /只有无法确定属于哪一笔任务时才询问用户/);
+  assert.match(envelope.instruction, /原任务已知ID或权威关联/);
 });
 
 test("services get returns a bounded public timeline", async () => {

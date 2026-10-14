@@ -1895,10 +1895,9 @@ services
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),
         code: "services_list_failed",
-        instruction: "确认当前设备身份和 Backend 后重试；不要猜测 Service Execution ID。",
+        instruction: "列表读取未完成不代表没有执行；未命中或空列表也不能证明超时创建未发生。保留原请求和已知执行，不改变身份或自动重发。",
         recovery: [
-          { command: "itpay readyz --json", reason: "确认 Backend 可用" },
-          { command: "itpay services list --limit 10 --json", reason: "重新读取最近执行" },
+          { command: "itpay services list --limit 10 --json", reason: "仅平台恢复或用户要求时读取当前可见范围" },
         ],
       });
     }
