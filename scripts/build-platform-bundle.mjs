@@ -89,6 +89,8 @@ try {
         .replace(/^### (?:WorkBuddy Checkout|OpenClaw) handoff\n[\s\S]*?(?=^## |$(?![\s\S]))/gm, "")
         .replace(/continuation\. If compatibility fails,[\s\S]*?\nNever (?:install|switch)[\s\S]*?\.\n/g, "continuation. Preserve the launcher, Backend and identity; follow the current setup response.\n")
         .replace(/^- If compatibility fails,[\s\S]*?Device\.\n/gm, "")
+        .replace(/continuation\. If compatibility fails, update this plugin to the exact\nrequired bundled version; never switch Backend, launcher, Agent Type, or Device\./g, "continuation. Follow the current setup response; preserve the launcher, Backend and identity.")
+        .replaceAll("never call legacy workflow tools.", "call only the listed read tools in this lane.")
         .replace(/; never attempt legacy workflow tools\./g, ".")
         .replaceAll("readyz --json", "setup --json").trimEnd()+"\n";
       const handoff = host.includes("## WorkBuddy Runtime")
