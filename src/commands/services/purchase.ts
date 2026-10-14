@@ -1,3 +1,5 @@
+import {HttpError} from "../../client/http.js";
+import {HttpTransportError} from "../../client/transport.js";
 import {purchaseEnvelope} from "../../services/shared/purchase.js";
 import {setTimeout as delay} from "node:timers/promises";
 import type {BackendClient} from "../../client/backend.js";
@@ -30,6 +32,8 @@ export async function runServicesPurchase(backend:BackendClient,config:CLIConfig
  const seconds=options.timeoutSeconds ?? 60;
  if(!Number.isFinite(seconds) || seconds<=0 || seconds>120)invalid();
  let deadline=options.deadline ?? Date.now()+seconds*1000;
+ let failureStage=confirm ? "confirm_purchase" : options.resume ? "resume_purchase" : "read_purchase_review";
+ try {
  let state=confirm ? await backend.confirmServicePurchase(id,confirm,{deadline}) : options.resume ? await backend.resumeServicePurchase(id,{deadline}) : await backend.getServicePurchaseReview(id,{deadline});
  while(state.status==="running"){
   if(state.auto_wait_remaining_ms!==undefined){
@@ -38,11 +42,19 @@ export async function runServicesPurchase(backend:BackendClient,config:CLIConfig
   }
   const wait=Math.min(3000,Math.max(250,state.poll_after_ms ?? 750));
   if(Date.now()+wait+50>=deadline)break;
-  await delay(wait);state=await backend.resumeServicePurchase(id,{deadline});
+  await delay(wait);failureStage="resume_purchase";state=await backend.resumeServicePurchase(id,{deadline});
  }
  if(state.status==="checkout_ready"){
   if(!state.checkout || state.effects.payment_requested || state.effects.charged)throw new CommandContractError("purchase_response_invalid","official page facts are incomplete","保留原购买，读取原状态，不创建替代入口。",[{command:`itpay services purchase ${id} --resume --json`,reason:"恢复原购买"}]);
-  return presentServiceCheckout(backend,config,id,state.checkout,{...options,deadline});
+  failureStage="read_checkout_presentation";
+  return await presentServiceCheckout(backend,config,id,state.checkout,{...options,deadline});
  }
  writeCommandEnvelope(purchaseEnvelope(state),{...(options.jsonOutput!==undefined ? {jsonOutput:options.jsonOutput}:{}),...(options.output ? {output:options.output}:{})});
+ } catch(error) {
+  if(error instanceof HttpError || error instanceof HttpTransportError){
+   const stop=error instanceof HttpError && ["purchase_preparation_unsupported","purchase_review_unavailable","purchase_review_expired","purchase_request_conflict"].includes(error.code);
+   throw new CommandContractError(error.code,error.message,"原购买本次读取或操作未确认完成；保留已知执行和真实同意，按实际原因停止。技术读取故障不等于过期；不重放确认或创建替代购买。",stop?[]:[{command:`itpay services purchase ${id} --json`,reason:"仅用户要求或平台读取恢复后核对原购买，不重放确认"}],undefined,{service_execution_id:id,failure_stage:failureStage,...(error.diagnostics.length?{network_diagnostics:error.diagnostics}:{}),...(error instanceof HttpError && typeof error.payload?.provider_called==="boolean"?{provider_called:error.payload.provider_called}:{})});
+  }
+  throw error;
+ }
 }

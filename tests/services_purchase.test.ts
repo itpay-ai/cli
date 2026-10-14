@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {BackendClient} from '../src/client/backend.js';
-import {HttpClient} from '../src/client/http.js';
+import {HttpError,HttpClient} from '../src/client/http.js';
 import {parsePurchaseConfirmation,runServicesPurchase} from '../src/commands/services/purchase.js';
 import {CommandContractError} from '../src/services/shared/envelope.js';
 import {purchaseEnvelope} from '../src/services/shared/purchase.js';
@@ -78,4 +78,16 @@ test('verified official presentation is delivered without optional execution HTT
    const result=JSON.parse(output);assert.ok(result.handoff.url);assert.equal(result.result.effects.payment_requested,false);assert.equal(optionalRequests,0);assert.ok(Date.now()-started<2000);
   }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
  }}finally{await mock.close();}
+});
+
+
+test('purchase read faults preserve the original ID and phase without claiming expiry or effects',async()=>{
+ const backend=new BackendClient(new HttpClient({baseURL:config.baseURL}));
+ for(const code of ['internal_error','purchase_review_expired']){
+  backend.getServicePurchaseReview=async()=>{throw new HttpError(code==='internal_error'?500:409,{code,message:'controlled current read fault'},'fault');};
+  await assert.rejects(runServicesPurchase(backend,config,'se_original',undefined,{jsonOutput:true}),error=>{
+   assert(error instanceof CommandContractError);assert.equal(error.code,code);assert.equal(error.result?.service_execution_id,'se_original');assert.equal(error.result?.failure_stage,'read_purchase_review');assert.equal(error.result?.provider_called,undefined);assert.equal(error.result?.execution_created,undefined);
+   if(code==='purchase_review_expired')assert.equal(error.recovery.length,0);else assert.equal(error.recovery[0]?.command,'itpay services purchase se_original --json');return true;
+  });
+ }
 });

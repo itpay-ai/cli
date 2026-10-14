@@ -1819,6 +1819,7 @@ services
    }
    await runServicesPurchase(newBackendClient(config),config,id,input,{resume:Boolean(options.resume),timeoutSeconds:Number(options.timeout),host:withHost(options.host,config.agentType,options.target),...(config.agentType ? {agentType:config.agentType}:{}),...(options.target ? {target:options.target}:{}),locale:options.locale,jsonOutput:Boolean(options.json)});
   }catch(error){
+   if(error instanceof CommandContractError)error=new CommandContractError(error.code,error.message,error.instruction,error.recovery,error.interaction,{...error.result,service_execution_id:id});
    const stop=error instanceof HttpError&&["purchase_preparation_unsupported","purchase_review_unavailable","purchase_review_expired","purchase_request_conflict"].includes(error.code);
    reportCLIError(error,{jsonOutput:Boolean(options.json),code:"purchase_failed",instruction:stop?"原购买当前不能安全继续；按返回原因停止，不切换下单链或重新创建。":"保留原购买及真实确认；按实际原因继续原 purchase，不重新查询或建单。",recovery:stop?[]:[{command:`itpay services purchase ${id} --resume --json`,reason:"只核对原购买进度，不重放创建"}]});}
  });
