@@ -1,0 +1,4 @@
+interface:
+  display_name: "ItPay"
+  short_description: "Read your ItPay orders and Vault in ChatGPT"
+  default_prompt: "Use $itpay to list my Vault artifacts, wait for my selection, and read only the artifact I choose."

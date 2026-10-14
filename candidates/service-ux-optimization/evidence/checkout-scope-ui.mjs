@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {chromium} from '/Users/tzz/.codex/worktrees/service-ux-optimization/itpay_compose/node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core/index.mjs';
+const root='/Users/tzz/.codex/worktrees/service-ux-optimization/itpay_compose';
+const bundle=JSON.parse(readFileSync(root+'/db/v3/publications/itpay-platform-services-hub-search-v1.json'));
+const version=bundle.tables.service_contract_versions.find(v=>Array.isArray(v.contract_json?.report_sections));
+assert.ok(version);const sections=version.contract_json.report_sections;assert.equal(sections.length,11);
+const browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});const page=await browser.newPage();let writes=0;const errors=[];page.on('pageerror',e=>errors.push(e.message));
+const now=new Date().toISOString();const expires=new Date(Date.now()+900000).toISOString();
+await page.route('**/v1/**',async route=>{assert.equal(route.request().method(),'GET');let result={};if(new URL(route.request().url()).pathname.endsWith('/presentation'))result={checkout:{checkout_id:'chk_scope',status:'payment_required',amount_minor:200,currency:'CNY',expires_at:expires,delivery_contact:{}},items:[{title:'企业综合报告',quantity:1,amount_minor:200,currency:'CNY',input:{company_name:'合成公司',purchase_summary:{title:'企业综合报告',subject:'合成公司',included_sections:sections,quantity:1,amount_minor:200,currency:'CNY'}}}],payment_intents:[],buyer_session:{state:'anonymous'},server_now:now,payment_deadline_at:expires,payment_remaining_seconds:900};await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(result)});});
+try{await page.goto('http://127.0.0.1:5189/checkout/chk_scope?display_token=synthetic');await page.getByText('企业综合报告',{exact:true}).first().waitFor();const body=await page.locator('body').innerText();for(const section of sections)assert.ok(body.includes(section),section);assert.match(body,/合成公司/);assert.match(body,/2\.00/);assert.deepEqual(errors,[]);console.log(JSON.stringify({scope:'intercepted synthetic checkout, real React component',title:'企业综合报告',sections,quantity:1,amount_minor:200,currency:'CNY',writes,pageErrors:errors},null,2));}finally{await browser.close();}

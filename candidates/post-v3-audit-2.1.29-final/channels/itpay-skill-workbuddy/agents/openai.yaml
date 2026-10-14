@@ -1,0 +1,4 @@
+interface:
+  display_name: "ItPay"
+  short_description: "Buy services or read past ItPay purchases"
+  default_prompt: "Use $itpay to understand whether I want a new service, past purchased content, order help, or a refund, then follow the safe ItPay flow."

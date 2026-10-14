@@ -1,0 +1,19 @@
+name: Sync ItPay CLI bundle
+
+on:
+  schedule:
+    - cron: '11 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    uses: itpay-ai/cli/.github/workflows/sync-platform-bundle.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      bundle-format: npm-tree
+      version-files: package.json,.codex-plugin/plugin.json
+    secrets:
+      ITPAY_BUNDLE_APP_ID: ${{ secrets.ITPAY_BUNDLE_APP_ID }}
+      ITPAY_BUNDLE_APP_PRIVATE_KEY: ${{ secrets.ITPAY_BUNDLE_APP_PRIVATE_KEY }}
