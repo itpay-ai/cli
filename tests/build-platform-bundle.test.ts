@@ -26,6 +26,6 @@ test('bundle rebuild deletes old handoff tutorials and is idempotent',async()=>{
   const tar=join(directory,'candidate.tgz');assert.equal(spawnSync('tar',['-czf',tar,'-C',directory,'package']).status,0);
   const host=join(directory,'host');mkdirSync(host);writeFileSync(join(host,'SKILL.md'),'---\nname: itpay\n---\n# ItPay\n\n## WorkBuddy Runtime\nUse the locked launcher.\n\n### WorkBuddy Checkout handoff\nFor an older handoff use present_files.\n\n### WorkBuddy Checkout handoff\nFor an older handoff use present_files.\n\n## Local CLI business rules\nOld duplicated tutorial.\n');
   const build=()=>{const result=spawnSync(process.execPath,[resolve('scripts/build-platform-bundle.mjs'),'1.2.3',host,'--tarball',tar],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);return readFileSync(join(host,'SKILL.md'),'utf8');};
-  const first=build(),second=build();assert.equal(second,first);assert.match(first,/WorkBuddy Runtime/);assert.match(first,/Current shared business flow/);assert.doesNotMatch(first,/older handoff|Old duplicated tutorial|WorkBuddy Checkout handoff/);
+  const first=build(),second=build();assert.equal(second,first);assert.match(first,/WorkBuddy Runtime/);assert.match(first,/Current shared business flow/);assert.doesNotMatch(first,/older handoff|Old duplicated tutorial/);
  }finally{rmSync(directory,{recursive:true,force:true});}
 });

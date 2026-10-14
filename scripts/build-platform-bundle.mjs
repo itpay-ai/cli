@@ -91,7 +91,11 @@ try {
         .replace(/^- If compatibility fails,[\s\S]*?Device\.\n/gm, "")
         .replace(/; never attempt legacy workflow tools\./g, ".")
         .replaceAll("readyz --json", "setup --json").trimEnd()+"\n";
-      const handoff = "";
+      const handoff = host.includes("## WorkBuddy Runtime")
+        ? "\n### WorkBuddy Checkout handoff\n\nFor a verified official entry, execute `handoff.agent_action` exactly once when present. Its `present_files` action uses the complete official `handoff.url` as its only `files` element. Never use `present_files` for a local file or QR PNG. If unsupported, show the original verified URL.\n"
+        : host.includes("## OpenClaw Runtime")
+          ? "\n### OpenClaw handoff\n\nUse the returned `handoff.agent_action` only for the actual supported channel and target; otherwise show the original verified official URL.\n"
+          : "";
       const body = publishedSkill.slice(publishedSkill.indexOf("# ItPay") + "# ItPay".length).trim();
       const runtimeFiles = existingSkill.includes("HERMES_SKILL_DIR")
         ? "\n## Bundled runtime files\n\n" + ["scripts/itpay.mjs", `${bundleDirectory}/itpay-cli.bundle.mjs`, ...filesIn(join(vendor,"package")).map(path => `${bundleDirectory}/package/${path}`)].map(path => `- \`${path}\``).join("\n") + "\n"
