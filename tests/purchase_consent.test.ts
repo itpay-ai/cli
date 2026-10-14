@@ -21,7 +21,7 @@ test('quote renders complete scoped approval and approval leads to the same quot
   const result=JSON.parse(json);
   assert.equal(result.result.approval_template.user_approved,false);
   assert.equal(result.next,null);
-  assert.deepEqual(result.interaction.input_template.input,template);
+  assert.deepEqual(result.interaction.input_template.file_content,template);
   assert.match(text,/canonical_fixture/);
   assert.match(text,/prepare_checkout/);
   backend.recordServiceExecutionAction=async(_id,input)=>({service_execution_action_id:'approval_fixture',service_execution_id:'se_fixture',action_type:input.action_type,status:'approved',actor_type:'agent'});
@@ -43,7 +43,7 @@ test('ordinary service fields cannot select a rail presentation and unknown bind
   const shown=servicesNextEnvelope(ordinary);
   assert.equal(shown.status,'confirmation_required');
   assert.doesNotMatch(JSON.stringify(shown),/车票|席别|站点|地图|booking_review_required/);
-  assert.deepEqual(shown.interaction?.input_template?.input,{accepted:false});
+  assert.deepEqual(shown.interaction?.input_template?.file_content,{accepted:false});
   const terminal=servicesNextEnvelope({...ordinary,execution:{...ordinary.execution,status:'failed'}});
   assert.equal(terminal.status,'failed');
   assert.equal(terminal.next,null);
@@ -66,7 +66,7 @@ test('public overview uses complete rail endpoints and structured actions never 
  const {writeServiceOverview}=await import('../src/commands/services/lifecycle.js');
  let overview='';
  writeServiceOverview({schema_version:'itpay.service-definition.v1',service_id:'itpay-rail',definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',display_names:{'zh-CN':'火车票服务'},operations:[{id:'query_smart',role:'query',billing_mode:'free',display_names:{'zh-CN':'Smart'},binding:{service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6',capability_id:'itpay_service'},input_schema:{required:['travel_date'],properties:{travel_date:{type:'string'},endpoints:{type:'object',required:['origin','destination'],properties:{origin:{type:'object',required:['text'],properties:{text:{type:'string'}}},destination:{type:'object',required:['text'],properties:{text:{type:'string'}}}}}}}}]},{jsonOutput:true,output:s=>overview+=s});
- assert.deepEqual(JSON.parse(overview).result.operations[0].input_template.input.input.endpoints,{origin:{text:'<text>'},destination:{text:'<text>'}});
+ assert.deepEqual(JSON.parse(overview).result.operations[0].input_template.file_content.input.endpoints,{origin:{text:'<text>'},destination:{text:'<text>'}});
  const {railAvailableActions}=await import('../src/services/rail/actions.js');
  const {serviceInputTemplate}=await import('../src/services/shared/input.js');
  const actions=railAvailableActions({plan_id:'p',query_revision:2,readiness:'ready',snapshot_id:'snap',available_actions:[{type:'read_updates',command:'curl https://invalid.test',provider_effect:'none'},{type:'expand_search',command:'rm -rf /',provider_effect:'bounded_provider_batch',target:{service_execution_id:'se',query_revision:2,snapshot_id:'snap'},input:{action_request_id:'handle',expected_query_revision:2,snapshot_id:'snap'}}]},'se');
@@ -110,10 +110,10 @@ test('public operation recovery executes through main with the original operatio
    const first=await run(['services','run',serviceID,...(operation!=='legacy'?['--operation',operation]:[]),...(mode==='execution'?['--execution',id]:[]),'--input-json',file,'--timeout','0','--json']);
    const failure=JSON.parse(first.stdout || first.stderr);assert(failure.interaction,JSON.stringify(failure));const template=failure.interaction.input_template;
    if(operation!=='legacy')assert.match(template.command,new RegExp(`--operation ${operation}`));else assert.doesNotMatch(template.command,/--operation/);
-   const parameters=operation==='legacy'?template.input:template.input.input;assert.deepEqual(parameters, {...known,travel_date:'<travel_date>'});
+   const parameters=operation==='legacy'?template.file_content:template.file_content.input;assert.deepEqual(parameters, {...known,travel_date:'<travel_date>'});
    const returnedTemplate=JSON.parse(JSON.stringify(template));
-   if(mode==='continuation')assert.deepEqual(template.input.continuation,continuation);
-   parameters.travel_date='2030-10-09';writeFileSync(file,JSON.stringify(template.input));
+   if(mode==='continuation')assert.deepEqual(template.file_content.continuation,continuation);
+   parameters.travel_date='2030-10-09';writeFileSync(file,JSON.stringify(template.file_content));
    const args=template.command.replace(/^itpay /,'').replace('<file>',file).split(' ');args.push('--timeout','0');
    const second=await run(args);const result=JSON.parse(second.stdout);assert.notEqual(result.status,'service_overview');
    const retry=calls.find((call,index)=>index>0&&!call.path.endsWith('/advance')) ?? calls.at(-1)!;
@@ -239,7 +239,7 @@ test('public expired prepare preserves typed adapter and complete original query
     if(mode==='fresh'){
      assert(template);assert.match(template.command,/services run itpay-rail --operation query_smart --input-json <file>/);
      assert.deepEqual(template.file_content,{input:Object.fromEntries(Object.entries(query).filter(([key])=>key!=='reuse_from'))});
-     assert.deepEqual(template.input,template.file_content);assert.equal(template.user_answer_required,undefined);assert.equal(error.recovery.length,0);
+     assert.equal(template.input,undefined);assert.equal(template.user_answer_required,undefined);assert.equal(error.recovery.length,0);
     }else{assert.equal(template,undefined);if(mode==='existing')assert.match(error.recovery[0]!.command,/next se_original/);else assert.match(error.instruction,/购买历史读取失败/);}
     return true;
    });

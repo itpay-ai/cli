@@ -1,7 +1,7 @@
 import {purchaseEnvelope} from "../../services/shared/purchase.js";
 import type { ServiceExecutionReadModel, ServiceExecutionCheckoutCreated } from "../../client/types.js";
 import {assertCheckoutCreation,assertCheckoutPayable} from "../checkout_handoff.js";
-import { projectCheckoutPresentation } from "../../services/registry.js";
+import { serviceAdapter, projectCheckoutPresentation } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
 import { type CLIConfig } from "../../state/config.js";
@@ -14,7 +14,7 @@ import { platformKeyForHost } from "../../render/plan.js";
 import { renderTerminalQR } from "../../render/qr.js";
 import { buildCheckoutQRPlan } from "../../render/checkout_plan.js";
 import { CommandContractError, fileInputTemplate, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
-import { ServicesCommandOptions, missingRequiredInput, checkoutCommand, formatInputOptions, tokenizedCheckoutURL, absolutePublicURL, fallbackCardURL, fallbackCardPNGURL, buildServicesCheckoutEnvelope, quoteCommand, formatMoney } from "../../services/shared/platform.js";
+import { ServicesCommandOptions, missingRequiredInput, formatInputOptions, tokenizedCheckoutURL, absolutePublicURL, fallbackCardURL, fallbackCardPNGURL, buildServicesCheckoutEnvelope, formatMoney } from "../../services/shared/platform.js";
 
 export async function runServicesCheckout(
   backend: BackendClient,
@@ -95,7 +95,7 @@ export async function runServicesCheckout(
         "capability_input_invalid",
         `missing required capability input: ${missingInput.join(", ")}`,
         "补齐付费 capability 的 required_input；本次没有创建 quote、Checkout 或订单。",
-        [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template: { command: checkoutCommand(serviceExecutionID, capability, lockedInput), required_input: missingInput, executable: false } },
+        [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template:fileInputTemplate(`itpay services checkout ${serviceExecutionID} --capability ${capability.capability_id} --input-json <file> --json`,serviceAdapter(readModel.execution).inputTemplate(capability.input_schema ?? {},lockedInput),missingInput,{executionID:serviceExecutionID}) },
       );
     }
     if (capability.delivery_email_required && readModel.workflow_entry?.capability_id !== capability.capability_id && String(deliveryContact.email ?? "").trim() === "") {
@@ -103,7 +103,7 @@ export async function runServicesCheckout(
         "delivery_email_required",
         "delivery email is required before creating this service checkout",
         "该 capability 的交付链接会发送到用户邮箱；先向用户说明用途并询问邮箱，不要代填。",
-        [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template: { command: `itpay services checkout ${serviceExecutionID} --capability ${capability.capability_id}${formatInputOptions(lockedInput)} --email <email> --json`, required_input: ["email"], executable: false } },
+        [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template:fileInputTemplate(`itpay services checkout ${serviceExecutionID} --capability ${capability.capability_id} --input-json <file> --email <email> --json`,lockedInput,["email"],{executionID:serviceExecutionID}) },
       );
     }
   }
@@ -243,7 +243,7 @@ export async function runServicesQuote(
       "capability_input_invalid",
       `missing required capability input: ${missingInput.join(", ")}`,
       "补齐付费 capability 输入；本次没有创建 Quote、Cart 或 Checkout。",
-      [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template: { command: quoteCommand(serviceExecutionID, capability, input), required_input: missingInput, executable: false } },
+      [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template:fileInputTemplate(`itpay services quote ${serviceExecutionID} --capability ${capability.capability_id} --input-json <file> --json`,serviceAdapter(model.execution).inputTemplate(capability.input_schema ?? {},input),missingInput,{executionID:serviceExecutionID}) },
     );
   }
   const deliveryContact = {
@@ -255,7 +255,7 @@ export async function runServicesQuote(
       "delivery_email_required",
       "delivery email is required before preparing this service quote",
       "交付链接会发送到用户邮箱；说明用途并询问邮箱，不要代填。",
-      [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template: { command: quoteCommand(serviceExecutionID, capability, input), required_input: ["email"], executable: false } },
+      [], { schema_version: "itpay.interaction.v1", stage: "input_required", input_template:fileInputTemplate(`itpay services quote ${serviceExecutionID} --capability ${capability.capability_id} --input-json <file> --email <email> --json`,input,["email"],{executionID:serviceExecutionID}) },
     );
   }
   const quote = await backend.prepareServiceQuote(serviceExecutionID, {

@@ -38,7 +38,7 @@ test('audit repair: saved geo reason, empty candidates and real choices', async 
       client.getServiceExecution=async()=>({...base,workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{current_step:'confirm_location',revision:1,steps:{},status:'human_action',human_action:{action_type:'workflow:confirm_location',input_schema:{required:['choices']},context:{places:{origin:{resolution_status:'resolved',query:'甲市'},destination:{resolution_status:'needs_confirmation',resolution_reason:'ADDRESS_REQUIRED',query:'乙地',resolution_candidates:candidates}}}}}});
       let output='';await runServicesNext(client,'se_check',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);
       if(!candidates.length) assert.equal(result.interaction,undefined);
-      else {assert.match(result.interaction.input_template.command,/--input-json/); assert.doesNotMatch(result.instruction,/地址及 id/);assert.equal(result.interaction.input_template.input.choices.destination,'<所选候选id>');}
+      else {assert.match(result.interaction.input_template.command,/--input-json/); assert.doesNotMatch(result.instruction,/地址及 id/);assert.equal(result.interaction.input_template.file_content.choices.destination,'<所选候选id>');}
     }
   } finally {await mock.close();}
 });
@@ -97,12 +97,12 @@ test('journey harness: current template and structural repair preserve query bef
   const schema={type:'object',required:['endpoints','travel_date'],properties:{endpoints:{type:'object',required:['origin','destination'],properties:{origin:{type:'object',required:['text'],properties:{text:{type:'string'}}},destination:{type:'object',required:['text'],properties:{text:{type:'string'}}}}},travel_date:{type:'string'},passengers:{type:'integer'}}};
   backend.startServiceExecution=async()=>({execution:{...base.execution,service_id:'itpay-rail-smart'},capabilities:base.capabilities,workflow_entry:{capability_id:'itpay_service',input_schema:schema}});
   let output='';await runServicesStart(backend,'itpay-rail-smart',{jsonOutput:true,output:s=>output+=s});
-  const entry=JSON.parse(output);assert.equal(typeof entry.interaction.input_template.input.input.endpoints.origin.text,'string');assert.equal(entry.interaction.input_template.executable,false);
+  const entry=JSON.parse(output);assert.equal(typeof entry.interaction.input_template.file_content.input.endpoints.origin.text,'string');assert.equal(entry.interaction.input_template.executable,false);
   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'capability_input_invalid',service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6',message:'$.endpoints is required',input_schema:schema,input_errors:['$.endpoints is required'],execution_created:false,provider_called:false},'invalid');};
   await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-smart',{origin:'甲区域',destination:'乙住宅',travel_date:'2030-10-01',passengers:2}),error=>{
    assert.ok(error instanceof CommandContractError); const e=error;
-   assert.equal(e.result?.execution_created,false);assert.equal(e.interaction?.input_template?.input?.travel_date,'2030-10-01');
-   const corrected=e.interaction?.input_template?.input?.endpoints as {origin:{text:string};destination:{text:string}};
+   assert.equal(e.result?.execution_created,false);assert.equal(e.interaction?.input_template?.file_content?.travel_date,'2030-10-01');
+   const corrected=e.interaction?.input_template?.file_content?.endpoints as {origin:{text:string};destination:{text:string}};
    assert.equal(corrected.origin.text,'甲区域');assert.equal(corrected.destination.text,'乙住宅');assert.equal(e.result?.provider_called,false);assert.doesNotMatch(e.interaction!.input_template!.command,/--execution/);return true;
   });
   backend.startServiceExecution=async()=>{throw new HttpError(400,{code:'capability_input_invalid',service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6',message:'invalid input',input_schema:schema,execution_created:true,service_execution_id:'se_existing'},'invalid');};
@@ -133,7 +133,7 @@ test('journey harness: review template is complete and carries no invented conse
   const input={draft_revision:1,notice_version:'rail-seat-request.v1',passengers:2,seat_type:'O',seat_preferences:[{passenger_index:0,preference:'auto'},{passenger_index:1,preference:'window'}],party_preference:'together_if_possible',fallback:'automatic_assignment',accept_non_guaranteed:false};
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-booking'},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'human_action',current_step:'booking_review',revision:1,steps:{},human_action:{action_type:'workflow:booking_review',input_schema:{required:Object.keys(input)},context:{review:{...input,input_template:input}}}}});
   let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const result=JSON.parse(output);
-  assert.deepEqual(result.interaction.input_template.input,input);assert.match(result.instruction,/已有明确确认/);assert.equal(result.next,null);
+  assert.deepEqual(result.interaction.input_template.file_content,input);assert.match(result.instruction,/已有明确确认/);assert.equal(result.next,null);
  }finally{await mock.close();}
 });
 
@@ -251,7 +251,7 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
   for(const query of [{},{origin:'原起点住宅',destination:'原目的区域',travel_date:'2030-10-09',passengers:2,priority:'fastest'},{endpoints:{origin:{kind:'place',text:'原起点住宅'},destination:{kind:'area',text:'原目的区域'}},travel_date:'2030-10-09',passengers:2,priority:'fastest'}]){
    backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'input_required',current_step:'input',revision:1,steps:{},query_input:query}});
    let text='';await runServicesNext(backend,'se_check',{jsonOutput:true,output:s=>text+=s});const entry=JSON.parse(text);assert.match(entry.instruction,/rail-booking|完整text/);
-   const input=entry.interaction.input_template.input.input;
+   const input=entry.interaction.input_template.file_content.input;
    if('origin' in query){assert.equal(input.endpoints,undefined);assert.equal(input.origin,query.origin);}else assert(input.endpoints.origin.text);
    if(Object.keys(query).length){
     backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:schema},workflow:{status:'failed',current_step:'geo',revision:1,steps:{},query_input:query,failure:{step_id:'resolved',reason_code:'place_identity_uncertain',endpoint:'origin'}}});
@@ -271,7 +271,7 @@ test('place followup: oneOf input has complete brief/template; legacy and endpoi
    backend.startServiceExecution=async()=>{throw new HttpError(409,mode==='wrong_owner'?{service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',code:'selection_wrong_buyer',message:'foreign'}:{service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',code:'rail_selection_expired',message:'expired',...(mode==='unknown'?{}:{selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',expired_at:'2030-10-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_purchase'}:{})}})},'expired');};
    await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail-booking',{passengers:2,selections:[]}),error=>{
     assert.ok(error instanceof CommandContractError);
-    if(mode==='fresh'){assert.deepEqual(error.interaction?.input_template?.input,query);assert.equal(error.recovery.length,0);assert.match(error.instruction,/原条件刷新一次/);}
+    if(mode==='fresh'){assert.deepEqual(error.interaction?.input_template?.file_content,query);assert.equal(error.recovery.length,0);assert.match(error.instruction,/原条件刷新一次/);}
     else {assert.equal(error.interaction,undefined);if(mode==='existing')assert.equal(error.recovery[0]?.command,'itpay services next se_purchase --json');else assert.equal(error.recovery.length,0);}
     return true;
    });

@@ -13,10 +13,10 @@ import {CommandContractError} from '../src/services/shared/envelope.js';
 const view:RailAftercareView={can_cancel:true,execution_identity:{service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4'},case:{case_id:'case_test',order_id:'order_test',status:'requested',revision:1,request:{operation:'refund',targets:[{leg_index:1,passenger_index:0}],reason:'Only the second leg',scope_revision:1,user_confirmed_scope:true},proposal_revision:0,confirmed_proposal_revision:0,history:[],created_at:'2030-01-01T00:00:00Z',updated_at:'2030-01-01T00:00:00Z'},journey:{passengers:1,fact_rule:'Known issuance is not current validity',legs:[]},instruction:'Manual intake'};
 const directory:RailAftercareDirectory={execution_identity:view.execution_identity,order_id:'order_test',journey:view.journey,cases:[view],available_targets:view.case.request.targets,input_templates:{refund:{...view.case.request,user_confirmed_scope:false},change:{...view.case.request,operation:'change',user_confirmed_scope:false,change:{constraints:''}}},instruction:'No final refund promise.'};
 test('aftercare scope and current consent templates remain false and terminal states stop',()=>{
- const envelope=railAftercareList(directory,'order_test');const templates=JSON.parse(JSON.stringify(envelope.interaction?.input_templates));assert.equal(templates.refund.input.user_confirmed_scope,false);
+ const envelope=railAftercareList(directory,'order_test');const templates=JSON.parse(JSON.stringify(envelope.interaction?.input_templates));assert.equal(templates.refund.file_content.user_confirmed_scope,false);
  for(const status of ['requested','needs_input','awaiting_confirmation','processing','completed','cancelled','rejected'] as const){
   const result=railAftercareEnvelope({...view,case:{...view.case,status,revision:3,proposal_revision:2},can_cancel:status==='requested'});
-  if(status==='awaiting_confirmation'){assert.equal(result.interaction?.input_template?.input?.user_approved,false);assert.equal(result.interaction?.input_template?.input?.proposal_revision,2);}
+  if(status==='awaiting_confirmation'){assert.equal(result.interaction?.input_template?.file_content?.user_approved,false);assert.equal(result.interaction?.input_template?.file_content?.proposal_revision,2);}
   if(['completed','cancelled','rejected','needs_input','awaiting_confirmation'].includes(status))assert.equal(result.next,null);
   if(status==='requested')assert.ok(result.interaction?.cancel_template);
  }

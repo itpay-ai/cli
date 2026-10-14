@@ -18,3 +18,5 @@
 --locale <locale>             payment card language: zh-CN|en (default:
 --json                        output JSON instead of terminal text
 ```
+
+`--input-json <file>` accepts the complete flat input returned in `file_content`; use it instead of `--input`, never together.

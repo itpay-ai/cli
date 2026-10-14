@@ -68,7 +68,7 @@ export function railActionError(error:unknown,serviceExecutionID:string,actionTy
 				error.code,
 				error.message,
 				error.code === "booking_review_invalid"
-					? "确认输入与当前草稿不符。使用返回 interaction.input_template.input 当前review模板，席别使用返回的代码，不填显示名或猜新值。若仅修正代码写法，且车次、实际席别、人数、价格及条款等已确认内容未变，可沿用用户已有明确确认后提交；草稿实质变化或缺少真实同意时，先请用户确认变化内容。"
+					? "确认输入与当前草稿不符。使用返回 interaction.input_template.file_content 当前review模板，席别使用返回的代码，不填显示名或猜新值。若仅修正代码写法，且车次、实际席别、人数、价格及条款等已确认内容未变，可沿用用户已有明确确认后提交；草稿实质变化或缺少真实同意时，先请用户确认变化内容。"
 					: error.code === "booking_review_changed"
 						? "草稿版本已变化；使用同一booking的当前review模板。仅技术修正且车次、实际席别、人数、价格及条款未变时沿用已有明确同意；实质变化或缺少真实同意才补确认。"
 						: "当前购买已有付款尝试；读取同一booking及订单状态，不创建新订单或重做付款。",

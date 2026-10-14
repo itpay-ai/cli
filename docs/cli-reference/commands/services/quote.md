@@ -16,3 +16,5 @@ itpay services quote <execution_id> --capability <capability_id> --input <key=va
 --email <delivery_email>
 --json                        output compact JSON
 ```
+
+`--input-json <file>` accepts the complete flat input returned in `file_content`; use it instead of `--input`, never together.

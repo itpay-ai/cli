@@ -1769,16 +1769,20 @@ services
   .argument("<service_execution_id>")
   .requiredOption("--capability <capability_id>")
   .option("--input <key=value>", "input to lock into the paid service quote", collectOption, [])
+  .option("--input-json <file>", "complete flat quote input from the returned template")
   .option("--email <delivery_email>")
   .option("--json", "output compact JSON")
   .action(async (serviceExecutionID: string, options) => {
     const config = loadConfig();
     try {
+      const recovery=[{command:`itpay services next ${serviceExecutionID} --json`,reason:"读取原执行当前输入模板"}];
+      if(options.inputJson && options.input.length)throw new CommandContractError("capability_input_invalid","--input and --input-json cannot be combined","使用当前完整file_content；本次未提交。",recovery,undefined,{request_sent:false});
+      const input=options.inputJson ? readInputJsonObject(options.inputJson,"capability_input_invalid",recovery):parseKeyValueList(options.input);
       await runServicesQuote(
         newBackendClient(config),
         serviceExecutionID,
         options.capability,
-        parseKeyValueList(options.input),
+        input,
         { ...(options.email ? { email: options.email } : {}), jsonOutput: Boolean(options.json) },
       );
     } catch (error) {
@@ -1825,6 +1829,7 @@ services
   .argument("<service_execution_id>")
   .option("--capability <capability_id>")
 	.option("--input <key=value>", "input to lock into the paid service quote", collectOption, [])
+  .option("--input-json <file>", "complete flat locked input from the returned template")
   .option("--email <delivery_email>")
   .option("--resume", "reissue the existing checkout handoff without creating another checkout")
   .option("--host <host>", "client host (terminal, codex, telegram, feishu, lark, ...)")
@@ -1839,9 +1844,12 @@ services
     const sessionPath = cartSessionPath();
     const session = CartSession.loadFromFile(sessionPath, config.checkoutCurrency);
     try {
+      const recovery=[{command:`itpay services next ${serviceExecutionID} --json`,reason:"读取原执行当前输入模板"}];
+      if(options.inputJson && options.input.length)throw new CommandContractError("capability_input_invalid","--input and --input-json cannot be combined","使用当前完整file_content；本次未提交。",recovery,undefined,{request_sent:false});
+      const input=options.inputJson ? readInputJsonObject(options.inputJson,"capability_input_invalid",recovery):parseKeyValueList(options.input);
       await runServicesCheckout(backend, config, serviceExecutionID, options.capability, {
         ...(options.email ? { email: options.email } : {}),
-        lockedInput: parseKeyValueList(options.input),
+        lockedInput: input,
         resume: Boolean(options.resume),
         host: withHost(options.host, config.agentType, options.target),
         ...(config.agentType ? { agentType: config.agentType } : {}),

@@ -22,9 +22,9 @@ export interface InputTemplate {
   executable: false;
 }
 
-// input remains a compatibility alias of the exact file content.
+// One complete file payload; avoid duplicating it in every returned action.
 export function fileInputTemplate(command: string, input: Record<string, unknown>, required: string[] = [], options: {executionID?: string | undefined; userAnswerRequired?: boolean} = {}): InputTemplate {
-  return {command, input, file_content: input, required_input: ["file", ...required.filter(field => field !== "file")], executable: false,
+  return {command, file_content: input, required_input: ["file", ...required.filter(field => field !== "file")], executable: false,
     ...(options.userAnswerRequired !== undefined ? {user_answer_required: options.userAnswerRequired} : {}),
     ...(options.executionID ? {target_execution_id: options.executionID} : {})};
 }

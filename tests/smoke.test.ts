@@ -4415,7 +4415,7 @@ test("services checkout rejects missing required input before creating checkout 
       assert.equal(error.code, "capability_input_invalid");
       assert.deepEqual(error.recovery, []);
       assert.equal(error.interaction?.input_template?.executable, false);
-      assert.match(error.interaction?.input_template?.command ?? "", /--input.*keyword=<value>/);
+      assert.match(error.interaction?.input_template?.command ?? "", /--input-json <file>/);
       assert.ok(error.interaction?.input_template?.required_input.includes("keyword"));
       return true;
     },
@@ -5735,7 +5735,7 @@ test("rail endpoint confirmation asks only for candidate ids in the same executi
   assert.equal(result.result.sides[1].candidates[0].id,"destination_1");
   assert.equal(result.result.human_action.context, undefined);
   assert.match(result.interaction.input_template.command,/--input-json/);
-  assert.ok(result.interaction.input_template.input.choices);
+  assert.ok(result.interaction.input_template.file_content.choices);
   assert.doesNotMatch(result.interaction.input_template.command,/origin_lng|destination_lat/);
 });
 
@@ -5815,14 +5815,14 @@ test("rail location guidance precedes invocation and confirmation survives next"
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
   assert.match(envelope.interaction.input_template.command,/--input-json/);
-  assert.equal(envelope.interaction.input_template.input.location_confirmation.plan_id,confirmation.plan_id);
+  assert.equal(envelope.interaction.input_template.file_content.location_confirmation.plan_id,confirmation.plan_id);
   assert.doesNotMatch(envelope.interaction.input_template.command,/\[object Object\]/);
   assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
   output.length=0;
   await runServicesNext(fake,base.execution.service_execution_id,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required");
-  assert.equal(envelope.interaction.input_template.input.origin,"金尊府");
+  assert.equal(envelope.interaction.input_template.file_content.origin,"金尊府");
 });
 
 
@@ -6143,3 +6143,16 @@ test("auth CLI exit distinguishes verified device access from technical initiali
   assert(mock.requests.some(r=>r.path==="/v1/agent-device-account-bindings"));
   assert(!mock.requests.some(r=>/auth-sessions|services|orders|readyz/.test(r.path)));
  });
+
+test("service quote and checkout accept the current flat file template without guessing flags", async () => {
+  const home=mkdtempSync(join(tmpdir(),"itpay-current-paid-file-"));
+  const file=join(home,"current-input.json");writeFileSync(file,JSON.stringify({keyword:"技术输入保持原需求"}));
+  for(const family of ["quote","checkout"]){
+    const id=`se_current_file_${family}`;
+    const result=await runCLI(["--agent-type","codex-cli","services",family,id,"--capability","fuzzy_disambiguation_paid","--input-json",file,"--json"],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:mock.url});
+    assert.equal(JSON.parse(result.stdout).status,"quote_ready");
+    const quote=mock.requests.find(request=>request.method==="POST"&&request.path===`/v1/service-executions/${id}/quotes`);
+    assert.deepEqual(quote?.body?.locked_input,{keyword:"技术输入保持原需求"});
+    assert.equal(mock.requests.some(request=>request.method==="POST"&&request.path===`/v1/service-executions/${id}/checkout`),false);
+  }
+});
