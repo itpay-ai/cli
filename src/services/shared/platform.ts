@@ -1,5 +1,6 @@
 import { type BackendClient } from "../../client/backend.js";
 import { type GrantedServiceResult, type ServiceCapability, type ServiceExecutionReadModel, type ServiceExecutionAllowedAction } from "../../client/types.js";
+import { serviceInputTemplate } from "./input.js";
 import { taskJournalPath } from "../../state/config.js";
 import { TaskJournal } from "../../state/task_journal.js";
 import { type OutputSink } from "../../render/sink.js";
@@ -93,13 +94,13 @@ export function purchaseConfirmationInstruction(
 	const emailPurpose = deliveryEmailPurposeText(deliveryEmailPurpose);
 	if (context === "quota_exhausted") {
 		return deliveryEmailRequired
-			? `免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：继续当前请求需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止等待。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建或尝试其他购买路径。`
-			: `免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：“继续当前请求需要支付 ${price}，是否购买？”然后停止等待。用户明确同意前，Agent 不执行 next.command，也不创建或尝试其他购买路径。`;
+			? `免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：继续当前请求需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止等待。用户明确同意并提供真实邮箱前，Agent 不提交购买输入，也不创建或尝试其他购买路径。`
+			: `免费额度已用完，本次没有发送到数据来源，也没有创建付款页面。只向用户说明：“继续当前请求需要支付 ${price}，是否购买？”然后停止等待。用户明确同意前，Agent 不提交购买输入，也不创建或尝试其他购买路径。`;
 	}
 	const selected = candidateTitle ? `已选择 ${candidateTitle}。` : "当前候选已经确认。";
 	return deliveryEmailRequired
-		? `${selected}后续服务尚未购买。只向用户说明：继续购买需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建新的服务或付款页面。`
-		: `${selected}后续服务尚未购买。只向用户说明：“继续购买后续服务需要支付 ${price}，是否购买？”然后停止。用户明确同意前，Agent 不执行 next.command，也不创建新的服务或付款页面。`;
+		? `${selected}后续服务尚未购买。只向用户说明：继续购买需要支付 ${price}，并提供${emailPurpose}；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不提交购买输入，也不创建新的服务或付款页面。`
+		: `${selected}后续服务尚未购买。只向用户说明：“继续购买后续服务需要支付 ${price}，是否购买？”然后停止。用户明确同意前，Agent 不提交购买输入，也不创建新的服务或付款页面。`;
 }
 
 export function deliveryEmailPurposeText(purpose?: ServiceCapability["delivery_email_purpose"]): string {
@@ -123,13 +124,16 @@ export function paidContinuation(
 	capability: ServiceCapability;
 	price: string;
 	checkout: Record<string, unknown>;
-	next: CommandAction;
+	next: CommandAction | null;
+ input_template?: ReturnType<typeof fileInputTemplate>;
 } | null {
 	if (!action.capability_id) return null;
 	const capability = model.capabilities.find((item) => item.capability_id === action.capability_id && item.requires_payment);
 	if (!capability) return null;
 	const price = capabilityPrice(capability);
 	const stateBacked = model.execution.status === "quota_exhausted" || model.execution.status === "human_action_approved";
+    const missing=stateBacked?[]:missingRequiredInput(capability.input_schema,input);
+    const template=missing.length || capability.delivery_email_required ? fileInputTemplate(`itpay services checkout ${model.execution.service_execution_id} --capability ${capability.capability_id} --input-json <file>${capability.delivery_email_required?" --email <email>":""} --json`,stateBacked?input:serviceInputTemplate(capability.input_schema ?? {},input),[...missing,...(capability.delivery_email_required?["email"]:[])],{executionID:model.execution.service_execution_id}):undefined;
 	return {
 		capability,
 		price,
@@ -141,7 +145,8 @@ export function paidContinuation(
 			delivery_email_required: capability.delivery_email_required,
 			...(capability.delivery_email_purpose ? { delivery_email_purpose: capability.delivery_email_purpose } : {}),
 		},
-		next: {
+        ...(template?{input_template:template}:{}),
+		next: template ? null : {
 			command: checkoutCommand(model.execution.service_execution_id, capability, input, !stateBacked),
 			reason: `仅在用户明确同意支付 ${price}${capability.delivery_email_required ? " 并提供真实邮箱" : ""}后执行；否则停止`,
 		},

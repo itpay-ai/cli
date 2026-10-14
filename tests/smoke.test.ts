@@ -1453,7 +1453,7 @@ test("services invoke reads target capability metadata before checkout guidance"
   );
 	assert.equal(parsed.next.reason, "仅在用户明确同意支付 0.10 CNY 后执行；否则停止");
 	assert.match(stdoutCapture.join(""), /然后停止等待/);
-	assert.match(stdoutCapture.join(""), /不执行 next.command，也不创建或尝试其他购买路径/);
+	assert.match(stdoutCapture.join(""), /不提交购买输入，也不创建或尝试其他购买路径/);
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
 	assert.equal(requests.at(-2)?.method, "GET");
 	assert.equal(requests.at(-1)?.method, "POST");
@@ -4106,11 +4106,9 @@ test("services action resolves a human-selected candidate rank from the executio
 				delivery_email_purpose: "claim",
 			},
 		},
-		instruction: "已选择 小米汽车科技有限公司。后续服务尚未购买。只向用户说明：继续购买需要支付 0.50 CNY，并提供用于发送交付认领链接的真实邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建新的服务或付款页面。",
-		next: {
-			command: "itpay services checkout se_select_by_rank --capability precise_report --email <email> --json",
-			reason: "仅在用户明确同意支付 0.50 CNY 并提供真实邮箱后执行；否则停止",
-		},
+		instruction: "已选择 小米汽车科技有限公司。后续服务尚未购买。只向用户说明：继续购买需要支付 0.50 CNY，并提供用于发送交付认领链接的真实邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不提交购买输入，也不创建新的服务或付款页面。",
+        next:null,
+        interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_template:{command:"itpay services checkout se_select_by_rank --capability precise_report --input-json <file> --email <email> --json",file_content:{},required_input:["file","email"],executable:false,target_execution_id:"se_select_by_rank"}},
 		recovery: [{
 			command: "itpay services next se_select_by_rank --json",
 			reason: "重新读取服务端允许的动作",

@@ -202,6 +202,7 @@ export function invokedEnvelope(
     : `没有找到与“${queryText(input)}”匹配的结果。向用户展示本次为 0 个结果并停止。不要修改、缩短或猜测其他输入；只有用户明确提供新输入后，才能启动新的查询。`;
   if (businessProjection?.instruction) instruction = businessProjection.instruction;
   let next: CommandAction | null = null;
+  let quotaTemplate:ReturnType<typeof fileInputTemplate>|undefined;
 
   if (response.effective_quota?.exhausted) {
     status = "quota_exhausted";
@@ -223,10 +224,11 @@ export function invokedEnvelope(
         checkoutCapability.delivery_email_required,
         checkoutCapability.delivery_email_purpose,
       );
-      next = {
-				command: checkoutCommand(response.execution.service_execution_id, checkoutCapability, input),
-				reason: `仅在用户明确同意支付 ${price} 后执行；否则停止`,
-      };
+      const missing=missingRequiredInput(checkoutCapability.input_schema,input);
+      if(missing.length || checkoutCapability.delivery_email_required){
+        quotaTemplate=fileInputTemplate(`itpay services checkout ${response.execution.service_execution_id} --capability ${checkoutCapability.capability_id} --input-json <file>${checkoutCapability.delivery_email_required?" --email <email>":""} --json`,serviceAdapter(response.execution).inputTemplate(checkoutCapability.input_schema ?? {},input),[...missing,...(checkoutCapability.delivery_email_required?["email"]:[])],{executionID:response.execution.service_execution_id});
+        next=null;
+      }else next={command:checkoutCommand(response.execution.service_execution_id,checkoutCapability,input),reason:`仅在用户明确同意支付 ${price} 后执行；否则停止`};
     } else {
       next = {
         command: `itpay services next ${response.execution.service_execution_id} --json`,
@@ -252,7 +254,7 @@ export function invokedEnvelope(
   if (businessProjection?.suffix) instruction += businessProjection.suffix;
 
   return {
-    value: { status, result: baseResult, instruction, next, recovery: [], ...(interaction ? { interaction } : {}) },
+    value: { status, result: baseResult, instruction, next, recovery: [], ...(quotaTemplate?{interaction:{schema_version:"itpay.interaction.v1" as const,stage:"input_required",input_template:quotaTemplate}}:interaction ? { interaction } : {}) },
     plainResult: serviceResultPlainLines(baseResult),
   };
 }

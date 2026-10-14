@@ -171,6 +171,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 					continuation.capability.delivery_email_purpose,
 				),
 				next: continuation.next,
+                ...(continuation.input_template?{interaction:{schema_version:"itpay.interaction.v1" as const,stage:"input_required",input_template:continuation.input_template}}:{}),
 				recovery: [],
 			};
 		}
