@@ -37,7 +37,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
       if (code === "station_location_evidence_required") {
         const exactInput = stationPair && typeof query.travel_date === "string" ? {origin:endpoints.origin!.text, destination:endpoints.destination!.text, travel_date:query.travel_date} : undefined;
         return {status: "system_evidence_required", result:{service_execution_id:id,service_id:execution.service_id,reason:code,affected_endpoint:affected,failure:model.workflow?.failure,query,
-          ...(exactInput ? {new_query_template:{command:"itpay services run itpay-rail-exact --input-json <双锁站直达.json> --json",input:exactInput,executable:false,required_input:["file"],instruction:"当前明确双锁站可核验直达；Exact只覆盖这一站对，仍按原人数、时限和偏好核对结果。"}} : {})},
+          ...(exactInput ? {new_query_template:{...operationInputTemplate({serviceID:execution.public_binding?.public_service_id ?? "itpay-rail-exact",...(execution.public_binding?{operationID:"query_exact"}: {})},exactInput),instruction:"当前明确双锁站可核验直达；Exact只覆盖这一站对，仍按原人数、时限和偏好核对结果。"}} : {})},
           instruction:"尚未查票。车站身份已知，但Smart缺车站坐标证据；这是系统证据缺口，不要求用户填技术坐标或换站。"+(exactInput ? "当前双锁站可按完整模板另用Exact核验直达，原需求见query。" : "本路线Smart暂受系统证据限制，当前无可执行恢复；停止并交由维护方补证据。"),next:null,recovery:[]};
       }
       if (affected !== "origin" && affected !== "destination") return {status:"input_evidence_required",result:{service_execution_id:id,reason:code,failed_step:model.workflow?.failure?.step_id,failure:model.workflow?.failure,query},instruction:"地点问题未明确受影响侧，当前无可提交修正模板；保留原需求，停止并核对服务端事实，不猜另一端或坐标。",next:null,recovery:[]};
@@ -54,7 +54,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
       }
       const originalPlace = endpoints[affected]?.text ?? query[affected];
       return {status:"awaiting_input",result:{service_execution_id:id,service_id:execution.service_id,reason:code,failed_step:model.workflow?.failure?.step_id,classification:"location_evidence_required",affected_endpoint:affected,original_place:originalPlace,...(model.workflow?.failure?.resolved_scope ? {resolved_scope:model.workflow.failure.resolved_scope} : {}),failure:model.workflow?.failure,query,
-        new_query_template:{command:`itpay services run ${execution.service_id} --input-json <补全原始需求.json> --json`,input,executable:false,required_input:["file",endpointContract ? `endpoints.${affected}.text` : affected],...(endpointContract ? {correction_fields:["text", "kind", "poi_id", "location"].filter(field => {const side = ((properties?.endpoints as Record<string, unknown>)?.properties as Record<string, Record<string, unknown>>)?.[affected];return !!(side?.properties as Record<string, unknown>)?.[field];})} : {}),instruction:"旧执行输入已锁定；补真实地点后将完整input写入JSON文件，按此命令提交新查询，保留另一端、日期、人数和所有原约束。"}},
+        new_query_template:{...operationInputTemplate({serviceID:execution.public_binding?.public_service_id ?? execution.service_id,...(execution.public_binding?{operationID:execution.public_binding.operation_id}: {})},input,[endpointContract ? `endpoints.${affected}.text`:affected]),...(endpointContract ? {correction_fields:["text", "kind", "poi_id", "location"].filter(field => {const side = ((properties?.endpoints as Record<string, unknown>)?.properties as Record<string, Record<string, unknown>>)?.[affected];return !!(side?.properties as Record<string, unknown>)?.[field];})} : {}),instruction:"旧执行输入已锁定；补真实地点后将完整input写入JSON文件，按此命令提交新查询，保留另一端、日期、人数和所有原约束。"}},
         instruction:`旧执行已终止，尚未查票。${identityConflict ? "名称、类别或位置证据存在冲突；先核实返回原因，不能修改kind绕过。" : "完整地点名称合法，但尚缺唯一身份证据；可先用地图或浏览短查，不要求必填门牌或坐标。"}新证据确定类别且原意未变可纠正kind；改变目的地或扩大范围须先取得真实同意。保留原地点及范围；${affected === "origin" ? "出发端" : "到达端"}原文见original_place。有新证据后只补充${affected === "origin" ? "出发端" : "到达端"}${code === "area_scope_too_broad" ? "的市县镇范围" : code === "coordinate_identity_unverified" ? "的已核实地点身份；已移除未核实坐标，不猜坐标" : "的完整地点和行政归属"}。使用当前完整new_query_template；不能在旧执行伪造修改，也不能直接提交占位符。`,next:null,recovery:[]};
     }
     if (state === "failed" && ["login_required", "rate_limited"].includes(workflowReason ?? "")) {
@@ -117,9 +117,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
             human_action: { action_type: action.action_type, input_schema: action.input_schema },
             required_fields: requiredFields, sides, query: model.workflow?.query_input,
             ...(sides.some(side => side.status !== "resolved" && !side.candidates?.length && ["ADDRESS_REQUIRED", "ADMINISTRATIVE_AREA_UNRESOLVED"].includes(side.reason ?? "")) ? {
-              new_query_template: {command: `itpay services run ${execution.service_id} --input-json <补全原始需求.json> --json`, executable: false,
-                input: serviceInputTemplate(model.workflow_entry.input_schema, model.workflow?.query_input ?? {}),
-                required_input: ["补缺失端点", "保留原始日期人数时限偏好及已确认端点"], instruction: "原执行锁定输入；补全原需求后用新查询，不提交不存在的候选。"},
+              new_query_template: {...operationInputTemplate({serviceID:execution.public_binding?.public_service_id ?? execution.service_id,...(execution.public_binding?{operationID:execution.public_binding.operation_id}: {})},serviceInputTemplate(model.workflow_entry.input_schema,model.workflow?.query_input ?? {})), instruction: "原执行锁定输入；补全原需求后用新查询，不提交不存在的候选。"},
             } : {}) },
           instruction: sides.some(side => side.status !== "resolved" && !side.candidates?.length)
             ? locationConfirmationEnvelope(id, "", {}, {endpoints: sides.filter(side => side.status !== "resolved")}).instruction
@@ -130,14 +128,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
           ...(sides.some(side => side.status !== "resolved" && !side.candidates?.length) ? {} : { interaction: {
             schema_version: "itpay.interaction.v1",
             stage: "location_confirmation_required",
-            input_template: {
-              command: requiredFields.includes("choices")
-                ? `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <地点确认.json> --json`
-                : `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`,
-              input: { choices: Object.fromEntries(sides.filter(side => side.candidates?.length).map(side => [side.side, "<所选候选id>"])) },
-              required_input: requiredFields,
-              executable: false,
-            },
+            input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <地点确认.json> --json`,{...serviceInputTemplate(action.input_schema),...(requiredFields.includes("choices")?{choices:Object.fromEntries(sides.filter(side=>side.candidates?.length).map(side=>[side.side,"<所选候选id>"]))}:{})},requiredFields,{executionID:id,userAnswerRequired:true}),
           } }),
           recovery: [],
         };
@@ -179,16 +170,12 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
       return {
         status: "confirmation_required",
         result: { service_execution_id: id, service_id: execution.service_id, human_action: action },
-        instruction: "请展示待确认的内容，请用户明确确认后，按 input_schema 填写 --input 字段。继续同一执行，不重新查询；这一步不是购买确认。",
+        instruction: "展示当前人工操作；已有真实明确回答且目标未变时沿用，只补缺失回答。复制完整file_content提交同一执行，不重新查询；这不是购买确认。",
         next: null,
         interaction: {
           schema_version: "itpay.interaction.v1",
           stage: "confirmation_required",
-          input_template: {
-            command: `itpay services action ${id} --action ${action.action_type} --actor-type human --status approved${requiredFields.map((field) => ` --input ${field}=<值>`).join("")} --json`,
-            required_input: requiredFields,
-            executable: false,
-          },
+          input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`,serviceInputTemplate(action.input_schema),requiredFields,{executionID:id,userAnswerRequired:true}),
         },
         recovery: [],
       };
@@ -254,11 +241,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
           stage: inputTemplate ? "input_required" : "payment",
           ...(inputTemplate ? { input_template: inputTemplate } : {}),
           ...(state === "payment" && model.workflow?.human_action?.context?.review ? {
-            revise_template: {
-              command: `itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input-json <file> --json`,
-              required_input: ["file"],
-              executable: false,
-            },
+            revise_template:fileInputTemplate(`itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input-json <file> --json`,serviceInputTemplate(model.workflow.human_action.input_schema),requiredInputFields(model.workflow.human_action.input_schema),{executionID:id,userAnswerRequired:true}),
           } : {}),
         },
       } : {}),

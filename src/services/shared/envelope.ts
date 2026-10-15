@@ -22,9 +22,9 @@ export interface InputTemplate {
   executable: false;
 }
 
-// input remains a compatibility alias of the exact file content.
+// One complete file payload; avoid duplicating it in every returned action.
 export function fileInputTemplate(command: string, input: Record<string, unknown>, required: string[] = [], options: {executionID?: string | undefined; userAnswerRequired?: boolean} = {}): InputTemplate {
-  return {command, input, file_content: input, required_input: ["file", ...required.filter(field => field !== "file")], executable: false,
+  return {command, file_content: input, required_input: ["file", ...required.filter(field => field !== "file")], executable: false,
     ...(options.userAnswerRequired !== undefined ? {user_answer_required: options.userAnswerRequired} : {}),
     ...(options.executionID ? {target_execution_id: options.executionID} : {})};
 }
@@ -142,7 +142,7 @@ export function writeCommandEnvelope(
   const agentType = options.agentType ?? declaredAgentType();
   const qualified = qualifyEnvelope(value, agentType);
   if (options.jsonOutput) {
-    const pretty = JSON.stringify(qualified, null, 2) + "\n";
+    const pretty = JSON.stringify(qualified, null, 1) + "\n";
     out(pretty);
     return;
   }
@@ -220,6 +220,10 @@ function qualifyCommandsDeep(value: unknown, agentType: string | undefined): unk
     );
   }
   return value;
+}
+
+export function hasSpecializedHTTPGuidance(error: HttpError): boolean {
+  return error.status===401 || error.status===403 || error.code.startsWith("provider_") || (error.status===404 && error.code==="unknown_error") || ["client_upgrade_required","client_compatibility_headers_required","platform_release_unavailable","agent_identity_required"].includes(error.code);
 }
 
 export function errorRecoveryActions(error: unknown): ErrorRecoveryAction[] {

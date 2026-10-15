@@ -4,7 +4,7 @@
 
 ## 命令范围
 
-管理 canonical server Cart。Catalog line 可以创建 Service Execution；已准备好的 Service Quote 则通过 `cart add --quote` 加入 Cart。Cart 聚合交易，但不合并 Execution、候选归属或交付。
+仅在用户明确要求组合独立服务时管理 canonical server Cart。Catalog line 可以创建 Service Execution；已准备好的 Service Quote 则通过 `cart add --quote` 加入 Cart。Cart 聚合交易，但不合并 Execution、候选归属或交付。
 
 **上游：** Catalog item、variant、offer 和服务输入。
 **下游：** Service Execution、Quote 聚合或 `buy`。
@@ -17,7 +17,7 @@
 - [`cart show`](show.md)
 - [`cart clear`](clear.md)
 
-`--local` 只用于显式本地草稿兼容，不得用于 service-backed flow。直接运行 `itpay cart` 显示 help。
+`--local` 只用于显式本地未验证草稿，不得用于 service-backed flow。直接运行 `itpay cart` 显示 help。
 
 ## 语法、输出与异常
 

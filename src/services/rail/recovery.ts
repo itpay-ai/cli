@@ -23,7 +23,7 @@ export function railRunError(cause: unknown,serviceID: string,id?: string): void
           : cause.code === "selection_wrong_buyer" ? "当前身份无权使用这份购买凭据。停止；不要切换身份绕过，也不展示其他买家资料。"
           : reason === "stored_selection_inconsistent" ? "服务端凭据与已存目录不一致，补参数无法修复。停止购买并提供诊断标识 stored_selection_inconsistent；不猜字段、不重新创建购买。"
           : "购买凭据未通过校验，原因尚未确定且没有安全自动恢复。停止，不把推测报成原因或追加隐藏字段。",
-        inputInvalid ? [{command:"itpay services list --json",reason:"定位原查询并读取当前完整购买模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式输入约束"}] : [],
+        inputInvalid ? [{command:id ? `itpay services get ${id} --json` : "itpay services list --json",reason:"只读原执行或可见原查询，取得当前完整模板；不创建执行"}] : [],
         undefined,{service_id:serviceID, ...(id?{service_execution_id:id}:{}), ...(reason?{reason}:{}), execution_created:cause.payload?.execution_created ?? "unknown"});
     }
     if (cause instanceof HttpError && cause.code === "rail_selection_expired") {
@@ -49,8 +49,8 @@ export function railRunError(cause: unknown,serviceID: string,id?: string): void
     }
     if (cause instanceof HttpError && cause.code === "rail_journey_selection_required") {
       throw new CommandContractError(cause.code!, cause.message,
-        "整程必须使用原查询当前完整 ticket plan 的 selections 模板；手填 legs 只兼容单腿。缺少整程模板时读取原方案；不拆单、不拼腿、不擅自换站或日期。",
-        [{command:"itpay services list --json",reason:"找回原查询并读取其完整方案模板"},{command:"itpay docs show rail-booking --json",reason:"读取正式整程输入合同"}],undefined,{service_id:serviceID,...(id?{service_execution_id:id}:{})});
+        "整程必须使用原查询当前完整ticket plan模板；不手拼票段或拆单。缺少模板时只读原方案，无法取得就停止，不擅自换站或日期。",
+        [{command:id ? `itpay services get ${id} --json` : "itpay services list --json",reason:"只读原执行或可见原查询，取得当前完整方案模板"}],undefined,{service_id:serviceID,...(id?{service_execution_id:id}:{})});
     }
     if (cause instanceof HttpError && cause.code === "rail_seat_code_invalid" && id) {
       throw new CommandContractError(
@@ -68,7 +68,7 @@ export function railActionError(error:unknown,serviceExecutionID:string,actionTy
 				error.code,
 				error.message,
 				error.code === "booking_review_invalid"
-					? "确认输入与当前草稿不符。使用返回 interaction.input_template.input 当前review模板，席别使用返回的代码，不填显示名或猜新值。若仅修正代码写法，且车次、实际席别、人数、价格及条款等已确认内容未变，可沿用用户已有明确确认后提交；草稿实质变化或缺少真实同意时，先请用户确认变化内容。"
+					? "确认输入与当前草稿不符。使用返回 interaction.input_template.file_content 当前review模板，席别使用返回的代码，不填显示名或猜新值。若仅修正代码写法，且车次、实际席别、人数、价格及条款等已确认内容未变，可沿用用户已有明确确认后提交；草稿实质变化或缺少真实同意时，先请用户确认变化内容。"
 					: error.code === "booking_review_changed"
 						? "草稿版本已变化；使用同一booking的当前review模板。仅技术修正且车次、实际席别、人数、价格及条款未变时沿用已有明确同意；实质变化或缺少真实同意才补确认。"
 						: "当前购买已有付款尝试；读取同一booking及订单状态，不创建新订单或重做付款。",

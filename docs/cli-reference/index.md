@@ -10,7 +10,7 @@
 
 - [输出与错误合同](conventions.md)
 - [Agent Type 与 Host](agent-types.md)
-- 所有示例中的 `<...>` 都是占位符，不得原样提交。
+- 语法与结构示意中的 `<...>` 都不可执行；实际 next/recovery 只能使用当前返回的完整命令，待填字段使用 executable:false 的完整 file_content 模板。
 - 所有 commerce 命令必须使用真实的 `--agent-type`，不得为刷新额度伪造类型。
 - 每条命令只返回当前步骤所需事实、一条 instruction、一个首选 next；异常时最多返回两个 recovery。
 

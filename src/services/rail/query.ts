@@ -1,4 +1,5 @@
-import { type CommandEnvelope } from "../shared/envelope.js";
+import { operationInputTemplate } from "../shared/input.js";
+import { fileInputTemplate,type CommandEnvelope } from "../shared/envelope.js";
 
 export function locationConfirmationEnvelope(executionID: string, capabilityID: string, input: Record<string, unknown>, confirmation: Record<string, unknown>): CommandEnvelope {
   input = (confirmation.input ?? input) as Record<string, unknown>;
@@ -24,12 +25,7 @@ export function locationConfirmationEnvelope(executionID: string, capabilityID: 
       interaction: {
         schema_version: "itpay.interaction.v1" as const,
         stage: "location_confirmation_required",
-        input_template: {
-          command: `itpay services invoke ${executionID} --capability ${capabilityID} --input-json <地点确认.json> --json`,
-          input: {...input, location_confirmation: { plan_id: confirmation.plan_id, token: confirmation.token, choices }},
-          required_input: ["choices"],
-          executable: false as const,
-        },
+        input_template:fileInputTemplate(`itpay services invoke ${executionID} --capability ${capabilityID} --input-json <地点确认.json> --json`,{...input,location_confirmation:{plan_id:confirmation.plan_id,token:confirmation.token,choices}},["choices"],{executionID}),
       },
     } : {}),
     recovery: [],
@@ -41,10 +37,8 @@ export function exactSmartTemplate(pair: unknown, executionID: string, resultIte
   const value = pair as Record<string, unknown>;
   if (!["origin_name", "origin_code", "destination_name", "destination_code", "travel_date"].every((key) => typeof value[key] === "string" && value[key])) return null;
   const input = { endpoints: { origin: {text: "<原始出发行政范围/地点/用户指定站>"}, destination: {text: "<原始到达行政范围/地点/用户指定站>"} },travel_date:value.travel_date,passengers:"<真实人数>",reuse_from:{execution_id:executionID,...(resultItemID?{result_item_id:resultItemID}:{})}};
-  return { executable: false, verified_station_pair: value,
+  return { ...operationInputTemplate({serviceID:publicBinding?.public_service_id ?? "itpay-rail-smart",...(publicBinding?{operationID:"query_smart"}: {})},input,["endpoints","passengers"]),verified_station_pair: value,
     instruction: "已核验站对是复用事实，不是完整用户查询。仅用户明确锁站才填 kind=station；区域/地点从原始需求填回，保留真实人数、时限和偏好，不默认为一人。",
-    command: publicBinding ? `itpay services run ${publicBinding.public_service_id} --operation query_smart --input-json <原始需求.json> --json` : "itpay services run itpay-rail-smart --input-json <原始需求.json> --json",
-    required_input: ["endpoints", "passengers", "用户时限与偏好"],
     input_example: publicBinding ? {input} : input };
 }
 

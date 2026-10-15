@@ -24,12 +24,14 @@ test('parent directory shows modes and dynamic purchase without internal product
 test('formal Skill keeps service orchestration and railway guide owns its business rules',()=>{
  const skill=readFileSync(new URL('../skills/itpay/SKILL.md',import.meta.url),'utf8');
  const rail=readFileSync(new URL('../docs/agent/buyer/rail-booking.json',import.meta.url),'utf8');
- assert.match(skill,/services start itpay-rail/);
+ assert.match(rail,/services start itpay-rail/);
  assert.match(skill,/services purchase --input-json/);
- assert.match(skill,/original quote-bound\n?approval protection remains/);
+ assert.match(skill,/explicit human consent only when it covers those unchanged facts/);
+ assert.doesNotMatch(skill,/older pinned contract|legacy lock repair|quote → approve → cart/);
  assert.doesNotMatch(skill,/Fastest means|Raw legs support|seat-request or whole-journey|no-seat option|reuse_from/);
- assert.match(rail,/within the searched scope/);
- assert.match(rail,/no-seat, overnight/);
- assert.match(rail,/complete ordered selections template/);
- assert.match(rail,/reuse an existing explicit human approval/);
+ assert.match(rail,/stated scope/);
+ assert.match(rail,/overnight/);
+ assert.match(rail,/eligible complete ticket plan/);
+ assert.match(rail,/reuse matching real consent/);
+ assert.doesNotMatch(rail,/restore_old_execution|exceptional_branches|approve_purchase|confirm_booking/);
 });

@@ -22,7 +22,7 @@ itpay services read-result <service_execution_id> [--snapshot <snapshot_id>] [--
 | `--snapshot <snapshot_id>` | 否 | 单独使用时读取该 Smart 已提交快照的紧凑线路页；与 `--journey` 配合时读取该线路详情页。 |
 | `--offset <offset>` | 否 | Exact / Smart 保存结果从零开始的页偏移；不改变快照或重新查询。 |
 | `--limit <limit>` | 否 | 保存结果当前页条数，1–20；Exact默认20条，Smart默认3条完整线路或3个票计划；必要时按最终输出字节缩小整行页。 |
-| `--all` | 否 | 显式兼容读取 Exact / Smart 保存目录全量；输出可能很大，常规读取应沿当前页的 next.command。 |
+| `--all` | 否 | 显式读取 Exact / Smart 保存目录全量；输出可能很大，常规读取应沿当前页的 next.command。 |
 | `--json` | 否 | 输出稳定 JSON 信封；未指定时输出相同事实的简洁文本。 |
 
 Exact 执行按 offset/limit 读取已保存车次，返回 total、offset、count 和同一 read-result 的续页入口；不会把前100条冒充完整范围。Smart 使用 `--snapshot` 读取固定快照的默认小页，或用 `--journey` 读一条线路的票计划页；按返回的 next.command 续读同快照。这些读取不走 Vault grant。其他服务不带选择器时保持原授权路径。
@@ -35,77 +35,10 @@ CLI 使用已登记设备的签名 session，不接受 Checkout token、Buyer to
 
 CLI 直接请求 Backend 的当前有效 Grant。历史 `delivery_bindings` 不作为访问判断；Backend 负责验证当前 Vault、Agent instance、Buyer、scope、TTL 和退款锁。
 
-## 标准输出
+## 结果与授权边界
 
-```json
-{
-  "status": "granted_result_ready",
-  "result": {
-    "service_execution_id": "<id>",
-    "grant_expires_at": "<RFC3339 time>",
-    "granted_fields": ["<field>"],
-    "payload": { "<granted_field>": "<value>" }
-  },
-  "instruction": "结果来自当前有效 Vault Grant；只使用本次授权字段，过期后停止读取并重新请求用户同意。",
-  "next": null,
-  "recovery": []
-}
-```
+铁路保存结果直接给完整业务行、范围／限制、同快照详情和可用方案的完整购买模板，不要求 Agent 写解析器。完整线路按当前页的 next 续读；只有需要比较时才翻页，不把局部范围说成全网最优。
 
-文本输出显示相同的 execution、到期时间、字段名和 payload，不附带 Vault ID、grant ID 或原始 scope。
+Vault 结果返回当前 grant 批准字段、TTL 与 payload；历史交付不能代替有效授权。授权不足、过期或退款锁按当前返回的真实原因和原任务动作处理；不能借新 Device、Admin、数据库或旧grant绕过。一个grant不扩展到其他订单、execution或Agent实例。
 
-## 异常处理
-
-没有当前有效 Vault Grant（包括只有 Agent-visible 历史交付、未授权、过期、撤销或 wrong-scope）时，Backend 返回 `agent_access_denied`。CLI 指向：
-
-```text
-itpay services next <id> --json
-```
-
-不要从历史 Delivery Binding 推断当前模式，也不要使用数据库、Admin API 或新 Device ID 绕过授权。
-
-退款访问锁由 Backend 在读取 Vault payload 的同一事务中拒绝：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "delivery_locked_by_refund",
-    "message": "delivery is locked by refund <refund_id>"
-  },
-  "instruction": "退款访问锁已生效；不要 reveal、创建 grant 或读取交付结果。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "itpay refund get <refund_id> --json",
-      "reason": "读取退款权威状态"
-    }
-  ]
-}
-```
-
-其他 `agent_access_denied` 返回：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "agent_access_denied",
-    "message": "<server reason>"
-  },
-  "instruction": "请用户在订单页面重新授权；不要使用开发者权限绕过授权或退款锁。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "itpay services next <id> --json",
-      "reason": "检查交付模式和 grant 状态"
-    }
-  ]
-}
-```
-
-一个 grant 只允许读取对应订单、execution、Agent instance 和批准字段。拒绝时不得改用数据库、Admin API 或新 Device ID 绕过。
-
-## Agent Type / Host
-
-同一 Buyer account 下已登记的正式 Local Agent Type 可按政策领取同一订单授权；每个类型仍需自己的有效 Device Authority。所有类型返回相同字段、TTL 和错误，不因 Host 扩大 grant scope。
+文本与 JSON 使用相同事实。可见授权／官方入口按正式Skill与render-hosts展示，缺宿主信息只补可信上下文，不创建替代购买。没有适用动作时停止。

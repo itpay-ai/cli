@@ -1,13 +1,6 @@
 # `itpay services action`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The public package provides Buyer workflows; Seller authoring source is maintained separately.
-
-## 范围与意义
-
-记录用户或 Agent 对 Service Execution 的结构化动作，例如选择候选、批准、拒绝或取消。它不直接调用付费 Provider。
-
-**上游：** `services invoke/next` 返回需要 action。
-**下游：** 候选选择成功时直接进入服务端允许的下一动作；其他动作通过更新后的 `services next` 恢复。
+只记录当前执行明确允许的结构化选择、批准、拒绝或取消，不直接调用付费供应商。使用返回的完整输入模板；真实委托由 Agent 如实转述，不冒充 human。
 
 ## 语法与参数
 
@@ -36,36 +29,14 @@ itpay services action <service_execution_id> --action <action_type>
 | `workflow:expand_search` | 有界新增查询 | 仅在扩展暂停（`expansion_status=paused`）时可用；必须带服务端下发的 `action_request_id`（`pa_…`）与 `expected_query_revision`，一轮一柄、用完作废。 |
 | `workflow:refine_preferences` | 无（本地重排） | 用 `--input-json` 提交偏好补丁，对已保存证据重排序。 |
 | `workflow:stop_search` | 无 | 停止未发送的扩展任务；不影响已开始或已完成的出票。 |
-| `select_journey` | 无 | 用户亲自选定用 `--actor-type human`；用户已明确委托按规则代选用 `--actor-type agent --input selection_mode=delegated`。两者都带服务端返回的 `journey_id`，仅记录选择，后续购买仍走既有报价与受保护 Checkout。 |
+| `select_journey` | 无 | 用户亲自选定用 `--actor-type human`；用户已明确委托按规则代选用 `--actor-type agent --input selection_mode=delegated`。两者都带服务端返回的 `journey_id`，仅记录选择，后续购买使用当前完整 purchase 确认与官方页面。 |
 
 同一 `action_request_id` 相同内容重放返回原受理结果；相同 ID 不同内容会被判冲突。过期 `expected_query_revision` 的新动作被拒绝。
 
-## 标准输出
+## 当前输出与购买
 
-```json
-{
-  "status": "candidate_selected",
-  "result": {
-    "service_execution_id": "<id>",
-    "candidate": { "rank": 2, "title": "<title>" },
-    "checkout": {
-      "capability_id": "<paid_capability_id>",
-      "price": { "amount_minor": 50, "currency": "CNY" },
-      "delivery_email_required": true
-    }
-  },
-  "instruction": "已选择 <title>。后续服务尚未购买。只向用户说明继续购买的价格和邮箱用途，请确认是否购买并提供邮箱，然后停止。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建新的服务或付款页面。",
-  "next": { "command": "itpay services checkout <id> --capability <capability_id> --email <email> --json", "reason": "仅在用户明确同意价格并提供真实邮箱后执行" },
-  "recovery": [{ "command": "itpay services next <id> --json", "reason": "重新读取服务端允许的动作" }]
-}
-```
+候选选择成功时，若当前合同支持购买准备，直接返回原执行的完整 purchase review。已有明确同意覆盖当前主体、范围、人数、价格策略和条款就沿用；仅补缺失同意，不要求重复确认或先给邮箱。联系资料在受保护官方页填写。
 
-`next` 来自 action 写入后重新读取的类型化 `allowed_actions`，不是 CLI 根据服务名猜测。普通单 Execution 的付费 continuation 使用 `services checkout`；候选选择本身不代表用户已经同意购买。没有合法动作时返回 `next: null`。非候选 action 仍返回 `action_recorded` 并引导 `services next`。
+`next` 必须是当前适用的完整命令；仍有待填字段则是 `executable:false` 的完整 `file_content` 模板。没有合法动作就停止。普通购买不由 Agent 串联 quote、approve、cart 或 services checkout。
 
-rank 不存在、属于旧结果集或其他 Execution、action 不允许、status 非法时均不写 action；返回结构化错误并且只引导同一 Execution 的 `services next`。不得新建 Execution、重新 invoke 或构造候选 ID。相同候选重试幂等；同一结果集改选另一个候选返回冲突，不覆盖已批准事实。
-
-订票类 `workflow:confirm_booking` 动作要求嵌套输入（`passengers`、`seat_type`、逐乘客 `seat_preferences`、`draft_revision`、`notice_version` 等），一律经 `--input-json <file>` 提交完整 JSON 对象。`draft_revision` 必须等于 `services next` 投影的 `context.review.draft_revision`；服务端拒绝 `booking_review_changed` 时重新读取后重试，不得自行递增。乘客姓名、证件号等身份信息不在此提交，仍由受保护 Checkout 页收集。
-
-## Agent Type / Host
-
-所有正式支持的 Local Agent Type 行为相同。真实条款同意仍需人确认；在用户已明确委托选择且规则未变时，Agent 可执行返回的委托选择动作，不得冒充 human。
+同一选择、报价、付款未知和已有批准的幂等保护由服务端执行；不能新建 execution、猜候选ID或覆盖批准事实。订票技术修正使用原 selection 和当前 review；仅代码写法修正且购买内容未变时沿用已有真实同意。草稿实质变化或真实同意缺失才补确认，不自行递增 revision。旅客身份资料只在受保护页面提交。

@@ -1,59 +1,17 @@
 # `itpay services start`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The public package provides Buyer workflows; Seller authoring source is maintained separately.
+## 读取服务入口
 
-## 范围与意义
-
-公开 service_definition 入口只返回固定版本的服务总览与操作，未创建 execution、未调用 Provider。铁路总览指向 rail-booking：首次实际查询前理解端点并写短摘要。使用返回的操作模板执行 `services run --operation … --input-json <file>`。
-
-旧内部 service_id 仍兼容启动一次 Service Execution，并返回当前合法动作，不创建 Checkout 或订单。以下执行示例属于旧入口。
-
-**上游：** `catalog list` 或服务端明确要求新 execution。
-**下游：** `services invoke`、`action`、`checkout` 或 `next`。
-
-## 语法与参数
+从 `catalog list` 选择公开 service_definition，读取固定版本的总览、声明操作和完整输入模板。公开总览不创建 execution、不调用 Provider；不要把读取总览当作已查询库存。
 
 ```bash
-itpay --agent-type <agent_type> services start <service_id>
-  [--host <host>] [--target <target>] [--json]
+itpay services start <service_id> [--host <host>] [--target <target>] [--json]
 ```
 
-`service_id` 必须来自 Catalog。`--target` 只用于需要稳定消息目标的 Host，例如 chat/channel/open ID；它不是搜索词或其他业务输入。Buyer、Device 和 Agent instance 均来自签名 Agent session，不接受请求参数覆盖。
+`service_id` 来自当前目录。`--host` 对应实际宿主，`--target` 是该宿主需要的稳定消息目标，不是业务输入。Buyer、Device 和 Agent instance 来自签名会话，不可通过参数覆盖。
 
-本命令不接收 capability 业务输入。它返回 `required_input` 和一条 `services invoke`（或其他当前合法动作）命令；把真实值填入那条命令的重复 `--input key=value`。例如企业关键词是 `--input keyword=美团`，不是 `--target 美团`。
+本命令不接收业务输入。使用返回的声明操作与完整 `input_template.file_content` 写 JSON 文件，再执行该模板的 `services run --operation … --input-json <file>`；保留外层 `input` 与返回的 continuation。占位模板须填入实际值后执行，不猜字段或 operation。
 
-## 标准输出
+铁路首次实际查询前按 `rail-booking` 理解完整端点、用户锁站与约束，必要时短查，留下2–4行路线摘要，再查询。查询结果、详情和整程购买沿当前返回动作继续；购买仅补缺失的真实同意。
 
-```json
-{
-  "status": "ready",
-  "result": {
-    "service_execution_id": "<execution_id>",
-    "service_id": "<service_id>",
-    "phase": "<phase>",
-    "capability": {
-      "capability_id": "<capability_id>",
-      "required_input": ["<field>"],
-      "free_quota_limit": 3
-    }
-  },
-  "instruction": "填写首选 capability 的 required_input；一次只提交当前 execution 所代表的服务意图。",
-  "next": {
-    "command": "itpay --agent-type <agent_type> services invoke <execution_id> --capability <capability_id> --input <key=value> --json",
-    "reason": "执行当前允许的能力"
-  },
-  "recovery": []
-}
-```
-
-Start API 只提供免费额度上限，不提供当前剩余额度，因此本命令不得虚构 `remaining`。不得输出全部 capability DTO、contract version、Arazzo workflow、buyer/device ID 或重复 guidance。若服务不存在，recovery 为 `catalog list`。设备 session 由 CLI 自动登记或刷新；401 `agent_device_session_required` 仅续期并重试一次，仍失败时返回错误，不循环。
-
-## Agent Type / Host
-
-| Agent Type | 默认行为 |
-|---|---|
-| `codex-desktop` | 登记该类型并使用 `codex` Host instruction。 |
-| `codex-cli` | 登记该类型并使用 terminal instruction。 |
-| `claude-code-desktop` | 登记该类型并使用 `claude-code` Host instruction。 |
-| `claude-code-cli` | 登记该类型并使用 terminal instruction。 |
-| `workbuddy` | 登记该类型并使用 plain-chat instruction。 |
+只使用当前返回的合法动作。缺少声明合同或不兼容时保留原执行并停止，不绕过检查创建替代执行。免费额度上限不是当前剩余额度；登录、权限与外部故障按实际错误恢复。

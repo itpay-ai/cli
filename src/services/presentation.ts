@@ -26,12 +26,13 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
     if (terminal) return terminal;
   }
   if(model.purchase_review) return purchaseEnvelope({status:"confirmation_required",service_execution_id:execution.service_execution_id,completed_stage:"selected",review:model.purchase_review,effects:{page_created:false,page_reused:false,payment_requested:false,charged:false,human_page_action_required:false}});
+  if(model.purchase_preparation) return {status:model.purchase_preparation==="expired"?"purchase_review_expired":"purchase_review_unavailable",result:{service_execution_id:execution.service_execution_id,purchase_preparation:model.purchase_preparation},instruction:"当前购买材料无法用于确认；保留同一执行与原付款事实，只读取原购买状态，不切换下单路径或新建购买。",next:null,recovery:[{command:`itpay services purchase ${execution.service_execution_id} --json`,reason:"读取原购买的当前材料及适用恢复动作"}]};
   const businessState = adapter.projectState(model);
   if (businessState) return businessState;
   const availableResult = adapter.savedResult(model);
   if (availableResult && adapter.shouldWait(model) === false) return availableResult;
   const latestRun = model.execution_requests?.filter((request) => request.execution_kind === "service.execution.run").at(-1);
-  if (latestRun && ["pending", "started"].includes(latestRun.status) && model.workflow?.status !== "failed") {
+  if (latestRun && ["pending", "started"].includes(latestRun.status) && !["failed","human_action"].includes(model.workflow?.status ?? "") && (model.workflow?.status !== "quota_paused" || latestRun.operation === "resume")) {
     return {
       status: "running",
       result: { service_execution_id: execution.service_execution_id, execution_request_id: latestRun.execution_request_id },
@@ -170,6 +171,7 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
 					continuation.capability.delivery_email_purpose,
 				),
 				next: continuation.next,
+                ...(continuation.input_template?{interaction:{schema_version:"itpay.interaction.v1" as const,stage:"input_required",input_template:continuation.input_template}}:{}),
 				recovery: [],
 			};
 		}

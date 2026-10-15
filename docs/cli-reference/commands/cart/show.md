@@ -15,7 +15,7 @@
 itpay cart show [--json] [--local]
 ```
 
-默认只读取本地保存的 canonical Cart 句柄并调用服务端。`--local` 只查看显式本地兼容草稿，不发 HTTP，也不会把该草稿解释成 canonical Cart。
+默认只读取本地保存的 canonical Cart 句柄并调用服务端。`--local` 只查看显式本地未验证草稿，不发 HTTP，也不会把该草稿解释成 canonical Cart。
 
 ## 标准输出
 
@@ -36,27 +36,7 @@ itpay cart show [--json] [--local]
 
 canonical 输出不得包含 Catalog variant/offer、line input、Service quote lock、完整 Service Execution 或重复 guidance。空 Cart 的 next 改为 `catalog list --json`。
 
-显式 local draft 返回 `shown_local` 或 `local_empty`：
-
-```json
-{
-  "status": "shown_local",
-  "result": {
-    "currency": "CNY",
-    "items": [
-      {
-        "catalog_item_id": "<item_id>",
-        "catalog_variant_id": "<variant_id>",
-        "offer_id": "<offer_id>",
-        "quantity": 1
-      }
-    ]
-  },
-  "instruction": "这是未验证的本地兼容草稿，只能用于明确的普通商品流程；不要把它当作 canonical Cart。",
-  "next": { "command": "itpay buy --json", "reason": "将普通本地草稿提交为 canonical Cart" },
-  "recovery": []
-}
-```
+显式 local draft 只展示未验证草稿（shown_local/local_empty）；不验证目录或价格，不能作为原购买恢复或授权替代。要继续独立Cart时只按当前返回的完整动作，不由示例生成新的购买命令。
 
 ## 异常处理
 

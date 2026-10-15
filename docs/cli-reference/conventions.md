@@ -94,7 +94,7 @@ CLI 只把“尚未收到完整 HTTP 响应”的临时传输异常映射为稳�
 - `network_socket_error`
 - `network_transport_failed`
 
-所有命令的 JSON 错误继续使用标准错误外壳，并额外返回：
+传输错误继续使用标准外壳及实际尝试事实；以下是结构示意，不提供可执行命令：
 
 ```json
 {
@@ -103,7 +103,7 @@ CLI 只把“尚未收到完整 HTTP 响应”的临时传输异常映射为稳�
   "result": { "attempts": 3, "automatic_retry_performed": true },
   "instruction": "临时网络故障；CLI 已仅对可安全重放的操作完成有限自动重试，但仍未获得完整响应。按 recovery 查询同一资源的权威状态；不要创建替代 Checkout、Execution、Payment 或 Refund。",
   "next": null,
-  "recovery": [{ "command": "itpay <same-resource-read-command>", "reason": "读取同一资源的权威状态" }]
+  "recovery": []
 }
 ```
 

@@ -17,7 +17,7 @@
 - [`refund watch`](watch.md)
 - [`refund cancel`](cancel.md)
 
-兼容别名 `itpay refund --order <id>` 等价于 `refund create`，文档和 instruction 统一推荐子命令形式。
+普通退款统一使用 `refund create` 子命令；铁路退款／改签使用原订单返回的 aftercare 完整模板。
 
 退款创建成功即锁定对应交付；旧 Agent grant 不得继续读取。直接运行无参数 `itpay refund` 显示 help，不创建请求。
 
@@ -32,11 +32,11 @@
 ## 语法、参数与标准输出
 
 ```bash
-itpay refund --order <order_id> [--reason <reason>] [--json]
+itpay refund create --order <order_id> [--reason <reason>] [--json]
 itpay refund --help
 ```
 
-兼容别名的参数、输出、instruction 和异常合同与 [`refund create`](create.md) 完全相同。无 `--order` 时只显示 help 和推荐的 `refund create` 语法，不发送请求。
+创建参数与边界见 refund create；无参数的分组只显示help，不发送请求。
 
 ## Agent Type / Host
 

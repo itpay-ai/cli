@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {BackendClient} from '../src/client/backend.js';
-import {HttpClient} from '../src/client/http.js';
+import {HttpError,HttpClient} from '../src/client/http.js';
 import {parsePurchaseConfirmation,runServicesPurchase} from '../src/commands/services/purchase.js';
 import {CommandContractError} from '../src/services/shared/envelope.js';
 import {purchaseEnvelope} from '../src/services/shared/purchase.js';
@@ -36,7 +36,8 @@ test('persisted exhausted budget stops polling and preserves original recovery i
  assert.equal(confirmed,1);assert.equal(resumed,1);
  const out=JSON.parse(json);
  assert.equal(out.result.auto_wait_remaining_ms,0);
- assert.match(out.next.command,/services purchase se_original --resume/);
+ assert.equal(out.next,null);
+ assert.match(out.recovery[0].command,/services purchase se_original --resume/);
  assert.equal(out.result.effects.payment_requested,false);
  assert.equal(out.result.effects.charged,false);
  assert.match(text,/120秒上限/);assert.match(text,/quote_pending/);
@@ -77,4 +78,31 @@ test('verified official presentation is delivered without optional execution HTT
    const result=JSON.parse(output);assert.ok(result.handoff.url);assert.equal(result.result.effects.payment_requested,false);assert.equal(optionalRequests,0);assert.ok(Date.now()-started<2000);
   }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
  }}finally{await mock.close();}
+});
+
+
+test('purchase read faults preserve the original ID and phase without claiming expiry or effects',async()=>{
+ const backend=new BackendClient(new HttpClient({baseURL:config.baseURL}));
+ for(const code of ['internal_error','purchase_review_expired']){
+  backend.getServicePurchaseReview=async()=>{throw new HttpError(code==='internal_error'?500:409,{code,message:'controlled current read fault'},'fault');};
+  await assert.rejects(runServicesPurchase(backend,config,'se_original',undefined,{jsonOutput:true}),error=>{
+   assert(error instanceof CommandContractError);assert.equal(error.code,code);assert.equal(error.result?.service_execution_id,'se_original');assert.equal(error.result?.failure_stage,'read_purchase_review');assert.equal(error.result?.provider_called,undefined);assert.equal(error.result?.execution_created,undefined);
+   if(code==='purchase_review_expired')assert.equal(error.recovery.length,0);else assert.equal(error.recovery[0]?.command,'itpay services purchase se_original --json');return true;
+  });
+ }
+});
+
+test('purchase recovery preserves persisted confirmation and stops definitive HTTP failures',async()=>{
+ const backend=new BackendClient(new HttpClient({baseURL:config.baseURL}));
+ for(const stage of ['confirm','resume'] as const){
+  for(const status of [400,401,403,404,409,429,500,503]){
+   const fault=async()=>{throw new HttpError(status,{code:'controlled_fault',message:'controlled fault'},'fault');};
+   backend.confirmServicePurchase=fault;backend.resumeServicePurchase=fault;
+   await assert.rejects(runServicesPurchase(backend,config,'se_original',stage==='confirm'?input:undefined,{resume:stage==='resume',jsonOutput:true}),error=>{
+    if(status===401||status===403){assert(error instanceof HttpError);assert.equal(error.executionContext?.service_execution_id,'se_original');assert.equal(error.executionContext?.failure_stage,`${stage}_purchase`);return true;}
+    assert(error instanceof CommandContractError);assert.equal(error.result?.failure_stage,`${stage}_purchase`);
+    assert.deepEqual(error.recovery.map(action=>action.command),status===429||status>=500?['itpay services purchase se_original --resume --json']:[]);return true;
+   });
+  }
+ }
 });

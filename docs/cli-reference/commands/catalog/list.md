@@ -1,47 +1,13 @@
 # `itpay catalog list`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The public package provides Buyer workflows; Seller authoring source is maintained separately.
-
-## 范围与意义
-
-列出当前 published Catalog。每个项目先说明用户真正购买的主服务，再说明免费或付费的辅助能力，避免把辅助消歧误称为最终服务。
-
-**上游：** `readyz`。
-**下游：** `services start <service_id>`。
-
-## 语法与参数
+读取已发布服务与公开操作，不运行服务、不创建资源。用户已有任务时沿原执行恢复，不重新发现一遍目录。
 
 ```bash
 itpay catalog list [--json]
 ```
 
-## 标准输出
+返回 catalog_version 和服务摘要：公开 definition 包含服务名、用途、版本、entry、operation角色／价格及是否需要continuation。查询免费不等于票款免费；报价以当前确认材料为准。不存在定义时不猜operation或价格。
 
-```json
-{
-  "status": "listed",
-  "result": {
-    "catalog_version": "<version>",
-    "services": [
-      {
-        "service_id": "<service_id>",
-        "title": "<product title>",
-        "description": "<what the user receives>",
-        "discovery": { "title": "<helper title>", "description": "<optional helper>", "free_quota": 3, "paid_price": "<optional price>" },
-        "primary_offer": { "title": "<offer title>", "description": "<deliverable>", "price": "<price>" }
-      }
-    ]
-  },
-  "instruction": "向用户解释主服务、辅助步骤和价格；得到用户意图后再启动对应 service_id。",
-  "next": { "command": "itpay --agent-type <agent_type> services start <service_id> --json", "reason": "启动用户选择的服务" },
-  "recovery": []
-}
-```
+只有一项服务时 next 可提供该服务的完整入口，仍须匹配用户意图；多个服务时 next=null，由 Agent 根据原需求选当前 entry。不把带 service_id 或 agent_type 占位符的示意命令当成可执行next。空目录结束读取，不自动重试或猜ID。
 
-## 异常处理
-
-输出不得包含 snapshot、manifest 原文、Arazzo workflow 或 Provider secret。服务为空时返回 `catalog_empty`，要求稍后重试，不猜服务 ID。
-
-## Agent Type / Host
-
-所有正式支持的 Local Agent Type 使用同一产品内容；只允许排版不同。
+输出不含manifest原文、供应商凭据或内部工作流。当前参数与实际错误来自help／运行返回；所有宿主目录事实一致。

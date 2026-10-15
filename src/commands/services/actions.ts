@@ -73,11 +73,16 @@ export async function runServicesAction(
 	}
 	if (selection && actionType === "select_candidate" && response.status === "approved") {
 		const updated = await backend.getServiceExecution(serviceExecutionID,{deadline});
+        if(updated.purchase_review || updated.purchase_preparation){
+          const envelope=servicesNextEnvelope(updated);
+          envelope.result={...envelope.result,candidate:{rank:selection.rank,title:selection.title}};
+          writeCommandEnvelope(envelope,options);return;
+        }
 		const preferred = updated.allowed_actions?.[0];
 		const continuation = preferred?.type === "prepare_quote"
 			? paidContinuation(updated, preferred, {})
 			: null;
-		const next = continuation?.next ?? (preferred ? serviceAllowedActionCommand(updated, preferred) : null);
+		const next = continuation ? continuation.next : (preferred ? serviceAllowedActionCommand(updated, preferred) : null);
 		writeCommandEnvelope({
 			status: "candidate_selected",
 			result: {
@@ -95,6 +100,7 @@ export async function runServicesAction(
 				)
 				: "候选已绑定到来源 Execution；后续动作必须继续使用该 Execution。",
 			next,
+            ...(continuation?.input_template ? {interaction:{schema_version:"itpay.interaction.v1" as const,stage:"input_required",input_template:continuation.input_template}}:{}),
 			recovery: [{
 				command: `itpay services next ${response.service_execution_id} --json`,
 				reason: "重新读取服务端允许的动作",

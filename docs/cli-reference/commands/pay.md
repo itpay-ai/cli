@@ -8,7 +8,7 @@
 
 本命令不能创建 Cart、Checkout、订单或付款证明，也不能把 Payment Intent 的渠道状态当作订单已付款。
 
-**直接上游：** `buy`、`services checkout` 或 `checkout` 返回的同一组 `checkout_id` 与 display token。
+**直接上游：** 当前官方入口或原 `checkout` reader 返回的同一组 `checkout_id` 与 display token。
 
 **直接下游：** `checkout` 读取同一 Checkout 的权威付款、订单和履约状态。
 
@@ -82,29 +82,8 @@ API 安全合同要求后端验证 display token 是该 Checkout 当前有效的
 - `--refresh` 只更新该 Intent 的渠道动作；不能创建第二个 Intent 或 Checkout。
 - 响应丢失时重跑同一命令，不换 token 或 method。
 
-## 异常处理
+## 保护与展示
 
-| 错误码 | Agent 处理 |
-|---|---|
-| `payment_method_invalid` | 改用 `alipay` 或 `wechatpay`；本次没有 HTTP 请求。 |
-| `checkout_token_required` | 从 `itpay next --json` 恢复同一 Checkout；禁止拼接其他 token。 |
-| `target_required` | 为当前 IM Host 补充真实 target。 |
-| `not_found` / token invalid | 视为同一个不透明资源错误，不探测 Checkout 是否属于他人。 |
-| `invalid_state` | 回到 `checkout` 读取当前终态，不创建替代资源。 |
-| `provider_payment_failed` | 保留同一 Checkout，稍后恢复；不声称已付款。 |
-| `payment_intent_failed` | 执行 `itpay next --json` 恢复现有句柄。 |
+仅在有明确授权的受控集成恢复中使用当前返回动作；普通 Agent 不自动调用 pay 或 buy --pay。错误按真实原因及原 Checkout 状态处理，不猜 token、换渠道掩盖未知结果或创建替代资源。
 
-## Agent Type / Host
-
-| Agent Type | 默认 Host | Instruction |
-|---|---|---|
-| `codex-desktop` | `codex` | 把安全 handoff 实际发到当前 Codex 对话，然后查询 Checkout。 |
-| `codex-cli` | `terminal` | 只在用户可见终端展示渠道动作。 |
-| `claude-code-desktop` | `claude-code` | 把安全 handoff 发到当前桌面对话。 |
-| `claude-code-cli` | `terminal` | 只在用户可见终端展示渠道动作。 |
-| `workbuddy` | `plain-chat` | 受控逃生入口返回 `handoff.url` 和可原样执行的 `present_files` action；打开一次后停止，不立即查询或创建替代付款。 |
-| `zcode` | `plain-chat` | 受控逃生入口返回 `handoff.url`；同时存在渠道动作时优先使用浏览器可打开的 `qr_image_url`，只有它缺失时才回退到 `mobile_wallet_url`。立即用内置浏览器打开并停止，浏览器不可用时才展示同一个链接。 |
-| `kimi-code` | `terminal` | 使用标准 CLI 终端展示渠道动作。 |
-| `openclaw` | 必须显式提供 | 按显式 Host 返回安全渠道动作；IM Host 仍要求真实 target。 |
-
-Host 只改变 instruction；Payment Intent ID、金额、状态、重试语义和权限必须一致。
+当前 handoff 按正式 Skill 与 render-hosts 展示；没有原生工具或可选图片时直接展示原始官方URL，不把按钮／二维码当付款事实。Host 不改变金额、Payment Intent、权限、幂等和状态保护。

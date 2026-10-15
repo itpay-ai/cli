@@ -29,6 +29,7 @@ export interface TaskRecord {
   stage: string;
   resume_command?: string;
   updated_at: string;
+  automatic_wait_ms?: number;
 }
 
 interface TaskJournalFile {
@@ -43,6 +44,7 @@ export class TaskJournal {
     const file = this.readFile();
     file.tasks[task.service_execution_id] = {
       ...task,
+      ...(file.tasks[task.service_execution_id]?.automatic_wait_ms!==undefined && task.automatic_wait_ms===undefined ? {automatic_wait_ms:file.tasks[task.service_execution_id]!.automatic_wait_ms}:{}),
       updated_at: new Date().toISOString(),
     };
     this.writeFile(file);
@@ -65,10 +67,26 @@ export class TaskJournal {
       service_execution_id: serviceExecutionID,
       ...(existing?.service_id ? { service_id: existing.service_id } : {}),
       stage,
+      ...(existing?.automatic_wait_ms!==undefined ? {automatic_wait_ms:existing.automatic_wait_ms}:{}),
       ...(resumeCommand ?? existing?.resume_command ? { resume_command: resumeCommand ?? existing!.resume_command } : {}),
       updated_at: new Date().toISOString(),
     };
     this.writeFile(file);
+  }
+
+  remainingAutomaticWait(serviceExecutionID:string):number {
+    if(existsSync(this.path)) {
+      try {const raw=JSON.parse(readFileSync(this.path,"utf8"));if(raw.schema_version!=="itpay.task_journal.v1"||!raw.tasks||typeof raw.tasks!=="object")return 0;}catch{return 0;}
+    }
+    const spent=this.readFile().tasks[serviceExecutionID]?.automatic_wait_ms ?? 0;
+    return typeof spent==="number" && Number.isFinite(spent) && spent>=0 ? Math.max(0,120000-spent):0;
+  }
+  recordAutomaticWait(serviceExecutionID:string,milliseconds:number):number {
+    if(this.remainingAutomaticWait(serviceExecutionID)===0)return 0;
+    const file=this.readFile();const existing=file.tasks[serviceExecutionID];
+    const spent=Math.min(120000,(existing?.automatic_wait_ms ?? 0)+Math.max(0,milliseconds));
+    file.tasks[serviceExecutionID]={...(existing ?? {service_execution_id:serviceExecutionID,stage:"running"}),automatic_wait_ms:spent,updated_at:new Date().toISOString()};
+    this.writeFile(file);return 120000-spent;
   }
 
   // Tasks paused behind login/quota gates, newest first. Terminal or

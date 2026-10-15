@@ -46,7 +46,7 @@ itpay docs show <topic> --json
 
 ## 异常处理
 
-随包文档目录缺失、文件损坏或合同字段不完整时返回 `docs_unavailable`，不暴露本地包路径；recovery 固定为重新安装当前 CLI 版本。
+随包文档缺失、损坏或合同字段不完整时按真实错误停止；由原安装方式修复当前制品，不生成另装全局CLI的恢复链。
 
 ## Agent Type / Host
 

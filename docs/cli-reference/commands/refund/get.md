@@ -7,7 +7,7 @@
 读取一笔当前身份可见退款的权威快照、交付锁和可取消性。它只请求一次，不轮询、不改变退款状态。
 
 **上游：** `refund create`、`refund list` 或之前的 `refund watch`。  
-**下游：** 非终态进入 `refund watch`；终态结束；`can_cancel=true` 时用户可另行选择取消。
+**下游：** 非终态按需读取返回的同一退款get，不自动watch；终态结束；`can_cancel=true` 时用户可另行选择取消。
 
 ## 语法与参数
 
@@ -36,7 +36,7 @@ itpay refund get <refund_request_id> [--json]
   },
   "instruction": "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不要重复申请、reveal、授权或读取结果。",
   "next": {
-    "command": "itpay refund watch <refund_id> --json",
+    "command": "itpay refund get <refund_id> --json",
     "reason": "跟踪同一退款"
   },
   "recovery": []
@@ -47,7 +47,7 @@ itpay refund get <refund_request_id> [--json]
 
 ## 终态
 
-- `succeeded`：先告诉用户退款已由 ItPay 确认成功，交付永久关闭，`next=null`。
+- `succeeded`：退款钱款已由ItPay确认成功；按原订单核对实际金额范围、履约和访问锁，不能推断整单全部退款或线下服务已使用，`next=null`。
 - `cancelled/rejected`：说明退款没有执行，交付资格依当前订单和 owner 状态判断；旧 grant 不复活，按返回动作决定是否需要新的授权，`next=null` 时不自行创建。
 - `failed + known_no_effect`：说明退款请求确认未发送；Agent 不重试，由平台管理员决定是否重新执行，`next=null`。
 - `failed + retryable`：说明渠道明确返回可重试失败但 Agent 不会自行重试；等待平台管理员处理，`next=null`。

@@ -7,7 +7,7 @@
 为一笔订单提交退款意图。Refund Owner 从订单推导 Buyer、支付、金额、币种、消费事实和审核策略；Agent 只提交订单和用户原因。
 
 **上游：** `order <id>` 或用户明确提出退款。  
-**下游：** `refund watch <refund_request_id>`，或在 `can_cancel=true` 时由用户选择取消。
+**下游：** 当前返回的同一退款get，按需读取且不自动循环等待，或在 `can_cancel=true` 时由用户选择取消。
 
 退款成功落库与交付冻结是同一事务；CLI 不自行锁单，也不预测自动退款结果。
 
@@ -41,7 +41,7 @@ CLI 使用 Device Authority 或已有 Buyer bearer，并用订单+原因生成�
   },
   "instruction": "先告诉用户退款申请已经记录，原交付已冻结；自动路径表示系统会继续处理，但只有最终 succeeded 才能确认退款成功。然后只跟踪同一退款，不要重复申请、reveal、授权或读取结果。",
   "next": {
-    "command": "itpay refund watch <refund_id> --json",
+    "command": "itpay refund get <refund_id> --json",
     "reason": "跟踪同一退款"
   },
   "recovery": []
@@ -54,33 +54,9 @@ CLI 使用 Device Authority 或已有 Buyer bearer，并用订单+原因生成�
 
 重复提交同一活跃退款时 Backend 返回已有请求，不创建第二笔；CLI 继续跟踪该 `refund_request_id`。
 
-## 异常处理
+## 输入与原单保护
 
-缺少 `--order` 时在 HTTP 前返回 `order_required`，要求恢复当前 Service Execution，不猜订单 ID。
-
-订单不可见、已退款、无可退款支付或状态不允许时 fail closed：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "<server_error_code>",
-    "message": "<server reason>"
-  },
-  "instruction": "确认订单属于当前账号且可退款；不要修改金额、支付或消费事实。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "itpay order <order_id> --json",
-      "reason": "检查订单和交付锁"
-    },
-    {
-      "command": "itpay refund list --order <order_id> --json",
-      "reason": "检查已有退款"
-    }
-  ]
-}
-```
+创建来自用户真实退款意图；缺少订单或状态不允许时按当次错误和原订单读取处理，不猜ID、不改变金额或消费事实。技术格式由 Agent 修正，退款范围／选择缺失才问用户。没有当前合法动作就停止，不用新申请掩盖原请求结果未知。
 
 ## Agent Type / Host
 

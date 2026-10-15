@@ -1453,7 +1453,7 @@ test("services invoke reads target capability metadata before checkout guidance"
   );
 	assert.equal(parsed.next.reason, "仅在用户明确同意支付 0.10 CNY 后执行；否则停止");
 	assert.match(stdoutCapture.join(""), /然后停止等待/);
-	assert.match(stdoutCapture.join(""), /不执行 next.command，也不创建或尝试其他购买路径/);
+	assert.match(stdoutCapture.join(""), /不提交购买输入，也不创建或尝试其他购买路径/);
   const requests = mock.requests.filter((request) => request.path.includes("/v1/service-executions/se_quota"));
 	assert.equal(requests.at(-2)?.method, "GET");
 	assert.equal(requests.at(-1)?.method, "POST");
@@ -1618,8 +1618,9 @@ test("services list recovers executions without a local cart handle", async () =
   assert.equal(envelope.status, "listed");
   const firstID = String(envelope.result.executions[0]?.service_execution_id);
   assert.equal(firstID, "se_recovery");
-  assert.equal(envelope.next.command, `itpay services next ${firstID} --json`);
-  assert.match(stdoutCapture.join(""), /只有一条可恢复记录/);
+  assert.equal(envelope.next,null);
+  assert.deepEqual(envelope.result.executions[0]?.reader,{command:`itpay services next ${firstID} --json`,reason:"读取这笔已有服务"});
+  assert.match(stdoutCapture.join(""), /不能据数量判断唯一任务/);
   assert.deepEqual(Object.keys(envelope.result.executions[0] ?? {}), [
     "service_execution_id", "service_id", "status", "phase", "updated_at", "reader",
   ]);
@@ -1638,7 +1639,8 @@ test("services list validates limit and handles an empty server list", async () 
   await runServicesList(emptyBackend, { jsonOutput: true, output: stdoutSink });
   const envelope = JSON.parse(stdoutCapture.join("")) as { status: string; next: { command: string } };
   assert.equal(envelope.status, "no_executions");
-  assert.equal(envelope.next.command, "itpay catalog list --json");
+  assert.equal(envelope.next,null);
+  assert.match(stdoutCapture.join(""),/不能证明超时创建未发生/);
 });
 
 test("services list is compact, fact-stable, and preserves every Agent Type", async () => {
@@ -1659,7 +1661,7 @@ test("services list is compact, fact-stable, and preserves every Agent Type", as
   const envelope = JSON.parse(outputs[0]!);
   assert.equal(envelope.status, "listed");
   assert.equal(envelope.next, null);
-  assert.match(envelope.instruction, /只有无法确定属于哪一笔任务时才询问用户/);
+  assert.match(envelope.instruction, /原任务已知ID或权威关联/);
 });
 
 test("services get returns a bounded public timeline", async () => {
@@ -2794,8 +2796,8 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   };
   assert.equal(untyped.status, "shown");
   assert.equal(untyped.result.skill, "itpay");
-  assert.match(untyped.result.content, /## Choose one entry/);
-  assert.match(untyped.result.content, /## Follow one envelope/);
+  assert.match(untyped.result.content, /## One current flow/);
+  assert.match(untyped.result.content, /## Read and write directly/);
   assert.match(untyped.result.content, /itpay docs show rail-booking/);
   assert.doesNotMatch(untyped.result.content, /itpay sell guide/);
   assert.match(untyped.result.content, /itpay orders --json/);
@@ -2810,7 +2812,7 @@ test("skill show returns the complete packaged Skill and type-aware onboarding",
   assert.match(typed.result.content, /text\(await tools.exec_command/);
   assert.match(typed.result.content, /若使用 functions.exec 包装/);
   assert.match(typed.result.content, /没有该包装时按宿主实际工具操作/);
-  assert.match(untyped.result.content, /Empty output is not a business failure/);
+  assert.match(untyped.result.content, /Temporarily empty stdout is not failure/);
 
   const workbuddy = JSON.parse((await runCLI([
     "--agent-type", "workbuddy", "skill", "show", "itpay", "--json",
@@ -2996,15 +2998,15 @@ test("docs list is compact, sorted and identical across Agent Types", async () =
 });
 
 test("docs show returns only one complete topic with structured recovery", async () => {
-  const shown = await runCLI(["docs", "show", "quickstart", "--json"], {});
+  const shown = await runCLI(["docs", "show", "rail-booking", "--json"], {});
   const envelope = JSON.parse(shown.stdout) as {
     status: string;
     result: { topic: string; content: { topic: string; title: string; product_scope: string } };
     next: null;
   };
   assert.equal(envelope.status, "shown");
-  assert.equal(envelope.result.topic, "quickstart");
-  assert.equal(envelope.result.content.topic, "quickstart");
+  assert.equal(envelope.result.topic, "rail-booking");
+  assert.equal(envelope.result.content.topic, "rail-booking");
   assert.match(envelope.result.content.product_scope, /single public Buyer CLI entry point/);
   assert.doesNotMatch(envelope.result.content.product_scope, /Seller workflow/);
   assert.equal(envelope.next, null);
@@ -3083,7 +3085,8 @@ test("docs search routes payment and refund concerns to customer-care guidance",
 
 test("docs refuses stale valid overrides while accepting the same packaged directory", async () => {
   const same = await runCLI(["docs", "list", "--json"], {ITPAY_CLI_DOCS_DIR: resolve(CLI_ROOT,"docs/agent/buyer")});
-  assert.equal(JSON.parse(same.stdout).result.topics.length,12);
+  const topics=JSON.parse(same.stdout).result.topics.map((topic:{topic:string})=>topic.topic);
+  assert(topics.includes("rail-booking"));assert(!topics.includes("quickstart"));assert(!topics.includes("rail-fast-checkout"));
   const dir=mkdtempSync(join(tmpdir(),"itpay-stale-docs-"));
   for(const file of readdirSync(resolve(CLI_ROOT,"docs/agent/buyer"))) {
     const doc=JSON.parse(readFileSync(resolve(CLI_ROOT,"docs/agent/buyer",file),"utf8"));
@@ -4103,11 +4106,9 @@ test("services action resolves a human-selected candidate rank from the executio
 				delivery_email_purpose: "claim",
 			},
 		},
-		instruction: "已选择 小米汽车科技有限公司。后续服务尚未购买。只向用户说明：继续购买需要支付 0.50 CNY，并提供用于发送交付认领链接的真实邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不执行 next.command，也不创建新的服务或付款页面。",
-		next: {
-			command: "itpay services checkout se_select_by_rank --capability precise_report --email <email> --json",
-			reason: "仅在用户明确同意支付 0.50 CNY 并提供真实邮箱后执行；否则停止",
-		},
+		instruction: "已选择 小米汽车科技有限公司。后续服务尚未购买。只向用户说明：继续购买需要支付 0.50 CNY，并提供用于发送交付认领链接的真实邮箱；请确认是否购买并提供邮箱。然后停止。用户明确同意并提供真实邮箱前，Agent 不提交购买输入，也不创建新的服务或付款页面。",
+        next:null,
+        interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_template:{command:"itpay services checkout se_select_by_rank --capability precise_report --input-json <file> --email <email> --json",file_content:{},required_input:["file","email"],executable:false,target_execution_id:"se_select_by_rank"}},
 		recovery: [{
 			command: "itpay services next se_select_by_rank --json",
 			reason: "重新读取服务端允许的动作",
@@ -4347,7 +4348,7 @@ test("services start returns only the documented capability entrypoint", async (
   assert.deepEqual(parsed.result.capability.required_input, ["keyword"]);
   // Input-bearing commands are templates; the executable next is a safe re-read.
   assert.equal(parsed.next.command, `itpay services next ${parsed.result.service_execution_id} --json`);
-  assert.match(parsed.interaction.input_template.command, /--input keyword=<value> --json$/);
+  assert.match(parsed.interaction.input_template.command, /--input-json <file> --json$/);
   assert.equal(parsed.interaction.input_template.executable, false);
   assert.equal("execution" in parsed, false);
   assert.equal("capabilities" in parsed, false);
@@ -4414,7 +4415,7 @@ test("services checkout rejects missing required input before creating checkout 
       assert.equal(error.code, "capability_input_invalid");
       assert.deepEqual(error.recovery, []);
       assert.equal(error.interaction?.input_template?.executable, false);
-      assert.match(error.interaction?.input_template?.command ?? "", /--input.*keyword=<value>/);
+      assert.match(error.interaction?.input_template?.command ?? "", /--input-json <file>/);
       assert.ok(error.interaction?.input_template?.required_input.includes("keyword"));
       return true;
     },
@@ -5734,7 +5735,7 @@ test("rail endpoint confirmation asks only for candidate ids in the same executi
   assert.equal(result.result.sides[1].candidates[0].id,"destination_1");
   assert.equal(result.result.human_action.context, undefined);
   assert.match(result.interaction.input_template.command,/--input-json/);
-  assert.ok(result.interaction.input_template.input.choices);
+  assert.ok(result.interaction.input_template.file_content.choices);
   assert.doesNotMatch(result.interaction.input_template.command,/origin_lng|destination_lat/);
 });
 
@@ -5807,21 +5808,21 @@ test("rail location guidance precedes invocation and confirmation survives next"
   const output:string[]=[]; const opts={jsonOutput:true,output:(line:string)=>output.push(line)};
   await runServicesStart(fake,"svc_itpay_rail_smart",opts);
   let envelope=JSON.parse(output.join(""));
-  assert.match(envelope.instruction,/GCJ-02/); assert.match(envelope.instruction,/不追问门牌/);
+  assert.match(envelope.instruction,/原始完整地点和范围/); assert.match(envelope.instruction,/复制完整file_content/);
   assert.ok(envelope.result.capability.input_schema.properties.origin_location);
   output.length=0;
   await runServicesInvoke(fake,config,base.execution.service_execution_id,"plan",query,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required"); assert.equal(envelope.next,null);
   assert.match(envelope.interaction.input_template.command,/--input-json/);
-  assert.equal(envelope.interaction.input_template.input.location_confirmation.plan_id,confirmation.plan_id);
+  assert.equal(envelope.interaction.input_template.file_content.location_confirmation.plan_id,confirmation.plan_id);
   assert.doesNotMatch(envelope.interaction.input_template.command,/\[object Object\]/);
   assert.equal(envelope.result.location_confirmation.endpoints[0].candidates[0].id,"origin_1");
   output.length=0;
   await runServicesNext(fake,base.execution.service_execution_id,opts);
   envelope=JSON.parse(output.join(""));
   assert.equal(envelope.status,"location_confirmation_required");
-  assert.equal(envelope.interaction.input_template.input.origin,"金尊府");
+  assert.equal(envelope.interaction.input_template.file_content.origin,"金尊府");
 });
 
 
@@ -5963,7 +5964,7 @@ test("Smart endpoint guidance follows the published schema", async () => {
   assert.deepEqual(result.result.guidance.input_fields.map((f:{name:string})=>f.name),["endpoints","travel_date"]);
   assert.equal(result.result.guidance.input_example.endpoints.destination.kind,"area");
   assert.equal(result.result.guidance.input_example.endpoints.destination.text,"<用户原始完整行政范围>");
-  assert.match(result.instruction,/端点理解摘要/);
+  assert.match(result.instruction,/已读rail-booking完成路线判断/); assert.match(result.instruction,/不重复读指南/);
   assert.equal(result.result.guidance.optional_fields.some((f:{name:string})=>f.name==="origin_location"),false);
 });
 
@@ -6050,7 +6051,7 @@ test("service creation without an ID recovers read-only for ordinary errors", as
  await assert.rejects(runServicesRun(client,config,"itpay-rail-smart",undefined,{output:stdoutSink}), (error: unknown) => {
   assert.ok(error instanceof CommandContractError);
   assert.equal(error.code,"workflow_start_outcome_unknown");
-  assert.deepEqual(error.recovery,[{command:"itpay services list --json",reason:"查找可能已经创建的服务执行"}]);
+  assert.deepEqual(error.recovery,[{command:"itpay services list --json",reason:"只读可见执行；空列表不能证明创建未发生，不自动重发"}]);
   assert.doesNotMatch(JSON.stringify(error.recovery),/undefined|null|--execution/);
   return true;
  });
@@ -6142,3 +6143,103 @@ test("auth CLI exit distinguishes verified device access from technical initiali
   assert(mock.requests.some(r=>r.path==="/v1/agent-device-account-bindings"));
   assert(!mock.requests.some(r=>/auth-sessions|services|orders|readyz/.test(r.path)));
  });
+
+test("service quote and checkout accept the current flat file template without guessing flags", async () => {
+  const home=mkdtempSync(join(tmpdir(),"itpay-current-paid-file-"));
+  const file=join(home,"current-input.json");writeFileSync(file,JSON.stringify({keyword:"技术输入保持原需求"}));
+  for(const family of ["quote","checkout"]){
+    const id=`se_current_file_${family}`;
+    const result=await runCLI(["--agent-type","codex-cli","services",family,id,"--capability","fuzzy_disambiguation_paid","--input-json",file,"--json"],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:mock.url});
+    assert.equal(JSON.parse(result.stdout).status,"quote_ready");
+    const quote=mock.requests.find(request=>request.method==="POST"&&request.path===`/v1/service-executions/${id}/quotes`);
+    assert.deepEqual(quote?.body?.locked_input,{keyword:"技术输入保持原需求"});
+    assert.equal(mock.requests.some(request=>request.method==="POST"&&request.path===`/v1/service-executions/${id}/checkout`),false);
+  }
+});
+
+
+test("current login pause overrides a pending worker record without another query", async()=>{
+ const {servicesNextEnvelope}=await import("../src/services/presentation.js");
+ const base=await backend.getServiceExecution("se_demo");
+ const model:ServiceExecutionReadModel={...base,execution:{...base.execution,status:"quota_exhausted"},workflow_entry:{capability_id:"itpay_service",input_schema:{}},workflow:{status:"quota_paused",current_step:"quota",revision:2,steps:{},error_code:"login_required"},execution_requests:[{execution_request_id:"exr_pending_auth",execution_kind:"service.execution.run",aggregate_type:"service_execution",aggregate_id:base.execution.service_execution_id,status:"pending",operation:"start",dispatch_attempts:0}]};
+ const envelope=servicesNextEnvelope(model);assert.equal(envelope.status,"login_required");assert.equal(envelope.result?.service_execution_id,base.execution.service_execution_id);assert.equal(envelope.next?.command,"itpay auth login --json");assert.equal(envelope.recovery.length,0);
+ const resumed:ServiceExecutionReadModel={...model,execution_requests:model.execution_requests?.map(request=>({...request,operation:"resume"}))};
+ assert.equal(servicesNextEnvelope(resumed).status,"running");
+ const {shouldWaitForServiceResult}=await import("../src/commands/services/lifecycle.js");assert.equal(shouldWaitForServiceResult(model),false);assert.equal(shouldWaitForServiceResult(resumed),true);
+});
+
+test('run final reporter retains known execution context with ID-free special HTTP payloads',async()=>{
+ const base=await backend.getServiceExecution('se_mock_next');
+ const binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:'query_smart',adapter_key:'rail.v1'};
+ const execution={...base.execution,public_binding:binding};
+ const workflow_entry={capability_id:'itpay_service',input_schema:{}};
+ const home=mkdtempSync(join(tmpdir(),'itpay-reporter-context-'));
+ const file=join(home,'input.json');writeFileSync(file,JSON.stringify({input:{origin:'甲市',destination:'乙市'}}));
+ const outputs:Array<{phase:string;status:number;jsonOutput:boolean;output:string}>=[];
+ let phase='read_initial_state',status=401,code='agent_device_session_required';
+ const server=http.createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/service-executions'&&req.method==='POST'){res.statusCode=201;res.end(JSON.stringify({execution,workflow_entry}));return;}
+  if(req.url===`/v1/service-executions/${execution.service_execution_id}`||req.url===`/v1/service-executions/${execution.service_execution_id}/advance`){
+   if(phase==='read_initial_state'||req.method==='POST'){
+    res.statusCode=status;res.end(JSON.stringify({code,message:'controlled special HTTP failure',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli_version:'9.0.0'}:{})}));return;
+   }
+   res.end(JSON.stringify({...base,execution,workflow_entry,workflow:{status:phase==='resume_execution'?'quota_paused':'input_required',current_step:'input',revision:1,steps:{}}}));return;
+  }
+  const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
+  const response=await fetch(mock.url+req.url,{method:req.method??'GET',headers:{'Content-Type':'application/json'},...(chunks.length?{body:Buffer.concat(chunks)}:{})});
+  res.statusCode=response.status;res.end(await response.text());
+ });
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const address=server.address();assert(address&&typeof address==='object');
+ try{for(phase of ['read_initial_state','submit_input','resume_execution'])for(const item of [
+  {status:401,code:'agent_device_session_required',instruction:/CLI 已自动续期并重试同一请求一次/},
+  {status:403,code:'agent_access_denied',instruction:/没有恢复动作时停止/},
+  {status:426,code:'client_upgrade_required',instruction:/不要猜版本/},
+  {status:503,code:'provider_temporarily_unavailable',instruction:/数据服务暂时不可用/},
+ ])for(const jsonOutput of [true,false]){
+  status=item.status;code=item.code;
+  await assert.rejects(runCLI(['--agent-type','codex-cli','services','run','itpay-rail','--operation','query_smart',...(phase==='resume_execution'?['--execution',execution.service_execution_id]:['--input-json',file]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
+   assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);
+   assert.match(output,new RegExp(execution.service_execution_id));assert.match(output,/execution_created/);assert.match(output,new RegExp(phase));assert.match(output,/query_smart/);assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
+   if(jsonOutput){const envelope=JSON.parse(output);assert.equal(envelope.result.service_execution_id,execution.service_execution_id);assert.equal(envelope.result.execution_created,true);assert.equal(envelope.result.operation_id,'query_smart');assert.equal(envelope.result.failure_stage,phase);assert.equal(envelope.error.code,status===426?'backend_contract_incompatible':code);assert.equal(envelope.next,null);if(status===401){assert.equal(envelope.recovery.length,1);assert.match(envelope.recovery[0].command,/skill show itpay/);}else assert.deepEqual(envelope.recovery,[]);if(status===426)assert.equal(envelope.result.minimum_cli_version,'9.0.0');}
+   outputs.push({phase,status,jsonOutput,output});return true;
+  });
+ }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'special-http-final-reporter.json'),JSON.stringify(outputs,null,2));}finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
+
+test('purchase final reporter preserves classified HTTP errors at every purchase stage',async()=>{
+ const quote=await backend.prepareServiceQuote('se_fixture',{capability_id:'precise_report'});assert(quote.approval_template);
+ await backend.recordServiceExecutionAction('se_fixture',{action_type:'approve_purchase',actor_type:'agent',status:'approved',input_snapshot:{...quote.approval_template,user_approved:true}});
+ const checkout=await backend.createServiceExecutionCheckout('se_fixture',{capability_id:'precise_report'});
+ const home=mkdtempSync(join(tmpdir(),'itpay-purchase-reporter-'));const file=join(home,'confirm.json');
+ writeFileSync(file,JSON.stringify({review_ref:'fixture-review',request_key:'fixture-key',user_approved:true,user_answer:'explicit synthetic fixture consent',price_policy:{mode:'exact',currency:'CNY',amount_minor:100}}));
+ let phase='read_purchase_review',status=401,code='agent_device_session_required';
+ const outputs:Array<{phase:string;status:number;jsonOutput:boolean;output:string}>=[];
+ const server=http.createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url?.startsWith('/v1/service-executions/se_fixture/purchase')||req.url?.startsWith(`/v1/checkouts/${checkout.checkout.checkout.checkout_id}/presentation`)){
+   if(phase==='read_checkout_presentation'&&req.url==='/v1/service-executions/se_fixture/purchase'){
+    res.end(JSON.stringify({status:'checkout_ready',service_execution_id:'se_fixture',completed_stage:'official_page',checkout,effects:{payment_requested:false,charged:false}}));return;
+   }
+   res.statusCode=status;res.end(JSON.stringify({code,message:'controlled classified purchase fault',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli_version:'9.0.0'}:{})}));return;
+  }
+  const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
+  const response=await fetch(mock.url+req.url,{method:req.method??'GET',headers:{'Content-Type':'application/json'},...(chunks.length?{body:Buffer.concat(chunks)}:{})});res.statusCode=response.status;res.end(await response.text());
+ });
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address==='object');
+ try{for(phase of ['read_purchase_review','confirm_purchase','resume_purchase','read_checkout_presentation'])for(const item of [
+  {status:401,code:'agent_device_session_required',instruction:/CLI 已自动续期并重试同一请求一次/},
+  {status:403,code:'agent_access_denied',instruction:/原购买当前不能安全继续/},
+  {status:426,code:'client_upgrade_required',instruction:/不要猜版本/},
+  {status:503,code:'provider_temporarily_unavailable',instruction:/数据服务暂时不可用/},
+ ])for(const jsonOutput of [true,false]){
+  status=item.status;code=item.code;
+  await assert.rejects(runCLI(['--agent-type','codex-cli','services','purchase','se_fixture',...(phase==='confirm_purchase'?['--input-json',file]:phase==='resume_purchase'?['--resume']:[]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
+   assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);assert.match(output,/se_fixture/);assert.match(output,new RegExp(phase));assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
+   if(jsonOutput){const v=JSON.parse(output);assert.equal(v.error.code,status===426?'backend_contract_incompatible':code);assert.equal(v.result.service_execution_id,'se_fixture');assert.equal(v.result.execution_created,true);assert.equal(v.result.failure_stage,phase);assert.equal(v.result.provider_called,undefined);assert.equal(v.next,null);if(status===401){assert.equal(v.recovery.length,1);assert.match(v.recovery[0].command,/skill show itpay/);}else assert.deepEqual(v.recovery,[]);if(status===426)assert.equal(v.result.minimum_cli_version,'9.0.0');}
+   outputs.push({phase,status,jsonOutput,output});return true;
+  });
+ }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'purchase-special-http-final-reporter.json'),JSON.stringify(outputs,null,2));
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

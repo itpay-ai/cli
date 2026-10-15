@@ -1,63 +1,11 @@
 # `itpay services list`
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The public package provides Buyer workflows; Seller authoring source is maintained separately.
-
-## 范围与意义
-
-恢复当前已登记设备或账号可见的 Service Execution 摘要。它不是批量 timeline 导出。
-
-**上游：** 本地句柄丢失、404 recovery 或用户要求查看历史任务。
-**下游：** `services next <selected_id>`。
-
-## 语法与参数
+读取当前设备／账号可见的有限可恢复执行摘要，不是完整历史或批量时间线。
 
 ```bash
 itpay services list [--limit <number>] [--json]
 ```
 
-| 参数 | 必填 | 说明 |
-| --- | --- | --- |
-| `--limit <number>` | 否 | 返回数量，默认 10；必须是 1 到 100 的整数。只有最近结果找不到目标时才扩大。 |
-| `--json` | 否 | 输出单个标准 JSON envelope；默认输出每条一行的简洁文本。 |
+`--limit` 默认10，范围1–100整数。结果保留服务端 updated_at 降序，返回 executions、limit、returned_count、scope 和 completeness=unknown；每项附当前 reader。文本和 JSON 表达相同事实，不返回凭据或完整内部DTO。
 
-命令使用签名 Agent Device session。Backend 按 `updated_at DESC` 返回当前设备或已绑定 Buyer account 可见的执行；CLI 保留该顺序，不在本地推断归属。
-
-## 标准输出
-
-```json
-{
-  "status": "listed",
-  "result": {
-    "executions": [
-      { "service_execution_id": "<id>", "service_id": "<service_id>", "status": "<status>", "phase": "<phase>", "updated_at": "<time>" }
-    ]
-  },
-  "instruction": "只有一条可恢复记录；继续读取同一笔服务。",
-  "next": { "command": "itpay services next <id> --json", "reason": "继续唯一可恢复的服务" },
-  "recovery": []
-}
-```
-
-不得为每条 execution 附加完整 guidance、capabilities、result items、events、candidate hash、client context 或内部 binding。恰好一条记录时 CLI 返回对应的 `services next`；多条记录时 `next=null`，列表不能把“最新”当成“用户想要”，Agent 必须先用普通语言让用户选择。
-
-无结果时返回 `no_executions`、空数组和 `itpay catalog list --json`。
-
-非法 limit 在请求 Backend 前返回：
-
-```json
-{
-  "status": "error",
-  "error": { "code": "limit_invalid", "message": "--limit must be an integer from 1 to 100" },
-  "instruction": "使用 1 到 100 的整数 limit；本次未读取服务端列表。",
-  "next": null,
-  "recovery": [
-    { "command": "itpay services list --limit 10 --json", "reason": "使用默认上限重试" }
-  ]
-}
-```
-
-身份或 Backend 错误保留服务端错误码，只建议 `readyz` 和重新读取列表；不得猜测 ID。
-
-## Agent Type / Host
-
-所有正式支持的 Local Agent Type 返回相同列表格式；Agent instance 权限决定可见范围。本命令没有 Host handoff。
+`next=null`：一条记录不能证明唯一任务，空列表不能证明超时创建未发生。按原任务已知ID或权威关联选 reader；没有关联就停止，不自动选最新、不自动重发或新建。参数由 Agent 修正；认证、兼容和外部故障采用当次专门说明，不把 readyz 或重装当业务恢复。

@@ -142,10 +142,10 @@ try {
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));
   assert.equal(skillHelp.result.skill, "itpay");
-  assert.match(skillHelp.result.content, /Choose one entry/);
-  assert.match(skillHelp.result.content, /Show the human/);
+  assert.match(skillHelp.result.content, /One current flow/);
+  assert.match(skillHelp.result.content, /Show the official entry/);
   assert.match(skillHelp.result.content, /docs show rail-booking/);
-  assert.match(skillHelp.result.content, /Refund/);
+  assert.match(skillHelp.result.content, /refund/i);
   assert.match(skillHelp.result.content, /Keep internal/);
   assert.doesNotMatch(skillHelp.result.content, /next_actions/);
   assert.match(skillHelp.result.content, /official/);

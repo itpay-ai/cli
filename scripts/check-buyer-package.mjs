@@ -9,7 +9,8 @@ assert(files.size<=600000,`compressed package ${files.size} exceeds 600000 bytes
 assert(files.unpackedSize<=3000000,`unpacked package ${files.unpackedSize} exceeds 3000000 bytes`);
 assert(files.files.length<=120,`package has ${files.files.length} files`);
 for(const file of files.files)assert(!/(?:^|\/)(?:node_modules|tests|reviews|assets|sell|sell-preview|build)(?:\/|\.)|\.map$|\.d\.ts$|\/sell\.md$/.test(file.path),'forbidden package file: '+file.path);
-assert.equal(files.files.filter(file=>/^docs\/agent\/buyer\/.*\.json$/.test(file.path)).length,12);
+for(const topic of ['rail-booking','install-and-setup','orders-refunds','purchased-content','cart-checkout','render-hosts'])assert(files.files.some(file=>file.path===`docs/agent/buyer/${topic}.json`),`missing current capability ${topic}`);
+for(const removed of ['quickstart','rail-fast-checkout'])assert(!files.files.some(file=>file.path===`docs/agent/buyer/${removed}.json`),`removed tutorial ${removed} must not ship`);
 assert(files.files.some(file=>file.path==='THIRD-PARTY-NOTICES.txt'));
 assert(!/\n\s*\n$/.test(readFileSync('THIRD-PARTY-NOTICES.txt','utf8')),'generated notices must not end with blank lines that fail platform git diff --check');
 assert(files.files.some(file=>file.path==='dist/src/state/config.js'));

@@ -1,95 +1,14 @@
-# Account login
+# `itpay auth login` / `itpay auth status`
 
-`itpay auth` binds the enrolled Agent Device to a real ItPay account through an official authorization handoff. It is used by Path A (trial exhausted → log in → keep querying) and any time a command returns `login_required`. Path B purchases do **not** require running `itpay auth login` first — account authentication can happen inside the protected checkout instead.
-
-## Syntax
+按当前命令返回的登录需要，或用户明确要求登录时，创建一次官方账号授权；准备购买不要求额外先登录，用户可在受保护页面认证。
 
 ```bash
-itpay auth login  [--json]
+itpay auth login [--json]
 itpay auth status [--json]
 ```
 
-Both commands require an enrolled Agent Device and use the current `--agent-type` and Backend (`ITPAY_BACKEND_URL`). The Agent never receives an account bearer token; binding reuses the stable device-account ownership mechanism.
+使用当前真实 Agent Type、Backend 与已登记设备，不向 Agent 提供账号 bearer token。login 返回官方 handoff 后立即按 Skill 展示；人自行选择手机号、钱包或邮箱，一种已验证身份即可登录，其他身份按需绑定。不得替用户输入验证码、提交旅客资料或选择另一个账号。
 
-## `itpay auth login`
+status 读取原授权并完成当前设备绑定，不创建另一条登录。用户完成后沿返回的原执行完整恢复命令继续，保留原地点、日期、人数与输入；不重新查询、不新建执行、不再询问相同行程。仍 pending 时保留原入口并遵守当次有界等待；读取故障不等于授权过期或取消，不新建登录掩盖故障。
 
-Creates one official authorization request bound to this Backend, Device and Agent Instance, then stops. Repeating `auth login` while a valid request is open returns the same request — it does not rotate the QR code or create parallel sessions.
-
-```json
-{
-  "status": "auth_pending",
-  "result": {
-    "dashboard_auth_session_id": "das_...",
-    "expires_at": "2026-09-20T12:34:56Z",
-    "methods": ["phone", "email", "alipay", "wechat"]
-  },
-  "handoff": {
-    "url": "https://dev.itpay.ai/signin?dashboard_auth_session_id=das_...&start_token=...",
-    "qr_local_path": "...",
-    "qr_image_url": "...",
-    "markdown": "..."
-  },
-  "instruction": "把官方授权页或二维码交给用户。用户在页面内选择手机号验证码、邮箱或钱包完成登录；不要替用户输入手机号或验证码。",
-  "next": {
-    "command": "itpay auth status --json",
-    "reason": "用户完成页面登录后确认绑定",
-    "poll_after_ms": 5000
-  },
-  "recovery": []
-}
-```
-
-- `handoff.url` is the official sign-in page carrying this authorization request. The page offers phone-code verification, email verification, and wallet options — the user chooses; the Agent must not deep-link a single wallet and call it universal authorization.
-- The URL's `start_token` is valid only inside the official page handoff. Never log it, echo it in chat, or send it to another host.
-- When the user already finished login before `auth login` runs, the command returns `authenticated` directly.
-
-## `itpay auth status`
-
-Polls the open authorization request, then performs the device binding. Safe to run repeatedly and concurrently: only the requester Device/Instance can complete the binding.
-
-```json
-{
-  "status": "auth_pending",
-  "result": { "dashboard_auth_session_id": "das_...", "expires_at": "..." },
-  "instruction": "用户仍在官方页面完成登录；保留当前 handoff，不要生成新二维码。",
-  "next": { "command": "itpay auth status --json", "poll_after_ms": 5000 },
-  "recovery": []
-}
-```
-
-```json
-{
-  "status": "authenticated",
-  "result": {
-    "buyer_id": "buyer_...",
-    "bound": true,
-    "query_quota": [
-      { "service_id": "itpay-rail-exact", "policy": "free_registered", "remaining": null },
-      { "service_id": "itpay-rail-smart", "policy": "free_registered", "remaining": null }
-    ]
-  },
-  "instruction": "登录与绑定已完成，告知用户可继续之前的查询；已注册账号查询不消耗试用次数，仍受正常限流。",
-  "next": { "command": "itpay services run <service_id> --execution <pending_execution_id> --json", "reason": "恢复被额度暂停的原查询" },
-  "recovery": []
-}
-```
-
-Terminal and error states:
-
-| `status` | Meaning | Agent action |
-| --- | --- | --- |
-| `authenticated` | Device bound to a real account | Resume the original intent (a quota-blocked execution, the user's request) unchanged |
-| `auth_pending` | User has not finished the page | Keep the same handoff; poll with `poll_after_ms` |
-| `auth_expired` | Session expired before completion | Offer to start `itpay auth login` again; prior query input is still preserved server-side |
-| `login_required` | No open request, not bound | Run `itpay auth login` |
-| `auth_cancelled` / `auth_denied` | User declined or closed the page | Respect the refusal; do not silently re-open; the pending query stays resumable |
-| `auth_session_missing` | Saved authorization session no longer exists (404/410) | `auth status` stays read-only; an explicit `auth login` may create one new official session |
-| `auth_status_unknown` | Transport or temporary server failure while reading status | Keep the same saved session and reread later; do not open a second login |
-
-## Rules
-
-- The human's phone number and SMS code are entered only on the official page — never through chat or CLI input. A `buyer_id`, a typed phone string, or a passenger phone is **not** proof of phone verification.
-- Verified email OR verified mainland phone both establish a valid login; the user picks on the page. Phone verification is not a prerequisite for registered free search — a verified email alone is sufficient.
-- Login never grants Vault content, passenger history, or another Agent's authority. Other devices/platforms enroll and authorize separately.
-- After `authenticated`, server-side identity is re-read; an anonymous execution blocked at the quota step resumes with `services run <service> --execution <id> --json` — no new execution, no re-asked itinerary.
-- Refusing or cancelling login deletes nothing: saved results and purchase options remain usable.
+认证成功不等于购买同意、已付款或获得已购内容授权。真实拒绝、取消、过期或绑定失败采用当次事实和适用动作，没有恢复动作就停止。保留设备身份和其他环境登记，不旋转私钥或换 Agent Type。

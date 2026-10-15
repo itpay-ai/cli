@@ -3,56 +3,10 @@
   "role": "buyer",
   "product_scope": "itpay is the single public Buyer CLI entry point, and $itpay is its user-facing Skill invocation. It covers services, railway planning and booking, orders, authorized purchased content and refunds.",
   "topic": "cart-checkout",
-  "title": "Advanced Multi-Service Cart And Historical Checkout Recovery",
-  "purpose": "Use only for an explicitly requested multi-service cart or a historical pinned flow. Normal selected services use the Skill purchase route.",
+  "title": "Explicit Multi-Service Cart",
+  "purpose": "Only for a human explicitly combining independent services in one Cart.",
   "when_to_use": [
-    "The human explicitly requests combining several services in one Cart.",
-    "An existing Cart or historical Checkout needs recovery."
-  ],
-  "commands": [
-    {
-      "intent": "add one published line",
-      "command": "itpay --agent-type <agent_type> cart add --item <catalog_item_id> --variant <catalog_variant_id> --offer <offer_id> --quantity 1 --json",
-      "success_signal": "result identifies the canonical cart line and next contains one executable recovery or service command"
-    },
-    {
-      "intent": "read the canonical Cart route",
-      "command": "itpay --agent-type <agent_type> cart next --json",
-      "success_signal": "service-backed lines route to services next; ordinary lines route to buy"
-    },
-    {
-      "intent": "prepare an ordinary official Checkout; no payment request",
-      "command": "itpay --agent-type <agent_type> buy --cart <cart_id> --json",
-      "success_signal": "status is human_checkout_required and handoff contains only fields usable by the current Host"
-    },
-    {
-      "intent": "historical pinned service Checkout compatibility",
-      "command": "itpay --agent-type <agent_type> services checkout <service_execution_id> --capability <capability_id> [--input key=value] [--email <email>] --json",
-      "success_signal": "one Checkout handoff is returned; rerun with --resume after output or token loss"
-    }
-  ],
-  "agent_rules": [
-    "The Backend Cart is business truth; the current backend-isolated local cart state file only stores local recovery handles and explicit drafts.",
-    "Run the exact next.command returned by the CLI. Do not extract or invent a capability from a raw list.",
-    "Railway query and booking use distinct Service Executions for one purchase journey. Start another execution for an independent intent.",
-    "Only non-rail capabilities explicitly requiring delivery email may ask its purpose and value. Railway notification contact belongs to the protected checkout page with verified account email reuse; the Agent must not guess or collect it in chat.",
-    "A lost Checkout response is retried with the same Cart and persisted idempotency operation.",
-    "A normal selected service follows services purchase on its original execution. Do not introduce Cart as an extra tutorial or recovery fallback."
-  ],
-  "forbidden": [
-    "Do not call ordinary buy for a service-backed Cart line.",
-    "Do not create a second Checkout when the existing one can be resumed.",
-    "Do not treat QR display as payment verification."
-  ],
-  "next_docs": [
-    {
-      "condition": "Checkout handoff is ready",
-      "topic": "payment-flow"
-    },
-    {
-      "condition": "Host rendering needs clarification",
-      "topic": "render-hosts"
-    }
+    "An explicit multi-service Cart request."
   ],
   "search_terms": [
     "cart",
@@ -61,5 +15,10 @@
     "resume",
     "contact"
   ],
-  "purchase_consent": "Advanced and historical quote/cart flows retain the current quote-bound approve_purchase template and genuine matching consent. Do not bypass its exact quote or expiry. Normal new services use the Skill purchase preparation rule instead."
+  "current_flow": [
+    "Use returned catalog item/variant/offer references for cart add; quantities reflect the human request.",
+    "Read itpay cart next --json and follow its current line-specific template. Service-backed lines follow their service; do not send them to ordinary buy.",
+    "For a returned ordinary Cart buy action, prepare its official page and follow the Skill handoff and consent rules.",
+    "Read the same Cart/Checkout after interruption. Ordinary single-service purchases use services purchase; Cart is not a recovery fallback."
+  ]
 }

@@ -21,7 +21,7 @@ test('quote renders complete scoped approval and approval leads to the same quot
   const result=JSON.parse(json);
   assert.equal(result.result.approval_template.user_approved,false);
   assert.equal(result.next,null);
-  assert.deepEqual(result.interaction.input_template.input,template);
+  assert.deepEqual(result.interaction.input_template.file_content,template);
   assert.match(text,/canonical_fixture/);
   assert.match(text,/prepare_checkout/);
   backend.recordServiceExecutionAction=async(_id,input)=>({service_execution_action_id:'approval_fixture',service_execution_id:'se_fixture',action_type:input.action_type,status:'approved',actor_type:'agent'});
@@ -43,7 +43,7 @@ test('ordinary service fields cannot select a rail presentation and unknown bind
   const shown=servicesNextEnvelope(ordinary);
   assert.equal(shown.status,'confirmation_required');
   assert.doesNotMatch(JSON.stringify(shown),/车票|席别|站点|地图|booking_review_required/);
-  assert.deepEqual(shown.interaction?.input_template?.input,{accepted:false});
+  assert.deepEqual(shown.interaction?.input_template?.file_content,{accepted:false});
   const terminal=servicesNextEnvelope({...ordinary,execution:{...ordinary.execution,status:'failed'}});
   assert.equal(terminal.status,'failed');
   assert.equal(terminal.next,null);
@@ -66,12 +66,12 @@ test('public overview uses complete rail endpoints and structured actions never 
  const {writeServiceOverview}=await import('../src/commands/services/lifecycle.js');
  let overview='';
  writeServiceOverview({schema_version:'itpay.service-definition.v1',service_id:'itpay-rail',definition_version:'scv_itpay_rail_public_v1',adapter_key:'rail.v1',display_names:{'zh-CN':'火车票服务'},operations:[{id:'query_smart',role:'query',billing_mode:'free',display_names:{'zh-CN':'Smart'},binding:{service_id:'itpay-rail-smart',service_contract_version_id:'scv_itpay_rail_smart_v6',capability_id:'itpay_service'},input_schema:{required:['travel_date'],properties:{travel_date:{type:'string'},endpoints:{type:'object',required:['origin','destination'],properties:{origin:{type:'object',required:['text'],properties:{text:{type:'string'}}},destination:{type:'object',required:['text'],properties:{text:{type:'string'}}}}}}}}]},{jsonOutput:true,output:s=>overview+=s});
- assert.deepEqual(JSON.parse(overview).result.operations[0].input_template.input.input.endpoints,{origin:{text:'<text>'},destination:{text:'<text>'}});
+ assert.deepEqual(JSON.parse(overview).result.operations[0].input_template.file_content.input.endpoints,{origin:{text:'<text>'},destination:{text:'<text>'}});
  const {railAvailableActions}=await import('../src/services/rail/actions.js');
  const {serviceInputTemplate}=await import('../src/services/shared/input.js');
  const actions=railAvailableActions({plan_id:'p',query_revision:2,readiness:'ready',snapshot_id:'snap',available_actions:[{type:'read_updates',command:'curl https://invalid.test',provider_effect:'none'},{type:'expand_search',command:'rm -rf /',provider_effect:'bounded_provider_batch',target:{service_execution_id:'se',query_revision:2,snapshot_id:'snap'},input:{action_request_id:'handle',expected_query_revision:2,snapshot_id:'snap'}}]},'se');
  assert.equal(actions[0]?.command,'itpay services next se --since-snapshot snap --json');
- assert.match(String(actions[1]?.command),/workflow:expand_search.*--input-json/);
+ const expansion=actions[1]?.input_template;assert(expansion && typeof expansion==="object" && "command" in expansion && "file_content" in expansion);assert.equal(actions[1]?.command,undefined);assert.match(String(expansion.command),/workflow:expand_search.*--input-json/);assert.deepEqual(expansion.file_content,{action_request_id:"handle",expected_query_revision:2,snapshot_id:"snap"});
  assert.doesNotMatch(JSON.stringify(actions),/curl|rm -rf/);
  assert.deepEqual(serviceInputTemplate({required:['count','priority'],properties:{count:{type:'integer',minimum:1,default:1},priority:{type:'string',enum:['fastest','cheapest']}}}),{count:'<count>',priority:'<priority>'});
 });
@@ -110,10 +110,10 @@ test('public operation recovery executes through main with the original operatio
    const first=await run(['services','run',serviceID,...(operation!=='legacy'?['--operation',operation]:[]),...(mode==='execution'?['--execution',id]:[]),'--input-json',file,'--timeout','0','--json']);
    const failure=JSON.parse(first.stdout || first.stderr);assert(failure.interaction,JSON.stringify(failure));const template=failure.interaction.input_template;
    if(operation!=='legacy')assert.match(template.command,new RegExp(`--operation ${operation}`));else assert.doesNotMatch(template.command,/--operation/);
-   const parameters=operation==='legacy'?template.input:template.input.input;assert.deepEqual(parameters, {...known,travel_date:'<travel_date>'});
+   const parameters=operation==='legacy'?template.file_content:template.file_content.input;assert.deepEqual(parameters, {...known,travel_date:'<travel_date>'});
    const returnedTemplate=JSON.parse(JSON.stringify(template));
-   if(mode==='continuation')assert.deepEqual(template.input.continuation,continuation);
-   parameters.travel_date='2030-10-09';writeFileSync(file,JSON.stringify(template.input));
+   if(mode==='continuation')assert.deepEqual(template.file_content.continuation,continuation);
+   parameters.travel_date='2030-10-09';writeFileSync(file,JSON.stringify(template.file_content));
    const args=template.command.replace(/^itpay /,'').replace('<file>',file).split(' ');args.push('--timeout','0');
    const second=await run(args);const result=JSON.parse(second.stdout);assert.notEqual(result.status,'service_overview');
    const retry=calls.find((call,index)=>index>0&&!call.path.endsWith('/advance')) ?? calls.at(-1)!;
@@ -132,7 +132,7 @@ test('same error codes and result selectors cannot cross a locked service bounda
  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
  for(const identity of [{service_id:'ordinary',service_contract_version_id:'v1'},{service_id:'itpay-rail-smart',service_contract_version_id:'unknown'}]) {
   backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'invalid_selection',message:'bad candidate',reason:'input_constraint_invalid'},'invalid');};
-  await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{endpoints:{},review:{},search:{}}),error=>{assert(error instanceof HttpError);return true;});
+  await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{endpoints:{},review:{},search:{}}),error=>{assert(error instanceof Error);assert.equal((error as import('../src/services/shared/envelope.js').CommandContractError).code,'invalid_selection');assert.doesNotMatch(JSON.stringify(error),/rail-booking/);return true;});
   backend.startServiceExecution=async()=>{throw new HttpError(400,{...identity,code:'capability_input_invalid',message:'missing endpoints',input_schema:{type:'object',properties:{endpoints:{type:'string'}},required:['endpoints']}},'invalid');};
   await assert.rejects(runServicesRun(backend,loadConfig({}),'ordinary',{}),error=>{assert(error instanceof Error);const recovery=error as import('../src/services/shared/envelope.js').CommandContractError;assert.doesNotMatch(JSON.stringify({instruction:recovery.instruction,interaction:recovery.interaction}),/铁路|席别|rail-booking/);if(identity.service_contract_version_id==='unknown'){assert.equal(recovery.code,'presentation_contract_unavailable');assert.equal(recovery.interaction,undefined);}return true;});
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,...identity}});
@@ -233,13 +233,13 @@ test('public expired prepare preserves typed adapter and complete original query
   for(const mode of ['fresh','existing','history_failed','unknown_contract','wrong_binding']) {
    backend.startServiceExecution=async()=>{throw new HttpError(409,{code:'rail_selection_expired',message:'saved choice expired',execution_created:false,provider_called:false,service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',public_binding:{...binding,...(mode==='wrong_binding'?{public_service_id:'another_service'}:mode==='unknown_contract'?{service_definition_version:'unknown'}:{})},selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',query_public_binding:{...binding,operation_id:'query_smart'},expired_at:'2000-01-01T00:00:00Z',query_input:query,safe_new_query:mode==='fresh',...(mode==='existing'?{booking_execution_id:'se_original'}:{}),...(mode==='history_failed'?{recovery_block_reason:'购买历史读取失败'}:{})}},'expired');};
    await assert.rejects(runServicesRun(backend,loadConfig({}), 'itpay-rail',{selections:[],passengers:1},{operationID:'prepare_purchase'}),error=>{
-    if(mode==='unknown_contract'||mode==='wrong_binding'){assert(error instanceof HttpError);return true;}
+    if(mode==='unknown_contract'||mode==='wrong_binding'){assert(error instanceof CommandContractError);assert.equal(error.code,'rail_selection_expired');assert.equal(error.interaction,undefined);return true;}
     assert(error instanceof CommandContractError);assert.equal(error.result?.execution_created,false);
     const template=error.interaction?.input_template;
     if(mode==='fresh'){
      assert(template);assert.match(template.command,/services run itpay-rail --operation query_smart --input-json <file>/);
      assert.deepEqual(template.file_content,{input:Object.fromEntries(Object.entries(query).filter(([key])=>key!=='reuse_from'))});
-     assert.deepEqual(template.input,template.file_content);assert.equal(template.user_answer_required,undefined);assert.equal(error.recovery.length,0);
+     assert.equal(template.input,undefined);assert.equal(template.user_answer_required,undefined);assert.equal(error.recovery.length,0);
     }else{assert.equal(template,undefined);if(mode==='existing')assert.match(error.recovery[0]!.command,/next se_original/);else assert.match(error.instruction,/购买历史读取失败/);}
     return true;
    });

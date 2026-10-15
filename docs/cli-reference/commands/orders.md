@@ -48,18 +48,8 @@ itpay orders [--limit <n>] [--status <status>] [--cursor <cursor>] [--host <host
 
 ## Agent 授权缺失
 
-```json
-{
-  "status": "human_authorization_required",
-  "result": { "intent": "list_purchase_history" },
-  "instruction": "需要用户确认一次身份和只读权限；执行 next.command 生成入口。",
-  "next": {
-    "command": "itpay vault access --json",
-    "reason": "创建一次账号读取授权"
-  },
-  "recovery": []
-}
-```
+授权缺失返回 human_authorization_required。上下文完整时只执行当次完整的账号授权 next 一次；缺 host/target 时 next=null，使用返回的不可执行完整模板从当前可信会话补齐，不把通用示例套到所有宿主。真实交付入口后停止，授权不等于购买或付款。
+
 
 用户完成后重新执行原始 `orders` 命令。CLI 不要求 Agent构造或粘贴 Buyer
 token，也不改用 Service Execution 猜测账号历史。
@@ -67,7 +57,7 @@ token，也不改用 Service Execution 猜测账号历史。
 当 `next_cursor` 非空时，`next.command` 使用同一 limit/status 和 Backend 返回的
 cursor 读取下一页。Agent 只在用户需要查看更多订单时执行，不能修改或猜测
 cursor。OpenClaw 的授权下一步必须保留原命令的 `--host` 和所需 `--target`；
-若原命令未提供，CLI 会用明确占位符要求 Agent 从当前可信会话补齐。
+若原命令未提供，next=null，并返回不可执行的完整输入模板，由Agent从当前可信会话补齐。
 
 无匹配订单使用 `status=no_orders`、`orders=[]` 和 `next=null`。无效 limit
 和 status 必须在 HTTP 前返回稳定合同错误。

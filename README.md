@@ -87,7 +87,7 @@ The local `~/.itpay-v3` directory stores one owner-only signing key, Backend-sco
 
 - `ITPAY_AGENT_TYPE`: stable alternative to global `--agent-type`.
 - `ITPAY_BACKEND_URL`: optional sandbox override; only the exact official URL `https://sandbox.itpay.ai` is accepted. Unset it for production.
-- `ITPAY_BEARER_TOKEN`: optional account-scoped browser session for legacy account reads. Local Agents normally use signed Device Authority plus the time-limited human authorization returned by `vault access`.
+- `ITPAY_BEARER_TOKEN`: optional account-scoped browser session for authorized account reads. Local Agents normally use signed Device Authority plus the time-limited human authorization returned by `vault access`.
 - `ITPAY_CART_SESSION_PATH`: local recovery-state path override.
 - `ITPAY_CURRENCY`: ordinary Cart currency, default `CNY`.
 - `ITPAY_IDEMPOTENCY_KEY`: explicit operation key for deterministic testing; normal use persists operation IDs automatically.

@@ -44,20 +44,7 @@ itpay refund list --order <order_id> [--json]
 
 列表只返回选择退款所需的 ID、状态、金额和创建时间，不返回退款原因、消费证据、Admin 信息或支付渠道元数据。服务端按 `created_at DESC` 排序；CLI 优先引导至第一笔活跃退款，否则引导至最新记录。
 
-无记录时：
-
-```json
-{
-  "status": "empty",
-  "result": { "order_id": "<order_id>", "refunds": [] },
-  "instruction": "该订单没有退款记录；确认用户确实要求退款后再创建。",
-  "next": {
-    "command": "itpay refund create --order <order_id> --json",
-    "reason": "为该订单创建退款"
-  },
-  "recovery": []
-}
-```
+无记录时 status=empty、refunds=[]、next=null。空列表不代表用户已同意退款；只有真实退款请求才按当前订单事实使用完整创建入口，不能自动提交。
 
 ## 鉴权与异常处理
 

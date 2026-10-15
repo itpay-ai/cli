@@ -2,7 +2,7 @@ import type { ServiceResultItemPage, RailJourneyCard } from "../../client/types.
 import { compactRailJourney } from "./results.js";
 import { exactTrainRow } from "./query.js";
 import {publicPurchaseTemplate, type ServicesCommandOptions} from "../shared/platform.js";
-import {writeCommandEnvelope, plainValueLines, type CommandEnvelope} from "../shared/envelope.js";
+import {fileInputTemplate,writeCommandEnvelope, plainValueLines, type CommandEnvelope} from "../shared/envelope.js";
 export function renderRailResultPage(response:ServiceResultItemPage,serviceExecutionID:string,resultItemID:string,offset:number,limit:number,options:ServicesCommandOptions & {jsonOutput?:boolean}):void {
   const page = response.page;
   const container = (page.result ?? page) as Record<string, unknown>;
@@ -18,8 +18,7 @@ export function renderRailResultPage(response:ServiceResultItemPage,serviceExecu
         service_execution_id: serviceExecutionID, result_item_id: resultItemID, result_offset: offset,
         candidate: candidateFacts,
         ...(offer?.service_id && offer.selection_token ? { booking_template: {
-          command: `itpay services run ${offer.service_id} --input-json <file> --json`,
-          executable: false, required_input: ["file", "passengers", "seat_type"],
+          ...fileInputTemplate(`itpay services run ${offer.service_id} --input-json <file> --json`,{selection:{token:offer.selection_token,seat_type:"<用户授权席别对应代码>"},passengers:"<真实人数>"},["passengers","selection.seat_type"]),
           seat_choices: seats.map((choice) => ({ seat_type: choice.seat_type, seat_name: choice.seat_name })),
           input_example: { selection: { token: offer.selection_token, seat_type: "<用户授权席别对应代码>" }, passengers: "<真实人数>" },
           ...(publicPurchaseTemplate(exactCandidate.purchase_operation) ?? {}),
