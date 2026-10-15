@@ -61,7 +61,7 @@ export async function runServicesCheckout(
     ...(options.email ? { email: options.email } : {}),
   };
   const currentModel = options.readModel ?? (!options.resume ? await backend.getServiceExecution(serviceExecutionID,{deadline}) : undefined);
-  if(!options.resume && currentModel?.purchase_preparation && !currentModel.purchase_review){throw new CommandContractError("purchase_review_unavailable","current purchase material unavailable","保留原购买并停止使用过期或缺失材料，不切换下单路径。",[{command:`itpay services purchase ${serviceExecutionID} --json`,reason:"读取原购买当前事实"}],undefined,{service_execution_id:serviceExecutionID,purchase_preparation:currentModel.purchase_preparation});}
+  if(!options.resume && currentModel?.purchase_preparation && !currentModel.purchase_review){throw new CommandContractError(currentModel.purchase_preparation==="expired"?"purchase_review_expired":"purchase_review_unavailable","current purchase material unavailable","保留原购买并停止使用过期或缺失材料，不切换下单路径。",[{command:`itpay services purchase ${serviceExecutionID} --json`,reason:"读取原购买当前事实"}],undefined,{service_execution_id:serviceExecutionID,purchase_preparation:currentModel.purchase_preparation});}
   if(!options.resume && currentModel?.purchase_review){writeCommandEnvelope(purchaseEnvelope({status:"confirmation_required",service_execution_id:serviceExecutionID,completed_stage:"selected",review:currentModel.purchase_review,effects:{page_created:false,page_reused:false,payment_requested:false,charged:false,human_page_action_required:false}}),options);return;}
   if (!options.resume && !capabilityID) capabilityID = currentModel?.workflow_entry?.capability_id;
   if (!options.resume && !capabilityID) {

@@ -56,6 +56,15 @@ test('journey harness: one plan has one whole booking entry; single leg stays co
     backend.getRailJourneyDetail=async()=>({service_execution_id:'se_check',plan_id:'p_check',snapshot_id:'s_check',query_revision:1,journey});
     let output='';await runServicesReadResult(backend,'se_check',{journey:'j_check',snapshot:'s_check',jsonOutput:true,output:s=>output+=s});
     const result=JSON.parse(output);const plan=result.result.ticket_plans[0];assert.deepEqual(plan.booking_template.input_example,{selections:[{token:'rsel_check_0',seat_type:'O'},{token:'rsel_check_1',seat_type:'O'}],passengers:2});for(const row of plan.legs){assert.equal(row.booking_template,undefined);}
+    const ticketPlan=journey.ticket_plans[0];assert.ok(ticketPlan);
+    const purchase = {service_id:'itpay-rail',operation_id:'prepare_purchase',continuation:{service_execution_id:'se_check',snapshot_id:'s_check'},input:ticketPlan.booking_input};
+    backend.getRailJourneyDetail=async()=>({service_execution_id:'se_check',plan_id:'p_check',snapshot_id:'s_check',query_revision:1,journey:{...journey,ticket_plans:[{...ticketPlan,purchase_operation:purchase}]}});
+    output='';await runServicesReadResult(backend,'se_check',{journey:'j_check',snapshot:'s_check',jsonOutput:true,output:s=>output+=s});
+    const publicTemplate=JSON.parse(output).result.ticket_plans[0].booking_template;
+    assert.deepEqual(publicTemplate.input_example,{input:purchase.input,continuation:purchase.continuation});
+    assert.deepEqual(publicTemplate.file_content,publicTemplate.input_example);
+    assert.match(publicTemplate.command,/--operation prepare_purchase/);
+    assert.equal(publicTemplate.input,undefined);
     backend.getRailJourneyDetail=async()=>({service_execution_id:'se_check',plan_id:'p_check',snapshot_id:'s_check',query_revision:1,journey:{...journey,booking_support:'single_leg',booking_offer:{service_id:'itpay-rail-booking',selection_token:'rsel_single'},passengers:2}});
     output='';await runServicesReadResult(backend,'se_check',{journey:'j_check',snapshot:'s_check',jsonOutput:true,output:s=>output+=s});assert.equal(JSON.parse(output).result.journey.booking_template.input_example.selection.token,'rsel_single');
   }finally{await mock.close();}
@@ -365,6 +374,16 @@ test('full flow: missing expired review never falls back to quote or checkout',a
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_execution_id:'se_original'},purchase_preparation:'expired',workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'payment',current_step:'payment',revision:1,steps:{}}});
   let writes=0;backend.prepareServiceQuote=async()=>{writes++;throw new Error('must not quote');};backend.createServiceExecutionCheckout=async()=>{writes++;throw new Error('must not checkout');};
   let output='';await runServicesNext(backend,'se_original',{jsonOutput:true,output:s=>output+=s});const out=JSON.parse(output);assert.equal(out.status,'purchase_review_expired');assert.equal(out.next,null);assert.match(out.recovery[0].command,/services purchase se_original/);assert.equal(writes,0);
+  for(const state of ['expired','ready'] as const){
+    backend.getServiceExecution=async()=>({...base,purchase_preparation:state});
+    await assert.rejects(runServicesCheckout(backend,loadConfig({}),'se_original',undefined,{jsonOutput:true,output:()=>{}}),error=>{
+      assert(error instanceof CommandContractError);assert.equal(error.code,state==='expired'?'purchase_review_expired':'purchase_review_unavailable');
+      assert.equal(error.result?.purchase_preparation,state);assert.equal(error.result?.service_execution_id,'se_original');
+      assert.match(error.recovery[0]?.command ?? "",/services purchase se_original/);return true;
+    });
+    assert.equal(writes,0);
+  }
+
  }finally{await mock.close();}
 });
 

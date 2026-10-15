@@ -439,5 +439,5 @@ export function publicPurchaseTemplate(value:unknown):Record<string,unknown>|und
  const ref=value.continuation;
  if(typeof ref!=="object"||ref===null||Array.isArray(ref)||!("service_execution_id" in ref)||typeof ref.service_execution_id!=="string"||!("snapshot_id" in ref)||typeof ref.snapshot_id!=="string")throw invalid();
  const template = fileInputTemplate(`itpay services run ${shellArgument(value.service_id)} --operation ${shellArgument(value.operation_id)} --input-json <file> --json`, {input:value.input,continuation:{service_execution_id:ref.service_execution_id,snapshot_id:ref.snapshot_id}});
- return {...template, input_example:template.input};
+ return {...template, input_example:template.file_content};
 }
