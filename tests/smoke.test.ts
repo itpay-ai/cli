@@ -6184,7 +6184,7 @@ test('run final reporter retains known execution context with ID-free special HT
    if(phase==='read_initial_state'||req.method==='POST'){
     res.statusCode=status;res.end(JSON.stringify({code,message:'controlled special HTTP failure',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli_version:'9.0.0'}:{})}));return;
    }
-   res.end(JSON.stringify({...base,execution,workflow_entry,workflow:{status:'input_required',current_step:'input',revision:1,steps:{}}}));return;
+   res.end(JSON.stringify({...base,execution,workflow_entry,workflow:{status:phase==='resume_execution'?'quota_paused':'input_required',current_step:'input',revision:1,steps:{}}}));return;
   }
   const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
   const response=await fetch(mock.url+req.url,{method:req.method??'GET',headers:{'Content-Type':'application/json'},...(chunks.length?{body:Buffer.concat(chunks)}:{})});
@@ -6192,14 +6192,14 @@ test('run final reporter retains known execution context with ID-free special HT
  });
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
  const address=server.address();assert(address&&typeof address==='object');
- try{for(phase of ['read_initial_state','submit_input'])for(const item of [
+ try{for(phase of ['read_initial_state','submit_input','resume_execution'])for(const item of [
   {status:401,code:'agent_device_session_required',instruction:/CLI 已自动续期并重试同一请求一次/},
   {status:403,code:'agent_access_denied',instruction:/没有恢复动作时停止/},
   {status:426,code:'client_upgrade_required',instruction:/不要猜版本/},
   {status:503,code:'provider_temporarily_unavailable',instruction:/数据服务暂时不可用/},
  ])for(const jsonOutput of [true,false]){
   status=item.status;code=item.code;
-  await assert.rejects(runCLI(['--agent-type','codex-cli','services','run','itpay-rail','--operation','query_smart','--input-json',file,...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
+  await assert.rejects(runCLI(['--agent-type','codex-cli','services','run','itpay-rail','--operation','query_smart',...(phase==='resume_execution'?['--execution',execution.service_execution_id]:['--input-json',file]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
    assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);
    assert.match(output,new RegExp(execution.service_execution_id));assert.match(output,/execution_created/);assert.match(output,new RegExp(phase));assert.match(output,/query_smart/);assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
    if(jsonOutput){const envelope=JSON.parse(output);assert.equal(envelope.result.service_execution_id,execution.service_execution_id);assert.equal(envelope.result.execution_created,true);assert.equal(envelope.result.operation_id,'query_smart');assert.equal(envelope.result.failure_stage,phase);assert.equal(envelope.error.code,status===426?'backend_contract_incompatible':code);assert.equal(envelope.next,null);if(status===401){assert.equal(envelope.recovery.length,1);assert.match(envelope.recovery[0].command,/skill show itpay/);}else assert.deepEqual(envelope.recovery,[]);if(status===426)assert.equal(envelope.result.minimum_cli_version,'9.0.0');}

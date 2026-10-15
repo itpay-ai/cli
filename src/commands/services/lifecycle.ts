@@ -419,6 +419,7 @@ export async function runServicesRun(
       failureStage = "submit_input";
       model = await backend.advanceServiceExecution(id, input, `workflow-input:${id}`,{deadline});
     } else if (model.workflow?.status === "quota_paused") {
+      failureStage = "resume_execution";
       model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`,{deadline});
     }
     failureStage = "read_results";
