@@ -17,7 +17,7 @@ export const railAdapter: ServiceAdapter = {
  guidance:railServiceGuidance, requiresGuidance: id => id === "itpay-rail-smart",
  overviewInstruction:railOverviewInstruction, locationInstruction:locationInputInstruction,
  invocation:railInvocationProjection, shouldWait:railShouldWait, pollAfter:railPollAfter,
- preservesTerminalRecovery: model => model.workflow?.human_action?.context?.quote_recovery === true,
+ preservesTerminalRecovery: model => model.workflow?.human_action?.context?.quote_recovery === true || model.rail_planning?.search?.reason === "queue_expired",
  projectState: model => model.rail_booking ? railBookingEnvelope(model) : model.rail_planning ? railPlanningEnvelope(model) : null,
  workflow:railWorkflowEnvelope, savedResult:railSavedResultEnvelope, deliveryGuidance:railSavedDeliveryGuidance,
  extraFacts: model => model.rail_booking ? {rail_booking:model.rail_booking} : {},

@@ -473,6 +473,12 @@ export async function runServicesRun(
     if (cause instanceof HttpError) adapter = errorServiceAdapter(cause.payload, serviceID) ?? adapter;
  if(cause instanceof HttpError && cause.code==="public_operation_invalid")throw new CommandContractError(cause.code,cause.message,"按返回的固定service_definition核对声明操作；购买仍使用原结果详情的完整continuation模板，不改owner/snapshot、不猜operation、不重建原购买。",cause.payload?.service_definition?[]:[{command:"itpay catalog list --json",reason:"只读公开目录与定义；不创建执行"}],undefined,{service_id:serviceID,...(cause.payload?.service_definition?{service_definition:cause.payload.service_definition}:{}),execution_created:id ? true : typeof cause.payload?.execution_created==="boolean" ? cause.payload.execution_created:"unknown",...(typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})});
 
+    if(cause instanceof HttpError && cause.code==="query_capacity_not_accepted" && cause.payload?.accepted===false) {
+      writeCommandEnvelope({status:"not_accepted",result:{accepted:false,execution_created:false,provider_called:false,reason:cause.payload.reason,retry_after_ms:cause.payload.retry_after_ms},
+        instruction:"本次查询尚未接收，没有新执行编号。按返回的等待时间保留原条件重试；不要读取不存在的任务、换站或扩大范围。",
+        next:null,recovery:[],...(input!==undefined?{interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_template:operationInputTemplate({...inputContext,executionID:undefined},input)}}:{})},options);
+      return;
+    }
     if (cause instanceof HttpError && cause.code === "capability_input_invalid") {
       const schema = cause.payload?.input_schema;
       const executionID = cause.payload?.service_execution_id ?? id;

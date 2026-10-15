@@ -47,5 +47,5 @@
     "Show the single official entry and payment deadline. The human enters passengers and contact details there; verified account email may be reused and edited for this order. Do not collect traveler identity in chat.",
     "Read the original order for per-leg issuance. For railway refund/change, use itpay aftercare list --order <order_id> --json and its complete target/template. Use only the human’s requested legs/passengers. Request acceptance, supplier completion and money returned are distinct; concrete change revision/fees require actual consent."
   ],
-  "formal_rules": "The same-package ItPay Skill owns envelope reading, necessary consent, bounded waiting and human handoff. Errors supply their current action or stop; no extra recovery tutorial is required."
+  "formal_rules": "The same-package ItPay Skill owns envelope reading, necessary consent, bounded waiting and human handoff. A capacity queue is not a no-direct result or permission to widen endpoints; follow the original task and its bounded next. Errors supply their current action or stop; no extra recovery tutorial is required."
 }
