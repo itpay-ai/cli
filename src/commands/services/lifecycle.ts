@@ -6,7 +6,7 @@ import { DeviceStateError } from "../../state/device_authority.js";
 import { type ServiceCapability, type ServiceCapabilityInvoked, type ServiceExecutionReadModel } from "../../client/types.js";
 import { operationID, type CLIConfig } from "../../state/config.js";
 import { type ClientHost } from "../../state/client_context.js";
-import { CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, writeCommandEnvelope, fileInputTemplate, plainValueLines } from "../../services/shared/envelope.js";
+import { hasSpecializedHTTPGuidance, CommandContractError, type CommandAction, type CommandEnvelope, isTerminalServiceExecutionStatus, writeCommandEnvelope, fileInputTemplate, plainValueLines } from "../../services/shared/envelope.js";
 import { ServicesCommandOptions, requiredInputFields, missingRequiredInput, stableInput, formatInputOptions, queryText, capabilityPrice, purchaseConfirmationInstruction, checkoutCommand, serviceResultPlainLines, serviceDeliveryMode, journalTaskState, remainingAutomaticWait, recordAutomaticWait, servicesNextPlainResult } from "../../services/shared/platform.js";
 import { servicesNextEnvelope } from "../../services/presentation.js";
 import { executionInputContext, operationInputTemplate } from "../../services/shared/input.js";
@@ -483,7 +483,7 @@ export async function runServicesRun(
       ...(inputContext.operationID?{operation_id:inputContext.operationID}:{}),failure_stage:failureStage
     };
     // Keep authentication, compatibility and provider classification available to the CLI reporter.
-    if (cause instanceof HttpError && (cause.status===401 || cause.status===403 || cause.code.startsWith("provider_") || (cause.status===404 && cause.code==="unknown_error") || ["client_upgrade_required","client_compatibility_headers_required","platform_release_unavailable","agent_identity_required"].includes(cause.code))) throw cause;
+    if (cause instanceof HttpError && hasSpecializedHTTPGuidance(cause)) throw cause;
     if (cause instanceof HttpError && id) {
       throw new CommandContractError(cause.code,cause.message,
         "原执行已创建；读取未完成不代表没有结果。保留原输入和执行编号，先核对同一执行；初态需要输入时使用原输入模板，不新建查询。",

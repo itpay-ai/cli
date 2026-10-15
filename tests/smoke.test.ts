@@ -6207,3 +6207,39 @@ test('run final reporter retains known execution context with ID-free special HT
   });
  }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'special-http-final-reporter.json'),JSON.stringify(outputs,null,2));}finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
+
+test('purchase final reporter preserves classified HTTP errors at every purchase stage',async()=>{
+ const quote=await backend.prepareServiceQuote('se_fixture',{capability_id:'precise_report'});assert(quote.approval_template);
+ await backend.recordServiceExecutionAction('se_fixture',{action_type:'approve_purchase',actor_type:'agent',status:'approved',input_snapshot:{...quote.approval_template,user_approved:true}});
+ const checkout=await backend.createServiceExecutionCheckout('se_fixture',{capability_id:'precise_report'});
+ const home=mkdtempSync(join(tmpdir(),'itpay-purchase-reporter-'));const file=join(home,'confirm.json');
+ writeFileSync(file,JSON.stringify({review_ref:'fixture-review',request_key:'fixture-key',user_approved:true,user_answer:'explicit synthetic fixture consent',price_policy:{mode:'exact',currency:'CNY',amount_minor:100}}));
+ let phase='read_purchase_review',status=401,code='agent_device_session_required';
+ const outputs:Array<{phase:string;status:number;jsonOutput:boolean;output:string}>=[];
+ const server=http.createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url?.startsWith('/v1/service-executions/se_fixture/purchase')||req.url?.startsWith(`/v1/checkouts/${checkout.checkout.checkout.checkout_id}/presentation`)){
+   if(phase==='read_checkout_presentation'&&req.url==='/v1/service-executions/se_fixture/purchase'){
+    res.end(JSON.stringify({status:'checkout_ready',service_execution_id:'se_fixture',completed_stage:'official_page',checkout,effects:{payment_requested:false,charged:false}}));return;
+   }
+   res.statusCode=status;res.end(JSON.stringify({code,message:'controlled classified purchase fault',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli_version:'9.0.0'}:{})}));return;
+  }
+  const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
+  const response=await fetch(mock.url+req.url,{method:req.method??'GET',headers:{'Content-Type':'application/json'},...(chunks.length?{body:Buffer.concat(chunks)}:{})});res.statusCode=response.status;res.end(await response.text());
+ });
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address==='object');
+ try{for(phase of ['read_purchase_review','confirm_purchase','resume_purchase','read_checkout_presentation'])for(const item of [
+  {status:401,code:'agent_device_session_required',instruction:/CLI 已自动续期并重试同一请求一次/},
+  {status:403,code:'agent_access_denied',instruction:/原购买当前不能安全继续/},
+  {status:426,code:'client_upgrade_required',instruction:/不要猜版本/},
+  {status:503,code:'provider_temporarily_unavailable',instruction:/数据服务暂时不可用/},
+ ])for(const jsonOutput of [true,false]){
+  status=item.status;code=item.code;
+  await assert.rejects(runCLI(['--agent-type','codex-cli','services','purchase','se_fixture',...(phase==='confirm_purchase'?['--input-json',file]:phase==='resume_purchase'?['--resume']:[]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
+   assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);assert.match(output,/se_fixture/);assert.match(output,new RegExp(phase));assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
+   if(jsonOutput){const v=JSON.parse(output);assert.equal(v.error.code,status===426?'backend_contract_incompatible':code);assert.equal(v.result.service_execution_id,'se_fixture');assert.equal(v.result.execution_created,true);assert.equal(v.result.failure_stage,phase);assert.equal(v.result.provider_called,undefined);assert.equal(v.next,null);if(status===401){assert.equal(v.recovery.length,1);assert.match(v.recovery[0].command,/skill show itpay/);}else assert.deepEqual(v.recovery,[]);if(status===426)assert.equal(v.result.minimum_cli_version,'9.0.0');}
+   outputs.push({phase,status,jsonOutput,output});return true;
+  });
+ }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'purchase-special-http-final-reporter.json'),JSON.stringify(outputs,null,2));
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

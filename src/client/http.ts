@@ -17,7 +17,7 @@ export interface RequestOptions {
 
 export class HttpError extends Error {
   executionContext?: {
-    service_id: string;
+    service_id?: string;
     service_execution_id: string;
     execution_created: true;
     operation_id?: string;

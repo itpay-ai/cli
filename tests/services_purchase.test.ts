@@ -99,6 +99,7 @@ test('purchase recovery preserves persisted confirmation and stops definitive HT
    const fault=async()=>{throw new HttpError(status,{code:'controlled_fault',message:'controlled fault'},'fault');};
    backend.confirmServicePurchase=fault;backend.resumeServicePurchase=fault;
    await assert.rejects(runServicesPurchase(backend,config,'se_original',stage==='confirm'?input:undefined,{resume:stage==='resume',jsonOutput:true}),error=>{
+    if(status===401||status===403){assert(error instanceof HttpError);assert.equal(error.executionContext?.service_execution_id,'se_original');assert.equal(error.executionContext?.failure_stage,`${stage}_purchase`);return true;}
     assert(error instanceof CommandContractError);assert.equal(error.result?.failure_stage,`${stage}_purchase`);
     assert.deepEqual(error.recovery.map(action=>action.command),status===429||status>=500?['itpay services purchase se_original --resume --json']:[]);return true;
    });

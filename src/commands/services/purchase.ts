@@ -6,7 +6,7 @@ import type {BackendClient} from "../../client/backend.js";
 import type {PurchaseConfirmation} from "../../client/types.js";
 import type {CLIConfig} from "../../state/config.js";
 import {validateContext} from "../../state/client_context.js";
-import {CommandContractError,writeCommandEnvelope} from "../../services/shared/envelope.js";
+import {hasSpecializedHTTPGuidance,CommandContractError,writeCommandEnvelope} from "../../services/shared/envelope.js";
 import {presentServiceCheckout,runServicesCheckout} from "./commerce.js";
 
 type Options=NonNullable<Parameters<typeof runServicesCheckout>[4]> & {timeoutSeconds?:number};
@@ -51,6 +51,10 @@ export async function runServicesPurchase(backend:BackendClient,config:CLIConfig
  }
  writeCommandEnvelope(purchaseEnvelope(state),{...(options.jsonOutput!==undefined ? {jsonOutput:options.jsonOutput}:{}),...(options.output ? {output:options.output}:{})});
  } catch(error) {
+  if(error instanceof HttpError && hasSpecializedHTTPGuidance(error)){
+   error.executionContext={...error.executionContext,service_execution_id:id,execution_created:true,failure_stage:failureStage};
+   throw error;
+  }
   if(error instanceof HttpError || error instanceof HttpTransportError){
    const recoverable=error instanceof HttpTransportError || error instanceof HttpError && (error.status>=500 || error.status===408 || error.status===429) && !["purchase_preparation_unsupported","purchase_review_unavailable","purchase_review_expired","purchase_request_conflict"].includes(error.code);
    const recoveryCommand=`itpay services purchase ${id}${failureStage==="read_purchase_review" ? "" : " --resume"} --json`;

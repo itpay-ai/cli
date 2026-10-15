@@ -222,6 +222,10 @@ function qualifyCommandsDeep(value: unknown, agentType: string | undefined): unk
   return value;
 }
 
+export function hasSpecializedHTTPGuidance(error: HttpError): boolean {
+  return error.status===401 || error.status===403 || error.code.startsWith("provider_") || (error.status===404 && error.code==="unknown_error") || ["client_upgrade_required","client_compatibility_headers_required","platform_release_unavailable","agent_identity_required"].includes(error.code);
+}
+
 export function errorRecoveryActions(error: unknown): ErrorRecoveryAction[] {
   if (!(error instanceof HttpError)) return [];
   if (error.code === "agent_identity_required") {
