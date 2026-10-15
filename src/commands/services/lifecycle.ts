@@ -325,24 +325,32 @@ export function shouldWaitForServiceResult(model: ServiceExecutionReadModel): bo
 export async function runServicesNext(
   backend: BackendClient,
   serviceExecutionID: string,
-  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void>; initialModel?: ServiceExecutionReadModel; deadline?: number; startedAt?: number } = {},
+  options: ServicesCommandOptions & { jsonOutput?: boolean; sinceSnapshot?: string; timeoutSeconds?: number; pollIntervalMS?: number; sleep?: (milliseconds: number) => Promise<void>; initialModel?: ServiceExecutionReadModel; deadline?: number; startedAt?: number; waitedMS?: number } = {},
 ): Promise<void> {
   const started = options.startedAt ?? Date.now();
   const env=options.env ?? process.env;
   const budget=remainingAutomaticWait(serviceExecutionID,env);
-  const until = Math.min(started+budget,options.timeoutSeconds===0 ? started : options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000);
+  const until = Math.min(Date.now()+budget,options.timeoutSeconds===0 ? started : options.deadline ?? started + (options.timeoutSeconds ?? 0) * 1000);
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
   let response = options.initialModel ?? await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});
+  let waitedMS = options.waitedMS ?? 0;
   while (shouldWaitForServiceResult(response) && Date.now() < until) {
-    await sleep(Math.min(Math.max(1500, options.pollIntervalMS ?? serviceAdapter(response.execution).pollAfter(response)), Math.max(0,until-Date.now())));
-    if (Date.now() >= until) break;
-    try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});}
-    catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
+    const pollStarted = Date.now();
+    try {
+      await sleep(Math.min(Math.max(1500, options.pollIntervalMS ?? serviceAdapter(response.execution).pollAfter(response)), Math.max(0,until-Date.now())));
+      if (Date.now() >= until) break;
+      try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});}
+      catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
+    } finally {
+      const elapsed = Math.max(0, Date.now()-pollStarted);
+      waitedMS += elapsed;
+      recordAutomaticWait(serviceExecutionID,elapsed,env);
+    }
   }
   const envelope = servicesNextEnvelope(response);
-  const remaining=recordAutomaticWait(serviceExecutionID,Date.now()-started,env);
+  const remaining=remainingAutomaticWait(serviceExecutionID,env);
   if (shouldWaitForServiceResult(response)) {
-    envelope.result={...envelope.result,waited_seconds:Math.round((Date.now()-started)/1000),auto_wait_remaining_ms:remaining,wait_timed_out:Boolean(options.timeoutSeconds)};
+    envelope.result={...envelope.result,waited_seconds:Math.round(waitedMS/1000),auto_wait_remaining_ms:remaining,wait_timed_out:Boolean(options.timeoutSeconds)};
     const resume={command:`itpay services next ${serviceExecutionID} --timeout 60 --json`,reason:remaining>0 ? "仍在处理，未失败；在剩余预算内读取同一任务" : "仅用户明确要求继续时读取原任务",poll_after_ms:1500};
     envelope.next=remaining>0 ? resume:null;
     if(remaining===0){envelope.recovery=[resume];envelope.instruction="自动等待预算已耗尽，停止自动续读；原任务仍处理中，不是零结果。用户明确要求时只读取原执行。";}
@@ -423,23 +431,31 @@ export async function runServicesRun(
       model = await backend.advanceServiceExecution(id, undefined, `workflow-resume:${id}`,{deadline});
     }
     failureStage = "read_results";
-    const until = options.timeoutSeconds===0 ? startedAt : Math.min(deadline,startedAt+remainingAutomaticWait(id,options.env ?? process.env));
+    const until = options.timeoutSeconds===0 ? startedAt : Math.min(deadline,Date.now()+remainingAutomaticWait(id,options.env ?? process.env));
     const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
+    let waitedMS = 0;
     const paid = () => model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     // A planning projection can exist before any usable result or user action.
     // Keep the existing bounded wait until there is something to hand over.
     while ((["queued", "running", "delivery", "quota_paused"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && shouldWaitForServiceResult(model) && Date.now() < until) {
-      await sleep(Math.min(Math.max(1500,options.pollIntervalMS ?? 1500),Math.max(0,until-Date.now())));
-      if (Date.now() >= until) break;
-      try {model = await backend.getServiceExecution(id,{deadline});}
-      catch(error) {if(error instanceof HttpTransportError && Date.now()>=deadline) break;throw error;}
+      const pollStarted = Date.now();
+      try {
+        await sleep(Math.min(Math.max(1500,options.pollIntervalMS ?? 1500),Math.max(0,until-Date.now())));
+        if (Date.now() >= until) break;
+        try {model = await backend.getServiceExecution(id,{deadline});}
+        catch(error) {if(error instanceof HttpTransportError && Date.now()>=deadline) break;throw error;}
+      } finally {
+        const elapsed = Math.max(0,Date.now()-pollStarted);
+        waitedMS += elapsed;
+        recordAutomaticWait(id,elapsed,options.env ?? process.env);
+      }
     }
     if (model.refunds.some(refund => refund.access_locked)) {
-      await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, timeoutSeconds:options.timeoutSeconds ?? 120});
+      await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, waitedMS, timeoutSeconds:options.timeoutSeconds ?? 120});
       return;
     }
     if (model.purchase_preparation && !model.purchase_review) {
-      await runServicesNext(backend,id,{...options,initialModel:model,deadline,startedAt,timeoutSeconds:0});return;
+      await runServicesNext(backend,id,{...options,initialModel:model,deadline,startedAt,waitedMS,timeoutSeconds:0});return;
     }
     if (model.workflow?.status === "payment" && !paid()) {
       await runServicesCheckout(backend, config, id, model.workflow_entry?.capability_id, {
@@ -451,7 +467,7 @@ export async function runServicesRun(
       });
       return;
     }
-    await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, timeoutSeconds:options.timeoutSeconds ?? 120});
+    await runServicesNext(backend, id, {...options, initialModel:model, deadline, startedAt, waitedMS, timeoutSeconds:options.timeoutSeconds ?? 120});
   } catch (cause) {
     if(!id && cause instanceof HttpError && typeof cause.payload?.service_execution_id === "string") id=cause.payload.service_execution_id;
     if (cause instanceof HttpError) adapter = errorServiceAdapter(cause.payload, serviceID) ?? adapter;

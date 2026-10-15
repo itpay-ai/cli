@@ -19,7 +19,7 @@ import { agentAuth } from "../src/state/account_auth.js";
 import { TaskJournal } from "../src/state/task_journal.js";
 import { isPresentableURL } from "../src/render/browser.js";
 import { resolvePresentation, resolveRelay } from "../src/commands/presentation.js";
-import { runServicesNext, runServicesStart } from "../src/commands/services.js";
+import { runServicesNext, runServicesStart, runServicesRun } from "../src/commands/services.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -367,4 +367,54 @@ test("full flow wait budget persists across journal instances and stage observat
  second.record({service_execution_id:"se_wait",stage:"login_required"});assert.equal(second.remainingAutomaticWait("se_wait"),60000);
  second.observe("se_wait","running");assert.equal(second.recordAutomaticWait("se_wait",60000),0);
  assert.equal(new TaskJournal(path).remainingAutomaticWait("se_wait"),0);
+});
+
+
+test("automatic wait charges polling, not ordinary reads or ready handoffs", async () => {
+  const running = await backend.getServiceExecution("se_rail_plan_running");
+  running.execution = {...running.execution, service_id:"fixture-generic",service_contract_version_id:"fixture-v1"};
+  delete running.execution.public_binding;
+  delete running.rail_planning;
+  delete running.rail_booking;
+  delete running.current_delivery;
+  running.payment_bindings = [];
+  running.workflow = {status:"running",current_step:"fixture",revision:1,steps:{}};
+  const ready = await backend.getServiceExecution("se_rail_plan_complete");
+  const originalNow = Date.now;
+  let clock = originalNow();
+  Date.now = () => clock;
+  const originalGet = backend.getServiceExecution.bind(backend);
+  try {
+    for (const model of [running, ready]) {
+      backend.getServiceExecution = async () => { clock += 5000; return model; };
+      await runServicesNext(backend, model.execution.service_execution_id, {
+        env, output: stdoutSink, jsonOutput: true, timeoutSeconds: model === running ? 0 : 60,
+      });
+      assert.equal(new TaskJournal(env.ITPAY_TASK_JOURNAL_PATH!).remainingAutomaticWait(model.execution.service_execution_id),120000);
+    }
+    running.workflow_entry = {capability_id:"fixture",input_schema:{type:"object"}};
+    ready.execution = {...running.execution};
+    let reads = 0;
+    backend.getServiceExecution = async () => { clock += 5000; return ++reads === 1 ? running : ready; };
+    await runServicesRun(backend,{baseURL:mock.url,environment:"development",checkoutCurrency:"CNY",idempotencyKey:"wait-fixture",ideImageAttach:false},running.execution.service_id,undefined,{
+      executionID:running.execution.service_execution_id,env,output:stdoutSink,jsonOutput:true,timeoutSeconds:60,
+      sleep:async milliseconds => { clock += milliseconds; },
+    });
+    assert.equal(new TaskJournal(env.ITPAY_TASK_JOURNAL_PATH!).remainingAutomaticWait(running.execution.service_execution_id),113500);
+    const id = running.execution.service_execution_id;
+    backend.getServiceExecution = async () => { clock += 500; return ready; };
+    await runServicesNext(backend,id,{env,output:stdoutSink,jsonOutput:true,initialModel:running,timeoutSeconds:60,
+      sleep:async milliseconds => { clock += milliseconds; }});
+    assert.equal(new TaskJournal(env.ITPAY_TASK_JOURNAL_PATH!).remainingAutomaticWait(id),111500);
+    backend.getServiceExecution = async () => { throw new Error("exhausted budget must not query"); };
+    new TaskJournal(env.ITPAY_TASK_JOURNAL_PATH!).recordAutomaticWait(id,111500);
+    await runServicesNext(backend,id,{env,output:stdoutSink,jsonOutput:true,initialModel:running,timeoutSeconds:60,
+      sleep:async () => { throw new Error("exhausted budget must not sleep"); }});
+    const envelope = JSON.parse(stdoutCapture.at(-1)!);
+    assert.equal(envelope.next,null);
+    assert.equal(envelope.result.auto_wait_remaining_ms,0);
+  } finally {
+    Date.now = originalNow;
+    backend.getServiceExecution = originalGet;
+  }
 });
