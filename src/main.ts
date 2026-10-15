@@ -239,6 +239,7 @@ function reportCLIError(
       },
       ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source, ...(stateError.canonicalKeyPublished !== undefined ? {canonical_key_published: stateError.canonicalKeyPublished} : {}) } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
         result: {
+          ...error.executionContext,
           current_cli_version: CLI_VERSION,
           current_api_contract_revision: API_CONTRACT_REVISION,
           platform_api_contract_revision: error.payload?.api_contract_revision ?? null,
@@ -251,11 +252,12 @@ function reportCLIError(
           automatic_retry_performed: transportError.attempts > 1,
           network_diagnostics: transportError.diagnostics,
         },
-      } : error instanceof HttpError && error.payload?.service_execution_id ? {
+      } : error instanceof HttpError && (error.payload?.service_execution_id || error.executionContext) ? {
         result: {
-          service_execution_id: error.payload.service_execution_id,
-          ...(typeof error.payload.provider_called === "boolean" ? {provider_called:error.payload.provider_called} : {}),
-          ...(error.payload.effective_quota ? {
+          ...(error.payload?.service_execution_id ? {service_execution_id:error.payload.service_execution_id} : {}),
+          ...error.executionContext,
+          ...(typeof error.payload?.provider_called === "boolean" ? {provider_called:error.payload.provider_called} : {}),
+          ...(error.payload?.effective_quota ? {
             quota: {
               remaining: error.payload.effective_quota.remaining,
               limit: error.payload.effective_quota.limit,

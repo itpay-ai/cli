@@ -22,48 +22,13 @@ itpay services get <service_execution_id> [--json]
 
 命令使用当前签名 Agent Device session；可见范围由 Backend 按设备和已绑定 Buyer account 决定。
 
-## 标准输出
+## 当前状态与恢复
 
-```json
-{
-  "status": "shown",
-  "result": {
-    "service_execution_id": "<id>",
-    "service_id": "<service_id>",
-    "status": "<status>",
-    "phase": "<phase>",
-    "current_capability_id": "<optional capability>",
-    "updated_at": "<time>",
-    "timeline": [
-      {
-        "sequence": 1,
-        "step": "<public step>",
-        "status": "<status>",
-        "phase": "<phase>",
-        "occurred_at": "<time>"
-      }
-    ],
-    "delivery_mode": "<optional mode>"
-  },
-  "instruction": "时间线仅用于解释和恢复；按当前首选动作继续，不要重放已完成步骤。",
-  "next": { "command": "<state-derived command>", "reason": "继续当前首选动作" },
-  "recovery": [
-    { "command": "itpay services events <service_execution_id> --json", "reason": "仅在需要完整诊断事件时使用" }
-  ]
-}
-```
+返回原执行的安全状态、当前动作和最近20个公开节点；超出时 timeline_truncated=true。没有动作就停止，不从时间线推导重放步骤。需要诊断且当次明确建议时才读取 services events。
 
-当 execution 为 `failed`、`refunded` 或 `cancelled` 时，`next` 必须是 `null`；只允许通过 `services events` 诊断终止原因，不得建议重放 capability 或创建 Checkout。
+购买材料、完整 review 和待填输入使用当次返回的完整模板，不手拼字段。缺合同、材料过期、权限拒绝或读取失败按实际原因处理，不能自动切到旧购买链或创建替代执行。
 
-`timeline` 只保留最近 20 个公开节点；超过时增加 `timeline_truncated: true`。它不返回 event ID 或 `redacted_summary`。交付存在时可增加 `delivery_mode`；退款锁存在时增加 `access_locked` 和退款 ID/status，并优先返回锁定 instruction。
-
-订票类 Execution 的 `workflow:confirm_booking` 待确认/待修订状态不在 timeline 中展开细节——行程、`seat_options` 与当前 `draft_revision` 一律通过 `services next` 的 `booking_review_required` 投影读取；`get` 只用于确认执行仍处于可继续状态。
-
-## 异常处理
-
-默认不返回原始 events、Provider metadata、内部 bindings、Arazzo workflow、capability schema、candidate hash、client context 或完整 payload。需要完整但仍经服务端脱敏的事件时才运行 `services events`。
-
-execution 不存在或不属于当前身份时保留不透明 `not_found`，只恢复到 `itpay services list --json`；不得通过错误差异探测其他账号。
+退款访问锁优先于交付；failed/refunded/cancelled 等终态不创建 Checkout。历史已交付记录不证明当前授权仍有效。默认不返回供应商原始数据、凭据、内部binding或完整事件DTO。
 
 ## Agent Type / Host
 

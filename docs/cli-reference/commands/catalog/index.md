@@ -6,7 +6,7 @@
 
 读取已发布的服务目录，帮助 Agent 发现可启动的通用服务。Catalog 只描述产品和入口，不执行服务、不创建购物车。
 
-**上游：** `readyz`。
+**上游：** setup并启用同包Skill后，用户提出新服务需求。
 **下游：** [`catalog list`](list.md)，然后按目录中的 `service_id` 使用 `services start`。
 
 ## 子命令

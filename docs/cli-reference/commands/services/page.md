@@ -29,43 +29,10 @@ rail.progressive.v2 中 `<result_item_id>` 也可以是规划快照 ID（`rps_�
 
 需要有效 Agent Device session。
 
-## 分页信封
+## 当前分页输出
 
-有候选返回 `result_page`，读尽返回 `result_page_end`：
+返回同快照的 total、offset、count、下一偏移及完整业务行；页大小受最终输出字节预算约束，不截断一条线路。读尽 next=null；有后页只在还需比较时使用当次完整分页命令，不无意义翻完所有页。诊断或不可用方案保留原因，不把它们当可购买结果。
 
-```json
-{
-  "status": "result_page",
-  "result": {
-    "service_execution_id": "<id>",
-    "service_capability_result_item_id": "<item_id>",
-    "offset": 0,
-    "limit": 20,
-    "total": 63,
-    "count": 20,
-    "next_offset": 20,
-    "page": { "catalog_page": { "...": "..." }, "candidates": [ { "title": "<title>" } ] }
-  },
-  "instruction": "读取的是已保存结果的同版本分页，不重新查询、不消耗额度。用普通语言向用户说明本页候选；铁路应付与地面估算费用分开表述；不要提及 safe_payload、Execution 或内部 ID。",
-  "next": { "command": "itpay services page <id> <item_id> --offset 20 --json", "reason": "读取同版本结果的下一页" },
-  "recovery": []
-}
-```
+Exact 单车详情使用保存的 result_offset 和 limit=1，给出席别代码／名称、库存与当前完整购买模板。Smart 详情沿返回的同快照入口读取完整多段票计划。当前价格不等于锁价，凭据不自行拼接；完整输入和 continuation 从该详情原样承接。
 
-`next_offset` 为 `null` 时 `next` 为 `null`；`offset > 0` 时 `recovery` 提供回到第一页的命令。页内候选可携带 `booking_offer`，承接方式与 `services next` 结果一致。
-
-铁路 Exact 对已保存的单条车次使用 `--offset <result_offset> --limit 1 --json`，返回 `exact_train_detail`、当前席别代码与名称、库存/报价事实和 `booking_template`。模板中的 `selection.token` 来自服务端，`seat_type` 只能选当前返回的可购代码；人数按用户需求填写。查询价格不等于锁价。
-
-## 异常处理
-
-`--offset` 非负整数、`--limit` 必须在 `1`–`20` 内，否则在发起请求前返回 `offset_invalid` / `limit_invalid` 信封，不消耗服务端分页。execution 或 result item 不存在、不属于当前设备/账号时返回错误信封，并仅建议：
-
-```text
-itpay services next <service_execution_id> --json
-```
-
-分页读取的是已保存的同版本结果；不要重新发起查询或新建 execution 来"刷新"分页。
-
-## Agent Type / Host
-
-所有正式支持的 Local Agent Type 返回完全相同的状态、分页事实、instruction 和 next。本命令不渲染二维码，也不包含 Host handoff。
+参数、归属、快照或读取错误按当次真实原因恢复；保存结果读取不触发供应商、不消耗查询额度，不用新查询“刷新”分页。所有宿主使用相同事实。

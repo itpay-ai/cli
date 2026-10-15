@@ -25,10 +25,9 @@ itpay cart next --json
 --qr-format <format>            unicode|utf8|ansi|terminal
 --qr-file <path>                explicit QR file path
 --locale <locale>               payment card language: zh-CN|en (default:
---pay                           also create a payment intent and optionally
+--pay                           explicit controlled integration only; creates a payment intent
 --method <alipay|wechatpay>     payment method for --pay (default: "alipay")
---no-wait                       do not wait for payment verification after
---pay
+--no-wait                       do not wait after an explicitly authorized --pay
 --timeout <seconds>             max seconds to wait for payment (default:
 --json                          output JSON instead of terminal text
 ```

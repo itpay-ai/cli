@@ -45,25 +45,7 @@ itpay docs show <topic> [--json]
 
 ## 异常处理
 
-topic 不存在返回 `doc_not_found`：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "doc_not_found",
-    "message": "doc topic not found: <topic>"
-  },
-  "instruction": "使用稳定 topic 名称；不要根据标题猜 topic。",
-  "next": null,
-  "recovery": [
-    { "command": "itpay docs list --json", "reason": "列出全部 topic" },
-    { "command": "itpay docs search <topic> --json", "reason": "按关键词重新搜索" }
-  ]
-}
-```
-
-文档文件损坏使用 `docs_unavailable`，与 `docs list` 相同。
+topic 不存在按当前返回使用稳定topic名称；文档缺失／损坏使用真实错误停止，由原安装方式修复，不猜标题、编造命令或另装全局CLI。
 
 ## Agent Type / Host
 

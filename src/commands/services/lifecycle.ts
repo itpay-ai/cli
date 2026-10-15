@@ -478,6 +478,10 @@ export async function runServicesRun(
         ...(cause instanceof HttpError && typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})
       });
     }
+    if (cause instanceof HttpError && id) cause.executionContext={
+      service_id:serviceID,service_execution_id:id,execution_created:true,
+      ...(inputContext.operationID?{operation_id:inputContext.operationID}:{}),failure_stage:failureStage
+    };
     // Keep authentication, compatibility and provider classification available to the CLI reporter.
     if (cause instanceof HttpError && (cause.status===401 || cause.status===403 || cause.code.startsWith("provider_") || (cause.status===404 && cause.code==="unknown_error") || ["client_upgrade_required","client_compatibility_headers_required","platform_release_unavailable","agent_identity_required"].includes(cause.code))) throw cause;
     if (cause instanceof HttpError && id) {

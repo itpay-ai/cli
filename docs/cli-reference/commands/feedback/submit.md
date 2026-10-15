@@ -3,7 +3,7 @@
 ## 范围与意义
 
 在当前 Local Agent 完成一笔已有 Order 后，记录一次最小、安全的服务复盘。用户评分
-和原话均为可选；Agent 即使没有收到评分或评论，也要提交已知的服务结果上下文。CLI
+和原话均为可选；Agent 即使没有收到评分或评论，可以提交已知的安全服务结果上下文，复盘可选且不延迟交付。CLI
 通过 Feedback 专用选项接口选择真实项目，再调用现有 Feedback Owner。用户不需要知道
 Order ID、Order Item ID、Device 或 Agent Instance。
 
@@ -98,7 +98,7 @@ CLI 不读取或上传 Host 对话、WorkBuddy/ZCode sandbox 日志或其他本�
 未评分时成功结果省略 `rating`。同一 submitter 在用户后来补充评分或评论时会更新
 现有记录并重新进入 `new`，不是创建第二条。
 
-如果用户没有给出评分或评论，Agent 仍提交 Context；成功 instruction 改为“无需打扰
+如果用户没有给出评分或评论，Agent 可选提交安全 Context；成功 instruction 改为“无需打扰
 用户”，不得声称用户表达过意见。
 
 ## 多项目 JSON
@@ -119,21 +119,9 @@ CLI 不读取或上传 Host 对话、WorkBuddy/ZCode sandbox 日志或其他本�
 }
 ```
 
-## 错误合同
+## 记录边界
 
-| 状态/错误 | 行为 |
-| --- | --- |
-| `order_required` | 使用当前 exact Agent 的 `services list` 恢复原服务；找不到时指向官方订单页或原 Local Agent，不用账号订单/Vault 绕过。 |
-| `feedback_rating_invalid` | 用户提供了评分但格式不是 1–5；不提交、不猜测。 |
-| `feedback_note_too_long` | 请用户缩短；不截断、不提交。 |
-| `feedback_unavailable` | 该 Order 当前没有可反馈项目；不猜 ID。 |
-| `feedback_item_invalid` | 重新使用返回的项目 rank；不提交。 |
-| `feedback_not_available_for_agent` | 当前 Agent 不能代该订单提交；指向官方订单页或原 Local Agent，不切身份绕过。 |
-| `feedback_rejected` | 输入未被记录；只有用户修正明确输入后才重试。 |
-| `feedback_submission_unknown` | 无法确认是否记录；停止自动重试，只有用户明确要求后才再次提交。 |
-
-Feedback POST 不做自动 transport retry。虽然 Backend 使用 upsert，重放仍会更新记录
-并追加事件，CLI 不能把它当成无副作用查询。
+按实际返回的项目、权限与输入要求处理；缺真实评分不猜，无法确认记录结果就停止自动重试。Feedback POST 不做自动 transport retry；后台upsert仍会追加事件，不能当只读查询。原账号级读取授权、MCP或其他Agent历史不赋予写权限；不换身份绕过。复盘可选，不打断结果／官方入口交付。
 
 ## Agent Type / Host
 

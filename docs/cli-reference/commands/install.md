@@ -113,44 +113,8 @@ OpenClaw 额外明确没有默认入口：
 
 `next` 保持为空，因为 CLI 不能替 Agent 猜测其宿主平台；Agent 必须自行完成这次选择并继续执行，不得把技术选择或命令转交给用户。
 
-## Agent Type / Host
+## 宿主与限制
 
-| Agent Type | 默认 Host | instruction 重点 |
-| --- | --- | --- |
-| `codex-desktop` | `codex` | 桌面对话必须实际展示二维码和付款链接。 |
-| `codex-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
-| `claude-code-desktop` | `claude-code` | 桌面对话必须实际展示二维码和付款链接。 |
-| `claude-code-cli` | `terminal` | 只在用户可见终端展示付款交接。 |
-| `workbuddy` | `plain-chat` | 为 `~/.itpay-v3` 申请正常持久化权限；拒绝时报告受阻操作。Checkout 原样执行返回的 `present_files` action，打开渲染后的 Card Link。 |
-| `zcode` | `plain-chat` | Checkout 或授权返回后立即用 ZCode 内置浏览器打开 `handoff.url`；只有浏览器不可用时才展示同一个可点击链接。 |
-| `doubao-work` | `plain-chat` | Checkout 或授权时同时展示 `handoff.url` 和 `handoff.qr_image_url` 两个有标签的官方入口；优先让手机直接打开链接，二维码供保存或另一台设备扫码。 |
-| `kimi-code` | `terminal` | 使用标准 CLI 流程和终端展示，不增加 Kimi 专属命令。 |
-| `openclaw` | 无 | 必须显式提供当前入口；Telegram 使用原生 action，其他入口展示标准二维码和链接。 |
+使用当前真实 Agent Type；同类型窗口复用当前 Backend 下的同一实例。显式 host 只改变展示，不改变身份、业务或同意。正式 Skill 与 render-hosts 拥有当前可用展示指引；原生工具不可用时同轮展示原官方URL，不为了图片或按钮反复排障。
 
-显式 `--host` 可以在后续 commerce 命令覆盖默认 Host，但不会改变 Agent Type 或设备归属。
-
-同一类型的不同窗口、任务和聊天复用当前 Backend 下的同一个 Agent Instance。切换 Backend 会在同一本地私钥下建立独立服务端登记，不会把 dev/test/app 的 Device ID 混用。
-
-## 异常处理
-
-未知 target 返回：
-
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "unsupported_agent_type",
-    "message": "unsupported install target: codex"
-  },
-  "instruction": "target 只接受：codex-desktop, codex-cli, claude-code-desktop, claude-code-cli, workbuddy, zcode, doubao-work, kimi-code, openclaw。",
-  "next": null,
-  "recovery": [
-    {
-      "command": "itpay install --json",
-      "reason": "列出正式支持的 Agent Type"
-    }
-  ]
-}
-```
-
-错误不会写入本地状态。不要把 `codex`、`terminal` 或 `claude-code` 等 Host 名称当成 Agent Type。
+未知 target 或参数错误按实际返回修正；本命令不写身份。准备设备统一使用 setup，不把 install、readyz、auth status 串成重复初始化链。

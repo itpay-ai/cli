@@ -6,7 +6,7 @@
 
 读取并恢复一笔已存在 Checkout 的公开展示状态。它不创建新 Checkout，也不把“用户说已付款”当作付款成功。
 
-**上游：** `buy` 或 `services checkout` 返回的 `checkout_id` 与 display token。
+**上游：** `services purchase`、明确独立Cart的 `buy` 或原 Checkout reader 返回的 `checkout_id` 与 display token。
 **下游：** 继续授权/付款、读取关联 Service Execution，或结束等待。
 
 ## 语法与参数
@@ -74,20 +74,6 @@ token 缺失或不匹配时使用本机句柄恢复。只有请求的 Checkout �
 }
 ```
 
-## Agent Type / Host
+## 宿主交付
 
-等待付款时：
-
-| Agent Type | Handoff |
-|---|---|
-| `codex-desktop` | `url, qr_local_path, markdown`；原样发送 Markdown。 |
-| `codex-cli` | `url`；普通文本模式渲染终端二维码。 |
-| `claude-code-desktop` | `url, qr_local_path, markdown`；原样发送 Markdown。 |
-| `claude-code-cli` | `url`；普通文本模式渲染终端二维码。 |
-| `workbuddy` | 返回 `url,agent_action`；原样执行一次 `present_files(files=[url])` 打开完整渲染的 HTML Card Link，不生成本地文件。 |
-| `zcode` | 返回 `url`；立即用 ZCode 内置浏览器打开，不只粘贴文字链接，也不生成或重建二维码文件。 |
-| `doubao-work` | 返回 `url,qr_image_url`；展示手机直达收银台链接和官方二维码图片链接，说明金额后停止。 |
-| `kimi-code` | `url`；普通文本模式渲染标准终端二维码。 |
-| `openclaw` | Telegram 为 `url,qr_image_url,agent_action`；instruction 强制原样执行 action。`📋 已授权给我读` callback 触发同一 Checkout 查询，再由 Backend 决定是否进入 grant 读取；其他显式 Host 为 `url,qr_image_url`。 |
-
-完成、退款或失效状态下所有 Agent Type 都只返回同一状态和下一步，不渲染二维码。OpenClaw 的 `--target` 必须使用原生 chat target 并传入展示层，不能添加 `telegram:` 前缀或被 CLI 参数解析后丢弃。
+采用正式 Skill 和当前 handoff 的宿主动作；原生工具不可用或可选图片失败时同轮展示原官方URL，不创建替代付款资源。callback与人的付款陈述都不证明支付；完成、退款或失效状态不再生成付款展示。

@@ -43,8 +43,7 @@ Skill 不能默认把 Agent 引向 Catalog：用户可能要读取以前购买�
 ```
 
 未知 Skill 名称返回 `skill_not_found`；包内文件缺失或损坏返回
-`skill_unavailable`。除完整已发布 Skill 内容外，不得附加本地路径、安装
-目录、环境变量、Device 状态或 Backend 数据。
+`skill_unavailable`。正常读取只返回完整同包 Skill，不附加设备或Backend数据；读取错误仅采用当次允许的同包路径和真实原因，不猜安装目录。
 
 `workbuddy` 只在 instruction 中增加既有的本地权限要求；不改变输入、输出
 schema 或意图路由。

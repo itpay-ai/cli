@@ -44,23 +44,10 @@ itpay vault list [--query <text>] [--limit <1..50>] [--cursor <cursor>] [--host 
 
 ## 授权缺失
 
-```json
-{
-  "status": "human_authorization_required",
-  "result": {
-    "intent": "list_purchased_content",
-    "query": "<original-query-or-empty>"
-  },
-  "instruction": "需要用户确认一次身份和只读权限；执行 next.command 生成入口，不要声称链接已经创建。",
-  "next": {
-    "command": "itpay vault access --json",
-    "reason": "创建一次账号读取授权"
-  },
-  "recovery": []
-}
-```
+授权缺失返回 human_authorization_required。上下文完整时只执行当次完整的账号授权 next 一次；缺 host/target 时 next=null，使用返回的不可执行完整模板从当前可信会话补齐，不把通用示例套到所有宿主。真实交付入口后停止，授权不等于购买或付款。
+
 
 授权完成后只重新运行原始 `vault list` 命令，保留 query、limit 和 cursor。
 无效 limit/cursor 在 HTTP 前返回稳定错误。授权过期不自动重试、不创建新
 Device。OpenClaw 的授权下一步保留原命令的 `--host` 和所需 `--target`；若原
-命令没有提供，CLI 使用明确占位符要求 Agent 从当前可信会话补齐。
+命令没有提供，next=null，并返回不可执行的完整输入模板，由Agent从当前可信会话补齐。

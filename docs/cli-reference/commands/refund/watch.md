@@ -4,7 +4,7 @@
 
 ## 范围与意义
 
-轮询同一退款直到终态或 timeout。命令内部可以读取多次，但对外只输出一个最终信封，不把无变化轮询刷入 Agent 上下文。中断后可无副作用重跑。
+有界读取同一退款，直到状态变化、人工／结果未知、终态或 timeout。命令内部可以读取多次，但对外只输出一个最终信封，不把无变化轮询刷入 Agent 上下文。中断后可无副作用重跑。
 
 **上游：** active refund。  
 **下游：** `succeeded`、`failed`、`cancelled`、`rejected` 等终态，或稍后继续 watch。
@@ -19,7 +19,7 @@ itpay refund watch <refund_request_id> [--interval <seconds>] [--timeout <second
 | --- | --- | --- |
 | `refund_request_id` | 无 | 必填。 |
 | `--interval <seconds>` | `2` | 必须至少 1 秒。 |
-| `--timeout <seconds>` | `120` | 必须为正数；可使用小数。 |
+| `--timeout <seconds>` | `20` | 必须为正数；可使用小数。 |
 | `--json` | 关闭 | 输出一个可直接解析的 JSON 信封。 |
 
 非法轮询参数在第一次 HTTP 请求前失败。
@@ -38,7 +38,7 @@ itpay refund watch <refund_request_id> [--interval <seconds>] [--timeout <second
     "access_locked": true,
     "can_cancel": false
   },
-  "instruction": "先告诉用户退款已由 ItPay 确认成功，原交付永久关闭；不需要继续跟踪或重复申请。",
+  "instruction": "先说明本次退款钱款已由ItPay确认成功；按原订单核对实际金额范围、履约及访问锁，不推断整单全部退款，不恢复旧授权或重复申请。",
   "next": null,
   "recovery": []
 }
@@ -46,29 +46,9 @@ itpay refund watch <refund_request_id> [--interval <seconds>] [--timeout <second
 
 其他终态使用与 `refund get` 相同的锁、恢复资格和旧 grant 规则。特别是 `failed` 必须按 `failure_class` 区分 `known_no_effect`、`retryable`、`outcome_unknown` 和 `permanent`；任何一种都不向 Agent 返回重试命令。
 
-## Timeout 输出
+## 等待边界
 
-Timeout 只表示本次 CLI 等待结束，不表示退款失败：
-
-```json
-{
-  "status": "watch_timeout",
-  "result": {
-    "refund_request_id": "<id>",
-    "last_status": "<status>",
-    "access_locked": true,
-    "can_cancel": true
-  },
-  "instruction": "先告诉用户退款仍在处理，Timeout 只表示本次等待结束，并不表示退款失败；稍后继续跟踪同一退款，不要重复申请或承诺结果。",
-  "next": {
-    "command": "itpay refund watch <refund_id> --json",
-    "reason": "恢复轮询"
-  },
-  "recovery": []
-}
-```
-
-网络、ID 或参数错误返回错误信封，并只建议 `itpay refund get <id> --json` 检查当前状态。
+人工审核、outcome_unknown或关键状态变化立即交回权威快照，不继续等待，也不把人工审核覆盖成超时。等待到期只说明本次等待结束；非终态的next只读同一退款一次 get，不自动接力watch。只有用户需要时沿当次条件读取原退款。失败按failure_class保留停止和对账边界，不重复申请或承诺到账。
 
 ## Agent Type / Host
 
