@@ -14,6 +14,9 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
     const workflowReason = model.workflow?.failure?.reason_code ?? model.workflow?.error_code;
     const paymentVerified = model.payment_bindings.some((binding) => binding.status === "payment_verified") || model.checkout_bindings.some((binding) => binding.status === "payment_verified");
     const state = model.workflow?.status === "payment" && paymentVerified ? "running" : model.workflow?.status ?? "input_required";
+    if(state==="failed" && workflowReason==="queue_expired") return {
+      status:"queue_expired",result:{accepted:true,service_execution_id:id,reason:workflowReason,query:model.workflow?.query_input},
+      instruction:"查询在容量等待期限内未能完成派发，本次已停止；这不表示没有车。保留原条件及已有结果，不扩大范围、不重建购买或付款。",next:null,recovery:[]};
     if (["quota_paused", "failed"].includes(state) && !RAIL_LOCATION_EVIDENCE_REASONS.has(workflowReason ?? "") && (model.workflow?.dependency ||
       /^amap_/.test(workflowReason ?? ""))) {
       const dependency = model.workflow?.dependency;

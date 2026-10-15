@@ -322,6 +322,13 @@ export function shouldWaitForServiceResult(model: ServiceExecutionReadModel): bo
   return ["queued", "running", "delivery"].includes(model.workflow?.status ?? "");
 }
 
+function servicePollDelay(model: ServiceExecutionReadModel, requested?: number): number {
+  const scheduling = model.scheduling;
+  const retry = scheduling?.accepted === true && scheduling.execution_id === model.execution.service_execution_id
+    && Number.isFinite(scheduling.retry_after_ms) ? scheduling.retry_after_ms : 0;
+  return Math.max(1500, retry, requested ?? serviceAdapter(model.execution).pollAfter(model));
+}
+
 export async function runServicesNext(
   backend: BackendClient,
   serviceExecutionID: string,
@@ -337,7 +344,7 @@ export async function runServicesNext(
   while (shouldWaitForServiceResult(response) && Date.now() < until) {
     const pollStarted = Date.now();
     try {
-      await sleep(Math.min(Math.max(1500, options.pollIntervalMS ?? serviceAdapter(response.execution).pollAfter(response)), Math.max(0,until-Date.now())));
+      await sleep(Math.min(servicePollDelay(response,options.pollIntervalMS), Math.max(0,until-Date.now())));
       if (Date.now() >= until) break;
       try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),deadline:until});}
       catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
@@ -351,7 +358,7 @@ export async function runServicesNext(
   const remaining=remainingAutomaticWait(serviceExecutionID,env);
   if (shouldWaitForServiceResult(response)) {
     envelope.result={...envelope.result,waited_seconds:Math.round(waitedMS/1000),auto_wait_remaining_ms:remaining,wait_timed_out:Boolean(options.timeoutSeconds)};
-    const resume={command:`itpay services next ${serviceExecutionID} --timeout 60 --json`,reason:remaining>0 ? "仍在处理，未失败；在剩余预算内读取同一任务" : "仅用户明确要求继续时读取原任务",poll_after_ms:1500};
+    const resume={command:`itpay services next ${serviceExecutionID} --timeout 60 --json`,reason:remaining>0 ? "仍在处理，未失败；在剩余预算内读取同一任务" : "仅用户明确要求继续时读取原任务",poll_after_ms:servicePollDelay(response,options.pollIntervalMS)};
     envelope.next=remaining>0 ? resume:null;
     if(remaining===0){envelope.recovery=[resume];envelope.instruction="自动等待预算已耗尽，停止自动续读；原任务仍处理中，不是零结果。用户明确要求时只读取原执行。";}
   }
@@ -440,7 +447,7 @@ export async function runServicesRun(
     while ((["queued", "running", "delivery", "quota_paused"].includes(model.workflow?.status ?? "") || (model.workflow?.status === "payment" && paid())) && shouldWaitForServiceResult(model) && Date.now() < until) {
       const pollStarted = Date.now();
       try {
-        await sleep(Math.min(Math.max(1500,options.pollIntervalMS ?? 1500),Math.max(0,until-Date.now())));
+        await sleep(Math.min(servicePollDelay(model,options.pollIntervalMS),Math.max(0,until-Date.now())));
         if (Date.now() >= until) break;
         try {model = await backend.getServiceExecution(id,{deadline:until});}
         catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
@@ -473,6 +480,12 @@ export async function runServicesRun(
     if (cause instanceof HttpError) adapter = errorServiceAdapter(cause.payload, serviceID) ?? adapter;
  if(cause instanceof HttpError && cause.code==="public_operation_invalid")throw new CommandContractError(cause.code,cause.message,"按返回的固定service_definition核对声明操作；购买仍使用原结果详情的完整continuation模板，不改owner/snapshot、不猜operation、不重建原购买。",cause.payload?.service_definition?[]:[{command:"itpay catalog list --json",reason:"只读公开目录与定义；不创建执行"}],undefined,{service_id:serviceID,...(cause.payload?.service_definition?{service_definition:cause.payload.service_definition}:{}),execution_created:id ? true : typeof cause.payload?.execution_created==="boolean" ? cause.payload.execution_created:"unknown",...(typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})});
 
+    if(cause instanceof HttpError && cause.code==="query_capacity_not_accepted" && cause.payload?.accepted===false) {
+      writeCommandEnvelope({status:"not_accepted",result:{accepted:false,execution_created:Boolean(id),...(id?{service_execution_id:id}:{}),provider_called:false,reason:cause.payload.reason,retry_after_ms:cause.payload.retry_after_ms},
+        instruction:id ? "本次输入尚未接收；保留原执行和条件，按返回的等待时间重试同一执行，不新建查询或扩大范围。" : "本次查询尚未接收，没有新执行编号。按返回的等待时间保留原条件重试；不要读取不存在的任务、换站或扩大范围。",
+        next:null,recovery:[],...(input!==undefined?{interaction:{schema_version:"itpay.interaction.v1",stage:"input_required",input_template:operationInputTemplate({...inputContext,executionID:id},input)}}:{})},options);
+      return;
+    }
     if (cause instanceof HttpError && cause.code === "capability_input_invalid") {
       const schema = cause.payload?.input_schema;
       const executionID = cause.payload?.service_execution_id ?? id;

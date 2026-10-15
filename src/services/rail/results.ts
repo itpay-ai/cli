@@ -334,6 +334,8 @@ export function railPlanningEnvelope(model: ServiceExecutionReadModel): CommandE
     case "failed":
     case "cancelled":
     case "expired": {
+      if(plan.search?.reason==="queue_expired") return {status:"queue_expired",result,
+        instruction:"查询的容量等待期限已到，本次停止派发；这不是无车结论。已有铁路事实仍按返回的同快照入口读取；保留原条件，不因容量等待自动换站或扩大搜索。",next:null,recovery:[]};
       if (expansion === "failed" && !plan.snapshot_id &&
           ["address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified", "coordinate_name_mismatch", "endpoint_adcode_name_conflict", "endpoint_station_name_code_conflict", "endpoint_poi_name_conflict"].includes(plan.search?.reason ?? "")) {
         return {

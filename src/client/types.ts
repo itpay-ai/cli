@@ -330,6 +330,8 @@ export interface PlatformCompatibility {
 }
 
 export interface ErrorResponse {
+	accepted?:boolean;
+	retry_after_ms?:number;
  public_binding?: ServiceExecution["public_binding"];
  service_definition?:PublicServiceDefinition;
  service_id?:string;
@@ -846,6 +848,7 @@ export interface RailPlanningCatalog {
 }
 
 export interface ServiceExecutionReadModel {
+	scheduling?:{accepted:true;state:"queued";execution_id:string;reason:"scheduled"|"subject_capacity"|"provider_capacity";retry_after_ms:number};
  purchase_preparation?:"ready"|"expired";
  purchase_review?:ServicePurchaseReview;
   rail_booking?: RailBookingStatus;

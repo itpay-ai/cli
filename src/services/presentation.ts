@@ -28,6 +28,13 @@ export function servicesNextEnvelope(model: ServiceExecutionReadModel): CommandE
   if(model.purchase_review) return purchaseEnvelope({status:"confirmation_required",service_execution_id:execution.service_execution_id,completed_stage:"selected",review:model.purchase_review,effects:{page_created:false,page_reused:false,payment_requested:false,charged:false,human_page_action_required:false}});
   if(model.purchase_preparation) return {status:model.purchase_preparation==="expired"?"purchase_review_expired":"purchase_review_unavailable",result:{service_execution_id:execution.service_execution_id,purchase_preparation:model.purchase_preparation},instruction:"当前购买材料无法用于确认；保留同一执行与原付款事实，只读取原购买状态，不切换下单路径或新建购买。",next:null,recovery:[{command:`itpay services purchase ${execution.service_execution_id} --json`,reason:"读取原购买的当前材料及适用恢复动作"}]};
   const businessState = adapter.projectState(model);
+	const scheduling=model.scheduling;
+	if(scheduling?.accepted===true && scheduling.state==="queued" && scheduling.execution_id===execution.service_execution_id &&
+	 !model.workflow?.human_action && (!businessState || ["queued","running","planning","pending"].includes(businessState.status))) {
+		return {status:"queued",result:{accepted:true,service_execution_id:execution.service_execution_id,reason:scheduling.reason,retry_after_ms:scheduling.retry_after_ms},
+		 instruction:"查询已接收，正在等待服务处理。按下一步继续查看同一条查询，无需重新提交；等待不代表没有结果。",
+		 next:{command:`itpay services next ${execution.service_execution_id} --timeout 60 --json`,reason:"在剩余自动等待预算内读取原查询",poll_after_ms:scheduling.retry_after_ms},recovery:[]};
+	}
   if (businessState) return businessState;
   const availableResult = adapter.savedResult(model);
   if (availableResult && adapter.shouldWait(model) === false) return availableResult;

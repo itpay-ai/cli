@@ -6,8 +6,8 @@ import type { ServiceExecution, ErrorResponse } from "../client/types.js";
 // Published identities are frozen compatibility contracts. Fields named
 // endpoints/review/search, titles and ID prefixes never choose a business adapter.
 const legacyRailContracts = new Map<string, ReadonlySet<string>>([
- ["itpay-rail-exact", new Set(["scv_itpay_rail_exact_v1"])],
- ["itpay-rail-smart", new Set(["scv_itpay_rail_smart_v1", "scv_itpay_rail_smart_v2", "scv_itpay_rail_smart_v3", "scv_itpay_rail_smart_v4", "scv_itpay_rail_smart_v5", "scv_itpay_rail_smart_v6"])],
+ ["itpay-rail-exact", new Set(["scv_itpay_rail_exact_v1", "scv_itpay_rail_exact_v1_capacity_20261015"])],
+ ["itpay-rail-smart", new Set(["scv_itpay_rail_smart_v1", "scv_itpay_rail_smart_v2", "scv_itpay_rail_smart_v3", "scv_itpay_rail_smart_v4", "scv_itpay_rail_smart_v5", "scv_itpay_rail_smart_v6", "scv_itpay_rail_smart_v6_capacity_20261015"])],
  ["itpay-rail-booking", new Set(["scv_itpay_rail_booking_v1", "scv_itpay_rail_booking_v2", "scv_itpay_rail_booking_v3", "scv_itpay_rail_booking_v4"])],
 ]);
 export type ServiceAdapterKey = "rail.v1" | "schema.v1" | "unsupported";
@@ -15,7 +15,7 @@ export function serviceAdapterKey(execution: Pick<ServiceExecution, "service_id"
  const binding = execution.public_binding;
  if (binding) {
   if (binding.adapter_key === "schema.v1") return "schema.v1";
-  if (binding.adapter_key === "rail.v1" && binding.service_definition_version === "scv_itpay_rail_public_v1") return "rail.v1";
+  if (binding.adapter_key === "rail.v1" && ["scv_itpay_rail_public_v1", "scv_itpay_rail_public_v1_capacity_20261015"].includes(binding.service_definition_version)) return "rail.v1";
   return "unsupported";
  }
  const versions = legacyRailContracts.get(execution.service_id);
