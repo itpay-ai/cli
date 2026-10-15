@@ -413,6 +413,27 @@ test("automatic wait charges polling, not ordinary reads or ready handoffs", asy
     const envelope = JSON.parse(stdoutCapture.at(-1)!);
     assert.equal(envelope.next,null);
     assert.equal(envelope.result.auto_wait_remaining_ms,0);
+    for (const entry of ["next", "run"]) {
+      const limitedID = `se_limited_${entry}`;
+      const limited = {...running,execution:{...running.execution,service_execution_id:limitedID}};
+      new TaskJournal(env.ITPAY_TASK_JOURNAL_PATH!).recordAutomaticWait(limitedID,118000);
+      const commandStart = clock;
+      let gets = 0;
+      backend.getServiceExecution = async (_id,options) => {
+        gets++;
+        if (entry === "run" && gets === 1) return limited;
+        assert.equal(options?.deadline,commandStart+2000);
+        clock = options!.deadline!;
+        return limited;
+      };
+      const options = {env,output:stdoutSink,jsonOutput:true,timeoutSeconds:60,deadline:commandStart+60000,
+        sleep:async (milliseconds:number) => { clock += milliseconds; }};
+      if(entry === "next") await runServicesNext(backend,limitedID,{...options,initialModel:limited});
+      else await runServicesRun(backend,{baseURL:mock.url,environment:"development",checkoutCurrency:"CNY",idempotencyKey:"wait-fixture",ideImageAttach:false},limited.execution.service_id,undefined,{...options,executionID:limitedID});
+      assert.equal(clock,commandStart+2000);
+      assert.equal(gets,entry === "run" ? 2 : 1);
+      assert.equal(new TaskJournal(env.ITPAY_TASK_JOURNAL_PATH!).remainingAutomaticWait(limitedID),0);
+    }
   } finally {
     Date.now = originalNow;
     backend.getServiceExecution = originalGet;

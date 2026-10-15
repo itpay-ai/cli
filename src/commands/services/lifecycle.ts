@@ -339,7 +339,7 @@ export async function runServicesNext(
     try {
       await sleep(Math.min(Math.max(1500, options.pollIntervalMS ?? serviceAdapter(response.execution).pollAfter(response)), Math.max(0,until-Date.now())));
       if (Date.now() >= until) break;
-      try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),...(options.deadline!==undefined ? {deadline:options.deadline}:until>started ? {deadline:until}: {})});}
+      try {response = await backend.getServiceExecution(serviceExecutionID, {...(options.sinceSnapshot ? {sinceSnapshot:options.sinceSnapshot}:{}),deadline:until});}
       catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
     } finally {
       const elapsed = Math.max(0, Date.now()-pollStarted);
@@ -442,8 +442,8 @@ export async function runServicesRun(
       try {
         await sleep(Math.min(Math.max(1500,options.pollIntervalMS ?? 1500),Math.max(0,until-Date.now())));
         if (Date.now() >= until) break;
-        try {model = await backend.getServiceExecution(id,{deadline});}
-        catch(error) {if(error instanceof HttpTransportError && Date.now()>=deadline) break;throw error;}
+        try {model = await backend.getServiceExecution(id,{deadline:until});}
+        catch(error) {if(error instanceof HttpTransportError && Date.now()>=until) break;throw error;}
       } finally {
         const elapsed = Math.max(0,Date.now()-pollStarted);
         waitedMS += elapsed;
