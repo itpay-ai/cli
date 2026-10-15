@@ -6,7 +6,7 @@
   "title": "Read The Original Checkout",
   "purpose": "Read official Checkout and payment facts after its entry was delivered.",
   "when_to_use": [
-    "services purchase, buy or historical services checkout returned an official human handoff.",
+    "The current purchase flow returned an official human handoff.",
     "The agent restarted or lost the Checkout output before payment was confirmed."
   ],
   "search_terms": [

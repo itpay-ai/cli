@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {BackendClient} from '../src/client/backend.js';
 import {loadConfig} from '../src/state/config.js';
 import {CommandContractError} from '../src/commands/guidance.js';
+import {writeCommandEnvelope} from '../src/services/shared/envelope.js';
 import {HttpError, HttpClient} from '../src/client/http.js';
 import {startMockBackend} from './mock_backend.js';
 import {runServicesCheckout, runServicesNext, runServicesPage, runServicesReadResult, runServicesStart, runServicesRun} from '../src/commands/services.js';
@@ -364,5 +365,28 @@ test('full flow: missing expired review never falls back to quote or checkout',a
   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_execution_id:'se_original'},purchase_preparation:'expired',workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'payment',current_step:'payment',revision:1,steps:{}}});
   let writes=0;backend.prepareServiceQuote=async()=>{writes++;throw new Error('must not quote');};backend.createServiceExecutionCheckout=async()=>{writes++;throw new Error('must not checkout');};
   let output='';await runServicesNext(backend,'se_original',{jsonOutput:true,output:s=>output+=s});const out=JSON.parse(output);assert.equal(out.status,'purchase_review_expired');assert.equal(out.next,null);assert.match(out.recovery[0].command,/services purchase se_original/);assert.equal(writes,0);
+ }finally{await mock.close();}
+});
+
+test('known execution business failures retain typed recovery and run context',async()=>{
+ const mock=await startMockBackend();try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+  const binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:'prepare_purchase',adapter_key:'rail.v1'};
+  const initial=async()=>({...base,execution:{...base.execution,public_binding:binding},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{status:'input_required',current_step:'input',revision:1,steps:{}}});
+  for(const phase of ['read_initial_state','submit_input']){
+  for(const [code,reason] of [['rail_seat_code_invalid',''],['selection_wrong_buyer',''],['invalid_selection','stored_selection_inconsistent'],['rail_selection_expired','']] as const){
+   const fail=async()=>{throw new HttpError(409,{code,message:'controlled typed failure',service_id:'itpay-rail-booking',service_contract_version_id:'scv_itpay_rail_booking_v4',public_binding:binding,reason,selection_expiry:{query_execution_id:'se_query',query_service_id:'itpay-rail-smart',booking_execution_id:'se_mock_next',expired_at:'2030-01-01T00:00:00Z',safe_new_query:false}},'fault');};
+   backend.getServiceExecution=phase==='read_initial_state'?fail:initial;backend.advanceServiceExecution=fail;
+   await assert.rejects(runServicesRun(backend,loadConfig({}),'itpay-rail',{passengers:1},{executionID:'se_mock_next',operationID:'prepare_purchase'}),error=>{
+    assert(error instanceof CommandContractError);assert.equal(error.code,code);assert.equal(error.result?.service_execution_id,'se_mock_next');assert.equal(error.result?.execution_created,true);assert.equal(error.result?.operation_id,'prepare_purchase');assert.equal(error.result?.failure_stage,phase);
+    if(code==='rail_seat_code_invalid')assert.match(error.instruction,/沿用用户已给的确认/);
+    if(code==='selection_wrong_buyer'||reason){assert.equal(error.recovery.length,0);assert.match(error.instruction,/停止/);}
+    if(reason)assert.equal(error.result?.reason,reason);
+    if(code==='rail_selection_expired')assert.ok(error.result?.selection_expiry);
+    for(const jsonOutput of [true,false]){let output='';writeCommandEnvelope({status:'error',instruction:error.instruction,result:error.result??{},next:null,recovery:error.recovery},{jsonOutput,output:s=>output+=s});assert.match(output,/se_mock_next/);if(reason)assert.match(output,/stored_selection_inconsistent/);if(code==='rail_seat_code_invalid')assert.match(output,/沿用用户已给的确认/);}
+    return true;
+   });
+  }
+  }
  }finally{await mock.close();}
 });

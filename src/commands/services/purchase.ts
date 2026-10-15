@@ -52,8 +52,9 @@ export async function runServicesPurchase(backend:BackendClient,config:CLIConfig
  writeCommandEnvelope(purchaseEnvelope(state),{...(options.jsonOutput!==undefined ? {jsonOutput:options.jsonOutput}:{}),...(options.output ? {output:options.output}:{})});
  } catch(error) {
   if(error instanceof HttpError || error instanceof HttpTransportError){
-   const stop=error instanceof HttpError && ["purchase_preparation_unsupported","purchase_review_unavailable","purchase_review_expired","purchase_request_conflict"].includes(error.code);
-   throw new CommandContractError(error.code,error.message,"原购买本次读取或操作未确认完成；保留已知执行和真实同意，按实际原因停止。技术读取故障不等于过期；不重放确认或创建替代购买。",stop?[]:[{command:`itpay services purchase ${id} --json`,reason:"仅用户要求或平台读取恢复后核对原购买，不重放确认"}],undefined,{service_execution_id:id,failure_stage:failureStage,...(error.diagnostics.length?{network_diagnostics:error.diagnostics}:{}),...(error instanceof HttpError && typeof error.payload?.provider_called==="boolean"?{provider_called:error.payload.provider_called}:{})});
+   const recoverable=error instanceof HttpTransportError || error instanceof HttpError && (error.status>=500 || error.status===408 || error.status===429) && !["purchase_preparation_unsupported","purchase_review_unavailable","purchase_review_expired","purchase_request_conflict"].includes(error.code);
+   const recoveryCommand=`itpay services purchase ${id}${failureStage==="read_purchase_review" ? "" : " --resume"} --json`;
+   throw new CommandContractError(error.code,error.message,"原购买本次读取或操作未确认完成；保留已知执行和真实同意，按实际原因停止。技术读取故障不等于过期；不重放确认或创建替代购买。",recoverable?[{command:recoveryCommand,reason:"仅用户要求或平台读取恢复后恢复原购买，复用已保存的真实同意，不重放确认"}]:[],undefined,{service_execution_id:id,failure_stage:failureStage,...(error.diagnostics.length?{network_diagnostics:error.diagnostics}:{}),...(error instanceof HttpError && typeof error.payload?.provider_called==="boolean"?{provider_called:error.payload.provider_called}:{})});
   }
   throw error;
  }

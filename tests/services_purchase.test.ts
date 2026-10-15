@@ -91,3 +91,17 @@ test('purchase read faults preserve the original ID and phase without claiming e
   });
  }
 });
+
+test('purchase recovery preserves persisted confirmation and stops definitive HTTP failures',async()=>{
+ const backend=new BackendClient(new HttpClient({baseURL:config.baseURL}));
+ for(const stage of ['confirm','resume'] as const){
+  for(const status of [400,401,403,404,409,429,500,503]){
+   const fault=async()=>{throw new HttpError(status,{code:'controlled_fault',message:'controlled fault'},'fault');};
+   backend.confirmServicePurchase=fault;backend.resumeServicePurchase=fault;
+   await assert.rejects(runServicesPurchase(backend,config,'se_original',stage==='confirm'?input:undefined,{resume:stage==='resume',jsonOutput:true}),error=>{
+    assert(error instanceof CommandContractError);assert.equal(error.result?.failure_stage,`${stage}_purchase`);
+    assert.deepEqual(error.recovery.map(action=>action.command),status===429||status>=500?['itpay services purchase se_original --resume --json']:[]);return true;
+   });
+  }
+ }
+});

@@ -467,6 +467,19 @@ export async function runServicesRun(
         schema ? {schema_version: "itpay.interaction.v1", stage: "input_required", input_template: operationInputTemplate({...inputContext, executionID}, errorAdapter.inputTemplate(schema,input), requiredInputFields(schema))} : undefined,
         {service_id: serviceID, ...(executionID ? {service_execution_id: executionID} : {}), execution_created: id ? true : cause.payload?.execution_created ?? "unknown", ...(typeof cause.payload?.provider_called === "boolean" ? {provider_called: cause.payload.provider_called} : {}), input_errors: cause.payload?.input_errors ?? [cause.message], ...(schema ? {input_schema: schema} : {})});
     }
+    try {
+      adapter.runError(cause, serviceID, id);
+    } catch (businessError) {
+      if (!(businessError instanceof CommandContractError)) throw businessError;
+      throw new CommandContractError(businessError.code,businessError.message,businessError.instruction,businessError.recovery,businessError.interaction,{
+        ...businessError.result,service_id:serviceID,...(id?{service_execution_id:id,execution_created:true}:{}),
+        ...(options.operationID?{operation_id:options.operationID}:{}),failure_stage:failureStage,
+        ...(cause instanceof HttpError && cause.diagnostics.length?{network_diagnostics:cause.diagnostics}:{}),
+        ...(cause instanceof HttpError && typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})
+      });
+    }
+    // Keep authentication, compatibility and provider classification available to the CLI reporter.
+    if (cause instanceof HttpError && (cause.status===401 || cause.status===403 || cause.code.startsWith("provider_") || (cause.status===404 && cause.code==="unknown_error") || ["client_upgrade_required","client_compatibility_headers_required","platform_release_unavailable","agent_identity_required"].includes(cause.code))) throw cause;
     if (cause instanceof HttpError && id) {
       throw new CommandContractError(cause.code,cause.message,
         "原执行已创建；读取未完成不代表没有结果。保留原输入和执行编号，先核对同一执行；初态需要输入时使用原输入模板，不新建查询。",
@@ -474,7 +487,6 @@ export async function runServicesRun(
         failureStage === "read_initial_state" && input !== undefined ? {schema_version:"itpay.interaction.v1",stage:"input_required",input_template:operationInputTemplate({...inputContext,executionID:id},input)} : undefined,
         {service_id:serviceID,service_execution_id:id,...(cause.diagnostics.length?{network_diagnostics:cause.diagnostics}:{}),...(options.operationID?{operation_id:options.operationID}:{}),execution_created:true,failure_stage:failureStage,...(typeof cause.payload?.provider_called==="boolean"?{provider_called:cause.payload.provider_called}:{})});
     }
-    adapter.runError(cause, serviceID, id);
     if (cause instanceof CommandContractError || cause instanceof DeviceStateError) throw cause;
     if (cause instanceof HttpError) throw new CommandContractError(cause.code,cause.message,"创建请求未确认成功；保留原请求，不依据列表为空自动重发。",[],undefined,{service_id:serviceID,failure_stage:failureStage,execution_created:typeof cause.payload?.execution_created === "boolean" ? cause.payload.execution_created:"unknown"});
     if (!id) {
