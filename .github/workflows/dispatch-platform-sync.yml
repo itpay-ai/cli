@@ -47,7 +47,6 @@ jobs:
           repositories: |
             itpay-skill-hermes
             itpay-plugin-kimi-work
-            itpay-plugin-chatgpt
             itpay-skill-openclaw
             itpay-skill-workbuddy
       - name: Notify channel repositories once
@@ -56,6 +55,6 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           set -euo pipefail
-          for repo in itpay-skill-hermes itpay-plugin-kimi-work itpay-plugin-chatgpt itpay-skill-openclaw itpay-skill-workbuddy; do
+          for repo in itpay-skill-hermes itpay-plugin-kimi-work itpay-skill-openclaw itpay-skill-workbuddy; do
             gh api --method POST "repos/itpay-ai/$repo/dispatches" -f event_type=itpay-cli-published
           done
