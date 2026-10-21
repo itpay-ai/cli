@@ -1,3 +1,5 @@
+> Current policy (2026-10-21): publication and channel sync are manual only. Explain the reason and obtain user approval for each exact Actions run or explicitly listed downstream batch. Commits, PRs and merges do not trigger publishing. See ../.github/ACTIONS_POLICY.md. Historical automatic-trigger descriptions below are superseded.
+
 # npm release runbook
 
 ## Current publication contract
