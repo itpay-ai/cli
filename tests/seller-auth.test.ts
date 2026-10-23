@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sellerAuth, sellerAuthPath, sellerSessionToken } from '../src/sell/auth.js';
-import { resolveBackendURL, qualifyBackendCommand, cartSessionPath, DEV_BASE_URL } from '../src/state/config.js';
+import { resolveBackendURL, qualifyBackendCommand, cartSessionPath, DEV_BASE_URL, V4_DEV_BASE_URL } from '../src/state/config.js';
 
 test('Seller login uses the standard browser flow and never exposes the claimed token', async () => {
   const home = mkdtempSync(join(tmpdir(), 'itpay-seller-'));
@@ -86,4 +86,19 @@ test('Public CLI supports official dev and isolates its state from production', 
     await assert.rejects(sellerAuth('login', base, env, response('https://evil.invalid')), /origin/);
     await assert.rejects(sellerAuth('login', DEV_BASE_URL, env, response('http://127.0.0.1:15173')), /origin/);
   } finally { rmSync(home, {recursive:true,force:true}); }
+ });
+
+ test('V4 dev accepts only its exact HTTPS origin and keeps old environments isolated', () => {
+  const home = mkdtempSync(join(tmpdir(), 'itpay-v4-dev-'));
+  try {
+    const env = { HOME: home, ITPAY_BACKEND_URL: V4_DEV_BASE_URL };
+    assert.equal(resolveBackendURL(env), V4_DEV_BASE_URL);
+    assert.equal(resolveBackendURL({ ...env, ITPAY_BACKEND_URL: V4_DEV_BASE_URL + '/' }), V4_DEV_BASE_URL);
+    assert.equal(qualifyBackendCommand('itpay orders', env), `ITPAY_BACKEND_URL=${V4_DEV_BASE_URL} itpay orders`);
+    assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home }));
+    assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL }));
+    for (const value of ['http://v4-dev.itpay.ai', 'https://v4-dev.itpay.ai:443', 'https://v4-dev.itpay.ai:8443', 'https://user@v4-dev.itpay.ai', 'https://v4-dev.itpay.ai.evil.invalid', 'https://evil-v4-dev.itpay.ai', 'https://v4-dev.itpay.ai/path', 'https://v4-dev.itpay.ai?x=1', 'https://v4-dev.itpay.ai#x']) {
+      assert.throws(() => resolveBackendURL({ ...env, ITPAY_BACKEND_URL: value, ITPAY_CLI_DEV: '1' }));
+    }
+  } finally { rmSync(home, { recursive: true, force: true }); }
  });

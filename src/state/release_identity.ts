@@ -1,2 +1,2 @@
-export const CLI_VERSION = "2.1.52";
+export const CLI_VERSION = "2.1.53";
 export const API_CONTRACT_REVISION = "sha256:f98390e6d06858a3fc6a79d09f4f6549d853a09abce1c2ba4bbdb19257e006c2";
