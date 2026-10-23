@@ -14,6 +14,18 @@ await build({absWorkingDir:root,entryPoints:['src/state/release_identity.ts'],ou
 const result=await build({absWorkingDir:root,entryPoints:['src/main.ts'],outfile:resolve(output,'main.js'),bundle:true,platform:'node',format:'esm',target:'node18',minify:false,keepNames:true,legalComments:'inline',metafile:true,
  banner:{js:"import {createRequire as __itpayCreateRequire} from 'node:module';const require=__itpayCreateRequire(import.meta.url);"},
  plugins:[{name:'release-identity',setup(builder){builder.onResolve({filter:/release_identity\.js$/},()=>({path:'./state/config.js',external:true}));}}]});
+// esbuild follows installed dependency symlinks. Normalize only its module
+// identity strings/comments, so the same locked npm/pnpm inputs yield the same
+// readable Buyer bytes without exposing the build machine's directory layout.
+const mainPath=resolve(output,'main.js');
+let main=readFileSync(mainPath,'utf8');
+for(const input of Object.keys(result.metafile.inputs)){
+ const marker=input.lastIndexOf('node_modules/');if(marker<0)continue;
+ const logical=input.slice(marker);if(logical===input)continue;
+ main=main.split(JSON.stringify(input)).join(JSON.stringify(logical))
+  .split(`// ${input}\n`).join(`// ${logical}\n`);
+}
+writeFileSync(mainPath,main);
 const imports=Object.values(result.metafile.outputs).flatMap(value=>value.imports);
 for(const item of imports)if(!builtinModules.includes(item.path)&&!item.path.startsWith('node:')&&item.path!=='./state/config.js')throw new Error('unexpected external Buyer import: '+item.path);
 for(const name of Object.keys(result.metafile.inputs))if(name.startsWith('src/sell/')||name.includes('@modelcontextprotocol/'))throw new Error('Seller dependency entered Buyer core: '+name);
