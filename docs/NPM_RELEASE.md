@@ -21,7 +21,7 @@ The package repository URL must be `https://github.com/itpay-ai/cli`. The workfl
 
 | Intent | Procedure |
 | --- | --- |
-| Stage a new main version | Version bump + checks + merge main publishes only to `candidate-dev`. `next/latest` remain unchanged. |
+| Stage a new main version | Version bump + checks + normal main merge do not publish. After approval, manually dispatch stage/source=main to `candidate-dev`; `next/latest` remain unchanged. |
 | Stage a maintenance candidate | First review the internal commit and artifact. Approve its exact SHA/version/API/tarball SHA-256 in `scripts/npm-release-sources.json` on main. Dispatch action `stage`, source `dev` or `prod`; null entries fail closed. |
 | Activate dev channel | Verify matching Backend/runtime/publication; approve exact dev source in policy. Dispatch `promote`, tag `next`, exact version. |
 | Activate stable channel | Validate the precise old-production combination in isolation and deploy its matching Backend. Approve exact prod source, then dispatch `promote`, tag `latest`, exact version. This is not automatic main-to-production promotion. |
@@ -58,7 +58,7 @@ Workflow merged through PR #85 at b214ada7b9ef01570a55d45a5ef2019019b2fc01; GitH
 
 Default host bundles track production npm `latest`; they have no periodic schedule. A change to their sync workflow on main, manual dispatch, or `itpay-cli-published` repository event checks the current published latest version. Matching base/PR artifacts and older target versions do not rebuild or push; an empty final diff does not commit.
 
-`dispatch-platform-sync.yml` dispatches the five default channels after a successful main CD, or manually after registry verification. Configure `ITPAY_BUNDLE_APP_ID` and `ITPAY_BUNDLE_APP_PRIVATE_KEY` in CLI using the existing bundle App, installed on those five repositories with contents-write permission for repository_dispatch. npm OIDC and CLI's GITHUB_TOKEN cannot supply cross-repository permissions. Without the paired secrets the job explicitly reports automatic sync inactive; channel workflow_dispatch remains available. Do not add npm tokens for this purpose.
+After registry verification and approval for the exact downstream batch, manually dispatch `dispatch-platform-sync.yml` for four Buyer channels. Dot/ChatGPT is an independent remote MCP product and is excluded from CLI bundle synchronization. Configure `ITPAY_BUNDLE_APP_ID` and `ITPAY_BUNDLE_APP_PRIVATE_KEY` in CLI using the existing bundle App, installed on those four Buyer repositories with contents-write permission for repository_dispatch. npm OIDC and CLI's GITHUB_TOKEN cannot supply cross-repository permissions. Without the paired secrets the job explicitly reports cross-repository sync unavailable; channel workflow_dispatch remains available. Do not add npm tokens for this purpose.
 
 If npm accepted publication but CD failed during immediate visibility verification, verify exact version/integrity/latest first, then manually dispatch this workflow. Do not republish. Each channel's existing tests still fail for real update defects; no failure is hidden by continue-on-error. Channel PRs remain subject to normal review and checks.
 
