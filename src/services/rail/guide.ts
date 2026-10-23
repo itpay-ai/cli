@@ -48,6 +48,8 @@ export const RAIL_SERVICE_GUIDANCE: Record<string, RailServiceGuidance> = {
       { name: "origin_location", description: "已知坐标对象（高德 GCJ-02）" },
       { name: "destination_location", description: "目的地坐标对象" },
       { name: "depart_after", description: "不早于该时间出发" },
+      { name: "depart_before", description: "不晚于该时间出发；保留用户明确上限" },
+      { name: "arrive_after", description: "不早于该时间到达；与最晚到达一起作为资格条件，不只作排序" },
       { name: "depart_before", description: "不晚于该时间出发" },
       { name: "arrive_before", description: "不晚于该时间到达" },
       { name: "user_query", description: "旅行需求原话，最多4096 UTF-8字节；时间等明确条件仍填写对应结构化字段" },
