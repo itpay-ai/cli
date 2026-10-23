@@ -80,6 +80,7 @@ export function defaultHostForAgentType(agentType: string | undefined): ClientHo
   const normalized = agentType?.trim().toLowerCase() ?? "";
   if (normalized === "codex-desktop") return "codex";
   if (normalized === "claude-code-desktop") return "claude-code";
+  if (normalized === "dot" || normalized === "muse" || normalized === "hermes") return "plain-chat";
   if (normalized === "workbuddy") return "plain-chat";
   if (normalized === "zcode") return "plain-chat";
   if (normalized === "doubao-work") return "plain-chat";

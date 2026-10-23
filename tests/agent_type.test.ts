@@ -27,3 +27,14 @@ test("loadConfig passes only the canonical Codex agent type to device and HTTP c
   const config = loadConfig({ ITPAY_AGENT_TYPE: "codex", ITPAY_IDEMPOTENCY_KEY: "test-agent-type" });
   assert.equal(config.agentType, "codex-desktop");
 });
+
+test("Personal Agent uses real Dot/Muse identities and a chat presentation", async () => {
+ const {isInstallAgentType}=await import("../src/commands/install.js");
+ const {defaultHostForAgentType}=await import("../src/state/client_context.js");
+ for(const type of ["dot","muse"]) {
+  assert.equal(canonicalAgentType(type),type);
+  assert.equal(isInstallAgentType(type),true);
+  assert.equal(defaultHostForAgentType(type),"plain-chat");
+  assert.equal(loadConfig({ITPAY_AGENT_TYPE:type,ITPAY_IDEMPOTENCY_KEY:"fixture"}).agentType,type);
+ }
+});

@@ -24,12 +24,19 @@
     "zcode",
     "doubao work",
     "kimi code",
-    "openclaw"
+    "openclaw",
+    "dot",
+    "muse",
+    "ITPAY_STATE_DIR",
+    "readonly HOME",
+    "cloud"
   ],
   "current_flow": [
-    "Use the authorized setup link’s channel/Backend and one host-permitted persistent npm tool location or global prefix. Retain that callable entry and actual Agent Type; no floating npx or project dependency edits.",
+    "Use the authorized channel/Backend and host-permitted tool prefix/cache/state directories. Use real dot or muse in those hosts, never codex spoofing. Retain one launcher and its Backend, Agent Type and ITPAY_STATE_DIR for every next/recovery command. Do not change HOME.",
     "Run itpay setup --agent-type <actual_type> --json once after installation/upgrade. setup_ready means device preparation; login_required can be a valid separate account status.",
     "Read itpay skill show itpay --json and enable that exact package Skill via the host mechanism. Record the actual path and limitation if the host cannot enable it.",
-    "Do not repeat setup, installation or login for ordinary tasks. A nonzero install is not ready; keep the actual error and follow its current recovery."
+    "Do not repeat setup, installation or login for ordinary tasks. A nonzero install is not ready; keep the actual error and follow its current recovery.",
+    "ITPAY_STATE_DIR selects the private state directory; choose an allowed directory before first enrollment and preserve it. If an existing identity lacks its key or becomes inaccessible, recover access; never rotate identity to regain quota.",
+    "Check install prefix, npm cache, state and receipt writes independently. A writable directory is not proof of persistence across sessions. setup reports Skill readability separately from writing, host discovery and version; do not reinstall during normal tasks."
   ]
 }

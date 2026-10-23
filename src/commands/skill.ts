@@ -1,3 +1,5 @@
+import {createHash} from "node:crypto";
+import {CANONICAL_SKILL_SHA256} from "../state/skill_identity.generated.js";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { packageResourcePath } from "../state/package_resources.js";
@@ -17,7 +19,7 @@ export interface SkillOptions {
 
 export function runSkillShow(name: string, options: SkillOptions = {}): void {
   const normalized = name.trim().toLowerCase();
-  if (normalized !== ITPAY_SKILL) {
+  if (normalized !== ITPAY_SKILL && normalized !== "itpay-buyer") {
     throw new CommandContractError(
       "skill_not_found",
       `skill not found: ${name}`,
@@ -67,8 +69,14 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
 }
 
 export function packagedSkill(): { path: string; content: string } {
-  const path = findSkillPath(false);
+  let path = findSkillPath(false);
+  // A bundled Skill registers one canonical root; its unchanged Buyer payload
+  // may omit the duplicate markdown only when that root matches this build.
+  if (!existsSync(path) && process.env.ITPAY_CLI_SKILLS_DIR) path = findSkillPath();
   const content = readFileSync(path, "utf8");
+  if (createHash("sha256").update(content).digest("hex") !== CANONICAL_SKILL_SHA256) {
+    throw new CommandContractError("skill_override_mismatch", "Skill does not match this pinned CLI build", "使用当前包同源的完整 Skill；保留原任务和身份，不安装另一套 CLI。", []);
+  }
   validateSkill(content);
   return { path, content };
 }

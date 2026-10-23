@@ -1,7 +1,7 @@
 import { requirePlatformCompatibility } from "./compatibility.js";
 import type { BackendClient } from "../client/backend.js";
 import { agentAuth } from "../state/account_auth.js";
-import { CLI_VERSION, type CLIConfig } from "../state/config.js";
+import { CLI_VERSION, stateDir, type CLIConfig } from "../state/config.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 import type { OutputSink } from "../render/sink.js";
 import { INSTALL_AGENT_TYPES, isInstallAgentType } from "./install.js";
@@ -37,6 +37,7 @@ export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus"
   }
   writeCommandEnvelope({ status: "setup_ready", result: {
     cli_version: CLI_VERSION, backend_url: config.baseURL, agent_type: config.agentType,
+    state_directory: stateDir(), state_persistence: "unverified_across_sessions", skill_readable: true, skill_written: "unknown", skill_discoverable: "unknown", execution_position: "unknown", presentation_surface: "unknown",
     device_status: "ready", account_status: account.status, skill_path: skillPath, skill_version: CLI_VERSION,
   }, instruction: account.status === "authenticated"
     ? "设备已准备好，已有账号授权可继续使用。读取并启用下方 Skill 后，按用户需求开始。"

@@ -21,7 +21,7 @@ test('technical errors reject locally and unknown price cannot imply approval',a
  }
  assert.equal(sent,0);
  assert.deepEqual(parsePurchaseConfirmation(input),input);
- assert.equal(parsePurchaseConfirmation({...input,price_policy:{mode:'capped',currency:'CNY',maximum_minor:200}}).price_policy.maximum_minor,200);
+ const capped=parsePurchaseConfirmation({...input,price_policy:{mode:'capped',currency:'CNY',maximum_minor:200}}).price_policy;assert.equal(capped.mode,'capped');assert.equal(capped.mode==='capped'&&capped.maximum_minor,200);
  assert.equal(parsePurchaseConfirmation({...input,price_policy:{mode:'confirm_on_official_page',currency:'CNY'}}).price_policy.mode,'confirm_on_official_page');
 });
 
@@ -105,4 +105,26 @@ test('purchase recovery preserves persisted confirmation and stops definitive HT
    });
   }
  }
+});
+
+test('Dot and Muse receive a credential-free original account link without waiting for QR',async()=>{
+ const {startMockBackend}=await import('./mock_backend.js');const mock=await startMockBackend();
+ try{
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));
+  const quote=await backend.prepareServiceQuote('se_fixture',{capability_id:'precise_report'});assert(quote.approval_template);
+  await backend.recordServiceExecutionAction('se_fixture',{action_type:'approve_purchase',actor_type:'agent',status:'approved',input_snapshot:{...quote.approval_template,user_approved:true}});
+  const checkout=await backend.createServiceExecutionCheckout('se_fixture',{capability_id:'precise_report'});
+  const originalToken=checkout.checkout.display_token;
+  checkout.checkout.checkout_url=`https://app.example.test/checkout/${checkout.checkout.checkout.checkout_id}`;
+  checkout.checkout.official_entry={url:checkout.checkout.checkout_url,purpose:'checkout',access:'account_session'};
+  backend.getServicePurchaseReview=async()=>({...running,status:'checkout_ready',completed_stage:'official_page',checkout,effects:{...effects,page_reused:true,human_page_action_required:true}});
+  for(const agentType of ['dot','muse']){
+   let output='',images=0;
+   await runServicesPurchase(backend,{...config,agentType},'se_fixture',undefined,{agentType,jsonOutput:true,output:s=>{output+=s},fetchImpl:async()=>{images++;throw Error('optional QR must not block link');}});
+   const result=JSON.parse(output);assert.equal(result.handoff.url,checkout.checkout.checkout_url);assert.equal(result.handoff.access,'account_session');assert.equal(images,0);
+   assert(!output.includes(originalToken));assert(!output.includes('--token'));assert(!output.includes('display_token='));assert.equal(result.result.agent_facts.effects.order_created,'unknown');assert.equal(result.result.agent_facts.references.checkout_id,checkout.checkout.checkout.checkout_id);assert.match(result.next.command,new RegExp(`--agent-type ${agentType} services get se_fixture`));
+  }
+  delete checkout.checkout.official_entry;
+  await assert.rejects(runServicesPurchase(backend,{...config,agentType:'muse'},'se_fixture',undefined,{jsonOutput:true}),e=>e instanceof CommandContractError&&e.code==='secure_handoff_unavailable'&&e.recovery[0]?.command==='itpay --agent-type muse services get se_fixture --json');
+ }finally{await mock.close();}
 });
