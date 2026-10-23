@@ -1,4 +1,4 @@
-// Generated from compose-v4 apps/mcp/src/agentPresentation.ts; SHA-256 417e2e16a0387bf885e01fb8aa5cfb6c9c1fefdb89c4438c9af01828d4f09ebc.
+// Generated from compose-v4 apps/mcp/src/agentPresentation.ts; SHA-256 45658f6617d658788c63640614955d7e20a339dd78787a8558b8a601fccdca63.
 // Canonical Personal Agent facts projection. Generated Buyer copies retain this
 // source identity; strict itpay.chat.v1 and its consumers remain unchanged.
 import {z} from 'zod';
@@ -7,7 +7,7 @@ export const agentDisplaySchema=z.object({
  version:z.literal('itpay.agent.v1'),
  kind:z.enum(['result','selection','confirmation','handoff','progress','blocked','error']),
  state:z.string(),summary:z.string(),actions:z.array(z.object({purpose:z.string(),tool:z.string(),arguments:z.record(z.unknown()),requires_confirmation:z.boolean()}).strict()),acceptance:z.enum(['accepted','not_accepted','unknown']),
- references:z.record(z.string()),
+ references:z.record(z.string()),request_sent:z.boolean().optional(),
  effects:z.object({persistent_task_created:truth,order_created:truth,inventory_held:truth,price_held:truth,payment_requested:truth,charged:truth,fulfilled:truth}).strict(),
  cost:z.object({classification:z.enum(['public_free','platform_subsidized','included_entitlement','user_paid','unknown']),settlement_state:z.string(),actual_charge:z.record(z.unknown()).nullable(),wallet_debited:truth}).strict(),
  coverage:z.record(z.unknown()),freshness:z.object({observed_at:z.string().nullable(),valid_until:z.string().nullable(),from_cache:truth}).strict(),
@@ -42,6 +42,7 @@ export function presentAgent(value:unknown,options:{allowedOrigins:readonly stri
  const applied=Object.keys(object(appliedRoot.original_result)).length?object(appliedRoot.original_result):appliedRoot;
  const checkout=Object.keys(object(service.checkout)).length?object(service.checkout):object(raw.checkout),handoff=applied.checkout_id?applied:object(service.handoff);
  const purchase=object(raw.review),sourceEffects=object(raw.effects);
+ const purchaseProgress=raw.completed_stage!==undefined||raw.poll_after_ms!==undefined||raw.auto_wait_remaining_ms!==undefined?{status:raw.status??null,completed_stage:raw.completed_stage??null,poll_after_ms:raw.poll_after_ms??null,auto_wait_remaining_ms:raw.auto_wait_remaining_ms??null}:undefined;
  const refs:Record<string,string>={...options.originalReferences};
  const refKeys=['run_id','intent_id','operation_id','publication_id','request_ref','service_execution_id','source_service_execution_id','checkout_id','order_id','case_id','result_ref'];
  for(const source of [raw,service,applied,handoff,checkout,object(object(raw.result).case)])for(const key of refKeys){const v=text(source[key]);if(v)refs[key]=v;}
@@ -62,8 +63,8 @@ export function presentAgent(value:unknown,options:{allowedOrigins:readonly stri
  const classification=costClass==='public_free'||costClass==='platform_subsidized'||costClass==='included_entitlement'||costClass==='user_paid'?costClass:'unknown';
  const code=text(error.code)??text(summary.error_code)??text(applied.reason_code);
  const reason=code&&/^[a-zA-Z0-9_.:-]{1,128}$/.test(code)?code:null;
- const result=object(publicData({...(Object.keys(purchase).length?{purchase_review:purchase}:{}),...(Object.keys(error).length?{error}:{}),...(service.summary!==undefined?{summary:service.summary}:{}),...(service.actions!==undefined?{available_choices:service.actions}:{}),...(service.result!==undefined?{service_result:service.result}:{}),...(raw.result!==undefined?{content:raw.result}:{}),...(Object.keys(checkout).length?{checkout}:{}),...(raw.effects!==undefined?{preparation_effects:raw.effects}:{})}));
- return agentDisplaySchema.parse({version:'itpay.agent.v1',kind,state,summary:state==='unknown'?'原任务状态尚未确认':kind==='progress'?'原任务处理中':kind==='handoff'?'请登录原账号办理':state==='payment_received'?'付款已确认，履约以原订单事实为准':'当前事实见 result',actions:[],acceptance,references:refs,
+ const result=object(publicData({...(purchaseProgress?{purchase_progress:purchaseProgress}:{}),...(Object.keys(purchase).length?{purchase_review:purchase}:{}),...(Object.keys(error).length?{error}:{}),...(service.summary!==undefined?{summary:service.summary}:{}),...(service.actions!==undefined?{available_choices:service.actions}:{}),...(service.result!==undefined?{service_result:service.result}:{}),...(raw.result!==undefined?{content:raw.result}:{}),...(Object.keys(checkout).length?{checkout}:{}),...(raw.effects!==undefined?{preparation_effects:raw.effects}:{})}));
+ return agentDisplaySchema.parse({version:'itpay.agent.v1',kind,state,summary:state==='unknown'?'原任务状态尚未确认':kind==='progress'?'原任务处理中':kind==='handoff'?'请登录原账号办理':state==='payment_received'?'付款已确认，履约以原订单事实为准':'当前事实见 result',actions:[],acceptance,references:refs,...(typeof raw.request_sent==='boolean'?{request_sent:raw.request_sent}:{}),
   effects:{persistent_task_created:fact(sourceEffects.persistent_task_created),order_created:fact(sourceEffects.order_created),inventory_held:fact(sourceEffects.inventory_held),price_held:fact(sourceEffects.price_held),payment_requested:fact(sourceEffects.payment_requested),charged:paymentReceived?true:fact(sourceEffects.charged),fulfilled:fact(sourceEffects.fulfilled)},
   cost:{classification,settlement_state:settlement,actual_charge:raw.actual_charge===undefined?null:object(publicData(raw.actual_charge)),wallet_debited:['captured','partially_refunded','refunded'].includes(settlement)?true:['free','reserved','released'].includes(settlement)?false:'unknown'},
   coverage:object(publicData(applied.coverage??summary.coverage??raw.coverage)),
