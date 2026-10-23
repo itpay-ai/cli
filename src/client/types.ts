@@ -958,6 +958,8 @@ export interface PurchaseConfirmation {
  review_ref: string; request_key: string; user_approved: boolean; user_answer: string; price_policy: PurchasePricePolicy;
 }
 export interface ServicePurchaseReview {
+ allowed_modes?: ("exact"|"capped"|"confirm_on_official_page")[];
+ confirmation_schema?: Record<string,unknown>;
  review_ref: string;
  binding: {service_execution_id:string;owner_ref:string;service_contract_version_id:string;contract_hash:string;capability_id:string;material_hash:string;accepted_material_hash:string;revision:number;terms_version:string;price_kind:"fixed"|"estimated"|"locked"|"unknown";expires_at:string};
  summary: Record<string,unknown>;

@@ -84,7 +84,8 @@
     "docs/cli-reference/conventions.md",
     "docs/cli-reference/index.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/agent/buyer/purchase.json"
   ],
   "publishConfig": {
     "access": "public",
