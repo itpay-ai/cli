@@ -38,3 +38,11 @@ test("Personal Agent uses real Dot/Muse identities and a chat presentation", asy
   assert.equal(loadConfig({ITPAY_AGENT_TYPE:type,ITPAY_IDEMPOTENCY_KEY:"fixture"}).agentType,type);
  }
 });
+
+test('Approved V4 test origin stays exact, explicit and separate from production',async()=>{
+ const {resolveBackendURL,qualifyBackendCommand,TEST_BASE_URL}=await import('../src/state/config.js');
+ const env={ITPAY_BACKEND_URL:TEST_BASE_URL,ITPAY_IDEMPOTENCY_KEY:'fixture'};
+ assert.equal(resolveBackendURL(env),TEST_BASE_URL);assert.equal(loadConfig(env).environment,'development');assert.equal(qualifyBackendCommand('itpay services get original --json',env),`ITPAY_BACKEND_URL=${TEST_BASE_URL} itpay services get original --json`);
+ assert.equal(resolveBackendURL({}),'https://app.itpay.ai');
+ for(const bad of ['https://app-test.itpay.ai.evil.test','https://auth-test.itpay.ai','https://mcp-test.itpay.ai','https://app-test.itpay.ai/v1','https://app-test.itpay.ai:8443','https://user@ app-test.itpay.ai','https://app-test.itpay.ai?token=secret'])assert.throws(()=>resolveBackendURL({ITPAY_BACKEND_URL:bad}));
+});

@@ -5,7 +5,8 @@ import {assertCheckoutCreation,assertCheckoutPayable} from "../checkout_handoff.
 import { serviceAdapter, projectCheckoutPresentation } from "../../services/registry.js";
 import { type BackendClient } from "../../client/backend.js";
 import { HttpError } from "../../client/http.js";
-import { type CLIConfig } from "../../state/config.js";
+import { OFFICIAL_BACKEND_URLS, type CLIConfig } from "../../state/config.js";
+import {isPresentableURL} from "../../render/browser.js";
 import { type ClientHost, validateContext } from "../../state/client_context.js";
 import { dispatchRender, type DispatchOptions } from "../../render/index.js";
 import { ensureIdeImageAttach } from "../../render/ide.js";
@@ -147,12 +148,12 @@ export async function presentServiceCheckout(backend:BackendClient,config:CLICon
     let url:URL|undefined;
     try{if(entry)url=new URL(entry.url);}catch{/* invalid owner entry is rejected below */}
     const readOriginal={command:`itpay --agent-type ${agentType} services get ${serviceExecutionID} --json`,reason:"用户完成页面操作后读取原任务事实"};
-    if(!entry || entry.access!=="account_session" || entry.url!==checkout.checkout_url || !url || url.protocol!=="https:" || url.username || url.password || url.search || url.hash || url.pathname!==`/checkout/${encodeURIComponent(checkoutID)}`) {
+    if(!entry || entry.access!=="account_session" || entry.url!==checkout.checkout_url || !url || !isPresentableURL(entry.url,config.baseURL) || url.protocol!=="https:" || url.username || url.password || url.search || url.hash || url.pathname!==`/checkout/${encodeURIComponent(checkoutID)}`) {
       throw new CommandContractError("secure_handoff_unavailable","original purchase has no verified account-session entry","保留原购买；当前账号安全入口不可用，不展示或拼接 bearer 链接，不换身份或重建购买。",[readOriginal],undefined,{service_execution_id:serviceExecutionID,checkout_id:checkoutID});
     }
     const {itinerary}=authoritative?projectCheckoutPresentation(authoritative,currentModel):{};
     const effects={page_created:!response.handoff_reissued,page_reused:response.handoff_reissued===true,payment_requested:false,charged:false,human_page_action_required:true};
-    writeCommandEnvelope({status:"human_checkout_required",result:{service_execution_id:serviceExecutionID,checkout_id:checkoutID,amount:formatMoney(checkout.checkout.amount_minor,checkout.checkout.currency),effects,...(itinerary?{itinerary}:{}),agent_facts:presentAgent({service_execution_id:serviceExecutionID,checkout_id:checkoutID,status:"human_checkout_required",checkout:{official_entry:entry},effects},{allowedOrigins:[url.origin]})},handoff:{url:entry.url,purpose:entry.purpose,access:entry.access,...(entry.expires_at?{expires_at:entry.expires_at}:{})},instruction:"立即展示官方链接及金额；用户登录发起连接的账号完成当前步骤。二维码不是前置条件，打开链接不代表付款或出票。用户表示完成后读取原任务事实，不重复确认、换单或自动付款。",next:readOriginal,recovery:[]},{...(options.jsonOutput!==undefined?{jsonOutput:options.jsonOutput}:{}),...(options.output?{output:options.output}:{})});
+    writeCommandEnvelope({status:"human_checkout_required",result:{service_execution_id:serviceExecutionID,checkout_id:checkoutID,amount:formatMoney(checkout.checkout.amount_minor,checkout.checkout.currency),effects,...(itinerary?{itinerary}:{}),agent_facts:presentAgent({service_execution_id:serviceExecutionID,checkout_id:checkoutID,status:"human_checkout_required",checkout:{official_entry:entry},effects},{allowedOrigins:OFFICIAL_BACKEND_URLS})},handoff:{url:entry.url,purpose:entry.purpose,access:entry.access,...(entry.expires_at?{expires_at:entry.expires_at}:{})},instruction:"立即展示官方链接及金额；用户登录发起连接的账号完成当前步骤。二维码不是前置条件，打开链接不代表付款或出票。用户表示完成后读取原任务事实，不重复确认、换单或自动付款。",next:readOriginal,recovery:[]},{...(options.jsonOutput!==undefined?{jsonOutput:options.jsonOutput}:{}),...(options.output?{output:options.output}:{})});
     return;
   }
   const displayToken = checkout.display_token;

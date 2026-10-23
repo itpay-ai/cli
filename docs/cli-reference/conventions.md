@@ -167,3 +167,5 @@ Instruction 只回答当前最重要的一件事：
 - 是否需要邮箱来自 `delivery_email_required`。
 - 是否可直接给 Agent 来自 `agent_visible` / `delivery_mode`。
 - 下一步来自 Service Execution read model，不由 CLI 猜业务流程。
+
+Personal Agent 候选的 V4 测试 Backend 为精确 origin `https://app-test.itpay.ai`，只有配套版本、公开路由与准入核对完成后才能使用。显式设置后所有 continuation 保持该 origin；不回落旧 V3 dev，不允许任意子域、路径、凭据或不同端口。默认生产地址和 latest 不变。

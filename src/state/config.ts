@@ -37,6 +37,8 @@ export interface CLIConfig {
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
+export const TEST_BASE_URL = "https://app-test.itpay.ai";
+export const OFFICIAL_BACKEND_URLS = [DEFAULT_BASE_URL, SANDBOX_BASE_URL, DEV_BASE_URL, TEST_BASE_URL] as const;
 
 
 const CART_SESSION_DEFAULT_DIR = ".itpay-v3";
@@ -56,16 +58,16 @@ export class BackendOverrideError extends Error {
   readonly code = "backend_override_forbidden";
 
   constructor() {
-    super(`ITPAY_BACKEND_URL only supports ${DEFAULT_BASE_URL}, ${SANDBOX_BASE_URL}, or ${DEV_BASE_URL}`);
+    super(`ITPAY_BACKEND_URL only supports ${OFFICIAL_BACKEND_URLS.join(", ")}`);
     this.name = "BackendOverrideError";
   }
 }
 
 export function resolveBackendURL(env: NodeJS.ProcessEnv = process.env): string {
   const requested = env.ITPAY_BACKEND_URL?.trim();
-  if (!requested || requested === DEFAULT_BASE_URL || requested === `${DEFAULT_BASE_URL}/`) return DEFAULT_BASE_URL;
-  if (requested === SANDBOX_BASE_URL || requested === `${SANDBOX_BASE_URL}/`) return SANDBOX_BASE_URL;
-  if (requested === DEV_BASE_URL || requested === `${DEV_BASE_URL}/`) return DEV_BASE_URL;
+  if (!requested) return DEFAULT_BASE_URL;
+  const official = OFFICIAL_BACKEND_URLS.find(origin => requested === origin || requested === `${origin}/`);
+  if (official) return official;
   if (env.ITPAY_CLI_DEV === "1" && /^http:\/\/(localhost|127\.0\.0\.1):\d+\/?$/.test(requested)) return requested.replace(/\/$/, "");
   throw new BackendOverrideError();
 }
