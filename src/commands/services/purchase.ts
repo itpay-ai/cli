@@ -1,3 +1,4 @@
+import {purchaseContract} from "../../services/shared/purchase_contract.generated.js";
 import {HttpError} from "../../client/http.js";
 import {HttpTransportError} from "../../client/transport.js";
 import {purchaseEnvelope} from "../../services/shared/purchase.js";
@@ -11,17 +12,28 @@ import {presentServiceCheckout,runServicesCheckout} from "./commerce.js";
 
 type Options=NonNullable<Parameters<typeof runServicesCheckout>[4]> & {timeoutSeconds?:number};
 
-function invalid():never { throw new CommandContractError("purchase_input_invalid","purchase confirmation input is incomplete or invalid","本次未发送确认。直接复制当前完整 file_content；技术字段由 Agent 修正，只有缺失的真实同意或价格约束才问用户。",[],undefined,{request_sent:false}); }
+function invalid(path="input", allowed?: readonly string[]):never {
+ throw new CommandContractError("purchase_input_invalid","purchase confirmation input is incomplete or invalid","本次未发送确认。按当前 confirmation_schema 和完整 file_content 修正技术字段；只有缺失的真实同意或价格决定才问用户。",[],undefined,{request_sent:false,field:path,...(allowed?{allowed_values:allowed}:{})});
+}
 export function parsePurchaseConfirmation(raw:Record<string,unknown>):PurchaseConfirmation {
- if(Object.keys(raw).some(key=>!["review_ref","request_key","user_approved","user_answer","price_policy"].includes(key))) invalid();
+ const keys:readonly string[]=purchaseContract.required;
+ for(const key of Object.keys(raw)) if(!keys.includes(key)) invalid(key,keys);
+ if(typeof raw.review_ref!=="string" || !raw.review_ref) invalid("review_ref");
+ if(typeof raw.request_key!=="string" || !raw.request_key || raw.request_key.length>purchaseContract.request_key_max_utf16_units) invalid("request_key");
+ if(raw.user_approved!==true) invalid("user_approved",["true"]);
+ if(typeof raw.user_answer!=="string" || !raw.user_answer.trim()) invalid("user_answer");
  const p=raw.price_policy;
- if(typeof raw.review_ref!=="string" || !raw.review_ref || typeof raw.request_key!=="string" || !raw.request_key || raw.request_key.length>200 || raw.user_approved!==true || typeof raw.user_answer!=="string" || !raw.user_answer.trim() || !p || typeof p!=="object" || Array.isArray(p))invalid();
- if(!("mode" in p) || !("currency" in p) || typeof p.currency!=="string" || !p.currency || Object.keys(p).some(key=>!["mode","currency","amount_minor","maximum_minor"].includes(key)))invalid();
- const safeAmount=(n:unknown):n is number=>typeof n==="number" && Number.isSafeInteger(n) && n>=0;
- if(p.mode==="exact" && "amount_minor" in p && safeAmount(p.amount_minor) && !("maximum_minor" in p)) return {review_ref:raw.review_ref,request_key:raw.request_key,user_approved:true,user_answer:raw.user_answer,price_policy:{mode:"exact",currency:p.currency,amount_minor:p.amount_minor}};
- if(p.mode==="capped" && "maximum_minor" in p && safeAmount(p.maximum_minor) && !("amount_minor" in p))return {review_ref:raw.review_ref,request_key:raw.request_key,user_approved:true,user_answer:raw.user_answer,price_policy:{mode:"capped",currency:p.currency,maximum_minor:p.maximum_minor}};
- if(p.mode==="confirm_on_official_page" && !("amount_minor" in p) && !("maximum_minor" in p))return {review_ref:raw.review_ref,request_key:raw.request_key,user_approved:true,user_answer:raw.user_answer,price_policy:{mode:"confirm_on_official_page",currency:p.currency}};
- return invalid();
+ if(!p || typeof p!=="object" || Array.isArray(p)) invalid("price_policy");
+ if(!("mode" in p) || typeof p.mode!=="string" || !Object.hasOwn(purchaseContract.modes,p.mode)) invalid("price_policy.mode",Object.keys(purchaseContract.modes));
+ if(!("currency" in p) || typeof p.currency!=="string" || !p.currency) invalid("price_policy.currency");
+ const safeAmount=(n:unknown):n is number=>typeof n==="number" && Number.isSafeInteger(n) && n>=0 && n<=purchaseContract.amount_maximum;
+ const amountField=p.mode==="exact" ? purchaseContract.modes.exact : p.mode==="capped" ? purchaseContract.modes.capped : null;
+ const allowedFields=["mode","currency",...(amountField?[amountField]:[])];
+ for(const key of Object.keys(p)) if(!allowedFields.includes(key)) invalid(`price_policy.${key}`,allowedFields);
+ if(p.mode==="exact" && "amount_minor" in p && safeAmount(p.amount_minor)) return {review_ref:raw.review_ref,request_key:raw.request_key,user_approved:true,user_answer:raw.user_answer,price_policy:{mode:"exact",currency:p.currency,amount_minor:p.amount_minor}};
+ if(p.mode==="capped" && "maximum_minor" in p && safeAmount(p.maximum_minor)) return {review_ref:raw.review_ref,request_key:raw.request_key,user_approved:true,user_answer:raw.user_answer,price_policy:{mode:"capped",currency:p.currency,maximum_minor:p.maximum_minor}};
+ if(p.mode==="confirm_on_official_page")return {review_ref:raw.review_ref,request_key:raw.request_key,user_approved:true,user_answer:raw.user_answer,price_policy:{mode:"confirm_on_official_page",currency:p.currency}};
+ return invalid(`price_policy.${amountField}`);
 }
 
 export async function runServicesPurchase(backend:BackendClient,config:CLIConfig,id:string,input:Record<string,unknown>|undefined,options:Options={}):Promise<void>{

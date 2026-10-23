@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.50",
+  "version": "2.1.53",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -84,7 +84,8 @@
     "docs/cli-reference/conventions.md",
     "docs/cli-reference/index.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/agent/buyer/purchase.json"
   ],
   "publishConfig": {
     "access": "public",

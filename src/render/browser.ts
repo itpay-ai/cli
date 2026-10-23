@@ -2,6 +2,7 @@
 // opener with an argv array — never a model-generated shell string. Dispatch
 // proves only that the request was accepted by the OS; it never means the
 // page became visible (that would be `page_loaded`, which needs evidence).
+import {OFFICIAL_BACKEND_URLS} from "../state/config.js";
 import { spawn } from "node:child_process";
 import { platform } from "node:os";
 
@@ -23,7 +24,7 @@ export function isPresentableURL(raw: string, baseURL: string | undefined, env: 
   if (url.username || url.password) return false;
   if (env.ITPAY_CLI_DEV === "1" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url.origin)) return true;
   if (url.protocol !== "https:") return false;
-  const allowedOrigins = new Set(["https://app.itpay.ai", "https://sandbox.itpay.ai", "https://dev.itpay.ai"]);
+  const allowedOrigins = new Set<string>(OFFICIAL_BACKEND_URLS);
   if (baseURL) {
     try {
       allowedOrigins.add(new URL(baseURL).origin);

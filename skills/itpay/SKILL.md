@@ -7,6 +7,12 @@ description: Find or buy ItPay services, plan or book railway travel, read purch
 
 Use the installed `itpay` entry yourself. Understand the human’s complete goal and constraints; preserve the actual Agent Type, Backend and device identity. Installation preparation belongs to `install-and-setup`; after setup, ordinary tasks need no repeated installation, readyz or login checks.
 
+If this Skill is supplied with `references/itpay-cli-invocation.md`, read it once and bind every logical `itpay` command to that bundle’s wrapper. Do not switch to a global executable or install another CLI to repair a bundled task. The same canonical Skill and Buyer documentation apply to the pinned package.
+
+## Runtime and state
+
+Use real `dot` or `muse` in those hosts; never impersonate codex-desktop. Keep the same permitted launcher, Backend, Agent Type and private `ITPAY_STATE_DIR` through every continuation. npm prefix/cache, receipt and state must all use host-permitted paths; do not change HOME, clear identity or rotate keys to recover quota. Current write access does not prove cross-session persistence. Skill readability, writing, host discovery and version are separate facts; normal tasks need no reinstall. Cloud execution and user-visible presentation are separate; unknown visibility remains unknown.
+
 ## One current flow
 
 Understand → query → read complete results → select under delegation → obtain only missing genuine consent → prepare one official page → show it immediately → read the original order.
@@ -27,7 +33,7 @@ Collect the complete output and exit of the same host command/session before con
 
 Selection under delegation is not price or terms approval. Read the full current purchase summary: object, all legs/quantity, actual seats, price policy and terms. Reuse explicit human consent only when it covers those unchanged facts; otherwise ask once for the missing consent or material change. Never invent approval, identity or a human answer, and never sign arbitrary human-only actions as an Agent.
 
-Write the complete returned flat purchase confirmation file with its server references and request key. Run the returned `services purchase --input-json` command; the service coordinates confirmation, quote, scope approval and Checkout. Unknown price requires a real exact price, budget cap or explicitly approved official-page confirmation policy. Preparing a page does not request or prove payment. A material change requires the current returned template, not reuse of a stale confirmation.
+Write the complete returned flat purchase confirmation file with its server references and request key. Use only the current review’s `allowed_modes` and `confirmation_schema`, then run the returned `services purchase --input-json` command; the service coordinates confirmation, quote, scope approval and Checkout. Unknown price requires a real exact price, budget cap or explicitly approved official-page confirmation policy. Preparing a page does not request or prove payment; order and inventory effects must follow actual owner facts. Native host approval is separate from conversational business consent. A material change requires the current returned template, not reuse of a stale confirmation.
 
 ## Show the official entry
 

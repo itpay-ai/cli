@@ -15,7 +15,9 @@ export function serviceAdapterKey(execution: Pick<ServiceExecution, "service_id"
  const binding = execution.public_binding;
  if (binding) {
   if (binding.adapter_key === "schema.v1") return "schema.v1";
-  if (binding.adapter_key === "rail.v1" && ["scv_itpay_rail_public_v1", "scv_itpay_rail_public_v1_capacity_20261015"].includes(binding.service_definition_version)) return "rail.v1";
+  // PA3 v5 retains rail.v1 result, selection and purchase wires; its current
+  // operation schemas own the added query constraints. Unknown versions stay closed.
+  if (binding.adapter_key === "rail.v1" && ["scv_itpay_rail_public_v1", "scv_itpay_rail_public_v1_capacity_20261015", "scv_itpay_rail_public_v5"].includes(binding.service_definition_version)) return "rail.v1";
   return "unsupported";
  }
  const versions = legacyRailContracts.get(execution.service_id);

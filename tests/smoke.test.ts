@@ -2956,7 +2956,7 @@ test("install lists supported types and rejects obsolete Host targets", async ()
   };
   assert.equal(listEnvelope.status, "install_targets");
   assert.deepEqual(listEnvelope.result.agent_types.map((item) => item.agent_type), [
-    "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw",
+    "dot", "muse", "codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw", "hermes",
   ]);
   assert.match(listed.stdout, /由 Agent 自行运行 itpay setup --agent-type <agent_type> --json/);
   assert.match(listed.stdout, /不要让用户运行命令/);

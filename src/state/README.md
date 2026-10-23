@@ -26,15 +26,16 @@ handles use separate files.
 - Keep the private key and Device state owner-only (`0600`); never expose them
   in command output or use a Backend other than official app.itpay.ai/sandbox.itpay.ai.
 - Reuse one Agent Instance for all windows and chats of the same Agent Type.
-- Serialize Device state changes with an atomic owner-token file lock and
-  atomic file replacement. Release and stale recovery rename the canonical
-  lock instead of deleting it, so sandbox safe-delete/trash shims cannot turn
-  a successful authorization into a failure. Only the current owner may
-  release the lock. Return `device_state_unwritable` when the Host cannot
-  persist this state; never advise switching runtimes or identities.
-- Multiple local Agent Types share the same Device key but keep distinct Agent
-  Instances. A local lock wait is never a Backend Buyer lock and never crosses
-  computers.
+- Device keys and immutable operation records publish atomically. Session cache
+  invalidation preserves the same Device identity; the removed legacy global lock
+  is not a recovery prerequisite. Return the actual state operation failure;
+  never switch runtimes, Backend or identities to avoid it.
+- Multiple Agent Types share the Device key and keep distinct Agent Instances.
+  Dot and Muse are actual types, independent of cloud execution position or
+  the user-facing presentation surface.
+- `ITPAY_STATE_DIR` selects the permitted private state root. Keep this root,
+  Backend/type and launcher unchanged for continuation; do not change HOME.
+  Writable now does not prove persistence after a host session restart.
 - Renew a rejected session and retry the same request exactly once. Never
   replace a revoked v2 Device automatically.
 - Persist checkout-scoped `display_token` only in the cart session file, with

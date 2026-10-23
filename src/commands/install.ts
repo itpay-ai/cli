@@ -4,6 +4,8 @@ import { defaultHostForAgentType } from "../state/client_context.js";
 import { CommandContractError, writeCommandEnvelope } from "./guidance.js";
 
 export const INSTALL_AGENT_TYPES = [
+  "dot",
+  "muse",
   "codex-desktop",
   "codex-cli",
   "claude-code-desktop",
@@ -13,6 +15,7 @@ export const INSTALL_AGENT_TYPES = [
   "doubao-work",
   "kimi-code",
   "openclaw",
+  "hermes",
 ] as const;
 
 type InstallAgentType = (typeof INSTALL_AGENT_TYPES)[number];
@@ -25,6 +28,9 @@ export interface InstallOptions {
 export const CODEX_WAIT_GUIDANCE = "Codex 宿主等待：保留完整工具返回，按实际返回的会话句柄及当前宿主续读工具收取最终输出，不要只取 stdout。若使用 functions.exec 包装，可用 text(await tools.exec_command(...))；内层有 session_id 时用 write_stdin，外层返回运行 cell 时才用 wait。没有该包装时按宿主实际工具操作。先收取最终输出，再执行 CLI 业务 next；不要重复提交。";
 
 const INSTRUCTIONS: Record<InstallAgentType, string> = {
+ hermes: "保持真实 hermes Agent Type；按当前实际宿主呈现官方链接，未知显示能力如实保留。沿同一 launcher、Backend 与 ITPAY_STATE_DIR 恢复，不切换身份或重置额度。",
+ dot: "使用真实 dot 类型；云端执行位置与用户显示端分别判断。展示官方可点击链接，二维码可用时增强展示；浏览器打开不等于用户已看到。后续保持同一 launcher、Backend 和 ITPAY_STATE_DIR。",
+ muse: "使用真实 muse 类型；保留宿主原生批准，不用聊天同意替代。云端可写目录不等于跨会话持久，显示能力未知时如实报告；沿同一 launcher、Backend 和 ITPAY_STATE_DIR 恢复原任务。",
   "codex-desktop": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "codex-cli": "在 Codex CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
   "claude-code-desktop": "在 Claude Code Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",

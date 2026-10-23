@@ -5,6 +5,32 @@ import {BackendClient} from '../src/client/backend.js';
 import {HttpClient} from '../src/client/http.js';
 import {runCatalogList} from '../src/commands/catalog.js';
 import type {CatalogManifest} from '../src/client/types.js';
+import {serviceAdapter} from '../src/services/registry.js';
+import {railServiceGuidance} from '../src/services/rail/guide.js';
+
+test('actual PA3 public definition keeps current schemas and rejects unknown presentation contracts',()=>{
+ const {definition}=JSON.parse(readFileSync(new URL('./fixtures/rail-public-v5.json',import.meta.url),'utf8'));
+ for(const operation of definition.operations){
+  const identity={service_id:operation.binding.service_id,service_contract_version_id:operation.binding.service_contract_version_id,public_binding:{public_service_id:definition.service_id,service_definition_version:definition.definition_version,adapter_key:definition.adapter_key,operation_id:operation.id}};
+  const adapter=serviceAdapter(identity);
+  assert.equal(adapter.supported,true);
+  assert.equal(serviceAdapter({...identity,public_binding:{...identity.public_binding,service_definition_version:'scv_itpay_rail_public_v999'}}).supported,false);
+  if(operation.id==='query_exact') assert.deepEqual(Object.keys(operation.input_schema.properties).sort(),['destination','origin','travel_date']);
+  if(operation.id==='query_smart'){
+   const known={endpoints:{origin:{kind:'station',text:'上海虹桥'},destination:{kind:'station',text:'杭州东'}},travel_date:'2030-10-09',arrive_after:'10:00',arrive_before:'12:00',depart_before:'11:00',passengers:2,seat_preferences:['O'],priority:'fastest',duration_basis:'rail',user_query:'保留全部条件'};
+   const input=adapter.inputTemplate(operation.input_schema,known);
+   for(const [field,value]of Object.entries(known))assert.deepEqual(input[field],value,field);
+   const guidance=railServiceGuidance(identity.service_id,operation.input_schema);
+   assert.deepEqual(adapter.guidance(identity.service_id,operation.input_schema),guidance);
+   for(const field of ['arrive_after','arrive_before','depart_before','passengers','seat_preferences','duration_basis'])assert.ok(guidance?.optional_fields?.some(x=>x.name===field),field);
+  }
+  if(operation.id==='prepare_purchase'){
+   assert.equal(operation.role,'purchase_preparation');
+   for(const field of ['legs','passengers','selection_token','ticket_plan_ref'])assert.ok(operation.input_schema.properties[field],field);
+   assert.ok(adapter.aftercare);
+  }
+ }
+});
 
 test('parent directory shows modes and dynamic purchase without internal products',async()=>{
  const path=process.env.ITPAY_PUBLICATION_FIXTURE ?? new URL('./fixtures/public-service-boundary.json',import.meta.url);

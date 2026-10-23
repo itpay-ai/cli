@@ -1,3 +1,4 @@
+import {verifyCanonicalSkillLayout} from "./skill-layout-smoke.mjs";
 import {createHash} from "node:crypto";
 import {verifyNativeSetup} from './native-setup-smoke.mjs';
 import {verifyPackedDeviceUpgrade} from './device-upgrade-smoke.mjs';
@@ -49,6 +50,8 @@ try {
     ...process.env,
     HOME: home,
   };
+
+  verifyCanonicalSkillLayout(packageRoot,join(scratch,"canonical-skill-layout"));
 
   const commandDocs = new Map([
     ["", "index.md"],

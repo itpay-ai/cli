@@ -1,3 +1,4 @@
+import type {PurchaseConfirmation as ConfirmedPurchaseInput,PurchaseConfirmationTemplate} from "../services/shared/purchase_contract.generated.js";
 // V3 API DTO types — keep in sync with services/backend/internal/presenter/*.go
 // Only fields the CLI needs to read. Adding optional fields is fine; removing
 // fields must be coordinated with the backend.
@@ -77,6 +78,7 @@ export interface CreateCheckoutRequest {
 }
 
 export interface CheckoutCreated {
+ official_entry?:{url:string;purpose:"checkout";access:"account_session";expires_at?:string};
   checkout: Checkout;
   checkout_url: string;
   display_token: string;
@@ -948,20 +950,15 @@ export interface RailAftercareAdminInput {
  note: string; proposal?: RailChangeProposal; supplier_result?: NonNullable<RailAftercareCase["supplier_result"]>; rail_refund?: {supplier_completed:boolean;tickets:Array<{leg_index:number;passenger_index:number;fare_minor:number;source:string; supplier_refund_ref?:string}>};
 }
 
-export interface PurchasePricePolicy {
- mode: "exact" | "capped" | "confirm_on_official_page" | "";
- currency: string;
- amount_minor?: number;
- maximum_minor?: number;
-}
-export interface PurchaseConfirmation {
- review_ref: string; request_key: string; user_approved: boolean; user_answer: string; price_policy: PurchasePricePolicy;
-}
+export type PurchasePricePolicy=PurchaseConfirmationTemplate["price_policy"];
+export type PurchaseConfirmation=ConfirmedPurchaseInput;
 export interface ServicePurchaseReview {
+ allowed_modes?: ("exact"|"capped"|"confirm_on_official_page")[];
+ confirmation_schema?: Record<string,unknown>;
  review_ref: string;
  binding: {service_execution_id:string;owner_ref:string;service_contract_version_id:string;contract_hash:string;capability_id:string;material_hash:string;accepted_material_hash:string;revision:number;terms_version:string;price_kind:"fixed"|"estimated"|"locked"|"unknown";expires_at:string};
  summary: Record<string,unknown>;
- confirmation_template: PurchaseConfirmation;
+ confirmation_template: PurchaseConfirmationTemplate;
 }
 export interface ServicePurchaseState {
  status:"confirmation_required"|"confirmation_changed"|"running"|"blocked"|"expired"|"checkout_ready";
