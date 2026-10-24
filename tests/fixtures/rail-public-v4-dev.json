@@ -1,0 +1,587 @@
+{
+  "definition": {
+    "adapter_key": "rail.v1",
+    "definition_version": "scv_itpay_rail_public_v5_v4_dev_20261024",
+    "display_names": {
+      "en": "Rail tickets",
+      "zh-CN": "火车票服务"
+    },
+    "guide": {
+      "topic": "rail-booking",
+      "version": "service-boundary.v1"
+    },
+    "operations": [
+      {
+        "billing_mode": "free",
+        "binding": {
+          "capability_id": "itpay_service",
+          "service_contract_version_id": "scv_itpay_rail_exact_v3_v4_dev_20261024",
+          "service_id": "itpay-rail-exact"
+        },
+        "display_names": {
+          "en": "Exact station query",
+          "zh-CN": "精确站点查询（Exact）"
+        },
+        "id": "query_exact",
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "destination": {
+              "description": "Arrival railway station name.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "origin": {
+              "description": "Departure railway station name, not a city or address.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "travel_date": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "destination",
+            "travel_date"
+          ],
+          "type": "object"
+        },
+        "role": "query"
+      },
+      {
+        "billing_mode": "free",
+        "binding": {
+          "capability_id": "itpay_service",
+          "service_contract_version_id": "scv_itpay_rail_smart_v9_v4_dev_20261024",
+          "service_id": "itpay-rail-smart"
+        },
+        "display_names": {
+          "en": "Smart route planning",
+          "zh-CN": "广域线路规划（Smart）"
+        },
+        "id": "query_smart",
+        "input_schema": {
+          "additionalProperties": false,
+          "oneOf": [
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "origin"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "destination"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "origin_city"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "destination_city"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "origin_location"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "destination_location"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "confirmed_locations"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "origin_station_choice_locked"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "destination_station_choice_locked"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "origin_already_at_station"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "destination_already_at_station"
+                    ]
+                  }
+                ]
+              },
+              "required": [
+                "endpoints"
+              ]
+            },
+            {
+              "not": {
+                "required": [
+                  "endpoints"
+                ]
+              },
+              "required": [
+                "origin",
+                "destination"
+              ]
+            }
+          ],
+          "properties": {
+            "arrive_after": {
+              "description": "Inclusive earliest arrival, Asia/Shanghai; HH:mm on travel_date or an explicit ISO local datetime. No inferred next day.",
+              "type": "string"
+            },
+            "arrive_before": {
+              "description": "Inclusive latest arrival, same clock and endpoint basis as arrive_after.",
+              "type": "string"
+            },
+            "confirmed_locations": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "depart_after": {
+              "type": "string"
+            },
+            "depart_before": {
+              "type": "string"
+            },
+            "destination": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "destination_city": {
+              "type": "string"
+            },
+            "destination_location": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "duration_basis": {
+              "enum": [
+                "rail",
+                "door_to_door"
+              ],
+              "type": "string"
+            },
+            "endpoints": {
+              "additionalProperties": false,
+              "properties": {
+                "destination": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "adcode": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "area",
+                        "place",
+                        "station"
+                      ],
+                      "type": "string"
+                    },
+                    "location": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "coordinate_system": {
+                          "enum": [
+                            "gcj02"
+                          ],
+                          "type": "string"
+                        },
+                        "lat": {
+                          "maximum": 54,
+                          "minimum": 3,
+                          "type": "number"
+                        },
+                        "lng": {
+                          "maximum": 136,
+                          "minimum": 73,
+                          "type": "number"
+                        },
+                        "source": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "lng",
+                        "lat",
+                        "coordinate_system"
+                      ],
+                      "type": "object"
+                    },
+                    "poi_id": {
+                      "type": "string"
+                    },
+                    "station_code": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "origin": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "adcode": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "area",
+                        "place",
+                        "station"
+                      ],
+                      "type": "string"
+                    },
+                    "location": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "coordinate_system": {
+                          "enum": [
+                            "gcj02"
+                          ],
+                          "type": "string"
+                        },
+                        "lat": {
+                          "maximum": 54,
+                          "minimum": 3,
+                          "type": "number"
+                        },
+                        "lng": {
+                          "maximum": 136,
+                          "minimum": 73,
+                          "type": "number"
+                        },
+                        "source": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "lng",
+                        "lat",
+                        "coordinate_system"
+                      ],
+                      "type": "object"
+                    },
+                    "poi_id": {
+                      "type": "string"
+                    },
+                    "station_code": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "origin",
+                "destination"
+              ],
+              "type": "object"
+            },
+            "max_transfers": {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "origin": {
+              "description": "Fullest known departure location; a city is resolved, never silently converted to its namesake station.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "origin_city": {
+              "type": "string"
+            },
+            "origin_location": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "passengers": {
+              "default": 1,
+              "description": "Adult passenger count 1-5; no identity fields.",
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "priority": {
+              "enum": [
+                "balanced",
+                "fastest",
+                "cheapest",
+                "safest",
+                "flexible"
+              ],
+              "type": "string"
+            },
+            "reuse_from": {
+              "additionalProperties": false,
+              "not": {
+                "required": [
+                  "result_item_id",
+                  "snapshot_id"
+                ]
+              },
+              "properties": {
+                "execution_id": {
+                  "type": "string"
+                },
+                "result_item_id": {
+                  "type": "string"
+                },
+                "snapshot_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "execution_id"
+              ],
+              "type": "object"
+            },
+            "seat_preferences": {
+              "description": "Allowed railway seat classes (codes or names, e.g. O / 二等座). Nonempty restricts every leg; not passenger window/aisle preferences.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            "travel_date": {
+              "format": "date",
+              "type": "string"
+            },
+            "user_query": {
+              "description": "Original travel requirements; maximum 4096 UTF-8 bytes at runtime.",
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          "required": [
+            "travel_date"
+          ],
+          "type": "object"
+        },
+        "role": "query"
+      },
+      {
+        "allowed_source_operations": [
+          "query_exact",
+          "query_smart"
+        ],
+        "billing_mode": "dynamic",
+        "binding": {
+          "capability_id": "itpay_service",
+          "service_contract_version_id": "scv_itpay_rail_booking_v6_v4_dev_20261024",
+          "service_id": "itpay-rail-booking"
+        },
+        "display_names": {
+          "en": "Prepare journey purchase",
+          "zh-CN": "准备整程购买"
+        },
+        "id": "prepare_purchase",
+        "input_schema": {
+          "additionalProperties": false,
+          "description": "One complete journey, one booking/quote/checkout/order. Public raw legs are single-leg compatibility only; 2–3 legs require complete saved ticket-plan selections. Internally resolved legs retain maxItems 3. Exactly one of selection, selections or explicit legs; do not mix ticket plans. Server validates ownership, pinned facts, order and current stock.",
+          "properties": {
+            "legs": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "arrival_days": {
+                    "maximum": 7,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "arrival_time": {
+                    "pattern": "^\\d{2}:\\d{2}$",
+                    "type": "string"
+                  },
+                  "departure_time": {
+                    "pattern": "^\\d{2}:\\d{2}$",
+                    "type": "string"
+                  },
+                  "from_station_code": {
+                    "pattern": "^[A-Z]{3}$",
+                    "type": "string"
+                  },
+                  "seat_preferences": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "passenger_index": {
+                          "maximum": 4,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "preference": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "passenger_index",
+                        "preference"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 5,
+                    "type": "array"
+                  },
+                  "seat_type": {
+                    "minLength": 1,
+                    "pattern": "^[A-Z0-9]$",
+                    "type": "string"
+                  },
+                  "to_station_code": {
+                    "pattern": "^[A-Z]{3}$",
+                    "type": "string"
+                  },
+                  "train_code": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "travel_date": {
+                    "format": "date",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from_station_code",
+                  "to_station_code",
+                  "travel_date",
+                  "train_code",
+                  "departure_time",
+                  "arrival_time",
+                  "arrival_days",
+                  "seat_type"
+                ],
+                "type": "object"
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array"
+            },
+            "party_preference": {
+              "enum": [
+                "none",
+                "together_if_possible"
+              ]
+            },
+            "passengers": {
+              "description": "Passenger count, not passenger identity records.",
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "selection": {
+              "additionalProperties": false,
+              "description": "Server-issued purchase continuation; derives authoritative legs. Mutually exclusive with legs.",
+              "properties": {
+                "seat_type": {
+                  "minLength": 1,
+                  "pattern": "^[A-Z0-9]$",
+                  "type": "string"
+                },
+                "token": {
+                  "description": "Server-issued booking_offer.selection_token from a query result item.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "token"
+              ],
+              "type": "object"
+            },
+            "selection_token": {
+              "description": "Echo of the redeemed server-issued selection token; written by the server during selection resolution.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "selection_tokens": {
+              "description": "Server-only resolution echo; never a substitute for selections.",
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 3,
+              "minItems": 2,
+              "type": "array"
+            },
+            "selections": {
+              "items": {
+                "additionalProperties": false,
+                "description": "One leg credential from the same complete ticket plan; order is leg_index.",
+                "properties": {
+                  "seat_type": {
+                    "minLength": 1,
+                    "pattern": "^[A-Z0-9]$",
+                    "type": "string"
+                  },
+                  "token": {
+                    "description": "Server-issued booking_offer.selection_token from a query result item.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "seat_type"
+                ],
+                "type": "object"
+              },
+              "maxItems": 3,
+              "minItems": 2,
+              "type": "array"
+            },
+            "ticket_plan_ref": {
+              "description": "Server-only resolution echo.",
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "passengers"
+          ],
+          "type": "object"
+        },
+        "requires_continuation": true,
+        "role": "purchase_preparation"
+      }
+    ],
+    "schema_version": "itpay.service-definition.v1",
+    "service_id": "itpay-rail"
+  },
+  "source": "compose-v4/db/v3/publications/itpay-v4-dev-v1.json",
+  "source_sha": "af84e964b401b4d89eb9d2fe0457d87830fc9115"
+}

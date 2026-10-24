@@ -5,7 +5,8 @@ import {BackendClient} from '../src/client/backend.js';
 import {HttpClient} from '../src/client/http.js';
 import {runCatalogList} from '../src/commands/catalog.js';
 import type {CatalogManifest} from '../src/client/types.js';
-import {serviceAdapter} from '../src/services/registry.js';
+import {serviceAdapter,errorServiceAdapter} from '../src/services/registry.js';
+import {runServicesStart} from '../src/commands/services/lifecycle.js';
 import {railServiceGuidance} from '../src/services/rail/guide.js';
 
 test('actual PA3 public definition keeps current schemas and rejects unknown presentation contracts',()=>{
@@ -60,4 +61,24 @@ test('formal Skill keeps service orchestration and railway guide owns its busine
  assert.match(rail,/eligible complete ticket plan/);
  assert.match(rail,/reuse matching real consent/);
  assert.doesNotMatch(rail,/restore_old_execution|exceptional_branches|approve_purchase|confirm_booking/);
+});
+
+
+test('actual V4 dev definition opens overview and retains exact adapter boundaries',async()=>{
+ const {definition}=JSON.parse(readFileSync(new URL('./fixtures/rail-public-v4-dev.json',import.meta.url),'utf8'));
+ const backend=new BackendClient(new HttpClient({baseURL:'http://127.0.0.1:1'}));let starts=0;
+ backend.startServiceExecution=async input=>{starts++;assert.equal(input.service_id,'itpay-rail');return {overview_only:true,service_definition:definition};};
+ let output='';await runServicesStart(backend,'itpay-rail',{jsonOutput:true,output:s=>output+=s});
+ const view=JSON.parse(output);assert.equal(starts,1);assert.equal(view.status,'service_overview');assert.equal(view.result.definition_version,'scv_itpay_rail_public_v5_v4_dev_20261024');
+ assert.deepEqual(view.result.operations.map((op:{operation_id:string})=>op.operation_id),definition.operations.map((op:{id:string})=>op.id));
+ for(const operation of definition.operations){
+ const identity={service_id:operation.binding.service_id,service_contract_version_id:operation.binding.service_contract_version_id,public_binding:{public_service_id:definition.service_id,service_definition_version:definition.definition_version,adapter_key:definition.adapter_key,operation_id:operation.id}};
+ assert.equal(serviceAdapter(identity).supported,true);
+ for(const unknown of ['scv_itpay_rail_public_v5_v4_dev_20261025','scv_itpay_rail_public_v999'])assert.equal(serviceAdapter({...identity,public_binding:{...identity.public_binding,service_definition_version:unknown}}).supported,false);
+ assert.equal(errorServiceAdapter({...identity,code:'input_invalid',message:'fixture'},'itpay-rail')?.supported,true);
+ assert.equal(errorServiceAdapter({...identity,code:'input_invalid',message:'fixture'},'unrelated-service')?.supported,false);
+ }
+ const exact=view.result.operations.find((op:{operation_id:string})=>op.operation_id==='query_exact');assert.deepEqual(exact.input_schema,definition.operations.find((op:{id:string})=>op.id==='query_exact').input_schema);assert.ok(exact.input_template);
+ const purchase=view.result.operations.find((op:{operation_id:string})=>op.operation_id==='prepare_purchase');assert.equal(purchase.requires_continuation,true);assert.match(purchase.instruction,/continuation/);
+ assert.match(view.instruction,/尚未创建执行或查询/);assert.match(view.instruction,/rail-booking/);
 });
