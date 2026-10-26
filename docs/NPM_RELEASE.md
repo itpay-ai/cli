@@ -1,3 +1,7 @@
+## GitHub Actions approval policy — 2026-10-21
+
+CI/CD and channel synchronization are manual only. Before every GitHub Actions run, rerun or downstream batch, explain the need, exact repository/workflow/ref and affected environment/channel, and obtain the user's explicit approval for that run or enumerated batch. Previous implementation/deployment permission does not authorize Actions spending. Prefer local checks; keep branch protection and never label an unrun check as passed. Historical automatic-trigger instructions in this document are superseded by this policy and the current workflow.
+
 # npm release runbook
 
 ## Current publication contract
