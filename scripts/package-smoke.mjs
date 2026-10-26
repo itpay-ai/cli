@@ -1,3 +1,4 @@
+import {verifyHubPackaged} from "./hub-packaged-smoke.mjs";
 import {verifyCanonicalSkillLayout} from "./skill-layout-smoke.mjs";
 import {createHash} from "node:crypto";
 import {verifyNativeSetup} from './native-setup-smoke.mjs';
@@ -36,6 +37,7 @@ try {
   assert.equal(existsSync(join(packageRoot, "tests")), false, "test transport shim must not ship in the npm package");
   const metadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
   assert.equal(metadata.itpayBundleFormat,"buyer-esm-v1");
+  assert.deepEqual(metadata.itpayCommands,["services","api"]);
   assert.equal(existsSync(join(packageRoot,"node_modules")),false);
   for(const field of ["dependencies","optionalDependencies","peerDependencies","bundleDependencies"])assert(!metadata[field]||Object.keys(metadata[field]).length===0,`${field} shipped`);
   const runtimeInstall = join(scratch, "runtime-install");
@@ -195,6 +197,7 @@ try {
   writeFileSync(previousPath, previousBytes);
   const nativeSetup = await verifyNativeSetup(join(packed, tarballs[0]), scratch, previousPath);
   process.stdout.write(JSON.stringify(nativeSetup) + "\n");
+  process.stdout.write(JSON.stringify(await verifyHubPackaged(packageRoot,scratch))+"\n");
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });

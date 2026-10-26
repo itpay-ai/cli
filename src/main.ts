@@ -1,3 +1,4 @@
+import { registerAPICommands } from "./commands/api_commands.js";
 import { AgentTypeRequiredError } from "./state/agent_type.js";
 import {runServicesPurchase} from "./commands/services/purchase.js";
 import {runAftercareList,runAftercareCreate,runAftercareGet,runAftercareRespond} from "./commands/aftercare.js";
@@ -2013,6 +2014,8 @@ services
     }
   });
 
+
+registerAPICommands(program);
 
 program.parseAsync(process.argv).catch((error) => {
   reportCLIError(error);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 const pkg=JSON.parse(readFileSync('package.json','utf8'));
+assert.deepEqual(pkg.itpayCommands,['services','api']);
 for(const field of ['dependencies','optionalDependencies','peerDependencies','bundleDependencies'])assert(!pkg[field]||Object.keys(pkg[field]).length===0,`${field} must not ship`);
 for(const hook of ['prepare','install','postinstall'])assert(!pkg.scripts[hook],`consumer ${hook} hook must not exist`);
 const files=JSON.parse(execFileSync(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),'pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}))[0];

@@ -16,6 +16,7 @@ export interface TelegramRenderOptions {
 }
 
 function buttonsFor(plan: RenderPlan): RenderButton[] {
+  if (plan.paymentOnly) return plan.platform.buttons;
   if (plan.kind === "payment_qr" && plan.paymentIntentID) {
     return [
       { label: "支付遇到问题 / 刷新", kind: "callback", intent: "refresh_payment_qr", ref: plan.paymentIntentID },
@@ -184,6 +185,10 @@ export function renderTelegramInteraction(request: RenderInteractionRequest, opt
 }
 
 function collectTelegramMedia(plan: RenderPlan): Array<{ url: string; mimeType: string }> {
+  if (plan.paymentOnly) {
+    const brand = plan.preferredQRSources.find(src => src.length > 0);
+    return brand ? [{ url: brand, mimeType: "image/png" }] : [];
+  }
   const media = (plan.platform.media ?? []).map((item) => ({
     url: item.url,
     mimeType: item.mimeType ?? "image/png",

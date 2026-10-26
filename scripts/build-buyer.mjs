@@ -44,7 +44,7 @@ for(const input of Object.keys(result.metafile.inputs)){
   directory=dirname(directory);
  }
 }
-const expected=new Set(['commander','qrcode','zod','pngjs','dijkstrajs']);
+const expected=new Set(['commander','qrcode','zod','pngjs','dijkstrajs','@itpay/hub-client']);
 let notices='Third-party packages reachable from the ItPay Buyer runtime.\n\n';
 for(const [directory,pkg] of [...packages].sort((a,b)=>a[1].name.localeCompare(b[1].name))){
  if(!expected.has(pkg.name))throw new Error('unreviewed Buyer dependency: '+pkg.name);
