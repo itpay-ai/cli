@@ -1,11 +1,13 @@
 name: Dispatch published CLI bundle sync
 
+# Manual only: explain the need and obtain user approval before each Actions run.
 on:
-  workflow_run:
-    workflows: [CD — Publish to npm]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      approval_reason:
+        description: User-approved reason for this exact run (include approval reference)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -54,8 +56,9 @@ jobs:
         if: steps.credential.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          APPROVAL_REASON: ${{ inputs.approval_reason }}
         run: |
           set -euo pipefail
           for repo in itpay-skill-hermes itpay-plugin-kimi-work itpay-plugin-chatgpt itpay-skill-openclaw itpay-skill-workbuddy; do
-            gh api --method POST "repos/itpay-ai/$repo/dispatches" -f event_type=itpay-cli-published
+            gh api --method POST "repos/itpay-ai/$repo/actions/workflows/sync-itpay-cli.yml/dispatches" -f ref=main -f "inputs[approval_reason]=$APPROVAL_REASON"
           done

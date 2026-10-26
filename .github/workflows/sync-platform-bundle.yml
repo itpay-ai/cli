@@ -1,5 +1,6 @@
 name: Sync platform CLI bundle
 
+# Manual only: explain the need and obtain user approval before each Actions run.
 on:
   workflow_call:
     inputs:
