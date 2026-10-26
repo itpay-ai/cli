@@ -11,7 +11,7 @@ If this Skill is supplied with `references/itpay-cli-invocation.md`, read it onc
 
 ## Runtime and state
 
-Use real `dot` or `muse` in those hosts; never impersonate codex-desktop. Keep the same permitted launcher, Backend, Agent Type and private `ITPAY_STATE_DIR` through every continuation. npm prefix/cache, receipt and state must all use host-permitted paths; do not change HOME, clear identity or rotate keys to recover quota. Current write access does not prove cross-session persistence. Skill readability, writing, host discovery and version are separate facts; normal tasks need no reinstall. Cloud execution and user-visible presentation are separate; unknown visibility remains unknown.
+Use real `dot` or `muse` in those hosts; never impersonate codex-desktop. Keep the same permitted launcher/PATH, Backend, actual `ITPAY_AGENT_TYPE` (or explicit global `--agent-type`) and private `ITPAY_STATE_DIR` through every command and returned continuation, including auth login/status. Exported values can be inherited; a separate shell may need the same declarations again. A setup-only flag does not persist them. Missing declarations are technical input for the Agent to restore from its real host context, never a reason to guess another host or reset identity. npm prefix/cache, receipt and state must all use host-permitted paths; do not change HOME, clear identity or rotate keys to recover quota. Current write access does not prove cross-session persistence. Skill readability, writing, host discovery and version are separate facts; normal tasks need no reinstall. Cloud execution and user-visible presentation are separate; unknown visibility remains unknown.
 
 ## One current flow
 

@@ -151,7 +151,7 @@ export function writeCommandEnvelope(
   if (options.plainResult) {
     for (const line of options.plainResult) {
       const command = line.match(/^(\s*(?:command|reader|entry): )(itpay .*)$/);
-      out(`${command ? command[1] + qualifyBackendCommand(qualifyItPayCommand(command[2]!, agentType)) : line}\n`);
+      out(`${command ? command[1] + qualifyCommand(command[2]!, agentType) : line}\n`);
     }
   } else {
     for (const [key, fact] of Object.entries(facts)) {
@@ -195,10 +195,10 @@ function qualifyEnvelope<T extends CommandEnvelope | CommandNullResultEnvelope |
     ...("handoff" in value && value.handoff ? { handoff: qualifyCommandsDeep(value.handoff, agentType) as Record<string, unknown> } : {}),
     ...("interaction" in value && value.interaction ? { interaction: qualifyCommandsDeep(value.interaction, agentType) as InteractionBlock } : {}),
     ...("communication" in value && value.communication ? { communication: qualifyCommandsDeep(value.communication, agentType) as CommunicationBlock } : {}),
-    next: value.next ? { ...value.next, command: qualifyBackendCommand(qualifyItPayCommand(value.next.command, agentType)) } : null,
+    next: value.next ? { ...value.next, command: qualifyCommand(value.next.command, agentType) } : null,
     recovery: value.recovery.map((action) => ({
       ...action,
-      command: qualifyBackendCommand(qualifyItPayCommand(action.command, agentType)),
+      command: qualifyCommand(action.command, agentType),
     })),
   };
 }
@@ -210,7 +210,7 @@ function qualifyEnvelope<T extends CommandEnvelope | CommandNullResultEnvelope |
 function qualifyCommandsDeep(value: unknown, agentType: string | undefined): unknown {
   if (typeof value === "string") {
     return value.startsWith("itpay ")
-      ? qualifyBackendCommand(qualifyItPayCommand(value, agentType))
+      ? qualifyCommand(value, agentType)
       : value;
   }
   if (Array.isArray(value)) return value.map((item) => qualifyCommandsDeep(item, agentType));
@@ -276,4 +276,13 @@ export function printErrorRecovery(error: unknown, output?: OutputSink): void {
     out(`  - ${action.label}\n`);
     out(`    ${action.command}\n`);
   }
+}
+
+
+// Returned continuations must retain the same private state as this invocation.
+// Do not persist or infer the host type in shared device storage.
+function qualifyCommand(command: string, agentType: string | undefined): string {
+  const qualified = qualifyBackendCommand(qualifyItPayCommand(command, agentType));
+  return command.startsWith("itpay ") && process.env.ITPAY_STATE_DIR
+    ? `ITPAY_STATE_DIR=${shellArgument(process.env.ITPAY_STATE_DIR)} ${qualified}` : qualified;
 }

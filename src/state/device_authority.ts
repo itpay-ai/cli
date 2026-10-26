@@ -1,3 +1,4 @@
+import { requireAgentType } from "./agent_type.js";
 import type { AuthorizationBudget } from "../client/http.js";
 import { asTransientTransportError, HttpTransportError } from "../client/transport.js";
 import { createDeviceKey, deviceKeyThumbprint, readDeviceKey } from "./device_key.js";
@@ -127,7 +128,7 @@ export class DeviceAuthority {
   }
 
   private cache(privateKey: KeyObject, agentType = this.requestedAgentType): DeviceSessionCache {
-    if (!agentType) throw new Error("agent type is required for ItPay commerce; pass --agent-type <type> or set ITPAY_AGENT_TYPE");
+    agentType = requireAgentType(agentType);
     return new DeviceSessionCache(resolve(dirname(this.statePath), "sessions"), {
       backend: this.backendKey, agentType, keyThumbprint: deviceKeyThumbprint(privateKey),
     });
@@ -174,9 +175,8 @@ export class DeviceAuthority {
 
   private async prepareAuthorization(options: AuthorizationBudget): Promise<{ state: DeviceRegistration; agentType: string; session: DeviceSessionState; privateKey: KeyObject }> {
     checkAuthorizationBudget(options);
+    const agentType = requireAgentType(this.requestedAgentType);
     const state = this.readState();
-    const agentType = this.requestedAgentType;
-    if (!agentType) throw new Error("agent type is required for ItPay commerce; pass --agent-type <type> or set ITPAY_AGENT_TYPE");
     let privateKey: KeyObject;
     checkAuthorizationBudget(options);
     try {

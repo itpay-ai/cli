@@ -1,3 +1,4 @@
+import { AgentTypeRequiredError } from "./state/agent_type.js";
 import {runServicesPurchase} from "./commands/services/purchase.js";
 import {runAftercareList,runAftercareCreate,runAftercareGet,runAftercareRespond} from "./commands/aftercare.js";
 import { agentAuth } from "./state/account_auth.js";
@@ -181,7 +182,11 @@ function reportCLIError(
   error: unknown,
   contract?: { jsonOutput?: boolean; code: string; instruction: string; recovery?: CommandAction[]; initialization?: boolean },
 ): void {
-  const commandError = error instanceof CommandContractError ? error : undefined;
+  const commandError = error instanceof CommandContractError ? error : error instanceof AgentTypeRequiredError
+    ? new CommandContractError(error.code, error.message,
+      "本次没有发送授权请求。Agent沿用实际宿主类型补齐 --agent-type 或 ITPAY_AGENT_TYPE，保留原Backend和私有状态目录；不要让用户猜技术参数、换身份或新建授权。", [], undefined,
+      { failure_stage: "local_agent_declaration", request_sent: false,
+        input_template: { executable: false, required_field: "agent_type", source: "actual_host", preserve: ["Backend", "ITPAY_STATE_DIR", "device_identity"] } }) : undefined;
   const backendOverrideError = error instanceof BackendOverrideError ? error : undefined;
   const deviceError = error instanceof DeviceAuthorizationError ? error : undefined;
   const stateError = error instanceof DeviceStateError ? error : undefined;

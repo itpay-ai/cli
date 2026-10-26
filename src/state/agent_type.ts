@@ -22,3 +22,18 @@ export function qualifyItPayCommand(command: string, agentType: string | undefin
   if (!command.startsWith("itpay ") || /^itpay\s+--agent-type(?:=|\s)/.test(command)) return command;
   return `itpay --agent-type ${agentType} ${command.slice("itpay ".length)}`;
 }
+
+
+export class AgentTypeRequiredError extends Error {
+  readonly code = "agent_type_required";
+  constructor() {
+    super("Declare the actual Agent Type with --agent-type or ITPAY_AGENT_TYPE; no authorization request was sent");
+    this.name = "AgentTypeRequiredError";
+  }
+}
+
+export function requireAgentType(value: string | undefined): string {
+  const type = canonicalAgentType(value);
+  if (!type) throw new AgentTypeRequiredError();
+  return type;
+}

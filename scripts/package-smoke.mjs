@@ -176,7 +176,9 @@ try {
     errorOutput = String(error.stdout ?? "");
     assert.equal(String(error.stderr ?? ""), "");
   }
-  assert.match(errorOutput, /agent type is required/);
+  assert.match(errorOutput, /code: agent_type_required/);
+  assert.match(errorOutput, /failure_stage: local_agent_declaration/);
+  assert.match(errorOutput, /request_sent: false/);
   await verifyPackedDeviceUpgrade(packageRoot, scratch);
   // Pin the actual previous released binary, not a renamed current-code fixture.
   const previousPath = join(scratch, "previous-cli-2.1.46.tgz");
