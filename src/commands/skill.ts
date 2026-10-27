@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {CANONICAL_SKILL_SHA256} from "../state/skill_identity.generated.js";
+import {CANONICAL_SKILL_SHA256, CANONICAL_API_SKILL_SHA256} from "../state/skill_identity.generated.js";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { packageResourcePath } from "../state/package_resources.js";
@@ -19,11 +19,15 @@ export interface SkillOptions {
 
 export function runSkillShow(name: string, options: SkillOptions = {}): void {
   const normalized = name.trim().toLowerCase();
+  if (normalized === "itpay-api") {
+    showAPISkill(options);
+    return;
+  }
   if (normalized !== ITPAY_SKILL && normalized !== "itpay-buyer") {
     throw new CommandContractError(
       "skill_not_found",
       `skill not found: ${name}`,
-      `当前 CLI 只内置 ${ITPAY_SKILL}；不要猜测 Skill 名称。`,
+      `当前 CLI 内置 ${ITPAY_SKILL}（Services）和 itpay-api（API）；不要猜测 Skill 名称。`,
       [{ command: `itpay skill show ${ITPAY_SKILL} --json`, reason: "读取完整 ItPay Skill" }],
     );
   }
@@ -96,4 +100,35 @@ function validateSkill(content: string): void {
   if (!frontmatter || !/^name:\s*itpay\s*$/m.test(frontmatter) || !/^description:\s*(?:>|\S)/m.test(frontmatter)) {
     throw new Error("invalid packaged skill: itpay");
   }
+}
+
+// API always reads its own pinned package resource. Services override roots and
+// Services onboarding must never replace the API instruction or its identity.
+function showAPISkill(options: SkillOptions): void {
+  let content: string;
+  try {
+    content = readFileSync(packageResourcePath("skills", "itpay-api", "SKILL.md"), "utf8");
+  } catch {
+    throw new CommandContractError("skill_unavailable", "packaged API Skill cannot be read",
+      "包内 API Skill 缺失或不可读取；通过原分发方式恢复同版本完整包，不回退 Services Skill。", []);
+  }
+  const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+  if (createHash("sha256").update(content).digest("hex") !== CANONICAL_API_SKILL_SHA256
+    || !frontmatter || !/^name:\s*itpay-api\s*$/m.test(frontmatter)
+    || !/^description:\s*(?:>|\S)/m.test(frontmatter)) {
+    throw new CommandContractError("skill_mismatch", "packaged API Skill does not match this pinned CLI build",
+      "包内 API Skill 名称或原文校验失败；通过原分发方式恢复同版本完整包，不使用 Services 覆盖路径或下载替代指引。", []);
+  }
+  const agentType = options.agentType ?? declaredAgentType();
+  writeCommandEnvelope({
+    status: "shown",
+    result: { skill: "itpay-api", content },
+    instruction: "完整读取 API Skill，按用户任务使用 itpay api --help；需要认证时由本人完成 api connect，已有任务沿原引用恢复。保持真实宿主、Hub 端点和状态目录。",
+    next: null,
+    recovery: [],
+  }, {
+    ...options,
+    ...(agentType ? { agentType } : {}),
+    plainResult: content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n"),
+  });
 }

@@ -5,7 +5,7 @@ import {verifyNativeSetup} from './native-setup-smoke.mjs';
 import {verifyPackedDeviceUpgrade} from './device-upgrade-smoke.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +54,58 @@ try {
   };
 
   verifyCanonicalSkillLayout(packageRoot,join(scratch,"canonical-skill-layout"));
+
+  // Real installed commands, with network calls trapped and only synthetic
+  // identity sentinels. Neither Skill read may enroll, connect or write state.
+  const skillState = join(scratch, "two-skill-state");
+  const skillHome = join(scratch, "two-skill-home");
+  mkdirSync(skillState); mkdirSync(skillHome);
+  const identitySentinel = join(skillState, "identity-sentinel");
+  writeFileSync(identitySentinel, "synthetic identity must stay unchanged");
+  const networkGuard = join(scratch, "skill-no-network.mjs");
+  writeFileSync(networkGuard, `import net from 'node:net';
+import http from 'node:http'; import https from 'node:https';
+import {syncBuiltinESMExports} from 'node:module';
+const deny=()=>{throw new Error('Skill attempted network access')};
+globalThis.fetch=deny; net.Socket.prototype.connect=deny;
+http.request=deny; http.get=deny; https.request=deny; https.get=deny;
+syncBuiltinESMExports();
+`);
+  const skillEnv = { ...process.env, HOME: skillHome, ITPAY_STATE_DIR: skillState,
+    ITPAY_CLI_SKILLS_DIR: join(scratch, "absent-services-override"),
+    ITPAY_BACKEND_URL: "https://sandbox.itpay.ai", ITPAY_HUB_URL: "http://127.0.0.1:1" };
+  delete skillEnv.ITPAY_AGENT_TYPE;
+  const readSkill = (name, json = true, override = false) => execFileSync(process.execPath,
+    ["--import", networkGuard, entry, "--agent-type", "workbuddy", "skill", "show", name, ...(json ? ["--json"] : [])],
+    { env: override ? skillEnv : { ...skillEnv, ITPAY_CLI_SKILLS_DIR: join(packageRoot, "skills") }, encoding: "utf8", stdio: "pipe" });
+  for (const name of ["itpay", "itpay-api"]) {
+    const canonical = readFileSync(join(packageRoot, "skills", name, "SKILL.md"), "utf8");
+    const value = JSON.parse(readSkill(name));
+    assert.equal(value.status, "shown"); assert.equal(value.result.skill, name);
+    assert.equal(value.result.content, canonical); assert.equal(value.next, null);
+    assert.ok(readSkill(name, false).includes(canonical.trimEnd()));
+  }
+  assert.equal(JSON.parse(readSkill("itpay-buyer")).result.skill, "itpay");
+  assert.equal(JSON.parse(readSkill("itpay-api", true, true)).result.skill, "itpay-api");
+  assert.ok(existsSync(join(packageRoot, "docs/cli-reference/api.md")));
+  const apiSkillPath = join(packageRoot, "skills/itpay-api/SKILL.md");
+  const apiSkillOriginal = readFileSync(apiSkillPath, "utf8");
+  const rejectsAPI = code => assert.throws(() => readSkill("itpay-api"), error => {
+    const value = JSON.parse(String(error.stdout));
+    assert.equal(value.error.code, code); assert.equal(value.next, null); assert.deepEqual(value.recovery, []);
+    assert.doesNotMatch(value.instruction, /itpay install|itpay setup|device register/);
+    return true;
+  });
+  try {
+    writeFileSync(apiSkillPath, apiSkillOriginal + "\nUnapproved API instructions.\n"); rejectsAPI("skill_mismatch");
+    writeFileSync(apiSkillPath, apiSkillOriginal.replace("name: itpay-api", "name: itpay")); rejectsAPI("skill_mismatch");
+    unlinkSync(apiSkillPath); rejectsAPI("skill_unavailable");
+  } finally { writeFileSync(apiSkillPath, apiSkillOriginal); }
+  assert.equal(readFileSync(identitySentinel, "utf8"), "synthetic identity must stay unchanged");
+  assert.deepEqual(readdirSync(skillState), ["identity-sentinel"]);
+  assert.deepEqual(readdirSync(skillHome), []);
+  console.log(JSON.stringify({twoPackagedSkills:true,completeOriginals:true,apiReference:true,
+    apiOverrideIgnored:true,tamperAndMissingRejected:true,network:"trapped",identity:"unchanged"}));
 
   const commandDocs = new Map([
     ["", "index.md"],

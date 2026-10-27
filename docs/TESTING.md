@@ -8,4 +8,4 @@ API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算�
 
 两条旅程分别记实际版本/包hash/材料、耗时、有用结果、人工帮助、约束保持、失败和恢复。完整fakepass仅付款/出票/退款模拟，其余真实链路；当前阶段没有部署/测试环境启用授权。UI核验优先Node+Playwright。未观察宿主、未运行数据库/PSP、工程失败与真实体验结论分别列明。
 
-现有包smoke包含help文档映射、隔离安装及合成OAuth/API跨进程恢复；它不读取新增API Skill/参考页，不能当成入包证据。该缺口见[待办](BACKLOG.md)，不改检查或脚本假装本批已解决。
+现有包smoke包含help文档映射、隔离安装及合成OAuth/API跨进程恢复；两Skill实包断言还要求各自原文/名称正确、API reference存在、Services别名和覆盖兼容、API忽略Services覆盖，以及缺失/篡改准确拒绝。读取在网络调用被拦截条件下执行，并核对隔离身份文件不变。它们证明本地候选工程行为，不代表npm已发布或真实API/Services Agent自然体验通过。

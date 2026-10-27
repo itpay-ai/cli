@@ -1,6 +1,6 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。当前任务只整理文档，不改版本2.1.56、不触发Actions、不发布npm、不移动next/latest。构建、合并、部署和npm授权各自分开；不可因为已获编码授权顺手发布。
+独立CLI仓是唯一发布源码家。当前任务准备本地未发布候选，不改版本2.1.56、不触发Actions、不发布npm、不移动next/latest。构建、合并、部署和npm授权各自分开；不可因为已获编码授权顺手发布。
 
 源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
 
@@ -47,7 +47,7 @@ An OIDC verify run exchanges GitHub identity for a temporary npm token and sends
 
 `npm run test:package`实际构建并在私有临时前缀安装验证，忽略安装脚本；源码版本/API身份、Skill/Buyer JSON/reference/许可与编译产物必须一起检查。记录npm pack tarball的绝对路径、SHA-256、integrity、源SHA；从同包读version/help，不把package.json版本当实际安装证据。
 
-本次API Skill和api reference是新源码文件，package.files与Skill reader尚未接回；只检查旧包的测试通过不证明新API文档入包。下一配套批更新明确文件清单/检查、重打同版本未发布候选、同步V4固定hash；旧cddf包保持原字节，不覆盖已交付事实。本批未重打最终配套候选，也未发布。
+本地候选已接通两份Skill和API参考页入包与读取，实包检查须核对原文/名称/摘要、Services覆盖兼容、API覆盖隔离、缺失/篡改拒绝、读取无网络及身份无变更。先提交源码并核工作树干净，再从该SHA重打未发布2.1.56候选，记录SHA-256/integrity并同步V4固定来源；不覆盖先前交付包，不向npm同版本重复发布。旧cddf包不含新增API文档，不把旧证据套到新包。
 
 正常发布使用已审定的单一路径；OIDC/网页登录/账户准入以实际工作流及npm结果为准，不猜当前授权、不在聊天索取凭据。主版本合并不会自动发布；latest生产默认与next预览分开，默认宿主渠道跟随获准的生产latest，dev只走testing-setup/明确候选。同步下游是另一个明确批准批次，不借npm权限代替跨仓权限。没有变化不重复创建推送或发布。
 

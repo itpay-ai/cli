@@ -7,6 +7,6 @@
 
 共用登录账号不代表资源、scope、设备登记、consumer或业务同意可互换。每次命令保留真实宿主声明、同Backend/Hub端点与获准状态目录；不清身份、换宿主或重建未知任务恢复额度。
 
-源码候选版本仍为2.1.56，未发布新版本。本轮新增API Skill/参考页尚未纳入package.files及Skill命令：旧cddf0a35包不含这些新文件；下一配套批需更新打包声明/检查、重打未发布候选及消费者锁。当前 `itpay skill show itpay` 仍只读Services Skill，不能声称 `skill show itpay-api` 已可用。
+源码候选版本仍为2.1.56，未发布新版本。本地候选包含两份Skill和API参考页：`itpay skill show itpay`读取Services，`itpay skill show itpay-api`读取API；两者均返回完整原文。API不使用Services覆盖目录。隔离安装检查不代表npm next/latest已更新或真实宿主体验通过；最终包来源/hash以配套source.json为准。
 
 维护者：[架构](docs/ARCHITECTURE.md)、[合同](docs/CONTRACTS.md)、[开发](docs/DEVELOPMENT.md)、[发布](docs/RELEASE.md)、[测试](docs/TESTING.md)、[待办](docs/BACKLOG.md)。当前V4第四批装配仍未完成；本地help/包检查不是服务器可用或真实旅程验收。

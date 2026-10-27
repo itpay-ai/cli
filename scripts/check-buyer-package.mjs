@@ -15,4 +15,5 @@ for(const removed of ['quickstart','rail-fast-checkout'])assert(!files.files.som
 assert(files.files.some(file=>file.path==='THIRD-PARTY-NOTICES.txt'));
 assert(!/\n\s*\n$/.test(readFileSync('THIRD-PARTY-NOTICES.txt','utf8')),'generated notices must not end with blank lines that fail platform git diff --check');
 assert(files.files.some(file=>file.path==='dist/src/state/config.js'));
+for(const path of ['skills/itpay/SKILL.md','skills/itpay-api/SKILL.md','docs/cli-reference/api.md'])assert(files.files.some(file=>file.path===path),`missing packaged Skill/reference: ${path}`);
 console.log(JSON.stringify({compressed:files.size,unpacked:files.unpackedSize,files:files.files.length}));
