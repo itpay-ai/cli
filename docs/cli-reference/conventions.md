@@ -1,6 +1,6 @@
 # Output And Error Contract
 
-> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The public package provides Buyer workflows; Seller authoring source is maintained separately.
+> **Product boundary:** `itpay` is the single public CLI entry point, and `$itpay` is its user-facing Skill invocation. The current package provides Services and API command groups; their grants/resources remain separate. Seller authoring is not a normal Buyer-bundle entry.
 
 ## 目标
 
