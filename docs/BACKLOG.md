@@ -15,4 +15,4 @@
 
 2026-10-28：a261e99已修授权/预算误呈现零元付款，原generic请求一次resume收费成功（主持CLI/UI，不代签自然宿主）；余额不足充值恢复未验。独立Payment双入口/测试商户由用户明确后置，WorkBuddy已登记问题不修；Services短GET超时“写操作”文案、空结果分页和recovery_required展示P2登记后置，不扩任务。
 
-固定下载包仍3245354/2.1.56；a261e99未发布候选未更新npm/渠道或本人安装。真实readonly grant/最小admin Key已正常UI撤销，OAuth/设备state保留。fetch的main c09d7d3已在候选祖先，无未吸收提交，draft PR#119待审核；只推原分支/更新PR，不Actions/合并/发布。本批无新增删除，旧模块README/机器Buyer输入/许可证不扩范围清理。
+固定下载包仍3245354/2.1.56；a261e99未发布候选未更新npm/渠道或本人安装。真实readonly grant/最小admin Key已正常UI撤销，OAuth/设备state保留。fetch的main c09d7d3已在候选祖先，无未吸收提交，PR#119后来按用户批准正常合并为0105e34c，未Actions或发布；后续开发走最新main/正常PR和当前任务授权，不延续旧准备阶段禁令。本批无新增删除，旧模块README/机器Buyer输入/许可证不扩范围清理。

@@ -1,6 +1,40 @@
 # CLI 架构
 
-本仓是唯一CLI源码家。`src/main.ts`保留Services、订单、内容与账户命令；`src/commands/api_commands.ts`统一注册api及hub兼容别名；`src/client/hub.ts`是固定SDK的薄配置层。API使用独立Hub合同/SDK，Services运行owner在V4；不能为宿主复制业务状态机或直接解释供应商结果成付款/权限事实。
+## 新任务入口选择
+
+宿主允许且可执行官方固定CLI → 优先CLI → 按任务只读 Services 或 API Skill。无获准CLI能力 → 对应ItPay托管用户MCP或Hub MCP。平台强制流程/明确连接测试按实际能力执行；已受理/unknown任务保留原入口、身份、请求与权限，不因优先级重发。
+
+## CLI详细逻辑调用
+
+```mermaid
+flowchart LR
+  Agent[允许执行CLI的新任务]
+  SS[Services Skill：CLI仓唯一正文]
+  AS[API Skill：CLI仓唯一正文]
+  subgraph CP[单个CLI进程]
+    SC[Services命令与Backend HTTP client]
+    AC[api命令：hub仅兼容别名]
+    SDK[固定Hub SDK：客户端库，不是服务器]
+    Journal[端点隔离的设备/OAuth/原任务状态]
+    AC --> SDK
+    SC --- Journal
+    AC --- Journal
+  end
+  Agent --> SS --> SC
+  Agent --> AS --> AC
+  SC -->|E01 /v1/service-executions及原单API| V4[V4 Backend]
+  SDK -->|E02 Hub HTTP API| Hub[Hub Go API]
+  SC -.官方办理URL.-> Browser[本人正常浏览器验证/付款]
+  AC -.原消费授权/充值URL.-> Browser
+  NoCLI[宿主无CLI：另按所需业务选我们托管的MCP，非当前CLI事务自动fallback]
+```
+
+[Backend client](../src/client/backend.ts)直调V4业务HTTP，[Hub client](../src/client/hub.ts)配置固定SDK，[api命令](../src/commands/api_commands.ts)保留hub兼容别名。设备/OAuth与原任务状态按端点隔离；一个安装包不意味着token可跨资源。
+
+[三仓总图与V4详图](https://github.com/itpay-ai/compose-v4/blob/main/docs/ARCHITECTURE.md)；[Hub详图](https://github.com/itpay-ai/itpay-api-hub/blob/main/docs/ARCHITECTURE.md)。图为源码逻辑，CLI不调用MCP；包生成和发布是不同事实。
+
+
+本仓是唯一CLI源码家。`src/main.ts`保留Services、订单、内容与账户命令；`src/commands/api_commands.ts`统一注册api及hub兼容别名；`src/client/hub.ts`是固定SDK的薄配置层。CLI API使用独立Hub合同/SDK调用Hub API，CLI Services直接调用V4 API，均不经MCP；不能为宿主复制业务状态机或直接解释供应商结果成付款/权限事实。
 
 Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。共同的ITPAY_STATE_DIR只提供受控存储位置，不把不同issuer/resource/token合并。真实Agent Type、Backend、Hub URL、launcher和状态目录在每个命令继承；setup参数不保证下个shell已继承。
 
