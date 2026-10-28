@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { HubTaskStore, digestTask, type HubCredentialSelection } from "../state/hub_tasks.js";
 import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
 import { storeHubSession } from "../state/hub_credentials.js";
+import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
 import { importHubKey } from "../state/hub_credentials.js";
@@ -240,7 +241,18 @@ export async function renderBlockedTask(task: { request_id: string; intent_id?: 
   if(!admission&&task.intent_id){try{const payment=await hub().getAPIPaymentRequest(task.intent_id);admission={intent_id:task.intent_id,blocking_reason:'insufficient_balance',payment_request:payment,required_action:payment.collection_action};}catch{/* Query only; never create a replacement payment on a missing result. */}}
   const intentID=admission?.intent_id??task.intent_id;
   const action=admission?.required_action;
-  const handoff=action?await renderPaymentHandoff({action,requestID:task.request_id,amountMinor:Number(admission?.payment_request?.payer_minor_amount??0),currency:admission?.payment_request?.payer_currency??'CNY',jsonOutput:Boolean(jsonOutput)}):null;
+  const reason=admission?.blocking_reason??'blocked';
+  const payment=admission?.payment_request;
+  const paymentRequired=payment&&/^[1-9][0-9]*$/.test(String(payment.payer_minor_amount??''));
+  if(action&&!paymentRequired){
+    let target:string|undefined;
+    try{const url=new URL(action.target);if(url.protocol==='https:'&&!url.username&&!url.password)target=url.href;}catch{/* No invented replacement URL. */}
+    const approval=['authorization_denied','budget_exceeded'].includes(reason);
+    const instruction=approval?'请在官方页面核对该 Agent、API 效果范围和消费预算，明确批准后恢复同一原请求。消费授权不会充值或自动扣款。':reason==='insufficient_balance'?'余额不足；请在官方充值页核对原请求和实际金额，到账后恢复同一原请求。':'请在官方页面完成所需操作，再查询同一原请求。';
+    writeCommandEnvelope({status:reason,result:{request_id:task.request_id,intent_id:intentID,...(admission??{})},...(target?{handoff:{type:'open_url',url:target,label:action.label??'打开官方页面'}}:{}),instruction:target?instruction:'未取得可用官方操作链接；保留原请求并核对当前状态。',next:target?{command:qualifyItPayCommand(`itpay api resume ${task.request_id}${jsonOutput?' --json':''}`,declaredAgentType()),reason:approval?'完成消费授权后恢复同一原请求':'完成官方操作后查询同一原请求'}:null,recovery:[]},{jsonOutput:Boolean(jsonOutput),plainResult:[`request ${task.request_id} blocked intent ${intentID??'-'}`,...(target?[target]:[])]});
+    return;
+  }
+  const handoff=action&&paymentRequired?await renderPaymentHandoff({action,requestID:task.request_id,amountMinor:Number(admission?.payment_request?.payer_minor_amount??0),currency:admission?.payment_request?.payer_currency??'CNY',jsonOutput:Boolean(jsonOutput)}):null;
   writeCommandEnvelope({status:admission?.blocking_reason??'blocked',result:{request_id:task.request_id,intent_id:intentID,...(admission??{}),...(handoff?{qr_kind:action.branded===true?'branded_payment_card':'official_checkout_link'}:{})},...(handoff?{handoff:handoff.handoff}:{}),instruction:handoff?.instruction??'当前没有可用的官方品牌付款卡片或收银台链接。保留原请求，查询状态；不要生成或展示 raw QR。',next:handoff?.next??{command:`itpay api resume ${task.request_id}`,reason:'恢复同一原请求'},recovery:[]},{jsonOutput:Boolean(jsonOutput),plainResult:[`request ${task.request_id} blocked intent ${intentID??'-'}`,...(handoff?[JSON.stringify(handoff.handoff)]:[])]});
 }
 
