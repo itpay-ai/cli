@@ -2,7 +2,7 @@
 
 独立CLI仓是唯一发布源码家。版本和next/latest按当前任务明确批准的候选/渠道管理，不将某次2.1.56候选或旧整理阶段限制固化为未来禁令，也不把历史批准延续为无限授权。构建、PR合并、部署、Actions与npm操作各自核对授权；编码或合并批准不自动批准发布。
 
-源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
+源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，核对CLI next既有专项批准范围；范围外再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
 
 ## Current publication contract
 
@@ -54,3 +54,5 @@ An OIDC verify run exchanges GitHub identity for a temporary npm token and sends
 发布后核registry渠道、原包hash/gitHead/integrity、全新临时安装的版本/编译/Skill/文档与配套Backend/publication；latest是否变化单列。没有真实宿主自然测试就写未观察；未通过不宣传稳定可用。2026-10-28真实子路径及剩余购买/履约/宿主验收见[测试](TESTING.md)和[待办](BACKLOG.md)，不因源码合并销账。
 
 本轮Block V（2026-10-28）无发布：固定2.1.56下载包source3245354保持，a261e99只用于同原state的一次generic请求恢复。源码/文档HEAD、未发布dist与已分发包必须分列；推送PR不重新打同版本包，不移动candidate/next/latest。完整旅程未验完，见TESTING/BACKLOG。
+
+Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
