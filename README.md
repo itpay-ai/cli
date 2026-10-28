@@ -2,6 +2,17 @@
 
 一个 `itpay` 入口，两种按需读法。CLI、命令注册、打包与随包Skill的唯一源码在 `itpay-ai/cli`；API Hub和Services/Payment分别由独立Hub与compose-v4维护。
 
+## 架构概览
+
+```mermaid
+flowchart LR
+  Agent["Agent"] --> CLI["一套 ItPay CLI"]
+  CLI --> Services["Services 命令 / Skill"] --> V4["V4 API"]
+  CLI --> API["api 命令 / API Skill"] --> SDK["固定 Hub SDK"] --> Hub["Hub API"]
+```
+
+逻辑职责图，不代表部署拓扑。新任务在宿主允许且能执行 CLI 时优先 CLI；CLI 直接调用 HTTP API，不经过 MCP。详见[完整架构](docs/ARCHITECTURE.md)。
+
 - 办事、铁路/其他服务、订单和已购内容：读 [Services Skill](skills/itpay/SKILL.md)，按需 `itpay services --help` 或 [Services索引](docs/cli-reference/index.md)。无需先读API维护文档。
 - 发现/调用API、用量与Hub任务恢复：读 [API Skill](skills/itpay-api/SKILL.md)，`itpay api --help` 和 [API参考](docs/cli-reference/api.md)。无需先读Services铁路教程。`hub`是同一API注册的兼容别名，首选api。
 
