@@ -439,3 +439,25 @@ test("automatic wait charges polling, not ordinary reads or ready handoffs", asy
     backend.getServiceExecution = originalGet;
   }
 });
+
+
+test('all auth and original-task continuations keep host Backend and custom private state in text and JSON',async()=>{
+ const {writeCommandEnvelope}=await import('../src/commands/guidance.js');
+ const old={type:process.env.ITPAY_AGENT_TYPE,backend:process.env.ITPAY_BACKEND_URL,state:process.env.ITPAY_STATE_DIR};
+ process.env.ITPAY_AGENT_TYPE='workbuddy';process.env.ITPAY_BACKEND_URL='https://v4-dev.itpay.ai';process.env.ITPAY_STATE_DIR="/tmp/itpay test's private";
+ try{for(const jsonOutput of [false,true]){
+  const out:string[]=[];writeCommandEnvelope({status:'fixture',result:{account_action:{optional:true,command:'itpay auth login --json'},expired_action:{command:'itpay auth login --json'},resume:{command:'itpay services get original --json'}},instruction:'fixture',next:{command:'itpay auth status --json',reason:'same authorization'},recovery:[{command:'itpay services next original --json',reason:'same task'}]},{jsonOutput,output:s=>out.push(s)});
+  const text=out.join('');assert.match(text,/ITPAY_STATE_DIR=/);assert.match(text,/ITPAY_BACKEND_URL=https:\/\/v4-dev.itpay.ai/);assert.match(text,/itpay --agent-type workbuddy auth status/);
+  if(jsonOutput){const x=JSON.parse(text);for(const command of [x.next.command,x.recovery[0].command,x.result.account_action.command,x.result.expired_action.command,x.result.resume.command]){assert.match(command,/^ITPAY_STATE_DIR=/);assert.match(command,/--agent-type workbuddy/);assert.match(command,/ITPAY_BACKEND_URL=https:\/\/v4-dev.itpay.ai/);}}
+ }}finally{for(const [key,value]of Object.entries({ITPAY_AGENT_TYPE:old.type,ITPAY_BACKEND_URL:old.backend,ITPAY_STATE_DIR:old.state})){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
+});
+
+
+test('auth command reports a local missing declaration before account probe and never creates identity',async()=>{
+ const {spawnSync}=await import('node:child_process');
+ const root=mkdtempSync(join(tmpdir(),'itpay-auth-input-'));
+ const childEnv:NodeJS.ProcessEnv={...process.env,ITPAY_STATE_DIR:root,ITPAY_BACKEND_URL:'https://v4-dev.itpay.ai'};
+ delete childEnv.ITPAY_AGENT_TYPE;
+ const result=spawnSync(process.execPath,['--import','tsx','src/main.ts','auth','login','--json'],{cwd:process.cwd(),env:childEnv,encoding:'utf8',timeout:20000});
+ assert.equal(result.status,1);const out=JSON.parse(result.stdout);assert.equal(out.error.code,'agent_type_required');assert.equal(out.result.failure_stage,'local_agent_declaration');assert.equal(out.result.request_sent,false);assert.equal(out.result.input_template.executable,false);assert.equal(out.next,null);assert.equal(existsSync(join(root,'identity.json')),false);
+});

@@ -33,10 +33,11 @@
   ],
   "current_flow": [
     "Use the authorized channel/Backend and host-permitted tool prefix/cache/state directories. Use real dot or muse in those hosts, never codex spoofing. Retain one launcher and its Backend, Agent Type and ITPAY_STATE_DIR for every next/recovery command. Do not change HOME.",
-    "Run itpay setup --agent-type <actual_type> --json once after installation/upgrade. setup_ready means device preparation; login_required can be a valid separate account status.",
+    "Declare the actual host type via ITPAY_AGENT_TYPE or the global --agent-type option, then run itpay setup --json once after installation/upgrade. Preserve that real declaration, launcher/PATH, Backend and any custom private ITPAY_STATE_DIR for all later commands. Exported values can be inherited by child processes; a new shell may need them again. A one-time setup flag is not persistent configuration. setup_ready means device preparation; login_required is a separate valid account status.",
     "Read itpay skill show itpay --json and enable that exact package Skill via the host mechanism. Record the actual path and limitation if the host cannot enable it.",
     "Do not repeat setup, installation or login for ordinary tasks. A nonzero install is not ready; keep the actual error and follow its current recovery.",
     "ITPAY_STATE_DIR selects the private state directory; choose an allowed directory before first enrollment and preserve it. If an existing identity lacks its key or becomes inaccessible, recover access; never rotate identity to regain quota.",
-    "Check install prefix, npm cache, state and receipt writes independently. A writable directory is not proof of persistence across sessions. setup reports Skill readability separately from writing, host discovery and version; do not reinstall during normal tasks."
+    "Check install prefix, npm cache, state and receipt writes independently. A writable directory is not proof of persistence across sessions. setup reports Skill readability separately from writing, host discovery and version; do not reinstall during normal tasks.",
+    "When login_required, the returned account_action is optional: use it only for a user-requested login or an account-required feature; do not auto-login or bind for free queries. Missing host declaration is technical input the Agent restores from actual context, not an unknown server authorization or a reason to ask the human to guess a type."
   ]
 }

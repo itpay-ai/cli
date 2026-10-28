@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {spawn} from 'node:child_process';
+import {parseAdminInput} from '../src/commands/admin.js';
+test('admin input is a bounded object and known action only',()=>{assert.deepEqual(parseAdminInput('credentials_list','{}'),{});for(const action of ['operations_list','ingestions_list'])assert.deepEqual(parseAdminInput(action,'{"q":"Agify"}'),{q:'Agify'});for(const [action,raw]of [['run','{}'],['credential_put','[]'],['credential_put','"raw-key"'],['credential_put',' '.repeat(128*1024+1)]])assert.throws(()=>parseAdminInput(action!,raw!));});
+test('CLI sends credential via MCP stdin and prints only masked result',async()=>{
+ const secret='SYNTHETIC-SUPPLIER-NOT-REAL';let count=0;
+ const server=createServer(async(req,res)=>{let body='';for await(const b of req)body+=b;count++;assert.equal(req.url,'/hub/mcp');assert.equal(req.headers['x-itpay-key'],'test-admin-key');const value=JSON.parse(body);assert.equal(value.params.name,'itpay.admin.credential_put');assert.equal(value.params.arguments.headers.Authorization,secret);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({jsonrpc:'2.0',id:'admin',result:{content:[{type:'text',text:JSON.stringify({http_status:200,data:{ref:'supplier',version:'v1'}})}]}}));});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{const port=(server.address() as {port:number}).port;const result=await new Promise<{code:number|null;out:string}>((resolve,reject)=>{const child=spawn(process.execPath,['--import','tsx','src/main.ts','hub','admin','credential_put','--json'],{env:{...process.env,ITPAY_HUB_URL:`http://127.0.0.1:${port}`,ITPAY_HUB_KEY:'test-admin-key',ITPAY_HUB_TOKEN:''},stdio:['pipe','pipe','pipe']});let out='';child.stdout.on('data',b=>out+=b);child.stderr.on('data',b=>out+=b);child.on('error',reject);child.on('close',code=>resolve({code,out}));child.stdin.end(JSON.stringify({credential_ref:'supplier',expected_version:'',headers:{Authorization:secret}}));});assert.equal(result.code,0,result.out);assert.equal(count,1);assert.ok(result.out.includes('supplier'));assert.ok(!result.out.includes(secret));assert.ok(!result.out.includes('test-admin-key'));}finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

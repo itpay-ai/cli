@@ -2896,6 +2896,33 @@ test("skill show rejects unknown or damaged packaged skills with bounded recover
   );
 });
 
+test("API Skill is complete, independent of Services overrides and has no Services onboarding", async () => {
+  const expected = readFileSync(join(CLI_ROOT, "skills", "itpay-api", "SKILL.md"), "utf8");
+  const servicesRoot = mkdtempSync(join(tmpdir(), "itpay-api-services-override-"));
+  writeFileSync(join(servicesRoot, "SKILL.md"), "not the API Skill");
+  for (const agentType of [undefined, "workbuddy", "codex-desktop"]) {
+    const args = [...(agentType ? ["--agent-type", agentType] : []), "skill", "show", "itpay-api", "--json"];
+    const value = JSON.parse((await runCLI(args, { ITPAY_CLI_SKILLS_DIR: servicesRoot })).stdout);
+    assert.equal(value.status, "shown");
+    assert.equal(value.result.skill, "itpay-api");
+    assert.equal(value.result.content, expected);
+    assert.equal(value.next, null);
+    assert.deepEqual(value.recovery, []);
+    assert.match(value.instruction, /api --help/);
+    assert.doesNotMatch(value.instruction, /install|setup|device|services/);
+  }
+  const alias = JSON.parse((await runCLI(["skill", "show", "itpay-buyer", "--json"], {})).stdout);
+  assert.equal(alias.result.skill, "itpay");
+  assert.equal(alias.result.content, readFileSync(join(CLI_ROOT, "skills", "itpay", "SKILL.md"), "utf8"));
+  await assert.rejects(runCLI(["skill", "show", "api", "--json"], {}), (error: unknown) => {
+    const failure = error as {stdout?: string};
+    const value = JSON.parse(String(failure.stdout));
+    assert.equal(value.error.code, "skill_not_found");
+    assert.match(value.instruction, /itpay.*itpay-api/);
+    return true;
+  });
+});
+
 test("install returns one official contract for every supported Agent Type", async () => {
   const expectedHosts: Record<string, string | null> = {
     "codex-desktop": "codex",

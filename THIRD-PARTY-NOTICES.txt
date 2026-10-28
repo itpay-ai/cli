@@ -1,5 +1,13 @@
 Third-party packages reachable from the ItPay Buyer runtime.
 
+===== @itpay/hub-client@0.1.0-integration.34f4fc639af5 (UNLICENSED) =====
+--- LICENSE ---
+UNLICENSED
+
+This is a private integration artifact. This file grants no open-source
+license. Use and redistribution require authorization from the repository owner.
+
+
 ===== commander@12.1.0 (MIT) =====
 --- LICENSE ---
 (The MIT License)

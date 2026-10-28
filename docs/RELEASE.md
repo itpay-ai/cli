@@ -1,6 +1,8 @@
-> Current policy (2026-10-21): publication and channel sync are manual only. Explain the reason and obtain user approval for each exact Actions run or explicitly listed downstream batch. Commits, PRs and merges do not trigger publishing. See ../.github/ACTIONS_POLICY.md. Historical automatic-trigger descriptions below are superseded.
+# CLI 发布与制品
 
-# npm release runbook
+独立CLI仓是唯一发布源码家。当前任务准备本地未发布候选，不改版本2.1.56、不触发Actions、不发布npm、不移动next/latest。构建、合并、部署和npm授权各自分开；不可因为已获编码授权顺手发布。
+
+源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
 
 ## Current publication contract
 
@@ -24,7 +26,7 @@ The package repository URL must be `https://github.com/itpay-ai/cli`. The workfl
 | Stage a new main version | Version bump + checks + normal main merge do not publish. After approval, manually dispatch stage/source=main to `candidate-dev`; `next/latest` remain unchanged. |
 | Stage a maintenance candidate | First review the internal commit and artifact. Approve its exact SHA/version/API/tarball SHA-256 in `scripts/npm-release-sources.json` on main. Dispatch action `stage`, source `dev` or `prod`; null entries fail closed. |
 | Activate dev channel | Verify matching Backend/runtime/publication; approve exact dev source in policy. Dispatch `promote`, tag `next`, exact version. |
-| Activate stable channel | Validate the precise old-production combination in isolation and deploy its matching Backend. Approve exact prod source, then dispatch `promote`, tag `latest`, exact version. This is not automatic main-to-production promotion. |
+| Activate stable channel | Validate the precise approved production combination in isolation and deploy its matching Backend. Approve exact prod source, then dispatch `promote`, tag `latest`, exact version. This is not automatic main-to-production promotion. |
 | Verify OIDC without publishing | Dispatch `verify` for the current exact `next/latest` value; reasserts the same tag only. |
 
 The trusted workflow always runs on protected main. Its source selection is an enum, never a caller-supplied ref. Main policy fixes internal maintenance commits and tarball hashes; changing those approvals requires a normal reviewed main PR. Do not swap main's product tree to publish an older API.
@@ -41,44 +43,14 @@ After each release, record workflow run, trusted main workflow SHA, actual sourc
 
 An OIDC verify run exchanges GitHub identity for a temporary npm token and sends an actual same-value tag PUT; npm dist-tag add alone skips unchanged tags and cannot prove write permission. This proves tag permission only. `npm publish --dry-run` does not prove live publish authorization. The next authorized new-version release must confirm actual publish and provenance. Preserve the old unused NPM_TOKEN secret until OIDC publication has been verified; remove it afterward with account authorization. Do not add it back as a hidden fallback.
 
-## Policy and fallback
+## 本地候选与最终配套
 
-Official references, checked 2026-10-01:
-- https://docs.npmjs.com/trusted-publishers/
-- https://docs.npmjs.com/about-access-tokens/
-- https://docs.npmjs.com/cli/v11/commands/npm-trust/
+`npm run test:package`实际构建并在私有临时前缀安装验证，忽略安装脚本；源码版本/API身份、Skill/Buyer JSON/reference/许可与编译产物必须一起检查。记录npm pack tarball的绝对路径、SHA-256、integrity、源SHA；从同包读version/help，不把package.json版本当实际安装证据。
 
-Classic tokens were removed in November 2025. Granular bypass-2FA publication is still transitional, with removal planned for January 2027. Trusted publishing avoids this dependency. If human local publication is explicitly requested, use the current web/passkey flow; login success alone does not prove publication success. Never ask for tokens in chat.
+本地候选已接通两份Skill和API参考页入包与读取，实包检查须核对原文/名称/摘要、Services覆盖兼容、API覆盖隔离、缺失/篡改拒绝、读取无网络及身份无变更。先提交源码并核工作树干净，再从该SHA重打未发布2.1.56候选，记录SHA-256/integrity并同步V4固定来源；不覆盖先前交付包，不向npm同版本重复发布。旧cddf包不含新增API文档，不把旧证据套到新包。
 
-## Historical activation snapshot (not current release evidence)
+正常发布使用已审定的单一路径；OIDC/网页登录/账户准入以实际工作流及npm结果为准，不猜当前授权、不在聊天索取凭据。主版本合并不会自动发布；latest生产默认与next预览分开，默认宿主渠道跟随获准的生产latest，dev只走testing-setup/明确候选。同步下游是另一个明确批准批次，不借npm权限代替跨仓权限。没有变化不重复创建推送或发布。
 
-Workflow merged through PR #85 at b214ada7b9ef01570a55d45a5ef2019019b2fc01; GitHub main-only environment configured. Run 36859058141 completed, but its unchanged-tag CLI path skipped PUT and is not write-permission evidence. The corrected verify path must succeed before recording authorization as verified. No new version has been published through OIDC yet.
+发布后核registry渠道、原包hash/gitHead/integrity、全新临时安装的版本/编译/Skill/文档与配套Backend/publication；latest是否变化单列。没有真实宿主自然测试就写未观察；未通过不宣传稳定可用。当前V4装配未完，见[待办](BACKLOG.md)。
 
-## Channel bundle synchronization
-
-Default host bundles track production npm `latest`; they have no periodic schedule. A change to their sync workflow on main, manual dispatch, or `itpay-cli-published` repository event checks the current published latest version. Matching base/PR artifacts and older target versions do not rebuild or push; an empty final diff does not commit.
-
-After registry verification and approval for the exact downstream batch, manually dispatch `dispatch-platform-sync.yml` for four Buyer channels. Dot/ChatGPT is an independent remote MCP product and is excluded from CLI bundle synchronization. Configure `ITPAY_BUNDLE_APP_ID` and `ITPAY_BUNDLE_APP_PRIVATE_KEY` in CLI using the existing bundle App, installed on those four Buyer repositories with contents-write permission for repository_dispatch. npm OIDC and CLI's GITHUB_TOKEN cannot supply cross-repository permissions. Without the paired secrets the job explicitly reports cross-repository sync unavailable; channel workflow_dispatch remains available. Do not add npm tokens for this purpose.
-
-If npm accepted publication but CD failed during immediate visibility verification, verify exact version/integrity/latest first, then manually dispatch this workflow. Do not republish. Each channel's existing tests still fail for real update defects; no failure is hidden by continue-on-error. Channel PRs remain subject to normal review and checks.
-
-## Buyer ESM candidate artifact
-
-The Buyer build is readable Node 18+ ESM. `src/state/release_identity.ts` owns
-version/API constants; the bundle imports the published pure constants at
-`dist/src/state/config.js`. Trusted release evidence reads those constants without
-executing the candidate. Legacy artifacts retain the explicit old config path.
-
-`npm run build` generates the Buyer bundle and complete third-party notices.
-`npm run test:package` verifies the packed limits and excluded Seller files;
-`npm run test:package` installs the artifact with scripts disabled and checks its
-actual entry and upgrades in isolated state. No runtime dependency download or
-Seller runner is part of installation. CI additionally checks Node 18/20/22/24
-on Linux, Windows and macOS; configured jobs are not evidence until run.
-
-`itpayBundleFormat: buyer-esm-v1` identifies the prebuilt package for host sync.
-The synchronizer copies this exact package, including notices, Skill and Buyer
-resources, and uses a thin launcher. It does not install/rebundle the new format.
-Old published formats keep their explicit compatibility paths. Default sync still
-tracks latest; a dev candidate must stay in isolated testing channels until an
-approved next activation. Do not change default channel tags for a local check.
+本轮Block V（2026-10-28）无发布：固定2.1.56下载包source3245354保持，a261e99只用于同原state的一次generic请求恢复。源码/文档HEAD、未发布dist与已分发包必须分列；推送PR不重新打同版本包，不移动candidate/next/latest。完整旅程未验完，见TESTING/BACKLOG。

@@ -36,7 +36,7 @@ for (const status of ["authenticated", "login_required", "unknown", "unbound", "
    const run = () => runSetup(backend, config, validateSetup("workbuddy"), {jsonOutput: true, output: s => lines.push(s)});
    if (["authenticated", "login_required"].includes(status)) {
     await run(); await run(); assert.equal(calls, 2); assert.equal(lines.length, 2);
-    for (const line of lines) { const x = JSON.parse(line); assert.equal(x.status, "setup_ready"); assert.equal(x.result.account_status, status); assert.equal(x.result.cli_version, CLI_VERSION); assert.equal(x.next, null); assert(!/session_token|private_key|start_token/.test(line)); }
+    for (const line of lines) { const x = JSON.parse(line); assert.equal(x.status, "setup_ready"); assert.equal(x.result.account_status, status); assert.equal(x.result.cli_version, CLI_VERSION); assert.equal(x.next, null); if(status==="login_required"){assert.equal(x.result.account_action.optional,true);assert.match(x.result.account_action.command,/--agent-type workbuddy auth login/);}else assert.equal(x.result.account_action,undefined); assert(!/session_token|private_key|start_token/.test(line)); }
     const plain: string[] = []; await runSetup(backend, config, validateSetup("workbuddy"), {output: s => plain.push(s)});
     assert.match(plain.join(""), /设备已准备好/);
    } else {

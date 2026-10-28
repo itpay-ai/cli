@@ -624,3 +624,14 @@ test('authorization deadline aborts slow headers/body before follow-up enrollmen
   }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
  }
 });
+
+
+test('missing host declaration fails before reading corrupt identity or creating a key or request',async()=>{
+ const {AgentTypeRequiredError}=await import('../src/state/agent_type.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-type-required-'));
+ const statePath=join(root,'identity.json'),privateKeyPath=join(root,'private.pem');
+ writeFileSync(statePath,'preserve corrupt fixture identity');let requests=0;
+ const authority=new DeviceAuthority({baseURL:'https://fixture.invalid',compatibilityHeaders:{},statePath,privateKeyPath,fetchImpl:async()=>{requests++;throw Error('must not send');}});
+ await assert.rejects(()=>authority.authorizationHeaders({method:'GET',path:'/v1/agent-device-account-bindings',body:''}),AgentTypeRequiredError);
+ assert.equal(readFileSync(statePath,'utf8'),'preserve corrupt fixture identity');assert.equal(existsSync(privateKeyPath),false);assert.equal(requests,0);
+});

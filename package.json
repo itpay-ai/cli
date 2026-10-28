@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "2.1.53",
+  "version": "2.1.56",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -18,6 +18,7 @@
     "dist/src/state/config.js",
     "THIRD-PARTY-NOTICES.txt",
     "skills/itpay/SKILL.md",
+    "skills/itpay-api/SKILL.md",
     "skills/itpay/agents/openai.yaml",
     "docs/agent/buyer/cart-checkout.json",
     "docs/agent/buyer/catalog-list.json",
@@ -30,6 +31,7 @@
     "docs/agent/buyer/render-hosts.json",
     "docs/agent/buyer/service-feedback.json",
     "docs/cli-reference/agent-types.md",
+    "docs/cli-reference/api.md",
     "docs/cli-reference/commands/aftercare.md",
     "docs/cli-reference/commands/auth.md",
     "docs/cli-reference/commands/buy.md",
@@ -108,16 +110,17 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@itpay/hub-client": "file:dependencies/itpay-hub-client-0.1.0-integration.34f4fc639af5.tgz",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.7.5",
     "@types/qrcode": "^1.5.5",
     "c8": "^10.1.3",
+    "commander": "^12.1.0",
+    "esbuild": "0.28.1",
+    "qrcode": "^1.5.4",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "commander": "^12.1.0",
-    "qrcode": "^1.5.4",
-    "zod": "^3.25.76",
-    "esbuild": "0.28.1"
+    "zod": "^3.25.76"
   },
   "scripts": {
     "build": "npm run typecheck && node scripts/build-buyer.mjs",
@@ -140,5 +143,9 @@
     "type": "git",
     "url": "git+https://github.com/itpay-ai/cli.git"
   },
-  "itpayBundleFormat": "buyer-esm-v1"
+  "itpayBundleFormat": "buyer-esm-v1",
+  "itpayCommands": [
+    "services",
+    "api"
+  ]
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 const pkg=JSON.parse(readFileSync('package.json','utf8'));
+assert.deepEqual(pkg.itpayCommands,['services','api']);
 for(const field of ['dependencies','optionalDependencies','peerDependencies','bundleDependencies'])assert(!pkg[field]||Object.keys(pkg[field]).length===0,`${field} must not ship`);
 for(const hook of ['prepare','install','postinstall'])assert(!pkg.scripts[hook],`consumer ${hook} hook must not exist`);
 const files=JSON.parse(execFileSync(process.env.npm_execpath ? process.execPath : 'npm',[...(process.env.npm_execpath ? [process.env.npm_execpath] : []),'pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}))[0];
@@ -14,4 +15,5 @@ for(const removed of ['quickstart','rail-fast-checkout'])assert(!files.files.som
 assert(files.files.some(file=>file.path==='THIRD-PARTY-NOTICES.txt'));
 assert(!/\n\s*\n$/.test(readFileSync('THIRD-PARTY-NOTICES.txt','utf8')),'generated notices must not end with blank lines that fail platform git diff --check');
 assert(files.files.some(file=>file.path==='dist/src/state/config.js'));
+for(const path of ['skills/itpay/SKILL.md','skills/itpay-api/SKILL.md','docs/cli-reference/api.md'])assert(files.files.some(file=>file.path===path),`missing packaged Skill/reference: ${path}`);
 console.log(JSON.stringify({compressed:files.size,unpacked:files.unpackedSize,files:files.files.length}));

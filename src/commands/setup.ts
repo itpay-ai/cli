@@ -39,8 +39,12 @@ export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus"
     cli_version: CLI_VERSION, backend_url: config.baseURL, agent_type: config.agentType,
     state_directory: stateDir(), state_persistence: "unverified_across_sessions", skill_readable: true, skill_written: "unknown", skill_discoverable: "unknown", execution_position: "unknown", presentation_surface: "unknown",
     device_status: "ready", account_status: account.status, skill_path: skillPath, skill_version: CLI_VERSION,
+    ...(account.status === "login_required" ? { account_action: {
+      optional: true, condition: "仅当用户要求登录或当前功能需要账号时使用；免费查询不强制绑定。",
+      command: "itpay auth login --json", reason: "由本人完成官方账号授权，不自动登录",
+    } } : {}),
   }, instruction: account.status === "authenticated"
     ? "设备已准备好，已有账号授权可继续使用。读取并启用下方 Skill 后，按用户需求开始。"
     : "设备已准备好。读取并启用下方 Skill 后即可开始；需要账号的功能会再请用户授权。",
-  next: null, recovery: [] }, options);
+  next: null, recovery: [] }, { ...options, ...(config.agentType ? { agentType: config.agentType } : {}) });
 }

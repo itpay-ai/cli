@@ -46,3 +46,10 @@ test('Approved V4 test origin stays exact, explicit and separate from production
  assert.equal(resolveBackendURL({}),'https://app.itpay.ai');
  for(const bad of ['https://app-test.itpay.ai.evil.test','https://auth-test.itpay.ai','https://mcp-test.itpay.ai','https://app-test.itpay.ai/v1','https://app-test.itpay.ai:8443','https://user@ app-test.itpay.ai','https://app-test.itpay.ai?token=secret'])assert.throws(()=>resolveBackendURL({ITPAY_BACKEND_URL:bad}));
 });
+
+
+test('required actual type is a typed local input contract, never a guessed host',async()=>{
+ const {requireAgentType,AgentTypeRequiredError}=await import('../src/state/agent_type.js');
+ for(const value of [undefined,'','  '])assert.throws(()=>requireAgentType(value),e=>e instanceof AgentTypeRequiredError&&e.code==='agent_type_required');
+ assert.equal(requireAgentType(' WorkBuddy '),'workbuddy');
+});

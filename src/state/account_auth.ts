@@ -1,3 +1,4 @@
+import { AgentTypeRequiredError } from "./agent_type.js";
 import { HttpError } from '../client/http.js';
 import { HttpTransportError } from '../client/transport.js';
 import { DeviceAuthorizationError, DeviceStateError } from './device_authority.js';
@@ -73,7 +74,7 @@ function authStatusUnknown(sessionID: string | undefined, error?: unknown, failu
     // command boundary report them rather than turning them into polling.
     if ((error instanceof HttpError && error.status < 500)
         || (error instanceof AuthRequestError && error.httpStatus < 500)
-        || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError)
+        || error instanceof DeviceAuthorizationError || error instanceof DeviceStateError || error instanceof AgentTypeRequiredError)
         throw error;
     const hostFailure = error && typeof error === "object" && "code" in error
         && (error.code === "CODEBUDDY_BROKER_DENY" || error.code === "CODEBUDDY_BROKER_OUTCOME_UNKNOWN");
@@ -146,7 +147,7 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
                 return authenticatedEnvelope(env, current.phone_verified === true);
         }
         catch (error) {
-            if (error instanceof AuthRequestError)
+            if (error instanceof AuthRequestError || error instanceof AgentTypeRequiredError)
                 throw error;
             // AUTH03: even the binding-status probe can hit transport failure; the
             // truthful state is "unknown", never an implicit unbound or a fresh login.

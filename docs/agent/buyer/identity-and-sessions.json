@@ -25,7 +25,7 @@
   ],
   "current_flow": [
     "One verified supported identity can log in: phone is recommended, wallets follow, email is a separate choice. Bind another only on request or current service need.",
-    "Display the current official authorization entry; after completion use its same-task recovery command.",
+    "Display the current official authorization entry; after completion use its same-task recovery command. Retain the actual Agent Type, Backend, launcher/PATH and any custom private ITPAY_STATE_DIR for auth login/status, waiting, expired-request recovery and original-task recovery. A setup-only flag does not persist the type; exported values may be inherited. Do not start login automatically for free queries.",
     "Account merging requires proof of both accounts and explicit confirmation on the official page. Login permission is separate from purchase consent.",
     "Keep the device identity and actual Agent Type. Current errors supply an action or explicit stop; do not delete keys, change identity or repeat installation."
   ]
