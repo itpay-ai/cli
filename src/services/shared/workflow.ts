@@ -1,3 +1,4 @@
+import { workflowSubmissionActor } from "./workflow-actor.js";
 import { type ServiceExecutionReadModel } from "../../client/types.js";
 import { executionInputContext, operationInputTemplate, serviceInputTemplate } from "./input.js";
 import { requiredInputFields } from "./platform.js";
@@ -16,7 +17,7 @@ export function workflowEnvelope(model: ServiceExecutionReadModel): CommandEnvel
  if (state === "human_action" && action) return {
   status:"confirmation_required", result:{service_execution_id:id,human_action:action},
   instruction:"展示本次操作的待确认内容；已有明确同意且目标与版本未变时沿用，只补缺失的真实同意。按完整模板提交同一执行；选择对象不等于购买批准。",
-  next:null,recovery:[],interaction:{schema_version:"itpay.interaction.v1",stage:"confirmation_required",input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`,serviceInputTemplate(action.input_schema),requiredInputFields(action.input_schema),{executionID:id,userAnswerRequired:true})},
+  next:null,recovery:[],interaction:{schema_version:"itpay.interaction.v1",stage:"confirmation_required",input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type ${workflowSubmissionActor(action)} --status approved --input-json <file> --json`,serviceInputTemplate(action.input_schema),requiredInputFields(action.input_schema),{executionID:id,userAnswerRequired:true})},
  };
  const inputRequired = state === "input_required";
  const failed = ["failed","recovery_required","cancelled"].includes(state);
