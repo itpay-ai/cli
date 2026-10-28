@@ -31,3 +31,7 @@ WorkBuddy 的 present_files、ZCode 浏览器、OpenClaw message 只在该宿主
 Dot/Muse 保持真实类型，不用 codex-desktop 兼容冒充。受限目录使用 ITPAY_STATE_DIR，后续同一 launcher 保留 Backend/type/state；可写不代表跨会话持久。云浏览器成功打开不证明用户已看见页面，未知显示能力仍为 unknown。
 
 Hermes 使用真实 `hermes`，默认以 plain-chat 如实交付；不冒充其他宿主或承诺未知显示能力。
+
+## Entry selection
+
+For a new task, prefer the official pinned ItPay CLI when execution is permitted and available in the current host. Install only through the host-permitted official installation path when authorized. Services tasks use the Services Skill; API tasks use the independent API Skill and `itpay api`. CLI calls HTTP APIs directly, never MCP transport. Without permitted CLI capability, use the corresponding ItPay-hosted user Services MCP or Hub MCP and only its actually available tools; ordinary users do not self-host another MCP. Platform-required workflows and explicit connection tests follow the actual available capability. Entry selection never authorizes a permission bypass: preserve the original identity, entry, request/run and current grant after acceptance or an unknown result. Continue across entries only when the owner explicitly supports recovery under the same actual authority; CLI errors never license a substitute transaction or raw HTTP workaround.

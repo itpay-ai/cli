@@ -118,3 +118,7 @@ OpenClaw 额外明确没有默认入口：
 使用当前真实 Agent Type；同类型窗口复用当前 Backend 下的同一实例。显式 host 只改变展示，不改变身份、业务或同意。正式 Skill 与 render-hosts 拥有当前可用展示指引；原生工具不可用时同轮展示原官方URL，不为了图片或按钮反复排障。
 
 未知 target 或参数错误按实际返回修正；本命令不写身份。准备设备统一使用 setup，不把 install、readyz、auth status 串成重复初始化链。
+
+## Entry selection
+
+For a new task, prefer the official pinned ItPay CLI when execution is permitted and available in the current host. Install only through the host-permitted official installation path when authorized. Services tasks use the Services Skill; API tasks use the independent API Skill and `itpay api`. CLI calls HTTP APIs directly, never MCP transport. Without permitted CLI capability, use the corresponding ItPay-hosted user Services MCP or Hub MCP and only its actually available tools; ordinary users do not self-host another MCP. Platform-required workflows and explicit connection tests follow the actual available capability. Entry selection never authorizes a permission bypass: preserve the original identity, entry, request/run and current grant after acceptance or an unknown result. Continue across entries only when the owner explicitly supports recovery under the same actual authority; CLI errors never license a substitute transaction or raw HTTP workaround.

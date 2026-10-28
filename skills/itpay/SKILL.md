@@ -5,6 +5,8 @@ description: Find or buy ItPay services, plan or book railway travel, read purch
 
 # ItPay
 
+For a new task, prefer the official pinned ItPay CLI when execution is permitted and available in the current host. Install only through the host-permitted official installation path when authorized. Services tasks use the Services Skill; API tasks use the independent API Skill and `itpay api`. CLI calls HTTP APIs directly, never MCP transport. Without permitted CLI capability, use the corresponding ItPay-hosted user Services MCP or Hub MCP and only its actually available tools; ordinary users do not self-host another MCP. Platform-required workflows and explicit connection tests follow the actual available capability. Entry selection never authorizes a permission bypass: preserve the original identity, entry, request/run and current grant after acceptance or an unknown result. Continue across entries only when the owner explicitly supports recovery under the same actual authority; CLI errors never license a substitute transaction or raw HTTP workaround.
+
 Use the installed `itpay` entry yourself. Understand the human’s complete goal and constraints; preserve the actual Agent Type, Backend and device identity. Installation preparation belongs to `install-and-setup`; after setup, ordinary tasks need no repeated installation, readyz or login checks.
 
 If this Skill is supplied with `references/itpay-cli-invocation.md`, read it once and bind every logical `itpay` command to that bundle’s wrapper. Do not switch to a global executable or install another CLI to repair a bundled task. The same canonical Skill and Buyer documentation apply to the pinned package.

@@ -1,8 +1,8 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。当前任务准备本地未发布候选，不改版本2.1.56、不触发Actions、不发布npm、不移动next/latest。构建、合并、部署和npm授权各自分开；不可因为已获编码授权顺手发布。
+独立CLI仓是唯一发布源码家。版本和next/latest按当前任务明确批准的候选/渠道管理，不将某次2.1.56候选或旧整理阶段限制固化为未来禁令，也不把历史批准延续为无限授权。构建、PR合并、部署、Actions与npm操作各自核对授权；编码或合并批准不自动批准发布。
 
-源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
+源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，核对CLI next既有专项批准范围；范围外再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
 
 ## Current publication contract
 
@@ -47,10 +47,12 @@ An OIDC verify run exchanges GitHub identity for a temporary npm token and sends
 
 `npm run test:package`实际构建并在私有临时前缀安装验证，忽略安装脚本；源码版本/API身份、Skill/Buyer JSON/reference/许可与编译产物必须一起检查。记录npm pack tarball的绝对路径、SHA-256、integrity、源SHA；从同包读version/help，不把package.json版本当实际安装证据。
 
-本地候选已接通两份Skill和API参考页入包与读取，实包检查须核对原文/名称/摘要、Services覆盖兼容、API覆盖隔离、缺失/篡改拒绝、读取无网络及身份无变更。先提交源码并核工作树干净，再从该SHA重打未发布2.1.56候选，记录SHA-256/integrity并同步V4固定来源；不覆盖先前交付包，不向npm同版本重复发布。旧cddf包不含新增API文档，不把旧证据套到新包。
+本地候选已接通两份Skill和API参考页入包与读取，实包检查须核对原文/名称/摘要、Services覆盖兼容、API覆盖隔离、缺失/篡改拒绝、读取无网络及身份无变更。先提交源码并核工作树干净，再从该SHA构建获准版本的未发布候选，记录SHA-256/integrity并由消费者显式更新固定来源；不覆盖先前交付包，不向npm同版本重复发布。历史cddf包不含新增API文档，其旧证据不能套到新包。
 
 正常发布使用已审定的单一路径；OIDC/网页登录/账户准入以实际工作流及npm结果为准，不猜当前授权、不在聊天索取凭据。主版本合并不会自动发布；latest生产默认与next预览分开，默认宿主渠道跟随获准的生产latest，dev只走testing-setup/明确候选。同步下游是另一个明确批准批次，不借npm权限代替跨仓权限。没有变化不重复创建推送或发布。
 
-发布后核registry渠道、原包hash/gitHead/integrity、全新临时安装的版本/编译/Skill/文档与配套Backend/publication；latest是否变化单列。没有真实宿主自然测试就写未观察；未通过不宣传稳定可用。当前V4装配未完，见[待办](BACKLOG.md)。
+发布后核registry渠道、原包hash/gitHead/integrity、全新临时安装的版本/编译/Skill/文档与配套Backend/publication；latest是否变化单列。没有真实宿主自然测试就写未观察；未通过不宣传稳定可用。2026-10-28真实子路径及剩余购买/履约/宿主验收见[测试](TESTING.md)和[待办](BACKLOG.md)，不因源码合并销账。
 
 本轮Block V（2026-10-28）无发布：固定2.1.56下载包source3245354保持，a261e99只用于同原state的一次generic请求恢复。源码/文档HEAD、未发布dist与已分发包必须分列；推送PR不重新打同版本包，不移动candidate/next/latest。完整旅程未验完，见TESTING/BACKLOG。
+
+Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。

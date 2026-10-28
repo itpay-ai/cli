@@ -63,3 +63,7 @@ setup 返回当前包的绝对 Skill 路径；完整读取原文，按宿主正�
 API只从当前包`skills/itpay-api/SKILL.md`读取，独立核对生成摘要及frontmatter名称；不读取`ITPAY_CLI_SKILLS_DIR`。该覆盖变量的直接/父目录语义仅供Services，不能替换API指引。API文件缺失/不可读取返回`skill_unavailable`，原文或名称校验失败返回`skill_mismatch`；均停止，不回退Services、下载新说明或写身份。
 
 读取两类Skill均无网络、无登录/身份写操作。未知名称返回`skill_not_found`并明确两合法名，不按相似名称猜测。包内读取通过只证明本地制品完整，不证明npm渠道或真实Agent已验收。
+
+## Entry selection
+
+For a new task, prefer the official pinned ItPay CLI when execution is permitted and available in the current host. Install only through the host-permitted official installation path when authorized. Services tasks use the Services Skill; API tasks use the independent API Skill and `itpay api`. CLI calls HTTP APIs directly, never MCP transport. Without permitted CLI capability, use the corresponding ItPay-hosted user Services MCP or Hub MCP and only its actually available tools; ordinary users do not self-host another MCP. Platform-required workflows and explicit connection tests follow the actual available capability. Entry selection never authorizes a permission bypass: preserve the original identity, entry, request/run and current grant after acceptance or an unknown result. Continue across entries only when the owner explicitly supports recovery under the same actual authority; CLI errors never license a substitute transaction or raw HTTP workaround.
