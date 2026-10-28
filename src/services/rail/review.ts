@@ -1,3 +1,4 @@
+import { workflowSubmissionActor } from "../shared/workflow-actor.js";
 import { executionInputContext, operationInputTemplate } from "../shared/input.js";
 import { type ServiceExecutionReadModel } from "../../client/types.js";
 import { type CommandEnvelope, fileInputTemplate } from "../shared/envelope.js";
@@ -131,7 +132,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
           ...(sides.some(side => side.status !== "resolved" && !side.candidates?.length) ? {} : { interaction: {
             schema_version: "itpay.interaction.v1",
             stage: "location_confirmation_required",
-            input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <地点确认.json> --json`,{...serviceInputTemplate(action.input_schema),...(requiredFields.includes("choices")?{choices:Object.fromEntries(sides.filter(side=>side.candidates?.length).map(side=>[side.side,"<所选候选id>"]))}:{})},requiredFields,{executionID:id,userAnswerRequired:true}),
+            input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type ${workflowSubmissionActor(action)} --status approved --input-json <地点确认.json> --json`,{...serviceInputTemplate(action.input_schema),...(requiredFields.includes("choices")?{choices:Object.fromEntries(sides.filter(side=>side.candidates?.length).map(side=>[side.side,"<所选候选id>"]))}:{})},requiredFields,{executionID:id,userAnswerRequired:true}),
           } }),
           recovery: [],
         };
@@ -178,7 +179,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
         interaction: {
           schema_version: "itpay.interaction.v1",
           stage: "confirmation_required",
-          input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type human --status approved --input-json <file> --json`,serviceInputTemplate(action.input_schema),requiredFields,{executionID:id,userAnswerRequired:true}),
+          input_template:fileInputTemplate(`itpay services action ${id} --action ${action.action_type} --actor-type ${workflowSubmissionActor(action)} --status approved --input-json <file> --json`,serviceInputTemplate(action.input_schema),requiredFields,{executionID:id,userAnswerRequired:true}),
         },
         recovery: [],
       };
@@ -244,7 +245,7 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
           stage: inputTemplate ? "input_required" : "payment",
           ...(inputTemplate ? { input_template: inputTemplate } : {}),
           ...(state === "payment" && model.workflow?.human_action?.context?.review ? {
-            revise_template:fileInputTemplate(`itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type human --status approved --input-json <file> --json`,serviceInputTemplate(model.workflow.human_action.input_schema),requiredInputFields(model.workflow.human_action.input_schema),{executionID:id,userAnswerRequired:true}),
+            revise_template:fileInputTemplate(`itpay services action ${id} --action ${model.workflow.human_action.action_type} --actor-type ${workflowSubmissionActor(model.workflow.human_action)} --status approved --input-json <file> --json`,serviceInputTemplate(model.workflow.human_action.input_schema),requiredInputFields(model.workflow.human_action.input_schema),{executionID:id,userAnswerRequired:true}),
           } : {}),
         },
       } : {}),
