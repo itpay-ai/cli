@@ -52,3 +52,5 @@ An OIDC verify run exchanges GitHub identity for a temporary npm token and sends
 正常发布使用已审定的单一路径；OIDC/网页登录/账户准入以实际工作流及npm结果为准，不猜当前授权、不在聊天索取凭据。主版本合并不会自动发布；latest生产默认与next预览分开，默认宿主渠道跟随获准的生产latest，dev只走testing-setup/明确候选。同步下游是另一个明确批准批次，不借npm权限代替跨仓权限。没有变化不重复创建推送或发布。
 
 发布后核registry渠道、原包hash/gitHead/integrity、全新临时安装的版本/编译/Skill/文档与配套Backend/publication；latest是否变化单列。没有真实宿主自然测试就写未观察；未通过不宣传稳定可用。当前V4装配未完，见[待办](BACKLOG.md)。
+
+本轮Block V（2026-10-28）无发布：固定2.1.56下载包source3245354保持，a261e99只用于同原state的一次generic请求恢复。源码/文档HEAD、未发布dist与已分发包必须分列；推送PR不重新打同版本包，不移动candidate/next/latest。完整旅程未验完，见TESTING/BACKLOG。
