@@ -13,6 +13,21 @@ export function assertCheckoutCreation(checkout:CheckoutCreated, cartID:string, 
   }
 }
 
+// A Backend-owned account entry conveys no bearer authority. Its original
+// cart/state/deadline still must be coherent before the human link is shown.
+export function assertAccountCheckout(checkout:CheckoutCreated, cartID:string, sourceExecutionID?:string):void {
+ const current=checkout.checkout;
+ const expiry=Date.parse(current.expires_at ?? "");
+ const entryExpiry=checkout.official_entry?.expires_at;
+ const bound=entryExpiry===undefined ? expiry : Date.parse(entryExpiry);
+ // Presenter deadlines can be rounded down to seconds. An earlier bound is
+ // conservative; an invalid or later bound must never extend the checkout.
+ const closed=!Number.isFinite(expiry) || !Number.isFinite(bound) || Math.min(expiry,bound)<=Date.now();
+ if(!current.checkout_id || current.cart_id!==cartID || !payableStates.includes(current.status) || closed || bound>expiry) {
+  throw checkoutNotPayable(current,cartID,sourceExecutionID,closed);
+ }
+}
+
 // Presentation owns the clock, original cart and payment facts for every handoff.
 export function assertCheckoutPayable(checkout:CheckoutCreated, authoritative:CheckoutPresentation|undefined, cartID:string, sourceExecutionID?:string):void {
   const current = authoritative?.checkout ?? checkout.checkout;

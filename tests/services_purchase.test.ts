@@ -115,15 +115,36 @@ test('Dot and Muse receive a credential-free original account link without waiti
   await backend.recordServiceExecutionAction('se_fixture',{action_type:'approve_purchase',actor_type:'agent',status:'approved',input_snapshot:{...quote.approval_template,user_approved:true}});
   const checkout=await backend.createServiceExecutionCheckout('se_fixture',{capability_id:'precise_report'});
   const originalToken=checkout.checkout.display_token;
+  checkout.checkout.display_token='';
+  checkout.checkout.checkout.expires_at=new Date(Date.now()+60000).toISOString();
+  backend.getCheckoutPresentation=async()=>{throw Error('account entry must not read a bearer presentation');};
   checkout.checkout.checkout_url=`https://app-test.itpay.ai/checkout/${checkout.checkout.checkout.checkout_id}`;
   checkout.checkout.official_entry={url:checkout.checkout.checkout_url,purpose:'checkout',access:'account_session'};
   backend.getServicePurchaseReview=async()=>({...running,status:'checkout_ready',completed_stage:'official_page',checkout,effects:{...effects,page_reused:true,human_page_action_required:true}});
   for(const agentType of ['dot','muse']){
-   let output='',images=0;
-   await runServicesPurchase(backend,{...config,agentType},'se_fixture',undefined,{agentType,jsonOutput:true,output:s=>{output+=s},fetchImpl:async()=>{images++;throw Error('optional QR must not block link');}});
-   const result=JSON.parse(output);assert.equal(result.handoff.url,checkout.checkout.checkout_url);assert.equal(result.handoff.access,'account_session');assert.equal(images,0);
+   let output='',images=0,persisted=0;
+   await runServicesPurchase(backend,{...config,agentType},'se_fixture',undefined,{agentType,jsonOutput:true,persistHandoff:()=>{persisted++;},output:s=>{output+=s},fetchImpl:async()=>{images++;throw Error('optional QR must not block link');}});
+   const result=JSON.parse(output);assert.equal(result.handoff.url,checkout.checkout.checkout_url);assert.equal(result.handoff.access,'account_session');assert.equal(images,0);assert.equal(persisted,0);
    assert(!output.includes(originalToken));assert(!output.includes('--token'));assert(!output.includes('display_token='));assert.equal(result.result.agent_facts.effects.order_created,'unknown');assert.equal(result.result.agent_facts.references.checkout_id,checkout.checkout.checkout.checkout_id);assert.match(result.next.command,new RegExp(`--agent-type ${agentType} services get se_fixture`));
   }
+
+  const valid=structuredClone(checkout);
+  for(const change of ['expired','missing-expiry','wrong-expiry','wrong-cart','wrong-status','credential-url','wrong-purpose','wrong-access']){
+   const altered=structuredClone(valid);
+   if(change==='expired')altered.checkout.checkout.expires_at='2000-01-01T00:00:00Z';
+   if(change==='missing-expiry')delete altered.checkout.checkout.expires_at;
+   if(change==='wrong-expiry')altered.checkout.official_entry!.expires_at='2000-01-01T00:00:00Z';
+   if(change==='wrong-cart')altered.checkout.checkout.cart_id='foreign-cart';
+   if(change==='wrong-status')altered.checkout.checkout.status='payment_pending';
+   if(change==='credential-url'){altered.checkout.checkout_url+='?display_token=forbidden';altered.checkout.official_entry!.url=altered.checkout.checkout_url;}
+   if(change==='wrong-purpose')(altered.checkout.official_entry as any).purpose='other';
+   if(change==='wrong-access')(altered.checkout.official_entry as any).access='bearer';
+   backend.getServicePurchaseReview=async()=>({...running,status:'checkout_ready',completed_stage:'official_page',checkout:altered,effects});
+   await assert.rejects(runServicesPurchase(backend,{...config,agentType:'muse'},'se_fixture',undefined,{jsonOutput:true}),e=>e instanceof CommandContractError && ['secure_handoff_unavailable','checkout_not_payable'].includes(e.code),change);
+  }
+  backend.getServicePurchaseReview=async()=>({...running,status:'checkout_ready',completed_stage:'official_page',checkout:valid,effects});
+  await assert.rejects(runServicesPurchase(backend,{...config,agentType:'codex-desktop'},'se_fixture',undefined,{jsonOutput:true}),e=>e instanceof CommandContractError && e.code==='checkout_not_payable','legacy host must still require its bearer');
+  backend.getServicePurchaseReview=async()=>({...running,status:'checkout_ready',completed_stage:'official_page',checkout,effects});
   const officialURL=checkout.checkout.checkout_url;
   checkout.checkout.checkout_url=`https://evil.example/checkout/${checkout.checkout.checkout.checkout_id}`;
   checkout.checkout.official_entry={url:checkout.checkout.checkout_url,purpose:'checkout',access:'account_session'};
