@@ -21,6 +21,7 @@
 |---|---|---|
 | U02 账号登录裸QR及account-checkout仅链接，两条品牌卡接线缺失（确认P1） | V4官方资产owner；CLI account_auth消费 | account_auth.ts两处裸512PNG；commerce.ts Dot/Muse在原a0ed5fe1已有仅链接return，CLI59未补品牌字段，用户要求QR后目标自编码不是正式资产。复用现有auth/payment HTML→截图PNG链，V4按原session/checkout/期限及现有认证供资产，CLI真实host消费；不新POST、不外泄poll/browser凭据、不把办理页称付款。缺图回原URL，不让Agent自画；真实Muse分别目视授权与办理/支付卡。新版本另批。 |
 | 全入口裸码/失败重画及阶段说明（P1确认） | CLI render/各command/两Skill | terminal.ts始终ASCII且品牌失败writeLocalPNG，checkout/services直接renderTerminalQR，Vault terminal同样裸码；API上层brand保护仍落公共terminal，须一并收口。只正式品牌HTML/同HTML图或原官方链接，禁止Agent自编码/裁品牌；用途/状态/本人动作/原next用现有envelope表达，原pay/buy image来源待核，不把字段名当品牌证明。两Skill/帮助同步，不以只改Skill当修复。 |
+| R01原补偿资金已完成，Agent售后读回未过（P1） | V4 Refund/订单读模型；CLI消费原返回 | OLD80-REFUND-ACCEPTANCE记录rr_12b5…原80元现金succeeded/用户退款详情通过；target读回报supplier_refund_confirmation_required、拿不到实际结果，订单取消仍出票中/全退称部分。按T08只读原refund→order→Agent响应定位；不伪报CLI已修、不重跑退款、不触发真实售后，第二单/供应商退票/充值退款未销。 |
 | S05 Muse59正式页404（阻断P1，根因待判） | V4 Identity/Checkout | CLI59已交无token原URL；浏览器browser-entry404，checkout/execution/deviceowner一致但Safari session未知。不能通过CLI换身份、伪造token或重复授权绕过；等待正常owner根因证据。 |
 | U01 默认用户登录落Hub/用户中心缺失（确认P1） | V4 Web | CLI不复制用户首页或Hub Console，不用修改AgentType/Backend绕页面owner；保留原checkout/OAuth返回，显式Hub入口。 |
 | S02 地点ground、R02/R03模拟售后闭环 | V4 Planner/RailAftercare | 真实ground采集/出站依据和合法fake退票/改签事实源，不用CLI文案假补数据或“已完成”。 |
