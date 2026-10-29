@@ -19,7 +19,7 @@
 
 | ID / 影响 | 唯一owner | 退出条件 |
 |---|---|---|
-| U02 账号登录裸QR，品牌卡缺接线（确认P1） | V4官方资产owner；CLI account_auth消费 | account_auth.ts两个writeLocalPNG仍生成裸512PNG；后端缺账号品牌资产路由，既有auth renderer可复用。后端供同原session/starttoken/expiry合法资产，CLI下载/展示不重复POST；真实Muse显示设计卡，缺图可合法原链接回退。新版本另批。 |
+| U02 账号登录裸QR及account-checkout仅链接，两条品牌卡接线缺失（确认P1） | V4官方资产owner；CLI account_auth消费 | account_auth.ts两处裸512PNG；commerce.ts Dot/Muse在原a0ed5fe1已有仅链接return，CLI59未补品牌字段，用户要求QR后目标自编码不是正式资产。复用现有auth/payment HTML→截图PNG链，V4按原session/checkout/期限及现有认证供资产，CLI真实host消费；不新POST、不外泄poll/browser凭据、不把办理页称付款。缺图回原URL，不让Agent自画；真实Muse分别目视授权与办理/支付卡。新版本另批。 |
 | S05 Muse59正式页404（阻断P1，根因待判） | V4 Identity/Checkout | CLI59已交无token原URL；浏览器browser-entry404，checkout/execution/deviceowner一致但Safari session未知。不能通过CLI换身份、伪造token或重复授权绕过；等待正常owner根因证据。 |
 | U01 默认用户登录落Hub/用户中心缺失（确认P1） | V4 Web | CLI不复制用户首页或Hub Console，不用修改AgentType/Backend绕页面owner；保留原checkout/OAuth返回，显式Hub入口。 |
 | S02 地点ground、R02/R03模拟售后闭环 | V4 Planner/RailAftercare | 真实ground采集/出站依据和合法fake退票/改签事实源，不用CLI文案假补数据或“已完成”。 |
