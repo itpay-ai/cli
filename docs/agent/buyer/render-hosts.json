@@ -65,7 +65,7 @@
     {
       "agent_type": "kimi-code",
       "default_host": "terminal",
-      "responsibility": "use the standard CLI terminal QR and Checkout URL"
+      "responsibility": "show the official server card when supported and the original Checkout URL; image failure uses the same URL, purpose, current status, human action and original next; never encode a QR locally"
     },
     {
       "agent_type": "openclaw",

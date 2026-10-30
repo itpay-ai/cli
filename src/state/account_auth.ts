@@ -4,7 +4,7 @@ import { HttpTransportError } from '../client/transport.js';
 import { DeviceAuthorizationError, DeviceStateError } from './device_authority.js';
 import { rmSync } from 'node:fs';
 import { authStatePath, readAuthState as read, saveAuthState as save, type Login } from './auth_storage.js';
-import { writeLocalPNG } from '../render/qr.js';
+import { downloadBrandQRToTmp } from '../render/ide.js';
 import { TaskJournal } from './task_journal.js';
 import { taskJournalPath } from './config.js';
 import type { CommandAction, CommandEnvelope } from '../commands/guidance.js';
@@ -160,6 +160,10 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
             throw new AuthRequestError(response.status, `ItPay authorization failed (${response.status}); retry login if expired`);
         return response;
     }
+    async function officialLoginCard(sessionID: string, startToken: string) {
+        const cardURL = `${baseURL}/v1/dashboard/auth-sessions/${encodeURIComponent(sessionID)}/card.png?start_token=${encodeURIComponent(startToken)}`;
+        return downloadBrandQRToTmp(cardURL, 'auth', sessionID, {fetchImpl: fetcher, baseURL, caption: 'ItPay 官方账号登录卡'});
+    }
     function pollOpenSession(state: Login): Promise<{
         status: string;
         expires_at?: string;
@@ -189,7 +193,7 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
                         return await bindSavedSession(open);
                     if ((ACTIVE_SESSION_STAGES as readonly string[]).includes(current.status)) {
                         const url = open.authURL ?? '';
-                        const qr = url ? await writeLocalPNG(url).catch(() => undefined) : undefined;
+                        const qr = url ? await officialLoginCard(open.sessionID!, open.startToken!) : undefined;
                         return {
                             status: 'auth_pending',
                             result: {
@@ -203,7 +207,8 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
                             handoff: {
                                 url,
                                 contains_credentials: true,
-                                ...(qr ? { qr_local_path: qr.filePath, markdown: `![ItPay 官方授权二维码](${qr.filePath})` } : {}),
+                                ...(qr?.ok && qr.attach ? { qr_local_path: qr.attach.localPath, markdown: `![ItPay 官方授权卡](${qr.attach.localPath})` } : {image_status: "unavailable"}),
+                                purpose: "login",
                             },
                             instruction: `${stageInstruction(current.status)} 沿用同一链接或二维码；不要生成新请求。`,
                             next: { command: 'itpay auth status --json', reason: '用户完成页面登录后确认绑定', poll_after_ms: 5000 },
@@ -256,7 +261,7 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
             throw new Error('Incomplete authorization response');
         save({ baseURL, sessionID: result.dashboard_auth_session_id, pollToken: result.poll_token, startToken, authURL: url.href }, env, purpose);
         {
-            const qr = await writeLocalPNG(url.href).catch(() => undefined);
+            const qr = await officialLoginCard(result.dashboard_auth_session_id, startToken);
             return {
                 status: 'auth_pending',
                 result: {
@@ -268,9 +273,10 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
                 handoff: {
                     url: url.href,
                     contains_credentials: true,
-                    ...(qr ? { qr_local_path: qr.filePath, markdown: `![ItPay 官方授权二维码](${qr.filePath})` } : {}),
+                    ...(qr?.ok && qr.attach ? { qr_local_path: qr.attach.localPath, markdown: `![ItPay 官方授权卡](${qr.attach.localPath})` } : {image_status: "unavailable"}),
+                                purpose: "login",
                 },
-                instruction: '把官方授权页或二维码交给用户。用户在页面内选择手机号验证码、邮箱或钱包完成登录；不要替用户输入手机号或验证码，start_token 不要写入聊天记录或日志。',
+                instruction: '展示官方授权卡及原官方链接；图片不可用时只展示原链接，不自行编码二维码。用户在页面内选择手机号验证码、邮箱或钱包完成登录；不要替用户输入手机号或验证码，start_token 不要写入聊天记录或日志。',
                 next: { command: 'itpay auth status --json', reason: '用户完成页面登录后确认绑定', poll_after_ms: 5000 },
                 recovery: [],
             };

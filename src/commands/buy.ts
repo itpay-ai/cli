@@ -193,12 +193,7 @@ export async function runBuy(
       process.stdout.write(`  id:     ${paymentIntent.payment_intent_id}\n`);
       process.stdout.write(`  method: ${paymentIntent.payment_method_type}\n`);
       process.stdout.write(`  status: ${paymentIntent.status}\n`);
-      if (paymentIntent.action?.qr_image_url) {
-        process.stdout.write(`  qr:     ${paymentIntent.action.qr_image_url}\n`);
-      }
-      if (paymentIntent.action?.mobile_wallet_url) {
-        process.stdout.write(`  wallet: ${paymentIntent.action.mobile_wallet_url}\n`);
-      }
+      process.stdout.write(`  official checkout: ${cardURL}\n`);
     }
 
     if (!options.noWait) {

@@ -54,6 +54,7 @@ import type {
 
 export class BackendClient {
   constructor(private readonly http: HttpClient) {}
+  get baseURL(): string { return this.http.baseURL; }
   get localSimulation(): boolean { return this.http.localSimulation; }
 
   agentAccountStatus(): Promise<{status: string; phone_verified?: boolean}> {
@@ -262,6 +263,9 @@ export class BackendClient {
     );
   }
 
+  getServicePurchaseCard(serviceExecutionID:string,options:RequestOptions={}):Promise<Uint8Array> {
+    return this.http.get<Uint8Array>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/purchase/card.png`,{...options,responseType:"png"});
+  }
   getServicePurchaseReview(serviceExecutionID:string,options:RequestOptions={}):Promise<ServicePurchaseState> {
     return this.http.get<ServicePurchaseState>(`/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/purchase`,options);
   }

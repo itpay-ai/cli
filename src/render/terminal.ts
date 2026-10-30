@@ -1,15 +1,8 @@
-// Terminal renderer for the V3 CLI.
-// QR display:
-//   1. Branded QR PNG from server — download + save to local file
-//   2. Terminal QR — scannable ASCII QR from checkout URL (always)
-// All sections MANDATORY, never skipped.
-
-import { renderTerminalQR, writeLocalPNG, type QRFormat } from "./qr.js";
+import { type QRFormat } from "./qr.js";
 import type { OutputSink } from "./sink.js";
 import type { RenderInputField, RenderInteractionRequest, RenderPlan } from "./plan.js";
 import { renderInlineTerminalImage } from "./terminal_image.js";
 import { ideImageAttachBlock } from "./ide.js";
-import { copyFile } from "node:fs/promises";
 
 export interface TerminalRenderOptions {
   format: QRFormat;
@@ -26,7 +19,8 @@ export async function renderTerminal(plan: RenderPlan, options: TerminalRenderOp
 
   const isPayment = plan.kind === "payment_qr";
   out(`\n${"━".repeat(56)}\n`);
-  out(isPayment ? "  ITP 待付款\n" : "  ITP 收银台\n");
+  out(isPayment ? "  ItPay 待付款\n" : plan.kind === "auth_qr" ? "  ItPay 账号授权\n" : "  ItPay 待办理\n");
+  out(`  用途: ${isPayment ? "付款" : plan.kind === "auth_qr" ? "账号授权" : "办理"}  状态: ${plan.paymentStatus ?? "等待本人操作"}\n`);
   out(`${"━".repeat(56)}\n\n`);
 
   // --- Order table ---
@@ -61,13 +55,7 @@ export async function renderTerminal(plan: RenderPlan, options: TerminalRenderOp
   // --- Branded QR PNG download ---
   await downloadServerQR(plan, options, out);
 
-  // --- Terminal QR (always, from checkout URL) ---
-  try {
-    const ascii = await renderTerminalQR(plan.url, options.format);
-    out(ascii + "\n");
-  } catch {
-    out("  [QR render failed]\n\n");
-  }
+  out("  请打开上方官方链接，按页面当前状态完成本人操作；展示入口不代表已付款。\n");
 
   // --- Interactions ---
   for (const interaction of plan.platform.interactions ?? []) {
@@ -120,22 +108,7 @@ async function downloadServerQR(plan: RenderPlan, options: TerminalRenderOptions
     out(`  Branded QR:  disabled (ITPAY_IDE_IMAGE_ATTACH=0)\n`);
   }
 
-  // Fallback: synthesise a local QR for the terminal so the human
-  // still gets a scannable image even when the backend brand PNG
-  // could not be obtained.
-  try {
-    const localPNG = await writeLocalPNG(plan.url);
-    const filePath = options.qrFilePath ?? localPNG.filePath;
-    if (options.qrFilePath) {
-      await copyFile(localPNG.filePath, filePath);
-    }
-    out(`  QR file:     ${filePath}\n`);
-    if (options.isTTY) {
-      renderInlineTerminalImage(filePath, out);
-    }
-  } catch {
-    /* ignore */
-  }
+  out("  官方图片不可用；请使用上方原官方链接，完成后执行原 Next step。\n");
 }
 
 export async function renderTerminalInteraction(

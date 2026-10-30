@@ -128,6 +128,17 @@ test('Dot and Muse receive a credential-free original account link without waiti
    assert(!output.includes(originalToken));assert(!output.includes('--token'));assert(!output.includes('display_token='));assert.equal(result.result.agent_facts.effects.order_created,'unknown');assert.equal(result.result.agent_facts.references.checkout_id,checkout.checkout.checkout.checkout_id);assert.match(result.next.command,new RegExp(`--agent-type ${agentType} services get se_fixture`));
   }
 
+  checkout.checkout.card_png_url=`https://app-test.itpay.ai/v1/service-executions/se_fixture/purchase/card.png`;
+  let cardReads=0;
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfSkAAAAASUVORK5CYII=','base64');
+  backend.getServicePurchaseCard=async()=>{cardReads++;return png;};
+  let cardOutput='';
+  await runServicesPurchase(backend,{...config,agentType:'muse',ideImageAttach:true},'se_fixture',undefined,{jsonOutput:true,output:s=>cardOutput+=s});
+  const official=JSON.parse(cardOutput);assert.equal(cardReads,1);assert.equal(official.handoff.image_status,'downloaded');assert.match(official.handoff.markdown,/官方办理卡/);assert.equal(official.handoff.url,checkout.checkout.checkout_url);assert(!cardOutput.includes(originalToken));
+  backend.getServicePurchaseCard=async()=>{cardReads++;throw Error('renderer unavailable');};
+  let failedOutput='';
+  await runServicesPurchase(backend,{...config,agentType:'muse',ideImageAttach:true},'se_fixture',undefined,{jsonOutput:true,output:s=>failedOutput+=s});
+  const failed=JSON.parse(failedOutput);assert.equal(failed.handoff.image_status,'unavailable');assert.equal(failed.handoff.url,official.handoff.url);assert.equal(failed.next.command,official.next.command);assert.equal(failed.result.effects.payment_requested,false);
   const valid=structuredClone(checkout);
   for(const change of ['expired','missing-expiry','wrong-expiry','wrong-cart','wrong-status','credential-url','wrong-purpose','wrong-access']){
    const altered=structuredClone(valid);

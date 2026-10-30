@@ -9,11 +9,10 @@ import { OFFICIAL_BACKEND_URLS, type CLIConfig } from "../../state/config.js";
 import {isPresentableURL} from "../../render/browser.js";
 import { type ClientHost, validateContext } from "../../state/client_context.js";
 import { dispatchRender, type DispatchOptions } from "../../render/index.js";
-import { ensureIdeImageAttach } from "../../render/ide.js";
+import { downloadBrandQRToTmp, ensureIdeImageAttach } from "../../render/ide.js";
 import { shouldPrepareLocalCheckoutImage } from "../../render/checkout_handoff.js";
 import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../../render/locale.js";
 import { platformKeyForHost } from "../../render/plan.js";
-import { renderTerminalQR } from "../../render/qr.js";
 import { buildCheckoutQRPlan } from "../../render/checkout_plan.js";
 import { CommandContractError, fileInputTemplate, writeCommandEnvelope, plainValueLines } from "../../services/shared/envelope.js";
 import { ServicesCommandOptions, missingRequiredInput, formatInputOptions, tokenizedCheckoutURL, absolutePublicURL, fallbackCardURL, fallbackCardPNGURL, buildServicesCheckoutEnvelope, formatMoney } from "../../services/shared/platform.js";
@@ -141,8 +140,23 @@ export async function presentServiceCheckout(backend:BackendClient,config:CLICon
       throw new CommandContractError("secure_handoff_unavailable","original purchase has no verified account-session entry","保留原购买；当前账号安全入口不可用，不展示或拼接 bearer 链接，不换身份或重建购买。",[readOriginal],undefined,{service_execution_id:serviceExecutionID,checkout_id:checkoutID});
     }
     assertAccountCheckout(checkout,response.cart.cart_id,serviceExecutionID);
+    const expectedCard = `${url.origin}/v1/service-executions/${encodeURIComponent(serviceExecutionID)}/purchase/card.png`;
+    // Only the owner-advertised original asset is fetched, through the existing
+    // signed device client. An optional image cannot replace the human URL.
+    const card = config.ideImageAttach && checkout.card_png_url === expectedCard
+      ? await downloadBrandQRToTmp(expectedCard, "checkout", checkoutID, {
+          baseURL: config.baseURL,
+          fetchImpl: async (_url, init) => {
+            const bytes = await backend.getServicePurchaseCard(serviceExecutionID, {deadline: Math.min(deadline, Date.now()+2000), ...(init?.signal ? {signal: init.signal} : {})});
+            return new Response(Buffer.from(bytes), {headers: {"Content-Type": "image/png"}});
+          },
+        })
+      : undefined;
+    const cardHandoff = card?.ok && card.attach
+      ? {card_png_url: expectedCard, qr_local_path: card.attach.localPath, markdown: `![ItPay 官方办理卡](${card.attach.localPath})`, image_status: "downloaded"}
+      : {image_status: config.ideImageAttach ? "unavailable" : "disabled"};
     const effects={page_created:!response.handoff_reissued,page_reused:response.handoff_reissued===true,payment_requested:false,charged:false,human_page_action_required:true};
-    writeCommandEnvelope({status:"human_checkout_required",result:{service_execution_id:serviceExecutionID,checkout_id:checkoutID,amount:formatMoney(checkout.checkout.amount_minor,checkout.checkout.currency),effects,agent_facts:presentAgent({service_execution_id:serviceExecutionID,checkout_id:checkoutID,status:"human_checkout_required",checkout:{official_entry:entry},effects},{allowedOrigins:OFFICIAL_BACKEND_URLS})},handoff:{url:entry.url,purpose:entry.purpose,access:entry.access,...(entry.expires_at?{expires_at:entry.expires_at}:{})},instruction:"立即展示官方链接及金额；用户登录发起连接的账号完成当前步骤。二维码不是前置条件，打开链接不代表付款或出票。用户表示完成后读取原任务事实，不重复确认、换单或自动付款。",next:readOriginal,recovery:[]},{...(options.jsonOutput!==undefined?{jsonOutput:options.jsonOutput}:{}),...(options.output?{output:options.output}:{})});
+    writeCommandEnvelope({status:"human_checkout_required",result:{service_execution_id:serviceExecutionID,checkout_id:checkoutID,amount:formatMoney(checkout.checkout.amount_minor,checkout.checkout.currency),effects,agent_facts:presentAgent({service_execution_id:serviceExecutionID,checkout_id:checkoutID,status:"human_checkout_required",checkout:{official_entry:entry},effects},{allowedOrigins:OFFICIAL_BACKEND_URLS})},handoff:{url:entry.url,purpose:entry.purpose,status:"human_checkout_required",access:entry.access,...cardHandoff,...(entry.expires_at?{expires_at:entry.expires_at}:{})},instruction:"立即展示官方办理卡、原官方链接及金额；图片不可用时只展示原链接，不自行编码二维码；用户登录发起连接的账号完成当前步骤。二维码不是前置条件，打开链接不代表付款或出票。用户表示完成后读取原任务事实，不重复确认、换单或自动付款。",next:readOriginal,recovery:[]},{...(options.jsonOutput!==undefined?{jsonOutput:options.jsonOutput}:{}),...(options.output?{output:options.output}:{})});
     return;
   }
   assertCheckoutCreation(checkout,response.cart.cart_id,serviceExecutionID);
@@ -224,7 +238,6 @@ export async function presentServiceCheckout(backend:BackendClient,config:CLICon
   }
   const plainResult = plainValueLines(envelope.result);
   if (!options.jsonOutput && platform === "terminal") {
-    plainResult.push("qr:", await renderTerminalQR(checkoutURL, options.qrFormat ?? "terminal"));
   }
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
