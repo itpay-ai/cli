@@ -57,7 +57,7 @@ export function buildCheckoutQRPlan(input: {
     checkoutID: input.checkoutID,
     platform,
     afterActionCommand: afterCommand,
-    afterActionLabel: "扫码或点击链接完成支付后，执行以下命令查询状态：",
+    afterActionLabel: isPayment ? "用户完成本人付款后，读取原单状态：" : "用户完成原官方页面当前步骤后，读取原任务状态：",
   };
   if (input.orderItems) plan.orderItems = input.orderItems;
   if (input.orderCurrency) plan.orderCurrency = input.orderCurrency;

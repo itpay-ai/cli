@@ -8,6 +8,7 @@ import type { OutputSink } from "../render/sink.js";
 import type { ClientHost } from "../state/client_context.js";
 import { type CommandEnvelope, writeCommandEnvelope } from "./guidance.js";
 import { buildWorkBuddyPresentFilesAction, isWorkBuddyPlainChat, isZCodePlainChat } from "./checkout_handoff.js";
+import { fallbackCardURL, fallbackCardPNGURL } from "../services/shared/platform.js";
 import { platformKeyForHost } from "../render/plan.js";
 
 export interface PayOptions {
@@ -30,31 +31,29 @@ export async function runPay(backend: BackendClient, options: PayOptions): Promi
       ...(options.refreshAction ? { refresh_action: true } : {}),
     },
   );
-  const envelope = payEnvelope(intent, options);
+  const envelope = payEnvelope(intent, options, backend.baseURL);
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),
     ...(options.output ? { output: options.output } : {}),
   });
 }
 
-function payEnvelope(intent: PaymentIntent, options: PayOptions): CommandEnvelope {
+function payEnvelope(intent: PaymentIntent, options: PayOptions, baseURL: string): CommandEnvelope {
   const terminal = ["failed", "expired", "refunded"].includes(intent.status);
   const verified = intent.status === "verified" || intent.status === "partially_refunded";
   const handoff: Record<string, unknown> = {};
   const platform = platformKeyForHost(options.host);
   const workBuddyAction = isWorkBuddyPlainChat(options.agentType, platform);
   const zcodeAction = isZCodePlainChat(options.agentType, platform);
-  if (!terminal && !verified && (workBuddyAction || zcodeAction)) {
-    const url = zcodeAction
-      ? intent.action?.qr_image_url ?? intent.action?.mobile_wallet_url
-      : intent.action?.mobile_wallet_url ?? intent.action?.qr_image_url;
-    if (url) {
-      handoff.url = url;
-      if (workBuddyAction) handoff.agent_action = buildWorkBuddyPresentFilesAction(url);
-    }
-  } else {
-    if (!terminal && !verified && intent.action?.qr_image_url) handoff.qr_image_url = intent.action.qr_image_url;
-    if (!terminal && !verified && intent.action?.mobile_wallet_url) handoff.mobile_wallet_url = intent.action.mobile_wallet_url;
+  if (!terminal && !verified) {
+    // Payment provider payloads belong inside the official cashier. Public
+    // handoffs retain this original checkout's server-rendered HTML/PNG.
+    const cardURL = fallbackCardURL(baseURL, options.checkoutID, options.displayToken);
+    handoff.url = cardURL;
+    handoff.purpose = "payment";
+    handoff.status = intent.status;
+    if (workBuddyAction) handoff.agent_action = buildWorkBuddyPresentFilesAction(cardURL);
+    if (!workBuddyAction && !zcodeAction) handoff.card_png_url = fallbackCardPNGURL(baseURL, options.checkoutID, options.displayToken);
   }
   const hasAction = Object.keys(handoff).length > 0;
   const amount = formatMoney(intent.amount_minor, intent.currency);
@@ -99,7 +98,7 @@ function payInstruction(
   if (isZCodePlainChat(options.agentType, platform)) {
     return `这是受控逃生入口。立即用 ZCode 内置浏览器打开 handoff.url；确认已发起打开后说明金额 ${amount} 并停止等待。不要只粘贴文字链接，不要下载或重建二维码，不要立即查询、创建替代 Checkout 或 Payment Intent。只有内置浏览器明确不可用时，才展示同一个可点击 handoff.url。`;
   }
-  if (options.host === "codex" || options.host === "claude-code") return "这是受控逃生入口；把 handoff 中的二维码或钱包链接实际发到当前桌面对话，然后停止等待。";
+  if (options.host === "codex" || options.host === "claude-code") return "这是受控逃生入口；展示 handoff 中的官方卡图片及原官方链接；图片失败只展示原链接，不自行编码二维码，然后停止等待。";
   if (options.host === "terminal") return "这是受控逃生入口；只在用户可见终端展示 handoff，然后停止等待。";
-  return "这是受控逃生入口；把 handoff 中的二维码或钱包链接发送到当前会话，然后停止等待。";
+  return "这是受控逃生入口；展示 handoff 中的官方卡及原官方链接；图片失败只给原链接，不自行编码二维码，然后停止等待。";
 }

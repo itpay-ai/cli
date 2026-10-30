@@ -380,7 +380,7 @@ export function fallbackCardURL(baseURL: string, checkoutID: string, displayToke
 }
 
 export function fallbackCardPNGURL(baseURL: string, checkoutID: string, displayToken: string): string {
-  return `${fallbackCardURL(baseURL, checkoutID, displayToken)}.png`.replace("/card?", "/card.png?");
+  return fallbackCardURL(baseURL, checkoutID, displayToken).replace("/card?", "/card.png?");
 }
 
 export function checkoutCapabilityID(

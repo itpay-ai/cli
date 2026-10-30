@@ -1,7 +1,7 @@
 import type { ClientHost } from "../state/client_context.js";
 import { platformKeyForHost } from "../render/plan.js";
 import { downloadBrandQRToTmp } from "../render/ide.js";
-import { renderTerminalQR, type QRFormat } from "../render/qr.js";
+import { type QRFormat } from "../render/qr.js";
 import { buildWorkBuddyPresentFilesAction, isWorkBuddyPlainChat, isZCodePlainChat } from "./checkout_handoff.js";
 
 const AUTH_ATTACH_REASON =
@@ -83,7 +83,6 @@ export async function buildVaultHandoff(input: VaultHandoffInput): Promise<Vault
     instruction: platform === "terminal"
       ? "向用户说明这是查看已购内容的只读授权，在用户可见终端展示当前二维码和完整官方链接，然后停止。用户完成后重新运行最初的读取命令。"
       : "向用户说明这是查看已购内容的只读授权，把 handoff.url 和可用的 handoff.qr_image_url 实际发送到当前会话，然后停止。用户完成后重新运行最初的读取命令。",
-    ...(platform === "terminal" ? { terminalQR: await renderTerminalQR(input.authorizationURL, input.qrFormat ?? "unicode") } : {}),
   };
 }
 

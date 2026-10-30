@@ -6,6 +6,7 @@ import type { ErrorResponse } from "./types.js";
 import { asTransientTransportError, HttpTransportError, type RequestDiagnostic } from "./transport.js";
 
 export interface RequestOptions {
+  responseType?: "png";
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   bearer?: string;
@@ -134,7 +135,7 @@ export class HttpClient {
         this.onDiagnostic?.(diagnostic);
       };
       options.signal?.addEventListener("abort",abortAttempt,{once:true});
-      const headers: Record<string, string> = { ...this.defaultHeaders };
+      const headers: Record<string, string> = { ...this.defaultHeaders, ...(options.responseType === "png" ? {Accept: "image/png"} : {}) };
       try {
         if (this.requestAuthorizer) {
           Object.assign(headers, await this.requestAuthorizer({ method, path: requestPath, body, ...(options.signal?{signal:options.signal}:{}), ...(options.deadline!==undefined?{deadline:options.deadline}:{}) }));
@@ -157,6 +158,7 @@ export class HttpClient {
         response = await this.fetchImpl(url, {
           method,
           headers,
+          ...(options.responseType === "png" ? {redirect: "error" as const} : {}),
           ...(options.body !== undefined ? { body } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
         });
@@ -164,6 +166,13 @@ export class HttpClient {
         diagnostic.phase=phase;
         const headerID = response.headers.get("X-ItPay-Request-ID");
         if (headerID && /^req_[a-f0-9]{1,64}$/.test(headerID)) {requestID = headerID;diagnostic.request_id=headerID;}
+        if (response.ok && options.responseType === "png") {
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          const magic = [137,80,78,71,13,10,26,10];
+          if (response.headers.get("Content-Type")?.split(";")[0] !== "image/png" || bytes.length > 10*1024*1024 || !magic.every((value,index)=>bytes[index]===value)) throw new Error("invalid official PNG response");
+          record();
+          return bytes as T;
+        }
         text = await response.text();
         this.localSimulation = response.headers.get("X-ItPay-Environment") === "local_simulation";
       } catch (error) {

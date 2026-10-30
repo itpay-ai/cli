@@ -6,7 +6,6 @@ import type { CheckoutPresentation } from "../client/types.js";
 import { ensureIdeImageAttach } from "../render/ide.js";
 import { buildAgentChatHandoff } from "../render/markdown.js";
 import { platformKeyForHost } from "../render/plan.js";
-import { renderTerminalQR } from "../render/qr.js";
 import { localizeCardURL, normalizeCardLocale, type CardLocale } from "../render/locale.js";
 import { openInSystemBrowser, type BrowserDispatch } from "../render/browser.js";
 import type { OutputSink } from "../render/sink.js";
@@ -206,7 +205,6 @@ export async function runCheckoutPresentation(
   };
   const plainResult = checkoutPlainResult(envelope.result);
   if (!options.jsonOutput && platformKeyForHost(host) === "terminal") {
-    plainResult.push("qr:", await renderTerminalQR(checkoutURL, "terminal"));
   }
   writeCommandEnvelope(envelope, {
     ...(options.jsonOutput !== undefined ? { jsonOutput: options.jsonOutput } : {}),

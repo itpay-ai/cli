@@ -29,7 +29,7 @@ export const CODEX_WAIT_GUIDANCE = "Codex 宿主等待：保留完整工具返�
 
 const INSTRUCTIONS: Record<InstallAgentType, string> = {
  hermes: "保持真实 hermes Agent Type；按当前实际宿主呈现官方链接，未知显示能力如实保留。沿同一 launcher、Backend 与 ITPAY_STATE_DIR 恢复，不切换身份或重置额度。",
- dot: "使用真实 dot 类型；云端执行位置与用户显示端分别判断。展示官方可点击链接，二维码可用时增强展示；浏览器打开不等于用户已看到。后续保持同一 launcher、Backend 和 ITPAY_STATE_DIR。",
+ dot: "使用真实 dot 类型；云端执行位置与用户显示端分别判断。展示官方可点击链接，官方卡图片可用时增强展示；图片不可用则展示原链接、用途、状态、本人动作及原任务 next，不自行编码二维码；浏览器打开不等于用户已看到。后续保持同一 launcher、Backend 和 ITPAY_STATE_DIR。",
  muse: "使用真实 muse 类型；保留宿主原生批准，不用聊天同意替代。云端可写目录不等于跨会话持久，显示能力未知时如实报告；沿同一 launcher、Backend 和 ITPAY_STATE_DIR 恢复原任务。",
   "codex-desktop": "在 Codex Desktop 中始终传这个 Agent Type；付款时把返回的二维码和链接实际展示到当前对话。",
   "codex-cli": "在 Codex CLI 中始终传这个 Agent Type；付款交接只应显示在用户可见终端。",
@@ -39,7 +39,7 @@ const INSTRUCTIONS: Record<InstallAgentType, string> = {
   zcode: "在 ZCode 中始终传这个 Agent Type。Checkout 或授权返回 handoff.url 后，立即用 ZCode 内置浏览器打开；不要只粘贴文字链接或重建二维码。只有内置浏览器不可用时才展示同一个可点击链接。",
   "doubao-work": "在豆包工作中始终传这个 Agent Type。Checkout 或授权返回后，同时展示 handoff.url 和 handoff.qr_image_url 两个有标签的官方入口；优先让用户在手机上直接打开链接，二维码供保存或另一台设备扫码。",
   "kimi-code": "保持 kimi-code Agent Type，使用标准 CLI 命令和终端付款交接；不要切换到其他平台身份。",
-  openclaw: "保持 openclaw Agent Type；每个展示命令都从当前可信会话上下文显式传 --host，IM 入口同时传 --target。Telegram 使用返回的原生 message action，其他入口展示标准二维码和付款链接。",
+  openclaw: "保持 openclaw Agent Type；每个展示命令都从当前可信会话上下文显式传 --host，IM 入口同时传 --target。Telegram 使用返回的原生 message action，其他入口展示官方卡和原付款链接；图片失败只给原链接及原任务 next，不自行编码二维码。",
 };
 
 export function runInstall(target: string | undefined, options: InstallOptions = {}): void {

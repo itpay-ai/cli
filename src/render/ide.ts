@@ -122,13 +122,7 @@ async function detectImageFormat(url: string, fetchFn: typeof fetch): Promise<De
   if (buf.length >= 5 && buf.toString("ascii", 0, 5) === "<?xml") {
     return { ext: ".svg", body: buf };
   }
-  const ct = (r.headers.get("content-type") ?? "").toLowerCase();
-  if (ct.includes("svg+xml") || ct.includes("svg")) return { ext: ".svg", body: buf };
-  if (ct.includes("webp")) return { ext: ".webp", body: buf };
-  if (ct.includes("jpeg") || ct.includes("jpg")) return { ext: ".jpg", body: buf };
-  if (ct.includes("png")) return { ext: ".png", body: buf };
-  // last resort — treat as PNG to keep the IDE image viewer happy
-  return { ext: ".png", body: buf };
+  throw new Error("official image response is not an image; use the original link");
 }
 
 function atomicWrite(filePath: string, body: Buffer): void {
@@ -344,7 +338,7 @@ export function ideImageAttachBlock(attach: IdeImageAttach): string[] {
   lines.push(`> rule:   ${attach.mustRenderReason}`);
   lines.push(
     "> action: agent must read the canonical local path (or any mirror) " +
-      "into the IDE chat window and wait for the human to confirm the image is visible. " +
+      "into the current chat and show the original official link alongside it; do not wait for image confirmation. " +
       "If the image does not appear, deliver the same verified official link immediately.",
   );
   return lines;

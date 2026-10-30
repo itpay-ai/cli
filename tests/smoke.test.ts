@@ -1982,7 +1982,7 @@ test("cart session persists checkout recovery fields with owner-only permissions
 
 // --- runBuy with render plan dispatch -----------------------------------
 
-test("runBuy (terminal) prints checkout QR + summary", async () => {
+test("runBuy (terminal) prints official checkout handoff and summary", async () => {
   const session = new CartSession("CNY");
   runCartAdd(session, {
     catalogItemID: "item_1",
@@ -1999,7 +1999,7 @@ test("runBuy (terminal) prints checkout QR + summary", async () => {
   const text = stdoutCapture.join("");
   // terminal renderer writes a localized header instead of the raw
   // `ITP HUMAN ACTION REQUIRED` label; assert on the agent-facing signal.
-  assert.match(text, /ITP 收银台/);
+  assert.match(text, /ItPay 待办理/);
   assert.match(text, /打开付款页面/);
   // cart->checkout wiring
   const cartReq = mock.requests[0]!;
@@ -3685,7 +3685,7 @@ test("pay creates a checkout-bound payment intent", async () => {
   };
   assert.equal(envelope.status, "payment_action_ready");
   assert.equal(envelope.result.checkout_id, "chk_pay");
-  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["mobile_wallet_url", "qr_image_url"]);
+  assert.deepEqual(Object.keys(envelope.handoff).sort(), ["card_png_url", "purpose", "status", "url"]);
   assert.equal(envelope.next.command, "itpay checkout --id chk_pay --token cdt_pay --json");
 });
 
@@ -3703,7 +3703,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     assert.equal(Object.keys(envelope.result).length, 4);
     assert.deepEqual(
       Object.keys(envelope.handoff).sort(),
-      agentType === "workbuddy" ? ["agent_action", "url"] : agentType === "zcode" ? ["url"] : ["mobile_wallet_url", "qr_image_url"],
+      agentType === "workbuddy" ? ["agent_action", "purpose", "status", "url"] : agentType === "zcode" ? ["purpose", "status", "url"] : ["card_png_url", "purpose", "status", "url"],
     );
     assert.match(envelope.next.command, /checkout --id .* --token .* --json/);
     if (agentType === "workbuddy") {
@@ -3718,7 +3718,7 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
     } else if (agentType === "zcode") {
       assert.match(envelope.instruction, /ZCode 内置浏览器打开/);
       assert.match(envelope.instruction, /停止等待/);
-      assert.match(String(envelope.handoff.url), /^https:\/\/qr\.alipay\.com\//);
+      assert.match(String(envelope.handoff.url), /^https:\/\/app\.itpay\.ai\/v1\/checkouts\/chk_zcode\/card\?/);
       assert.equal(envelope.handoff.agent_action, undefined);
     } else {
       assert.doesNotMatch(envelope.instruction, /present_files/);
@@ -3743,8 +3743,8 @@ test("pay parser is strict, compact and Host-aware across every Agent Type", asy
 
 test("workbuddy pay instructions reference only provider actions that exist", async () => {
   for (const [checkoutID, expectedKeys] of [
-    ["chk_pay_qr_only", ["url", "agent_action"]],
-    ["chk_pay_wallet_only", ["url", "agent_action"]],
+    ["chk_pay_qr_only", ["agent_action", "purpose", "status", "url"]],
+    ["chk_pay_wallet_only", ["agent_action", "purpose", "status", "url"]],
   ] as const) {
     const output: string[] = [];
     await runPay(backend, {
@@ -3760,7 +3760,7 @@ test("workbuddy pay instructions reference only provider actions that exist", as
       handoff: Record<string, unknown>;
       instruction: string;
     };
-    assert.deepEqual(Object.keys(envelope.handoff), expectedKeys);
+    assert.deepEqual(Object.keys(envelope.handoff).sort(), expectedKeys.slice().sort());
     assert.deepEqual(envelope.handoff.agent_action, {
       tool: "present_files",
       arguments: { files: [envelope.handoff.url] },

@@ -5,6 +5,8 @@ description: Discover and invoke ItPay API Hub operations, read usage and wallet
 
 # ItPay API
 
+展示本人登录、办理或付款入口时，只使用工具返回的官方 HTML 卡、由同一 HTML 截图的官方图片和原官方链接。图片失败或宿主不能展示图片时，给出原链接、用途、当前状态、本人需做的动作及原任务 next；不得自行编码、重画、裁剪二维码，也不得换单或重建授权。
+
 For a new task, prefer the official pinned ItPay CLI when execution is permitted and available in the current host. Install only through the host-permitted official installation path when authorized. Services tasks use the Services Skill; API tasks use the independent API Skill and `itpay api`. CLI calls HTTP APIs directly, never MCP transport. Without permitted CLI capability, use the corresponding ItPay-hosted user Services MCP or Hub MCP and only its actually available tools; ordinary users do not self-host another MCP. Platform-required workflows and explicit connection tests follow the actual available capability. Entry selection never authorizes a permission bypass: preserve the original identity, entry, request/run and current grant after acceptance or an unknown result. Continue across entries only when the owner explicitly supports recovery under the same actual authority; CLI errors never license a substitute transaction or raw HTTP workaround.
 
 Use this Skill for API tasks; Services/railway instructions are not prerequisites. Use the installed pinned launcher and `itpay api --help`; `hub` is its compatibility alias. Keep the actual host/Agent Type, ITPAY_HUB_URL and permitted ITPAY_STATE_DIR across every command/session. Never switch accounts, spoof a host or clear identity to recover quota.
