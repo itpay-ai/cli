@@ -1,5 +1,7 @@
 # CLI 当前待办
 
+B1 P1跨仓跟踪：第三方登录二维码循环与品牌卡适用边界由 [V4 U02](https://github.com/itpay-ai/compose-v4/blob/main/docs/BACKLOG.md) 负责调查/修复；Agent入口用官方卡/链接，官方页面内用当前渠道授权/支付码。此仓仅交叉引用，不复制身份/Payment owner；B1仍未验收。
+
 ## 基础可用核查（2026-10-29）
 
 只区分CLI实现、实际发行和自然宿主三种事实。10月28日[TESTING](TESTING.md)记录的固定2.1.56/未发布候选是历史，不代表当前仍未发布。当前发行合同见[RELEASE](RELEASE.md)；本次BACKLOG审计不运行Actions/npm、不改版本/业务/用户state。
