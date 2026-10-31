@@ -40,6 +40,7 @@
 
 | 项目 | owner | 退出条件 |
 |---|---|---|
+| T11 API未授权错误恢复提示误导（P2） | CLI错误呈现（src/commands/api_commands.ts:87）；最终归因待统一核定 | 2026-10-31自然B4：hub_run_failed/message authorization_required，却提示检查publication/input，next=null/recovery=[]；Codex依原API Skill恢复connect，主链可继续，当前待本人授权。证据 /Users/tzz/Documents/test/itpay-api-ux-20261031-01/05-run.json。后续核授权错误的正确恢复提示；本轮只登记，不修改实现、不发版，不以此阻塞B2。 |
 | managed购买模板与legacy逐腿凭据混显/expiry unknown | CLI src/services/rail/results.ts；V4仅供事实 | 可读原managed授权引用，不将其无legacyoffer误称不可购买；期限缺事实保持unknown、不伪造。 |
 | recovery_required外running、空结果分页/短GET写操作文案 | V4状态 / CLI展示各自owner | 原事实和next不误导、不重复效果；若导致基本不可恢复升P1，不隐藏错误。 |
 | device status帮助和src/tests模块README旧导航 | CLI维护者 | 对应现已注册命令/唯一owner，保护机器Buyer输入/许可证/有效测试，不为文档整理改协议。 |
