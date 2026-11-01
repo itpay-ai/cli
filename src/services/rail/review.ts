@@ -37,6 +37,9 @@ export function railWorkflowEnvelope(model: ServiceExecutionReadModel): CommandE
       const affected = model.workflow?.failure?.endpoint ?? model.workflow?.dependency?.endpoint;
       const query = model.workflow?.query_input ?? {};
       const endpoints = query.endpoints && typeof query.endpoints === "object" ? query.endpoints as Record<string, Record<string, unknown>> : {};
+      if (code === "station_jurisdiction_evidence_required") {
+        return {status:"system_evidence_required",result:{service_execution_id:id,reason:code,failed_step:model.workflow?.failure?.step_id,failure:model.workflow?.failure,query,...(affected === "origin" || affected === "destination" ? {affected_endpoint:affected,original_place:endpoints[affected]?.text ?? query[affected]} : {})},instruction:"地图地点未能回匹原铁路站身份，需服务维护方核对地图与铁路目录事实。保留完整原需求及已解析另一端；不要求用户改地址，不换kind、站、日期或猜坐标。当前无可执行恢复，停止；不重新查票或创建购买。",next:null,recovery:[]};
+      }
       const stationPair = [endpoints.origin, endpoints.destination].every(endpoint => endpoint?.kind === "station" && typeof endpoint.text === "string" && endpoint.text.trim() && typeof endpoint.station_code === "string" && /^[A-Z]{3}$/.test(endpoint.station_code));
       if (code === "station_location_evidence_required") {
         const exactInput = stationPair && typeof query.travel_date === "string" ? {origin:endpoints.origin!.text, destination:endpoints.destination!.text, travel_date:query.travel_date} : undefined;
