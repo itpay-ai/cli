@@ -409,3 +409,17 @@ test('known execution business failures retain typed recovery and run context',a
   }
  }finally{await mock.close();}
 });
+
+test('T05 jurisdiction mismatch preserves original scope and never fabricates a correction',async()=>{
+ const mock=await startMockBackend();try {
+  const backend=new BackendClient(new HttpClient({baseURL:mock.url}));const base=await backend.getServiceExecution('se_mock_next');
+  base.execution.public_binding={public_service_id:'itpay-rail',service_definition_version:'scv_itpay_rail_public_v1',operation_id:'query_smart',adapter_key:'rail.v1'};
+  const query={endpoints:{origin:{kind:'station',text:'广东省中山市古镇站'},destination:{kind:'area',text:'湖北省武汉市'}},travel_date:'2030-11-03',passengers:1,priority:'fastest'};
+  for(const endpoint of ['origin',undefined] as const) {
+   backend.getServiceExecution=async()=>({...base,execution:{...base.execution,service_id:'itpay-rail-smart'},workflow_entry:{capability_id:'itpay_service',input_schema:{}},workflow:{query_input:query,status:'failed',current_step:'failure',revision:1,steps:{},failure:{step_id:'confirmable',source_step:'geo',reason_code:'station_jurisdiction_evidence_required',...(endpoint?{endpoint}:{})}}});
+   let output='';await runServicesNext(backend,'se_mock_next',{jsonOutput:true,output:s=>output+=s});const value=JSON.parse(output);
+   assert.equal(value.status,'system_evidence_required');assert.equal(value.result.reason,'station_jurisdiction_evidence_required');assert.deepEqual(value.result.query,query);assert.equal(value.result.affected_endpoint,endpoint);assert.equal(value.result.original_place,endpoint?query.endpoints.origin.text:undefined);
+   assert.equal(value.next,null);assert.deepEqual(value.recovery,[]);assert.equal(value.result.new_query_template,undefined);assert.match(value.instruction,/服务维护方/);assert.match(value.instruction,/不换kind/);
+  }
+ }finally{await mock.close();}
+});

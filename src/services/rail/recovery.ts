@@ -4,7 +4,7 @@ import { HttpError } from "../../client/http.js";
 import { CommandContractError, fileInputTemplate } from "../shared/envelope.js";
 
 
-export const RAIL_LOCATION_EVIDENCE_REASONS = new Set(["endpoint_kind_conflict", "place_identity_uncertain", "endpoint_adcode_name_conflict", "endpoint_poi_name_conflict", "endpoint_station_name_code_conflict", "location_evidence_required", "coordinate_name_mismatch", "area_scope_too_broad", "address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"]);
+export const RAIL_LOCATION_EVIDENCE_REASONS = new Set(["station_jurisdiction_evidence_required", "endpoint_kind_conflict", "place_identity_uncertain", "endpoint_adcode_name_conflict", "endpoint_poi_name_conflict", "endpoint_station_name_code_conflict", "location_evidence_required", "coordinate_name_mismatch", "area_scope_too_broad", "address_required", "administrative_area_unresolved", "station_location_evidence_required", "coordinate_identity_unverified"]);
 
 export const RAIL_QUOTE_FAILURE_GUIDANCE: Record<string, string> = {
       quote_source_unavailable: "实时车票数据暂不可用；保留原选择，稍后按用户意愿重新核验，不创建替代订单。",
