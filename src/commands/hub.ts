@@ -77,9 +77,9 @@ export async function runHubInspect(operationID: string, options: { jsonOutput?:
     instruction: desc.status !== "published"
       ? "该操作当前不可运行；不要发起 run。"
       : "使用 current_publication_id 绑定运行；带 effect_class=external_write/purchase 的操作需要用户确认。",
-    next: desc.status === "published"
-      ? { command: `itpay api run ${desc.operation_id} --publication ${desc.current_publication_id} --input '<JSON>'${options.jsonOutput ? " --json" : ""}`, reason: "发布绑定运行" }
-      : null,
+    // Actual user input is still required; help is executable without calling
+    // the supplier, while a placeholder is not a runnable action.
+    next: desc.status==="published"?{command:"itpay api run --help",reason:"按 input_schema 和用户需求准备真实输入；此帮助命令不执行 API"}:null,
     recovery: [],
   }, {
     jsonOutput: Boolean(options.jsonOutput),
