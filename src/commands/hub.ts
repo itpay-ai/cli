@@ -3,7 +3,7 @@
 // orchestration; identity comes from ITPAY_HUB_TOKEN / ITPAY_HUB_KEY.
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { HubTaskStore, digestTask, type HubCredentialSelection } from "../state/hub_tasks.js";
+import { HubTaskStore, digestTask, type HubCredentialSelection, type HubTask } from "../state/hub_tasks.js";
 import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
 import { storeHubSession } from "../state/hub_credentials.js";
 import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
@@ -77,9 +77,9 @@ export async function runHubInspect(operationID: string, options: { jsonOutput?:
     instruction: desc.status !== "published"
       ? "该操作当前不可运行；不要发起 run。"
       : "使用 current_publication_id 绑定运行；带 effect_class=external_write/purchase 的操作需要用户确认。",
-    next: desc.status === "published"
-      ? { command: `itpay api run ${desc.operation_id} --publication ${desc.current_publication_id} --input '<JSON>'${options.jsonOutput ? " --json" : ""}`, reason: "发布绑定运行" }
-      : null,
+    // Actual user input is still required; help is executable without calling
+    // the supplier, while a placeholder is not a runnable action.
+    next: desc.status==="published"?{command:"itpay api run --help",reason:"按 input_schema 和用户需求准备真实输入；此帮助命令不执行 API"}:null,
     recovery: [],
   }, {
     jsonOutput: Boolean(options.jsonOutput),
@@ -190,16 +190,39 @@ export async function runHubRun(operationID: string, options: {
     return;
   }
 
+  await dispatchOriginalTask(client,store,task,options);
+}
+
+// Only public identifiers accompany an error; never input, credentials or body.
+export class HubTaskRequestError extends Error {
+ readonly requestID:string;
+ readonly references:{request_id:string;run_id?:string;intent_id?:string};
+ readonly code:string;
+ constructor(error:unknown,task:HubTask) {
+  super(error instanceof Error?error.message:"original Hub request did not return a receipt");
+  this.requestID=task.request_id;
+  this.references={request_id:task.request_id,...(task.run_id?{run_id:task.run_id}:{}),...(task.intent_id?{intent_id:task.intent_id}:{})};
+  this.code=error instanceof HttpError?error.code:["authorization_required","idempotency_conflict","invalid_state"].find(code=>this.message.startsWith(code+":"))??"hub_request_unknown";
+ }
+}
+
+async function dispatchOriginalTask(client:HubClient,store:HubTaskStore,task:HubTask,options:{waitSeconds?:number|undefined;jsonOutput?:boolean|undefined}):Promise<void>{
+ try {
+
+  const selections:HubCredentialSelection={...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{})};
+  if (task.input_digest!==digestTask(task.operation_id,task.publication_id,task.input,task.max_charge_atoms,selections)) {
+    throw new Error("idempotency_conflict: stored request facts do not match the original digest; preserve this task for review");
+  }
   const body: AdmissionRequest = {
     expected_publication_id: task.publication_id, input: task.input as Record<string, unknown>,
     ...(task.credential_id ? { credential_id: task.credential_id } : {}),
     ...(task.source_credentials ? { source_credentials: task.source_credentials } : {}),
   };
-  if (options.maxCharge) {
-    body.max_charge = { currency: "CNY", scale: 6, amount_atoms: options.maxCharge };
+  if (task.max_charge_atoms) {
+    body.max_charge = { currency: "CNY", scale: 6, amount_atoms: task.max_charge_atoms };
   }
   store.update(task.request_id, { status: "dispatched" });
-  const admission = await client.run(operationID, body, store.idempotencyKey(task.request_id));
+  const admission = await client.run(task.operation_id, body, store.idempotencyKey(task.request_id));
   if (!isRunReceipt(admission)) {
     store.update(task.request_id, { status: "blocked", intent_id: admission.intent_id, blocking_reason: admission.blocking_reason });
     await renderBlockedTask(task, admission, options.jsonOutput);
@@ -214,6 +237,7 @@ export async function runHubRun(operationID: string, options: {
     status: rec.execution_state === "succeeded" ? "succeeded" : rec.execution_state === "failed" ? "failed" : "dispatched",
   });
   renderRun(rec, options.jsonOutput);
+ } catch(error) { throw new HubTaskRequestError(error,store.get(task.request_id)??task); }
 }
 
 function renderRun(rec: any, jsonOutput: boolean | undefined, note?: string) {
@@ -448,6 +472,7 @@ export async function runHubResume(requestID: string, options: { waitSeconds?: n
   if (!task) {
     throw new Error(`not_found: unknown task ${requestID} — check "itpay api tasks"`);
   }
+  try {
   if (task.run_id) {
     const rec = await waitForRun(client, task.run_id, options.waitSeconds ?? 0);
     store.update(requestID, { status: rec.execution_state === "succeeded" ? "succeeded" : rec.execution_state === "failed" ? "failed" : "dispatched" });
@@ -466,7 +491,17 @@ export async function runHubResume(requestID: string, options: { waitSeconds?: n
     }
     return;
   }
-  throw new Error(`invalid_state: task ${requestID} has no run or intent — it never reached the server`);
+  if (!["pending","dispatched","unknown"].includes(task.status)) {
+    throw new HubTaskRequestError(new Error("invalid_state: original task has no authoritative run or intent; preserve it for review"),task);
+  }
+  // A lost admission response does not prove non-dispatch. Re-admit ONLY
+  // the frozen original body/key; Hub's history lookup owns safe recovery.
+  await dispatchOriginalTask(client,store,task,options);
+  } catch(error) {
+    if (error instanceof HubTaskRequestError) throw error;
+    throw new HubTaskRequestError(error,store.get(requestID)??task);
+  }
+
 }
 
 export async function runHubTasks(options: { jsonOutput?: boolean | undefined }): Promise<void> {

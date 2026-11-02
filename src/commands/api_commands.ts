@@ -1,11 +1,17 @@
 import {runAdminCommand} from "./admin.js";
-import {runHubConnect,runHubContinue,runHubCredentialsImport,runHubDoctor,runHubDiscover,runHubInspect,runHubResume,runHubRun,runHubRunStatus,runHubTasks,runHubTopupCreate,runHubTopupSkus,runHubTopupStatus,runHubTransactions,runHubUsage,runHubWallet} from "./hub.js";
+import {HubTaskRequestError,runHubConnect,runHubContinue,runHubCredentialsImport,runHubDoctor,runHubDiscover,runHubInspect,runHubResume,runHubRun,runHubRunStatus,runHubTasks,runHubTopupCreate,runHubTopupSkus,runHubTopupStatus,runHubTransactions,runHubUsage,runHubWallet} from "./hub.js";
 import { Command } from "commander";
 import { HttpError } from "../client/http.js";
+import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
 import { writeCommandEnvelope } from "./hub_guidance.js";
 
 function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
- writeCommandEnvelope({status:"error",error:{code:error instanceof HttpError ? error.code : contract?.code ?? "command_failed",message:error instanceof Error ? error.message : String(error)},instruction:contract?.instruction ?? "Check the command and the current Hub connection; resume known tasks before retrying writes.",next:null,recovery:contract?.recovery ?? []},{jsonOutput:contract?.jsonOutput ?? process.argv.includes("--json")});
+ const code=error instanceof HubTaskRequestError?error.code:error instanceof HttpError?error.code:error instanceof Error&&error.message.startsWith("authorization_required:")?"authorization_required":contract?.code??"command_failed";
+ const auth=code==="authorization_required"||code==="unauthenticated";
+ const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
+ const references=error instanceof HubTaskRequestError?error.references:undefined;
+ const recover=taskID?{command:qualifyItPayCommand(references?.run_id?`itpay api run-status ${references.run_id}${contract?.jsonOutput?" --json":""}`:`itpay api resume ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"读取或恢复同一原任务，不创建替代请求"}:null;
+ writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error)},...(references?{result:references}:{}),instruction:auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或充值。":contract?.instruction??"Check the command and current Hub connection; preserve original tasks.",next:auth?{command:qualifyItPayCommand(`itpay api connect${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
  process.exitCode=1;
 }
 

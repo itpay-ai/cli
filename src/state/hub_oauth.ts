@@ -16,7 +16,10 @@ export interface HubOAuthConfig {
 }
 
 export function hubOAuthConfig(env: NodeJS.ProcessEnv = process.env): HubOAuthConfig {
-  const issuer = (env.ITPAY_HUB_OAUTH_ISSUER ?? "http://localhost:24444").replace(/\/+$/, "");
+  // An explicitly selected official dev Hub has one canonical issuer.
+  // Do not infer API identity from the independent Services environment.
+  const devHub=(env.ITPAY_HUB_URL??"").replace(/\/+$/,"")==="https://market-v4-dev.itpay.ai";
+  const issuer = (env.ITPAY_HUB_OAUTH_ISSUER ?? (devHub?"https://auth-v4-dev.itpay.ai":"http://localhost:24444")).replace(/\/+$/, "");
   return {
     authorizeURL: `${issuer}/oauth2/auth`,
     tokenURL: `${issuer}/oauth2/token`,
