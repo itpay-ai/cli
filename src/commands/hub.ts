@@ -241,13 +241,13 @@ async function dispatchOriginalTask(client:HubClient,store:HubTaskStore,task:Hub
 }
 
 function renderRun(rec: any, jsonOutput: boolean | undefined, note?: string) {
-  const charged = rec.actual_charge ? atomsToYuan(rec.actual_charge.amount_atoms) : "¥0.000000";
+  const charged = rec.actual_charge ? atomsToYuan(rec.actual_charge.amount_atoms) : "费用回执未提供";
   writeCommandEnvelope({
     status: rec.execution_state === "succeeded" ? "executed" : rec.execution_state,
-    result: { run_id: rec.run_id, execution_state: rec.execution_state, settlement_state: rec.settlement_state, actual_charge: rec.actual_charge ?? null, result: rec.result ?? null, error: rec.error ?? null, ...(note ? { note } : {}) },
+    result: { run_id: rec.run_id, execution_state: rec.execution_state, settlement_state: rec.settlement_state, ...(rec.delivery_state ? {delivery_state:rec.delivery_state} : {}), actual_charge: rec.actual_charge ?? null, result: rec.result ?? null, error: rec.error ?? null, ...(note ? { note } : {}) },
     instruction: rec.execution_state === "succeeded"
-      ? `运行完成，已按价格卡结算 ${charged}。`
-      : `运行未完成（${rec.error?.code ?? rec.execution_state}）；用 itpay api run-status ${rec.run_id} 查询原任务，不重复发起。`,
+      ? `执行状态为 succeeded；交付状态 ${rec.delivery_state ?? "未提供"}，结算状态 ${rec.settlement_state ?? "未提供"}，实际费用回执 ${charged}。仅据实际 result 和交付事实回答，空值不代表查询成功且零条。`
+      : `执行状态 ${rec.execution_state}（${rec.error?.code ?? "无错误代码"}），结算状态 ${rec.settlement_state ?? "未提供"}，实际费用回执 ${charged}；用 itpay api run-status ${rec.run_id} 查询原任务，不重复发起。`,
     next: ["succeeded", "failed"].includes(rec.execution_state) ? null
       : { command: `itpay api run-status ${rec.run_id}`, reason: "查询原 run 状态，不新建请求" },
     recovery: [],
@@ -286,7 +286,7 @@ export async function runHubWallet(options: { jsonOutput?: boolean | undefined }
   writeCommandEnvelope({
     status: "ok",
     result: { available: bal.available, held: bal.held },
-    instruction: `可用 ${atomsToYuan(bal.available.amount_atoms)}，在途 ${atomsToYuan(bal.held.amount_atoms)}。`,
+    instruction: `当前账户钱包：可用 ${atomsToYuan(bal.available.amount_atoms)}，在途 ${atomsToYuan(bal.held.amount_atoms)}；不代表本 Consumer 的授权消费上限。`,
     next: null, recovery: [],
   }, {
     jsonOutput: Boolean(options.jsonOutput),
@@ -296,7 +296,7 @@ export async function runHubWallet(options: { jsonOutput?: boolean | undefined }
 
 export async function runHubUsage(options: { jsonOutput?: boolean | undefined }): Promise<void> {
  const usage = await hub().usage();
- writeCommandEnvelope({status:"ok",result:usage,instruction:"当前 Consumer 的用量与费用回执；读取不会再次执行或扣费。",next:null,recovery:[]}, {
+ writeCommandEnvelope({status:"ok",result:usage,instruction:"当前连接凭据（API Key 或 Consumer）范围的用量与费用回执；runs 包含失败调用，不能当作成功交付次数。钱包余额属于账户口径；读取不会再次执行或扣费。",next:null,recovery:[]}, {
   jsonOutput:Boolean(options.jsonOutput),plainResult:[`gross ${atomsToYuan(usage.gross_atoms)}  refunded ${atomsToYuan(usage.refunded_atoms)}  net ${atomsToYuan(usage.net_atoms)}  held ${atomsToYuan(usage.held_atoms)}`],
  });
 }
