@@ -80,7 +80,7 @@ test('API connect uses synthetic PKCE callback and verifies the exact resource a
    assert.equal(form.get('grant_type'),'authorization_code');assert.equal(form.get('code'),'synthetic-code');assert.equal(form.get('resource'),resource);assert.ok(form.get('code_verifier'));exchanges++;
    res.end(JSON.stringify({access_token:'synthetic-oauth-access',refresh_token:'synthetic-oauth-refresh',expires_in:300}));return;
   }
-  if(req.url==='/v1/me'){assert.equal(req.headers.authorization,'Bearer synthetic-oauth-access');res.end(JSON.stringify({buyer_id:'fixture-buyer',consumer_id:'oauth:fixture-public-cli'}));return;}
+  if(req.url==='/v1/me'){assert.equal(req.headers['x-itpay-oauth-resource'],resource);assert.equal(req.headers.authorization,'Bearer synthetic-oauth-access');res.end(JSON.stringify({buyer_id:'fixture-buyer',consumer_id:'oauth:fixture-public-cli'}));return;}
   res.writeHead(404);res.end('{}');
  });
  await new Promise<void>(r=>issuer.listen(0,'127.0.0.1',r));const addr=issuer.address();if(!addr||typeof addr==='string')throw Error('fixture listener');resource='http://127.0.0.1:'+addr.port;

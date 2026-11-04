@@ -58,7 +58,17 @@ const CLI_ENTRY = resolve(CLI_ROOT, "tests/cli_test_entry.ts");
 const AGENT_TYPES = ["codex-desktop", "codex-cli", "claude-code-desktop", "claude-code-cli", "workbuddy", "zcode", "doubao-work", "kimi-code", "openclaw"] as const;
 // Mock-backed subprocesses must never read or write the user's real identity.
 // Individual persistence scenarios can still supply their own isolated HOME.
-const CLI_TEST_PROCESS_ENV = Object.assign({}, process.env, { NODE_ENV: "test", HOME: mkdtempSync(join(tmpdir(), "itpay-smoke-home-")) });
+const CLI_TEST_PROCESS_ENV = Object.assign(
+  Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("ITPAY_"))),
+  { NODE_ENV: "test", HOME: mkdtempSync(join(tmpdir(), "itpay-smoke-home-")) },
+);
+// In-process Service readers persist recovery events too; isolate their journal.
+const previousTaskJournalPath = process.env.ITPAY_TASK_JOURNAL_PATH;
+process.env.ITPAY_TASK_JOURNAL_PATH = join(CLI_TEST_PROCESS_ENV.HOME!, "tasks.json");
+after(() => {
+  if (previousTaskJournalPath === undefined) delete process.env.ITPAY_TASK_JOURNAL_PATH;
+  else process.env.ITPAY_TASK_JOURNAL_PATH = previousTaskJournalPath;
+});
 
 test("CLI version matches package version", () => {
   const packageJSON = JSON.parse(readFileSync(resolve(CLI_ROOT, "package.json"), "utf8")) as { version: string };
@@ -82,15 +92,38 @@ const silent: OutputSink = () => undefined;
 let stdoutCapture: string[];
 let stdoutSink: OutputSink;
 
-async function runCLI(args: string[], env: Record<string, string>): Promise<{ stdout: string; stderr: string }> {
-  const { stdout, stderr } = await execFileAsync(TSX_BIN, [CLI_ENTRY, ...args], {
-    cwd: CLI_ROOT,
-    env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, ...env },
-    encoding: "utf8",
-    timeout: 10_000,
-    maxBuffer: 1024 * 1024,
-  });
-  return { stdout: String(stdout), stderr: String(stderr) };
+async function runCLI(args: string[], env: Record<string, string>): Promise<{ stdout: string; stderr: string; rawStdout: string }> {
+  const state = env.ITPAY_STATE_DIR ?? join(env.HOME ?? CLI_TEST_PROCESS_ENV.HOME!, ".itpay-v3");
+  const prefix = `ITPAY_STATE_DIR=${state} `;
+  // Assert the real scratch context before comparing the existing business
+  // command contracts independently of each random temporary directory.
+  const businessOutput = (text: string): string => {
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { return text; }
+    const visit = (value: unknown): void => {
+      if (!value || typeof value !== "object") return;
+      for (const [key, child] of Object.entries(value)) {
+        if (key === "command" && typeof child === "string" && child.startsWith("ITPAY_STATE_DIR=")) {
+          assert.ok(child.startsWith(prefix), "command must retain this exact fixture STATE_DIR");
+          (value as Record<string, unknown>)[key] = child.slice(prefix.length);
+        } else visit(child);
+      }
+    };
+    visit(parsed);
+    return JSON.stringify(parsed);
+  };
+  try {
+    const { stdout, stderr } = await execFileAsync(TSX_BIN, [CLI_ENTRY, ...args], {
+      cwd: CLI_ROOT,
+      env: { ...CLI_TEST_PROCESS_ENV, ITPAY_CLI_TEST_TRANSPORT_URL: mock.url, ...env, ITPAY_STATE_DIR: state },
+      encoding: "utf8", timeout: 10_000, maxBuffer: 1024 * 1024,
+    });
+    return { stdout: businessOutput(String(stdout)), stderr: String(stderr), rawStdout: String(stdout) };
+  } catch (error) {
+    const failure = error as Error & { stdout?: string };
+    if (failure.stdout) failure.stdout = businessOutput(failure.stdout);
+    throw error;
+  }
 }
 
 function withoutQualifiedAgentType(output: string): string {

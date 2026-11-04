@@ -57,7 +57,7 @@ test("R6-02: expired OAuth access token refreshes through the existing public cl
         res.end(JSON.stringify({ error: { code: "unauthenticated", message: "expired" } }));
         return;
       }
-      res.end(JSON.stringify({ buyer_id: "buyer-A", account_id: "acc-A" }));
+      res.end(JSON.stringify({ buyer_id: "buyer-A", account_id: "acc-A", consumer_id: "oauth:itpay-cli-local" }));
       return;
     }
     res.writeHead(404); res.end();
