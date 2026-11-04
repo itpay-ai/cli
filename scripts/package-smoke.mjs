@@ -49,8 +49,9 @@ try {
   packageRoot = join(runtimeInstall, "node_modules", "@itpay", "cli");
   const entry = join(packageRoot, "bin", "itp.mjs");
   const env = {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("ITPAY_"))),
     HOME: home,
+    ITPAY_STATE_DIR: join(scratch, "runtime-state"),
   };
 
   verifyCanonicalSkillLayout(packageRoot,join(scratch,"canonical-skill-layout"));
@@ -185,8 +186,10 @@ syncBuiltinESMExports();
   assert.equal(installHelp.result.agent_type, "codex-cli");
   assert.equal(installHelp.result.default_api, "https://app.itpay.ai");
   const developmentEnv = {
-    ...process.env,
+    ...env,
     HOME: join(scratch, "production-home"),
+    ITPAY_STATE_DIR: join(scratch, "sandbox-state"),
+    ITPAY_AGENT_TYPE: "codex-cli",
     ITPAY_BACKEND_URL: "https://sandbox.itpay.ai",
   };
   mkdirSync(developmentEnv.HOME);
@@ -194,7 +197,8 @@ syncBuiltinESMExports();
     entry, "--agent-type", "codex-cli", "device", "recover", "--confirm-backend-reset", "--json",
   ], { env: developmentEnv, encoding: "utf8" }));
   assert.equal(backendProof.result.backend, "https://sandbox.itpay.ai");
-  assert.match(backendProof.next.command, /^ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai /);
+  assert(backendProof.next.command.startsWith(`ITPAY_STATE_DIR=${developmentEnv.ITPAY_STATE_DIR} `));
+  assert.match(backendProof.next.command, / ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai /);
   const skillHelp = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
   ], { env, encoding: "utf8" }));

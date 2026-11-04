@@ -3,7 +3,7 @@ import {HubTaskRequestError,runHubConnect,runHubContinue,runHubCredentialsImport
 import { Command } from "commander";
 import { HttpError } from "../client/http.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
-import { writeCommandEnvelope } from "./hub_guidance.js";
+import { hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
 
 function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
  const code=error instanceof HubTaskRequestError?error.code:error instanceof HttpError?error.code:error instanceof Error&&error.message.startsWith("authorization_required:")?"authorization_required":contract?.code??"command_failed";
@@ -11,7 +11,7 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
  const recover=taskID?{command:qualifyItPayCommand(references?.run_id?`itpay api run-status ${references.run_id}${contract?.jsonOutput?" --json":""}`:`itpay api resume ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"读取或恢复同一原任务，不创建替代请求"}:null;
- writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error)},...(references?{result:references}:{}),instruction:auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或充值。":contract?.instruction??"Check the command and current Hub connection; preserve original tasks.",next:auth?{command:qualifyItPayCommand(`itpay api connect${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
+ writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error)},...(references?{result:references}:{}),instruction:auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或充值。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:auth?{command:qualifyItPayCommand(`itpay api connect${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
  process.exitCode=1;
 }
 
@@ -65,7 +65,7 @@ hubCmd
     try {
       await runHubInspect(operationID, { jsonOutput: Boolean(options.json) });
     } catch (error) {
-      reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_inspect_failed", instruction: "operation_id 可能未知或未发布。", recovery: [] });
+      reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_inspect_failed", instruction: "未取得操作合同；保留当前条件，按实际错误核对 Hub 连接，不推测发布状态。", recovery: [] });
     }
   });
 

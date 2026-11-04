@@ -57,7 +57,7 @@ export function runSkillShow(name: string, options: SkillOptions = {}): void {
     result: { skill: ITPAY_SKILL, content },
     instruction: agentType
       ? agentType === "workbuddy"
-        ? "完整读取原文并按宿主技能方式保存启用；按用户意图选择第一条业务命令。保持 workbuddy、同一入口和 Backend；只有实际持久化操作被拒时才沿宿主正式流程申请所需权限，拒绝后报告受阻操作，不删除 identity。"
+        ? "完整读取 Services 原文并按宿主技能方式启用；API/数据任务改读 itpay-api，不因 Services 目录未列出就判无能力。按用户交付物选择第一条命令。保持 workbuddy、同一入口和 Backend；只有实际持久化操作被拒时才沿宿主正式流程申请所需权限，拒绝后报告受阻操作，不删除 identity。"
         : `完整读取原文并按宿主技能方式保存启用；把自己视为服务用户的代理，先理解用户意图和解释用户权益，再选择购买、已购内容、订单或退款对应的第一条命令。当前 Agent Type 是 ${agentType}，后续命令保持不变。`
       : "完整读取并遵守 Skill；先如实选择当前运行环境对应的 Agent Type。",
     next: agentType
@@ -123,7 +123,7 @@ function showAPISkill(options: SkillOptions): void {
   writeCommandEnvelope({
     status: "shown",
     result: { skill: "itpay-api", content },
-    instruction: "完整读取 API Skill，按用户任务使用 itpay api --help；需要认证时由本人完成 api connect，已有任务沿原引用恢复。保持真实宿主、Hub 端点和状态目录。",
+    instruction: "完整读取 API Skill；API/数据任务直接按 itpay api --help、discover、inspect 继续，不先查 Services 目录；需要认证时由本人完成 api connect，已有任务沿原引用恢复。保持真实宿主、Hub 端点和状态目录。",
     next: null,
     recovery: [],
   }, {
