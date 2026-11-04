@@ -9,9 +9,12 @@ import {hubTasksDir} from '../src/state/hub_tasks.js';
 
 test('lost admission response resumes frozen body/key across processes and keeps known runs read-only',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'itpay-original-recovery-'));
- const posts:{body:unknown;key:unknown}[]=[];let sends=0;let reads=0;
+ const posts:{body:unknown;key:unknown}[]=[];let sends=0;let reads=0;let resource="";const resources:(string|undefined)[]=[];
  const server=createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');
+  resources.push(req.headers['x-itpay-oauth-resource'] as string|undefined);
+  if(req.headers['x-itpay-oauth-resource']!==resource){res.writeHead(401);res.end(JSON.stringify({error:{code:'unauthenticated',message:'synthetic exact resource required'}}));return}
+
   if(req.url==='/v1/operations/op/runs'){
    let raw='';for await(const c of req)raw+=c;
    posts.push({body:JSON.parse(raw),key:req.headers['idempotency-key']});
@@ -22,7 +25,8 @@ test('lost admission response resumes frozen body/key across processes and keeps
   res.writeHead(404);res.end('{}');
  });
  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();if(!address||typeof address==='string')throw Error('local port required');
- const env={...process.env,ITPAY_STATE_DIR:dir,ITPAY_HUB_URL:`http://127.0.0.1:${address.port}`,ITPAY_HUB_KEY:'itk_synthetic_n3',ITPAY_HUB_TOKEN:''};
+ resource=`http://127.0.0.1:${address.port}`;
+ const env={...process.env,ITPAY_STATE_DIR:dir,ITPAY_HUB_URL:resource,ITPAY_HUB_KEY:'itk_synthetic_n3',ITPAY_HUB_TOKEN:''};
  const invoke=(args:string[],extra:NodeJS.ProcessEnv={})=>new Promise<{code:number|null;output:string}>((done,reject)=>{
   const child=spawn(process.execPath,['--import','tsx',resolve('src/main.ts'),'api',...args],{cwd:process.cwd(),env:{...env,...extra},stdio:['ignore','pipe','pipe']});
   let output='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>output+=c);child.on('error',reject);child.on('exit',code=>done({code,output}));
@@ -37,6 +41,7 @@ test('lost admission response resumes frozen body/key across processes and keeps
   for(const result of recovered){assert.equal(result.code,0,result.output);assert.match(result.output,/run-original/)}
   assert.equal(sends,1,'fixture models one accepted logical run, not a new provider send');
   for(const post of posts){assert.deepEqual(post,posts[0]);assert.deepEqual((post.body as any).max_charge,{currency:'CNY',scale:6,amount_atoms:'12345'});assert.deepEqual((post.body as any).source_credentials,refs);assert.equal(post.key,'cli-req-original')}
+  assert.ok(resources.length>0);assert.ok(resources.every(value=>value===resource));
   const count=posts.length;
   const known=await invoke(['resume','original','--json']);assert.equal(known.code,0,known.output);assert.equal(posts.length,count);assert.ok(reads>=1,'known unknown run must use GET only');
   const disconnected=await invoke(['run','op','--publication','pub-original','--input','{}','--json'],{ITPAY_STATE_DIR:join(dir,'unconnected'),ITPAY_HUB_KEY:''});assert.equal(disconnected.code,1);const auth=JSON.parse(disconnected.output);assert.equal(auth.error.code,'authorization_required');assert.match(auth.next.command,/api connect/);assert.equal(posts.length,count);

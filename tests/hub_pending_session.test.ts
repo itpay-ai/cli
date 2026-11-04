@@ -14,6 +14,8 @@ async function fixture(){
  let mode='ok',rotations=0,probes=0,business=0,base='';
  let probeGate: (()=>Promise<void>)|undefined;
  const refreshTokens:string[]=[];
+ const admissions:{body:unknown;key:string|undefined;resource:string|undefined}[]=[];
+ const sdkRequests:{method:string;path:string;resource:string|undefined}[]=[];
  const server=createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');
   if(req.url==='/oauth2/token'){
@@ -30,13 +32,25 @@ async function fixture(){
    if(mode==='disconnect'){req.socket.destroy();return}
    res.end(JSON.stringify({buyer_id:mode==='wrong-buyer'?'other':'buyer-original',...(mode==='missing-consumer'?{}:{consumer_id:mode==='wrong-consumer'?'other':'consumer-original'})}));return;
   }
-  if(req.url?.startsWith('/v1/runs/')){business++;res.end(JSON.stringify({run_id:'run-original',execution_state:'succeeded'}));return}
+  if(req.url==='/v1/operations/op-original/runs'){
+   let raw='';for await(const chunk of req)raw+=chunk;
+   admissions.push({body:JSON.parse(raw),key:req.headers['idempotency-key'] as string|undefined,resource:req.headers['x-itpay-oauth-resource'] as string|undefined});
+   if(req.headers['x-itpay-oauth-resource']!==base){res.writeHead(401);res.end(JSON.stringify({error:{code:'unauthenticated',message:'synthetic exact resource required'}}));return}
+   res.end(JSON.stringify({run_id:'run-original',operation_id:'op-original',publication_id:'pub-original',execution_state:'succeeded',settlement_state:'captured'}));return;
+  }
+  if(req.url?.startsWith('/v1/runs/')){
+   business++;sdkRequests.push({method:req.method!,path:req.url,resource:req.headers['x-itpay-oauth-resource'] as string|undefined});
+   if(req.headers['x-itpay-oauth-resource']!==base || (mode==='reject-old' && req.headers.authorization==='Bearer synthetic-old')){
+    res.writeHead(401);res.end(JSON.stringify({error:{code:'unauthenticated',message:'synthetic exact resource and active token required'}}));return;
+   }
+   res.end(JSON.stringify({run_id:'run-original',execution_state:'succeeded'}));return;
+  }
   res.writeHead(404);res.end('{}');
  });
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const addr=server.address();assert.ok(addr&&typeof addr!=='string');base='http://127.0.0.1:'+addr.port;
  const env={...process.env,HOME:dir,ITPAY_STATE_DIR:dir,ITPAY_HUB_URL:base,ITPAY_HUB_OAUTH_ISSUER:base,ITPAY_HUB_OAUTH_CLIENT:'fixture-cli',ITPAY_HUB_TOKEN:'',ITPAY_HUB_KEY:''};
  storeHubSession('synthetic-old','synthetic-rt-old',-1,'buyer-original',base,env,'consumer-original');
- return{env,dir,setProbeGate:(gate:()=>Promise<void>)=>probeGate=gate,setMode:(s:string)=>mode=s,counts:()=>({rotations,probes,business}),refreshTokens,edit:(fields:Record<string,unknown>)=>{const path=hubCredentialsPath(env);const file=JSON.parse(readFileSync(path,'utf8'));Object.assign(file.profiles.default,fields);writeFileSync(path,JSON.stringify(file),{mode:0o600})},close:async()=>{await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(dir,{recursive:true,force:true})}};
+ return{env,dir,sdkRequests,admissions,setProbeGate:(gate:()=>Promise<void>)=>probeGate=gate,setMode:(s:string)=>mode=s,counts:()=>({rotations,probes,business}),refreshTokens,edit:(fields:Record<string,unknown>)=>{const path=hubCredentialsPath(env);const file=JSON.parse(readFileSync(path,'utf8'));Object.assign(file.profiles.default,fields);writeFileSync(path,JSON.stringify(file),{mode:0o600})},close:async()=>{await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(dir,{recursive:true,force:true})}};
 }
 
 function child(env:NodeJS.ProcessEnv,code:string){
@@ -146,5 +160,38 @@ test('temporary verification failure preserves the persisted logical request and
   const proc=spawn(process.execPath,['--import','tsx','src/main.ts','api','run','op-original','--publication','pub-original','--input','{}','--request-id','req-original','--json'],{env:f.env,stdio:['ignore','pipe','pipe']});let out='',err='';proc.stdout.on('data',b=>out+=b);proc.stderr.on('data',b=>err+=b);
   const exit=await new Promise<number|null>(resolve=>proc.on('close',resolve));assert.equal(exit,1,err);const result=JSON.parse(out);
   assert.equal(result.error.code,'connection_verification_pending');assert.equal(result.result.request_id,'req-original');assert.match(result.next.command,/api resume req-original --json/);assert.doesNotMatch(result.next.command,/api (connect|run)\b/);assert.equal(f.counts().business,0);assert.equal(storedHubProfile(f.env)?.identity_verification_pending,true);assert.ok(!out.includes('synthetic-'));
+ }finally{await f.close()}
+});
+
+
+for(const auth of ['bearer','key','anonymous'] as const)test('initial SDK '+auth+' configuration preserves its exact selected resource',async()=>{
+ const f=await fixture();try{
+  const cfg={baseURL:f.env.ITPAY_HUB_URL,...(auth==='bearer'?{bearerToken:'synthetic-explicit'}:auth==='key'?{apiKey:'itk_synthetic_explicit'}:{})};
+  const result=await new HubClient(cfg).runStatus('run-original');assert.equal(result.run_id,'run-original');assert.deepEqual(f.sdkRequests,[{method:'GET',path:'/v1/runs/run-original',resource:f.env.ITPAY_HUB_URL}]);assert.equal(f.counts().rotations,0);
+ }finally{await f.close()}
+});
+
+test('fresh original session reader succeeds on the strict alias without refreshing',async()=>{
+ const f=await fixture();try{
+  storeHubSession('synthetic-old','synthetic-rt-old',300,'buyer-original',f.env.ITPAY_HUB_URL,f.env,'consumer-original');
+  assert.equal((await new HubClient(loadHubConfig(f.env)).runStatus('run-original')).run_id,'run-original');assert.deepEqual(f.counts(),{rotations:0,probes:0,business:1});assert.equal(f.sdkRequests[0]?.resource,f.env.ITPAY_HUB_URL);
+ }finally{await f.close()}
+});
+
+test('strict alias rejects an issuer-expired token once; refresh and the identical original reader both retain resource',async()=>{
+ const f=await fixture();try{
+  storeHubSession('synthetic-old','synthetic-rt-old',300,'buyer-original',f.env.ITPAY_HUB_URL,f.env,'consumer-original');f.setMode('reject-old');
+  assert.equal((await new HubClient(loadHubConfig(f.env)).runStatus('run-original')).run_id,'run-original');assert.deepEqual(f.counts(),{rotations:1,probes:1,business:2});assert.deepEqual(f.sdkRequests,Array.from({length:2},()=>({method:'GET',path:'/v1/runs/run-original',resource:f.env.ITPAY_HUB_URL})));assert.equal(storedHubProfile(f.env)?.consumer_id,'consumer-original');assert.equal(storedHubProfile(f.env)?.subject,'buyer-original');
+ }finally{await f.close()}
+});
+
+
+test('strict alias pending request resumes the identical frozen admission once and subsequent resume only reads the original run',async()=>{
+ const f=await fixture();
+ const invoke=(args:string[])=>child(f.env,`process.argv=['node','itpay','api',...${JSON.stringify(args)},'--json'];await import('./src/main.ts');`);
+ try{
+  f.setMode('503');const first=await invoke(['run','op-original','--publication','pub-original','--input','{"value":"original"}','--max-charge','123','--request-id','req-original']);assert.equal(first.exit,1,first.err);assert.equal(JSON.parse(first.out).result.request_id,'req-original');assert.equal(f.admissions.length,0);
+  f.setMode('ok');const resumed=await invoke(['resume','req-original']);assert.equal(resumed.exit,0,resumed.out+resumed.err);assert.equal(JSON.parse(resumed.out).result.run_id,'run-original');assert.equal(f.admissions.length,1);assert.deepEqual(f.admissions[0],{body:{expected_publication_id:'pub-original',input:{value:'original'},max_charge:{currency:'CNY',scale:6,amount_atoms:'123'}},key:'cli-req-req-original',resource:f.env.ITPAY_HUB_URL});
+  const read=await invoke(['resume','req-original']);assert.equal(read.exit,0,read.out+read.err);assert.equal(JSON.parse(read.out).result.run_id,'run-original');assert.equal(f.admissions.length,1);assert.equal(f.counts().rotations,1);assert.equal(f.sdkRequests.at(-1)?.resource,f.env.ITPAY_HUB_URL);assert.equal(storedHubProfile(f.env)?.subject,'buyer-original');assert.equal(storedHubProfile(f.env)?.consumer_id,'consumer-original');
  }finally{await f.close()}
 });

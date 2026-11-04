@@ -66,14 +66,16 @@ export function loadHubConfig(env: NodeJS.ProcessEnv = process.env): HubConfig {
 // Conflict rule (R03): bearer and key credentials must not name different
 // subjects silently. When both are present the bearer wins and the key is
 // dropped with a loud warning — never a silent account mix.
-function toSdkConfig(cfg: HubConfig): { baseUrl: string; token?: string; apiKeyHeader?: "X-ItPay-Key" | "Authorization" } {
+function toSdkConfig(cfg: HubConfig): { baseUrl: string; resource: string; token?: string; apiKeyHeader?: "X-ItPay-Key" | "Authorization" } {
+  // REST calls must select the same OAuth resource as the original profile, including allowed aliases.
+  const base = { baseUrl: cfg.baseURL, resource: cfg.baseURL.replace(/\/+$/, "") };
   if (cfg.bearerToken) {
-    return { baseUrl: cfg.baseURL, token: cfg.bearerToken };
+    return { ...base, token: cfg.bearerToken };
   }
   if (cfg.apiKey) {
-    return { baseUrl: cfg.baseURL, token: cfg.apiKey, apiKeyHeader: "X-ItPay-Key" };
+    return { ...base, token: cfg.apiKey, apiKeyHeader: "X-ItPay-Key" };
   }
-  return { baseUrl: cfg.baseURL };
+  return base;
 }
 
 export class HubClient {
@@ -128,7 +130,7 @@ export class HubClient {
       let token: string | undefined;
       if (this.cfg.sessionEnv) {
         token = await connectedHubToken(this.cfg.sessionEnv);
-        this.sdk = new SdkHubClient({ baseUrl: this.cfg.baseURL, token });
+        this.sdk = new SdkHubClient(toSdkConfig({ ...this.cfg, bearerToken: token }));
       }
       try { return await fn(); }
       catch (err) {
@@ -136,7 +138,7 @@ export class HubClient {
         // Authentication failed before admission. Keep the same SDK call,
         // body and idempotency key; never retry transport or unknown outcomes.
         const refreshed = await connectedHubToken(this.cfg.sessionEnv, token);
-        this.sdk = new SdkHubClient({ baseUrl: this.cfg.baseURL, token: refreshed });
+        this.sdk = new SdkHubClient(toSdkConfig({ ...this.cfg, bearerToken: refreshed }));
         return await fn();
       }
     } catch (err) {
