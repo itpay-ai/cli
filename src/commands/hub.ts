@@ -571,7 +571,16 @@ export async function runHubConnect(options: { jsonOutput?: boolean | undefined 
     plainResult: ["打开浏览器完成授权：", `  ${authorizeURL}`],
   });
   const tokens = await done;
-  const me = await probeHubIdentity(cfg.resource, tokens.accessToken);
+  let me: Awaited<ReturnType<typeof probeHubIdentity>>;
+  try {
+    me = await probeHubIdentity(cfg.resource, tokens.accessToken);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("connection_verification_pending:")) {
+      // Unlike refresh, this new connection has not persisted a pending profile.
+      throw new Error("connection_not_saved: identity verification unavailable; this connection was not saved and the existing connection was not replaced");
+    }
+    throw error;
+  }
   if (!me.buyer_id || (!me.consumer_id || (me.consumer_id !== `oauth:${cfg.clientID}` && !me.consumer_id.startsWith(`oauth:${cfg.clientID}:`)))) throw new Error("authorization_required: OAuth consumer mismatch");
   const subject = me.buyer_id;
   storeHubSession(tokens.accessToken, tokens.refreshToken, tokens.expiresIn, subject, cfg.resource, process.env, me.consumer_id);
