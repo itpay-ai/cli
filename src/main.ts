@@ -64,21 +64,30 @@ import {
 const program = new Command();
 program
   .name("itpay")
-  .description("V3 ItPay CLI — buy services, review orders, and read human-authorized purchased content")
+  .description("ItPay CLI — Services, API Hub, orders, and human-authorized content")
   .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
   .version(CLI_VERSION)
   .addHelpText("after", `
 Agent quick start:
   1. Use one official package in the host's permitted persistent npm location.
   2. Run: itpay setup --agent-type <actual_type> --json
-  3. Read and enable the returned same-package Skill before business commands.
+  3. Read the same-package Services or API Skill for the requested outcome.
+  Keep the existing launcher, actual Agent Type and state directory across sessions.
+  Setup checks Services device/account status, not API Hub authorization.
 
 Common human intents:
-  New service or query       catalog list
+  API or structured data     skill show itpay-api --json → api discover
+  Service handling/delivery    skill show itpay --json → catalog list
   Previously purchased item vault list
   Purchase history           orders
   Delivery or refund problem resume the known Order or Refund
   Review a completed service feedback submit
+
+New tasks: prefer the official pinned CLI only when this host permits and can
+execute it; otherwise use the corresponding hosted Services or Hub MCP. A cloud
+host is not required to install software. Route by deliverable, not "query".
+Accepted, payment-pending or unknown tasks keep their original identity, entry
+and request/run/order; never switch entries to resubmit.
 
 The Agent runs commands. Ask the human only to choose, authorize, pay, provide
 required contact details, or confirm a refund. Never expose commands or internal IDs.
@@ -579,11 +588,11 @@ program
 
 // --- catalog --------------------------------------------------------------
 
-const catalogCmd = program.command("catalog").description("Browse V3 service catalog");
+const catalogCmd = program.command("catalog").description("Browse the Services catalog (API data uses api discover)");
 
 catalogCmd
   .command("list")
-  .description("List all available services from the published catalog manifest")
+  .description("List published Services; this is not the API Hub catalog")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const backend = newBackendClient(loadConfig());

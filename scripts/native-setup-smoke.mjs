@@ -78,7 +78,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
    const savedSession=readFileSync(sessionPath);
    const requestsBefore=paths.length;
    const prepared=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'])).stdout);assert.equal(prepared.result.account_status,'login_required');assert.deepEqual(readFileSync(sessionPath),savedSession);
-   status='authenticated';const plain=await invoke(['setup','--agent-type','workbuddy']);assert.match(plain.stdout,/已有账号授权/);
+   status='authenticated';const plain=await invoke(['setup','--agent-type','workbuddy']);assert.match(plain.stdout,/Services 账号已授权/);assert.match(plain.stdout,/未核验 Hub API 授权/);
    const again=JSON.parse((await invoke(['setup','--agent-type','workbuddy','--json'])).stdout);
    assert.equal(again.result.account_status,'authenticated');assert.deepEqual(readFileSync(sessionPath),savedSession);assert.deepEqual(readFileSync(join(env.ITPAY_STATE_DIR,'device','device-private.pem')),key);
    assert.deepEqual(paths.slice(requestsBefore),['/v1/platform/compatibility','/v1/agent-device-account-bindings','/v1/platform/compatibility','/v1/agent-device-account-bindings','/v1/platform/compatibility','/v1/agent-device-account-bindings']);status='login_required';
