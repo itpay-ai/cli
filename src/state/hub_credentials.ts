@@ -2,7 +2,7 @@
 // hidden stdin — never argv, never stdout, never logs — and stored under
 // 0600 per environment. Env vars remain an explicit override only.
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { withAsyncFileLock, withFileLock } from "./file_lock.js";
 import { hubOAuthConfig } from "./hub_oauth.js";
@@ -22,6 +22,7 @@ interface HubCredentialsFile {
     consumer_id?: string | undefined;
     token_url?: string | undefined;
     client_id?: string | undefined;
+    identity_verification_pending?: boolean;
     created_at: string;
   }>;
 }
@@ -44,12 +45,7 @@ function importHubKeyUnlocked(apiKey: string, baseURL: string, env: NodeJS.Proce
     base_url: baseURL, key_prefix: apiKey.slice(0, 14), api_key: apiKey,
     created_at: new Date().toISOString(),
   };
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const tmp = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(file, null, 2), { encoding: "utf8", mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  saveHubProfileUnlocked(file.profiles["default"]!, env);
   return { key_prefix: apiKey.slice(0, 14) };
 }
 
@@ -96,12 +92,56 @@ function storeHubSessionUnlocked(accessToken: string, refreshToken: string | und
     token_url: hubOAuthConfig(env).tokenURL,
     created_at: new Date().toISOString(),
   };
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  saveHubProfileUnlocked(file.profiles["default"]!, env);
+}
+
+type HubProfile = HubCredentialsFile["profiles"][string];
+
+// Same lock and atomic replacement for connected, pending and verified profiles.
+function saveHubProfileUnlocked(profile: HubProfile, env: NodeJS.ProcessEnv): void {
+  const path = hubCredentialsPath(env);
   const tmp = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(file, null, 2), { encoding: "utf8", mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  try {
+    const file: HubCredentialsFile = existsSync(path)
+      ? JSON.parse(readFileSync(path, "utf8")) as HubCredentialsFile
+      : { schema_version: "itpay.hub_credentials.v1", profiles: {} };
+    file.profiles.default = profile;
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(tmp, JSON.stringify(file, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, path);
+  } catch {
+    // A successful issuer rotation cannot be undone by a failed local write.
+    // Do not print credentials, automatically retry, or suggest another identity.
+    throw new Error("credential_persistence_failed: could not save the original connection; stop and check private storage before retrying");
+  } finally {
+    try { unlinkSync(tmp); } catch { /* renamed or no temporary file */ }
+  }
+}
+
+export async function probeHubIdentity(resource: string, accessToken: string): Promise<{ buyer_id?: string; consumer_id?: string }> {
+  let response: Response;
+  try {
+    response = await fetch(`${resource}/v1/me`, {
+      headers: { Authorization: `Bearer ${accessToken}`, "X-ItPay-OAuth-Resource": resource },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new Error("connection_verification_pending: identity check unavailable; preserve the original connection and references, do not reconnect");
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) throw new Error("authorization_required: original connection identity rejected");
+    throw new Error("connection_verification_pending: identity check unavailable; preserve the original connection and references, do not reconnect");
+  }
+  try {
+    const identity: unknown = await response.json();
+    if (!identity || typeof identity !== "object" || Array.isArray(identity)) throw new Error();
+    const me = identity as { buyer_id?: unknown; consumer_id?: unknown };
+    if (typeof me.buyer_id !== "string" || !me.buyer_id || typeof me.consumer_id !== "string" || !me.consumer_id) throw new Error();
+    return { buyer_id: me.buyer_id, consumer_id: me.consumer_id };
+  } catch {
+    throw new Error("connection_verification_pending: identity response invalid; preserve the original connection and references, do not reconnect");
+  }
 }
 
 // Stored bearer token — a connected session credential.
@@ -111,7 +151,7 @@ export function storedHubToken(env: NodeJS.ProcessEnv = process.env): string | u
   try {
     const file = JSON.parse(readFileSync(path, "utf8")) as HubCredentialsFile;
     const p = file.profiles["default"];
-    if (!p?.access_token) return undefined;
+    if (!p?.access_token || p.identity_verification_pending) return undefined;
     if (p.expires_at && Date.parse(p.expires_at) <= Date.now()) return undefined;
     return p.access_token;
   } catch {
@@ -131,32 +171,64 @@ export async function connectedHubToken(env: NodeJS.ProcessEnv = process.env, re
  return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`, async () => {
   const p = storedHubProfile(env);
   if (!p?.access_token || !p.subject) throw new Error("authorization_required: reconnect ItPay");
-  // Share a still-fresh rotation across processes, including short-lived tokens.
-  // A 401 only forces rotation if no other process already replaced that token.
-  const refreshAt = p.refresh_after ? Date.parse(p.refresh_after) : Date.parse(p.expires_at ?? "") - 30_000;
-  if (p.access_token !== rejectedToken && refreshAt > Date.now()) return p.access_token;
   const cfg = hubOAuthConfig(env);
-  if (!p.refresh_token || p.base_url !== cfg.resource || p.token_url !== cfg.tokenURL || p.client_id !== cfg.clientID) {
+  if (p.base_url !== cfg.resource || p.token_url !== cfg.tokenURL || p.client_id !== cfg.clientID || !p.consumer_id) {
    throw new Error("authorization_required: connection configuration changed");
   }
-  const response = await fetch(p.token_url, {
-   method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-   body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: p.refresh_token, client_id: p.client_id, resource: cfg.resource }),
-   signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error("authorization_required: connection refresh rejected");
-  const token = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number; token_type?: string };
-  if (!token.access_token || token.token_type?.toLowerCase() !== "bearer" || !Number.isFinite(token.expires_in) || token.expires_in! <= 0) {
-   throw new Error("authorization_required: invalid refresh response");
+  // No fast path may return an unverified rotation or a different binding.
+  const refreshAt = p.refresh_after ? Date.parse(p.refresh_after) : Date.parse(p.expires_at ?? "") - 30_000;
+  if (!p.identity_verification_pending && p.access_token !== rejectedToken && refreshAt > Date.now()) return p.access_token;
+  let candidate = p;
+  if (!p.identity_verification_pending || !(Date.parse(p.expires_at ?? "") > Date.now())) {
+   if (!p.refresh_token) throw new Error("authorization_required: reconnect the original ItPay connection");
+   let response: Response;
+   try {
+    response = await fetch(p.token_url, {
+     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: p.refresh_token, client_id: p.client_id, resource: cfg.resource }),
+     signal: AbortSignal.timeout(10_000),
+    });
+   } catch {
+    throw new Error("connection_verification_pending: refresh outcome unknown; preserve the original connection and references, do not repeat authorization or business requests");
+   }
+   if (!response.ok) {
+    // Only an explicit credential rejection establishes the need for consent.
+    let rejected = response.status === 401 || response.status === 403;
+    if (response.status === 400) {
+     try {
+      const problem = await response.json() as { error?: string };
+      rejected = ["invalid_grant", "invalid_client", "unauthorized_client"].includes(problem?.error ?? "");
+     } catch { /* A malformed rejection is not proof of expired consent. */ }
+    }
+    if (rejected) throw new Error("authorization_required: connection refresh rejected");
+    throw new Error("connection_verification_pending: refresh unavailable; preserve the original connection and references");
+   }
+   let token: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; token_type?: unknown };
+   try { token = await response.json() as typeof token; }
+   catch { throw new Error("connection_verification_pending: invalid refresh response; preserve the original connection and references"); }
+   if (!token || typeof token.access_token !== "string" || !token.access_token || typeof token.token_type !== "string" || token.token_type.toLowerCase() !== "bearer" || typeof token.expires_in !== "number" || !Number.isFinite(token.expires_in) || token.expires_in <= 0 || (!Number.isFinite(Date.now() + token.expires_in * 1000) || Date.now() + token.expires_in * 1000 > 8.64e15) || (token.refresh_token !== undefined && (typeof token.refresh_token !== "string" || !token.refresh_token))) {
+    throw new Error("connection_verification_pending: invalid refresh response; preserve the original connection and references");
+   }
+   const now = Date.now();
+   candidate = {
+    ...p, access_token: token.access_token, refresh_token: token.refresh_token ?? p.refresh_token,
+    expires_at: new Date(now + token.expires_in * 1000).toISOString(),
+    refresh_after: new Date(now + token.expires_in * 1000 - Math.min(30_000, Math.max(100, token.expires_in * 100))).toISOString(),
+    identity_verification_pending: true,
+   };
+   // Save the rotation before any fallible identity/network operation.
+   saveHubProfileUnlocked(candidate, env);
   }
-  const who = await fetch(`${cfg.resource}/v1/me`, { headers: { Authorization: `Bearer ${token.access_token}` }, signal: AbortSignal.timeout(10_000) });
-  if (!who.ok) throw new Error("authorization_required: refreshed identity rejected");
-  const identity = await who.json() as { buyer_id?: string; consumer_id?: string };
-  if (identity.buyer_id !== p.subject || (identity.consumer_id && identity.consumer_id !== p.consumer_id)) {
+  const identity = await probeHubIdentity(cfg.resource, candidate.access_token!);
+  if (identity.buyer_id !== p.subject || identity.consumer_id !== p.consumer_id) {
    throw new Error("authorization_required: refreshed identity changed");
   }
-  storeHubSessionUnlocked(token.access_token, token.refresh_token ?? p.refresh_token, token.expires_in!, p.subject, cfg.resource, env, p.consumer_id);
-  return token.access_token;
+  if (!(Date.parse(candidate.expires_at ?? "") > Date.now())) {
+   throw new Error("connection_verification_pending: token expired during identity check; preserve the original connection and references");
+  }
+  delete candidate.identity_verification_pending;
+  saveHubProfileUnlocked(candidate, env);
+  return candidate.access_token!;
  });
 }
 

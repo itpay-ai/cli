@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { HubTaskStore, digestTask, type HubCredentialSelection, type HubTask } from "../state/hub_tasks.js";
 import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
-import { storeHubSession } from "../state/hub_credentials.js";
+import { probeHubIdentity, storeHubSession } from "../state/hub_credentials.js";
 import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
@@ -202,7 +202,7 @@ export class HubTaskRequestError extends Error {
   super(error instanceof Error?error.message:"original Hub request did not return a receipt");
   this.requestID=task.request_id;
   this.references={request_id:task.request_id,...(task.run_id?{run_id:task.run_id}:{}),...(task.intent_id?{intent_id:task.intent_id}:{})};
-  this.code=error instanceof HttpError?error.code:["authorization_required","idempotency_conflict","invalid_state"].find(code=>this.message.startsWith(code+":"))??"hub_request_unknown";
+  this.code=error instanceof HttpError?error.code:["authorization_required","connection_verification_pending","credential_persistence_failed","idempotency_conflict","invalid_state"].find(code=>this.message.startsWith(code+":"))??"hub_request_unknown";
  }
 }
 
@@ -571,11 +571,16 @@ export async function runHubConnect(options: { jsonOutput?: boolean | undefined 
     plainResult: ["打开浏览器完成授权：", `  ${authorizeURL}`],
   });
   const tokens = await done;
-  const meResponse = await fetch(`${cfg.resource}/v1/me`, {
-    headers: { Authorization: `Bearer ${tokens.accessToken}` }, signal: AbortSignal.timeout(10_000),
-  });
-  if (!meResponse.ok) throw new Error("authorization_required: could not verify connected identity");
-  const me = await meResponse.json() as { buyer_id?: string; consumer_id?: string };
+  let me: Awaited<ReturnType<typeof probeHubIdentity>>;
+  try {
+    me = await probeHubIdentity(cfg.resource, tokens.accessToken);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("connection_verification_pending:")) {
+      // Unlike refresh, this new connection has not persisted a pending profile.
+      throw new Error("connection_not_saved: identity verification unavailable; this connection was not saved and the existing connection was not replaced");
+    }
+    throw error;
+  }
   if (!me.buyer_id || (!me.consumer_id || (me.consumer_id !== `oauth:${cfg.clientID}` && !me.consumer_id.startsWith(`oauth:${cfg.clientID}:`)))) throw new Error("authorization_required: OAuth consumer mismatch");
   const subject = me.buyer_id;
   storeHubSession(tokens.accessToken, tokens.refreshToken, tokens.expiresIn, subject, cfg.resource, process.env, me.consumer_id);

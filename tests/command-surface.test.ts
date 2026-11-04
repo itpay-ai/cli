@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Command} from 'commander';
+import {hubCredentialsPath,storeHubSession} from '../src/state/hub_credentials.js';
 import {registerAPICommands} from '../src/commands/api_commands.js';
 import {spawnSync,spawn} from 'node:child_process';
 import {createServer} from 'node:http';
@@ -80,7 +81,7 @@ test('API connect uses synthetic PKCE callback and verifies the exact resource a
    assert.equal(form.get('grant_type'),'authorization_code');assert.equal(form.get('code'),'synthetic-code');assert.equal(form.get('resource'),resource);assert.ok(form.get('code_verifier'));exchanges++;
    res.end(JSON.stringify({access_token:'synthetic-oauth-access',refresh_token:'synthetic-oauth-refresh',expires_in:300}));return;
   }
-  if(req.url==='/v1/me'){assert.equal(req.headers.authorization,'Bearer synthetic-oauth-access');res.end(JSON.stringify({buyer_id:'fixture-buyer',consumer_id:'oauth:fixture-public-cli'}));return;}
+  if(req.url==='/v1/me'){assert.equal(req.headers['x-itpay-oauth-resource'],resource);assert.equal(req.headers.authorization,'Bearer synthetic-oauth-access');res.end(JSON.stringify({buyer_id:'fixture-buyer',consumer_id:'oauth:fixture-public-cli'}));return;}
   res.writeHead(404);res.end('{}');
  });
  await new Promise<void>(r=>issuer.listen(0,'127.0.0.1',r));const addr=issuer.address();if(!addr||typeof addr==='string')throw Error('fixture listener');resource='http://127.0.0.1:'+addr.port;
@@ -91,4 +92,28 @@ test('API connect uses synthetic PKCE callback and verifies the exact resource a
   const exited=new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
   await authorized;assert.equal(await exited,0,diagnostic);const envelope=JSON.parse(output);assert.equal(envelope.status,'connected');assert.equal(envelope.result.subject,'fixture-buyer');assert.match(envelope.next.command,/\bitpay (?:--agent-type [a-z0-9-]+ )?api doctor --json$/);assert.ok(envelope.next.command.includes("ITPAY_HUB_URL='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_HUB_OAUTH_ISSUER='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_STATE_DIR='"+home+"'"));assert.equal(exchanges,1);assert.ok(!output.includes('synthetic-oauth-access'));assert.ok(!output.includes('synthetic-oauth-refresh'));
  }finally{await new Promise<void>(r=>issuer.close(()=>r()));rmSync(home,{recursive:true,force:true});}
+});
+
+
+test('connect who503 reports an unsaved attempt and normal original-config recovery without replacing the prior profile',async()=>{
+ const home=mkdtempSync(join(tmpdir(),'itpay-connect-unsaved-'));let resource='',exchanges=0,probes=0;
+ const issuer=createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/oauth2/token'){
+   let raw='';for await(const b of req)raw+=b;const form=new URLSearchParams(raw);assert.equal(form.get('grant_type'),'authorization_code');assert.equal(form.get('resource'),resource);exchanges++;
+   res.end(JSON.stringify({access_token:'new-synthetic-access',refresh_token:'new-synthetic-refresh',expires_in:300}));return;
+  }
+  if(req.url==='/v1/me'){probes++;assert.equal(req.headers['x-itpay-oauth-resource'],resource);res.writeHead(503);res.end('{}');return}
+  res.writeHead(404);res.end('{}');
+ });
+ await new Promise<void>(resolve=>issuer.listen(0,'127.0.0.1',resolve));const address=issuer.address();assert.ok(address&&typeof address!=='string');resource='http://127.0.0.1:'+address.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([name])=>!name.startsWith('ITPAY_'))),HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:'fixture-public-cli'};
+ storeHubSession('original-synthetic-access','original-synthetic-refresh',300,'original-buyer',resource,env,'oauth:fixture-public-cli');
+ const path=hubCredentialsPath(env),before=readFileSync(path);
+ const child=spawn(process.execPath,['--import','tsx','src/main.ts','--agent-type','codex-desktop','api','connect','--json'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let output='',diagnostic='';child.stdout.on('data',b=>output+=b);
+ const exit=new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve)});
+ try{
+  await new Promise<void>((resolve,reject)=>{let started=false;child.stderr.on('data',b=>{diagnostic+=b;const match=diagnostic.match(/Open to authorize ItPay: (http[^\s]+)/);if(!match||started)return;started=true;(async()=>{const auth=new URL(match[1]!);assert.equal(auth.searchParams.get('resource'),resource);const callback=new URL(auth.searchParams.get('redirect_uri')!);callback.searchParams.set('state',auth.searchParams.get('state')!);callback.searchParams.set('code','synthetic-code');assert.equal((await fetch(callback)).status,200);resolve()})().catch(reject)})});
+  assert.equal(await exit,1);const envelope=JSON.parse(output);assert.equal(envelope.error.code,'connection_not_saved');assert.match(envelope.instruction,/尚未保存/);assert.match(envelope.instruction,/原有连接未替换/);assert.doesNotMatch(envelope.instruction,/不重新授权/);assert.match(envelope.next.command,/api connect --json$/);assert.ok(envelope.next.command.includes("ITPAY_HUB_URL='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_HUB_OAUTH_ISSUER='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_HUB_OAUTH_CLIENT='fixture-public-cli'"));assert.ok(envelope.next.command.includes("ITPAY_STATE_DIR='"+home+"'"));assert.deepEqual(readFileSync(path),before);assert.equal(exchanges,1);assert.equal(probes,1);assert.ok(!output.includes('synthetic-access'));assert.ok(!output.includes('synthetic-refresh'));
+ }finally{if(child.exitCode===null)child.kill('SIGTERM');await new Promise<void>(resolve=>issuer.close(()=>resolve()));rmSync(home,{recursive:true,force:true})}
 });
