@@ -6,11 +6,11 @@ import {HubClient,HUB_CONTRACT_REVISION} from '@itpay/hub-client';
 
 test('API SDK is the fixed immutable build package, not copied vendor source',()=>{
  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8'));
- const manifestPath='../dependencies/itpay-hub-client-0.1.0-integration.7bedd6d5920c.source.json';
+ const manifestPath='../dependencies/itpay-hub-client-0.1.0-integration.b575cbbd6435.source.json';
  const m=JSON.parse(readFileSync(new URL(manifestPath,import.meta.url),'utf8'));
  const bytes=readFileSync(new URL('../dependencies/'+m.tarball,import.meta.url));
  assert.equal(createHash('sha256').update(bytes).digest('hex'),m.sha256);
- assert.equal(m.source_commit,'7bedd6d5920ce744491287a4b88a28077d9c76a2');
+ assert.equal(m.source_commit,'b575cbbd6435389c6b2dfe5224a24974b3fe191e');
  assert.equal(m.contract_revision,HUB_CONTRACT_REVISION);
  assert.equal(pkg.devDependencies['@itpay/hub-client'],'file:dependencies/'+m.tarball);
  const lock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url),'utf8'));
