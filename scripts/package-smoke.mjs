@@ -1,4 +1,4 @@
-import {verifyHubRecoveryPackaged} from "./hub-recovery-packaged-smoke.mjs";
+import {verifyHubRecoveryPackaged,verifyHubConnectionRecoveryPackaged} from "./hub-recovery-packaged-smoke.mjs";
 import {verifyHubPackaged} from "./hub-packaged-smoke.mjs";
 import {verifyCanonicalSkillLayout} from "./skill-layout-smoke.mjs";
 import {createHash} from "node:crypto";
@@ -256,6 +256,7 @@ syncBuiltinESMExports();
   process.stdout.write(JSON.stringify(nativeSetup) + "\n");
   process.stdout.write(JSON.stringify(await verifyHubPackaged(packageRoot,scratch))+"\n");
   process.stdout.write(JSON.stringify(await verifyHubRecoveryPackaged(packageRoot,scratch))+"\n");
+  process.stdout.write(JSON.stringify(await verifyHubConnectionRecoveryPackaged(packageRoot,scratch))+"\n");
   process.stdout.write("packed CLI smoke passed\n");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
