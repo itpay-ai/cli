@@ -14,6 +14,7 @@ import {
   type OperationDescriptor,
   type RunAdmissionResponse,
   type RunReceipt,
+  type RequestStatus,
   type TopUpOrder,
   type TopUpSKU,
   type Usage,
@@ -37,6 +38,7 @@ export type {
   OperationDescriptor,
   RunAdmissionResponse,
   RunReceipt,
+  RequestStatus,
   TopUpOrder,
   TopUpSKU,
   Wallet,
@@ -98,6 +100,9 @@ export class HubClient {
   runStatus(runID: string): Promise<RunReceipt> {
     return this.wrap(() => this.sdk.getRun(runID));
   }
+  getRequest(requestID: string): Promise<RequestStatus> {
+    return this.wrap(() => this.sdk.getRequest(requestID));
+  }
   continueIntent(intentID: string, idempotencyKey: string): Promise<ContinueIntentResponse> {
     return this.wrap(() => this.sdk.continueIntent(intentID, idempotencyKey));
   }
@@ -146,9 +151,46 @@ export class HubClient {
         throw new HttpError(err.status, {
           code: err.envelope.error.code,
           message: err.envelope.error.message,
+          ...safeDetailsPayload(err.envelope.error.details),
         }, `hub request failed`);
       }
       throw err;
     }
   }
+}
+
+
+export interface SafeHubErrorDetails { stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
+
+// SDK diagnostics are useful, but neither arbitrary detail fields nor raw path
+// parameters/query strings belong in an agent-visible error.
+export function safeHubErrorDetails(raw: unknown): SafeHubErrorDetails | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const d = raw as Record<string, unknown>;
+  const out: SafeHubErrorDetails = {};
+  if (d.stage === "metadata" || d.stage === "status" || d.stage === "action") out.stage = d.stage;
+  if (typeof d.method === "string" && ["GET", "POST", "PUT", "DELETE", "PATCH"].includes(d.method)) out.method = d.method as NonNullable<SafeHubErrorDetails["method"]>;
+  if (typeof d.path === "string") {
+    const path = d.path.split(/[?#]/, 1)[0]!;
+    const routes: Array<[RegExp, string]> = [
+      [/^\/v1\/operations\/[^/\s]+\/runs$/, "/v1/operations/{operation_id}/runs"],
+      [/^\/v1\/operations\/[^/\s]+$/, "/v1/operations/{operation_id}"],
+      [/^\/v1\/requests\/[^/\s]+$/, "/v1/requests/{request_id}"],
+      [/^\/v1\/runs\/[^/\s]+$/, "/v1/runs/{run_id}"],
+      [/^\/v1\/intents\/[^/\s]+\/continue$/, "/v1/intents/{intent_id}/continue"],
+    ];
+    const matched = routes.find(([pattern]) => pattern.test(path));
+    if (matched) out.path = matched[1];
+    else if (["/v1/discover", "/v1/me", "/v1/me/wallet", "/v1/me/usage"].includes(path)) out.path = path;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+function safeDetailsPayload(raw: unknown): {details?: SafeHubErrorDetails} {
+  const details = safeHubErrorDetails(raw);
+  return details ? {details} : {};
+}
+export function hubErrorDetails(error: unknown): SafeHubErrorDetails | undefined {
+  if (error instanceof HttpError) return safeHubErrorDetails((error.payload as unknown as Record<string, unknown> | undefined)?.details);
+  if (error && typeof error === "object" && "details" in error) return safeHubErrorDetails(error.details);
+  return undefined;
 }
