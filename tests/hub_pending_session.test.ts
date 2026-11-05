@@ -128,7 +128,7 @@ for(const mode of ['503','invalid-grant'])test('CLI distinguishes '+mode+' from 
   f.setMode(mode);
   // Exercise the real command registration with the exact original reference.
   const p=spawn(process.execPath,['--import','tsx','src/main.ts','api','run-status','run-original','--json'],{env:f.env,stdio:['ignore','pipe','pipe']});let out='',err='';p.stdout.on('data',b=>out+=b);p.stderr.on('data',b=>err+=b);const exit=await new Promise<number|null>(resolve=>p.on('close',resolve));assert.equal(exit,1,err);
-  const envelope=JSON.parse(out);assert.equal(envelope.error.code,mode==='503'?'connection_verification_pending':'authorization_required');if(mode==='503')assert.equal(envelope.next,null);else assert.match(envelope.next.command,/api connect/);assert.ok(!out.includes('synthetic-'));assert.equal(f.counts().business,0);
+  const envelope=JSON.parse(out);assert.equal(envelope.error.code,mode==='503'?'connection_verification_pending':'authorization_required');if(mode==='503')assert.equal(envelope.next,null);else assert.match(envelope.next.command,/api recover-connection/);assert.ok(!out.includes('synthetic-'));assert.equal(f.counts().business,0);
  }finally{await f.close()}
 });
 

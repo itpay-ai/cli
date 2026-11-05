@@ -147,7 +147,7 @@ export async function probeHubIdentity(resource: string, accessToken: string): P
 // Stored bearer token — a connected session credential.
 export function storedHubToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const path = hubCredentialsPath(env);
-  if (!existsSync(path)) return undefined;
+  if (!existsSync(path) || existsSync(path+".recovery.json")) return undefined;
   try {
     const file = JSON.parse(readFileSync(path, "utf8")) as HubCredentialsFile;
     const p = file.profiles["default"];
@@ -169,6 +169,7 @@ export function storedHubProfile(env: NodeJS.ProcessEnv = process.env): HubCrede
 
 export async function connectedHubToken(env: NodeJS.ProcessEnv = process.env, rejectedToken?: string): Promise<string> {
  return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`, async () => {
+  if (existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_verification_pending: original recovery pending; only api recover-connection may verify its candidate, no business retry");
   const p = storedHubProfile(env);
   if (!p?.access_token || !p.subject) throw new Error("authorization_required: reconnect ItPay");
   const cfg = hubOAuthConfig(env);
@@ -237,4 +238,76 @@ export function importHubKey(apiKey: string, baseURL: string, env: NodeJS.Proces
 }
 export function storeHubSession(accessToken: string, refreshToken: string | undefined, expiresIn: number, subject: string | undefined, baseURL: string, env: NodeJS.ProcessEnv = process.env, consumerID?: string): void {
  withFileLock(`${hubCredentialsPath(env)}.refresh.lock`, () => storeHubSessionUnlocked(accessToken, refreshToken, expiresIn, subject, baseURL, env, consumerID));
+}
+
+// Explicit original-connection recovery. Rotated credentials are quarantined
+// separately until both the owner recovery and /me prove the exact old binding.
+export async function recoverHubConnection(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+ return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`,async()=>{
+  const original=storedHubProfile(env),cfg=hubOAuthConfig(env);
+  if (!original?.subject || !original.consumer_id || !original.refresh_token || original.api_key || original.base_url!==cfg.resource || original.client_id!==cfg.clientID || original.token_url!==cfg.tokenURL || env.ITPAY_HUB_KEY || env.ITPAY_HUB_TOKEN) throw new Error("connection_recovery_denied: original OAuth binding and refresh proof required; preserve profile and tasks");
+  const path=hubCredentialsPath(env)+".recovery.json";
+  const binding={base_url:original.base_url,subject:original.subject,consumer_id:original.consumer_id,client_id:original.client_id,token_url:original.token_url};
+  type Pending={binding:typeof binding;phase:"refresh_unknown"|"candidate";profile?:HubProfile};
+  const save=(pending:Pending)=>{
+   const tmp=path+"."+randomUUID()+".tmp";
+   try {writeFileSync(tmp,JSON.stringify(pending),{flag:"wx",mode:0o600});renameSync(tmp,path);} finally {try{unlinkSync(tmp)}catch{}}
+  };
+  let pending:Pending|undefined;
+  let refreshSource=original;
+  if(existsSync(path)) {
+   try {pending=JSON.parse(readFileSync(path,"utf8")) as Pending;}catch{throw new Error("connection_recovery_denied: private recovery material unreadable; preserve original profile");}
+   if(!pending || typeof pending!=="object" || JSON.stringify(pending.binding)!==JSON.stringify(binding)) throw new Error("connection_recovery_denied: recovery binding changed; preserve original profile");
+   if(pending.phase!=="candidate" || !pending.profile) throw new Error("connection_verification_pending: refresh outcome unknown; preserve private recovery material, do not repeat refresh or connect");
+   if(!Object.entries(binding).every(([k,v])=>(pending!.profile as unknown as Record<string,unknown>)[k]===v)) throw new Error("connection_recovery_denied: private candidate binding mismatch; preserve original profile");
+  }
+  if (!pending || !(Date.parse(pending.profile?.expires_at??"")>Date.now())) {
+   refreshSource=pending?.profile??original;
+   if(!refreshSource.refresh_token) throw new Error("connection_recovery_denied: original refresh proof unavailable; preserve profile and candidate");
+   save({binding,phase:"refresh_unknown",profile:refreshSource});
+   let response:Response;
+   try {response=await fetch(cfg.tokenURL,{method:"POST",redirect:"error",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"refresh_token",refresh_token:refreshSource.refresh_token,client_id:cfg.clientID,resource:cfg.resource}),signal:AbortSignal.timeout(10_000)});} catch {throw new Error("connection_verification_pending: refresh outcome unknown; preserve original profile and private recovery material");}
+   if(!response.ok) {
+    let rejected=response.status===401||response.status===403;
+    if(response.status===400){try{const problem=await response.json() as {error?:string};rejected=["invalid_grant","invalid_client","unauthorized_client"].includes(problem?.error??"")}catch{}}
+    if(rejected) throw new Error("connection_recovery_denied: original refresh proof rejected; preserve profile and tasks, do not create a replacement connection");
+    throw new Error("connection_verification_pending: refresh unavailable or outcome unknown; preserve original profile and private recovery material");
+   }
+   let t:{access_token?:unknown;refresh_token?:unknown;token_type?:unknown;expires_in?:unknown};
+   try {t=await response.json() as typeof t;}catch {throw new Error("connection_verification_pending: invalid refresh response; preserve private recovery material");}
+   if(!t || typeof t!=="object" || typeof t.access_token!=="string" || !t.access_token || typeof t.token_type!=="string" || t.token_type.toLowerCase()!=="bearer" || typeof t.expires_in!=="number" || !Number.isFinite(t.expires_in) || t.expires_in<=0 || Date.now()+t.expires_in*1000>8.64e15 || (t.refresh_token!==undefined && (typeof t.refresh_token!=="string" || !t.refresh_token))) throw new Error("connection_verification_pending: invalid refresh response; preserve private recovery material");
+   const now=Date.now();
+   pending={binding,phase:"candidate",profile:{...original,access_token:t.access_token,refresh_token:(t.refresh_token as string|undefined)??refreshSource.refresh_token,expires_at:new Date(now+t.expires_in*1000).toISOString(),refresh_after:new Date(now+t.expires_in*1000-Math.min(30_000,Math.max(100,t.expires_in*100))).toISOString(),identity_verification_pending:true}};
+   save(pending);
+  }
+  const candidate=pending!.profile!;
+  if(!Object.entries(binding).every(([k,v])=>(candidate as unknown as Record<string,unknown>)[k]===v)) throw new Error("connection_recovery_denied: private candidate binding mismatch; preserve original profile");
+  if(!candidate.access_token || !(Date.parse(candidate.expires_at??"")>Date.now())) throw new Error("connection_recovery_denied: recovery candidate expired; preserve private proof and request owner review");
+  let response:Response;
+  try {response=await fetch(cfg.resource+"/v1/connection/recover",{method:"POST",redirect:"error",headers:{"Content-Type":"application/json",Authorization:"Bearer "+candidate.access_token,"X-ItPay-OAuth-Resource":cfg.resource},body:JSON.stringify({expected_buyer_id:binding.subject,expected_consumer_id:binding.consumer_id}),signal:AbortSignal.timeout(10_000)});}catch {throw new Error("connection_verification_pending: recovery outcome unknown; preserve original profile and candidate; retry only this recovery, never business");}
+  if(response.status===409) throw new Error("connection_recovery_conflict: another active connection requires owner review; preserve original profile, tasks and candidate");
+  if(response.status>=500 || response.status===404 || response.status===405) throw new Error("connection_verification_pending: paired recovery owner unavailable; preserve profile and candidate");
+  if(!response.ok) throw new Error("connection_recovery_denied: owner rejected original binding; preserve profile, tasks and private candidate");
+  let result:{buyer_id?:unknown;consumer_id?:unknown;status?:unknown};
+  try {result=await response.json() as typeof result;}catch{throw new Error("connection_verification_pending: recovery reply invalid; preserve original profile and candidate");}
+  if(!result || typeof result!=="object" || result.buyer_id!==binding.subject || result.consumer_id!==binding.consumer_id || result.status!=="recovered") throw new Error("connection_recovery_denied: owner recovery binding mismatch; preserve original profile");
+  const identity=await probeHubIdentity(cfg.resource,candidate.access_token);
+  if(identity.buyer_id!==binding.subject || identity.consumer_id!==binding.consumer_id) throw new Error("connection_recovery_denied: verified original identity mismatch; preserve profile and tasks");
+  if(!(Date.parse(candidate.expires_at??"")>Date.now())) throw new Error("connection_verification_pending: candidate expired during verification; preserve original profile");
+  delete candidate.identity_verification_pending;
+  saveHubProfileUnlocked(candidate,env);
+  unlinkSync(path);
+ });
+}
+
+// Hold the existing credential lock across the browser attempt too: a second
+// consent must not supersede a profile saved by a concurrent connect.
+export async function withNewHubSession<T>(action:(save:(access:string,refresh:string|undefined,seconds:number,subject:string,base:string,consumer:string)=>void)=>Promise<T>,env:NodeJS.ProcessEnv=process.env):Promise<T> {
+ return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`,async()=>{
+  if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: existing connection preserved; use api recover-connection, never replace it");
+  return action((access,refresh,seconds,subject,base,consumer)=>{
+   if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: original profile appeared; new connection not saved");
+   storeHubSessionUnlocked(access,refresh,seconds,subject,base,env,consumer);
+  });
+ });
 }

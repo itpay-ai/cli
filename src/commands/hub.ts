@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { HubTaskStore, digestTask, type HubCredentialSelection, type HubTask } from "../state/hub_tasks.js";
 import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
-import { probeHubIdentity, storeHubSession } from "../state/hub_credentials.js";
+import { probeHubIdentity, storedHubProfile, recoverHubConnection, withNewHubSession } from "../state/hub_credentials.js";
 import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
@@ -645,6 +645,8 @@ export async function runHubCredentialsImport(options: { jsonOutput?: boolean | 
 // the bearer token (stored 0600) carries owner-level rights including
 // top-up — while imported keys stay the prepaid-only developer path.
 export async function runHubConnect(options: { jsonOutput?: boolean | undefined }): Promise<void> {
+ return withNewHubSession(async(storeNewHubSession)=>{
+  if (storedHubProfile()) throw new Error("connection_recovery_denied: existing connection preserved; use api recover-connection for exact-binding recovery, do not replace it");
   const cfg = hubOAuthConfig();
   const { authorizeURL, done } = await runConnectFlow(cfg);
   // The handoff is diagnostic output; --json stdout remains one terminal document.
@@ -676,7 +678,7 @@ export async function runHubConnect(options: { jsonOutput?: boolean | undefined 
   }
   if (!me.buyer_id || (!me.consumer_id || (me.consumer_id !== `oauth:${cfg.clientID}` && !me.consumer_id.startsWith(`oauth:${cfg.clientID}:`)))) throw new Error("authorization_required: OAuth consumer mismatch");
   const subject = me.buyer_id;
-  storeHubSession(tokens.accessToken, tokens.refreshToken, tokens.expiresIn, subject, cfg.resource, process.env, me.consumer_id);
+  storeNewHubSession(tokens.accessToken, tokens.refreshToken, tokens.expiresIn, subject!, cfg.resource, me.consumer_id!);
   writeCommandEnvelope({
     status: "connected",
     result: {
@@ -692,4 +694,10 @@ export async function runHubConnect(options: { jsonOutput?: boolean | undefined 
     jsonOutput: Boolean(options.jsonOutput),
     plainResult: [`已连接 ${cfg.resource}${subject ? ` (${subject})` : ""}`],
   });
+ });
+}
+
+export async function runHubRecoverConnection(options:{jsonOutput?:boolean|undefined}):Promise<void> {
+ await recoverHubConnection();
+ writeCommandEnvelope({status:"ok",result:{status:"recovered",original_binding_preserved:true,business_calls:0},instruction:"原连接已核对并恢复。仅使用原引用 tasks --refresh 或 run-status 读取；本次未续跑、派发或扣费。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
 }

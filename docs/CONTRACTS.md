@@ -11,3 +11,14 @@ API按 discover→inspect→run→原任务读取；operation_id与publication�
 钱包金额是scale6 atoms，不把PSP minor或展示价混算。充值/现金购买/授权需要真实同意和通道支持，不能因API余额授权而隐式付现金。API Key、OAuth scope、Services device与内容ACL不互相扩大；不借CLI/HTTP绕宿主限制。
 
 输出和日志不含凭据、验证码、私钥、旅客资料或原始敏感请求。付款pending/unknown、退款unknown沿原单读；成功以owner事实为准。具体语法见[索引](cli-reference/index.md)与[API参考](cli-reference/api.md)。
+
+
+## Original OAuth connection recovery
+
+`itpay api recover-connection --json` is an explicit, noninteractive identity operation. It uses only the selected original profile's refresh proof, verifies the authority-issued original buyer/client/resource/consumer at the server, then checks `/v1/me` before committing that same binding. It never creates a connection, grant, run, continuation, hold or charge. Existing `api connect` refuses to replace a saved profile. Account equality or a client-family prefix is not original-connection proof.
+
+Keep the original state directory and endpoint configuration. Missing/revoked proof, a wrong account or consumer, or an unavailable paired server stops recovery and preserves the original profile and local tasks. A rotated session is kept in a private `.recovery.json` candidate until verification succeeds; ordinary business commands stop while it exists. An unknown refresh result must not be retried automatically. An unknown recovery reply can reuse the same unexpired candidate via this recovery command without another refresh. Never delete recovery material or restore an old rotated refresh token to bypass this stop. An expired candidate can rotate its saved same-binding refresh proof; it never reuses the consumed original refresh. Lost or rejected original proof needs owner review, not a replacement login.
+
+After successful recovery, only read original references with `api tasks --refresh --request-id <original_request_id> --json` or `api run-status <original_run_id> --json`. Recovery does not authorize `resume`, a new run or a payment. Interactive new-login recovery without original delegation proof is unsupported; stop and report the required evidence category instead of asking the user to log in blindly.
+
+If another active connection occupies the original client slot, recovery returns `connection_recovery_conflict` without replacing or revoking it. Preserve both connections and the private candidate for owner review; do not delete a connection to force recovery.
