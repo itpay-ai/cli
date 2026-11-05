@@ -4,7 +4,7 @@ import {createServer} from 'node:http';
 import {mkdtempSync,readFileSync,writeFileSync,existsSync,rmSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {recoverHubConnection,connectedHubToken,storeHubSession,hubCredentialsPath,storedHubProfile,storeNewHubSession} from '../src/state/hub_credentials.js';
+import {recoverHubConnection,connectedHubToken,storeHubSession,hubCredentialsPath,storedHubProfile,withNewHubSession} from '../src/state/hub_credentials.js';
 async function fixture(mode:string){
  const dir=mkdtempSync(join(tmpdir(),'itpay-recover-'));const calls={oauth:0,recover:0,me:0,business:0};let lost=false;let conflict=mode==='conflict';
  const server=createServer(async(req,res)=>{
@@ -52,10 +52,17 @@ test('conflict preserves both original and rotated candidate; same candidate can
 test('expired conflict candidate rotates its saved refresh proof, never reuses consumed original refresh',async()=>{
  const f=await fixture('conflict');try{await assert.rejects(recoverHubConnection(f.env),/connection_recovery_conflict/);const path=f.path+'.recovery.json',pending=JSON.parse(readFileSync(path,'utf8'));pending.profile.expires_at=new Date(0).toISOString();writeFileSync(path,JSON.stringify(pending),{mode:0o600});f.clearConflict();await recoverHubConnection(f.env);assert.equal(f.calls.oauth,2);assert.equal(f.calls.business,0);f.assertTask()}finally{await f.close()}
 });
-test('late browser connect commit cannot overwrite the original saved profile',async()=>{
- const f=await fixture('ok');try{assert.throws(()=>storeNewHubSession('new','new-refresh',300,'other',f.env.ITPAY_HUB_URL,'oauth:client:other',f.env),/connection_recovery_denied/);assert.deepEqual(readFileSync(f.path),f.before);assert.deepEqual(f.calls,{oauth:0,recover:0,me:0,business:0});f.assertTask()}finally{await f.close()}
+test('browser session guard rejects an existing original before any new consent',async()=>{
+ const f=await fixture('ok');try{await assert.rejects(withNewHubSession(async()=>{throw new Error('new consent must not start')},f.env),/connection_recovery_denied/);assert.deepEqual(readFileSync(f.path),f.before);assert.deepEqual(f.calls,{oauth:0,recover:0,me:0,business:0});f.assertTask()}finally{await f.close()}
 });
-
 test('issuer outage is unknown, never mistaken for revoked consent or retried refresh',async()=>{
  const f=await fixture('refresh-unavailable');try{await assert.rejects(recoverHubConnection(f.env),/connection_verification_pending/);await assert.rejects(recoverHubConnection(f.env),/outcome unknown/);assert.deepEqual(readFileSync(f.path),f.before);assert.equal(f.calls.oauth,1);assert.equal(f.calls.business,0);f.assertTask()}finally{await f.close()}
+});
+
+test('concurrent browser attempts hold the credential lock before starting a second consent',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'itpay-connect-lock-'));const env={ITPAY_STATE_DIR:dir,ITPAY_HUB_URL:'http://127.0.0.1:1',ITPAY_HUB_OAUTH_ISSUER:'http://127.0.0.1:1',ITPAY_HUB_OAUTH_CLIENT:'client'};let started=0;let release!:()=>void;let entered!:()=>void;const gate=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r);
+ try{
+  const first=withNewHubSession(async save=>{started++;entered();await gate;save('synthetic','synthetic-refresh',300,'buyer',env.ITPAY_HUB_URL,'oauth:client:original')},env);await ready;
+  const second=withNewHubSession(async()=>{started++},env);release();await first;await assert.rejects(second,/connection_recovery_denied/);assert.equal(started,1);assert.equal(storedHubProfile(env)?.consumer_id,'oauth:client:original');
+ }finally{rmSync(dir,{recursive:true,force:true})}
 });

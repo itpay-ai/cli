@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { HubTaskStore, digestTask, type HubCredentialSelection, type HubTask } from "../state/hub_tasks.js";
 import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
-import { probeHubIdentity, storedHubProfile, recoverHubConnection, storeNewHubSession } from "../state/hub_credentials.js";
+import { probeHubIdentity, storedHubProfile, recoverHubConnection, withNewHubSession } from "../state/hub_credentials.js";
 import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
@@ -645,6 +645,7 @@ export async function runHubCredentialsImport(options: { jsonOutput?: boolean | 
 // the bearer token (stored 0600) carries owner-level rights including
 // top-up — while imported keys stay the prepaid-only developer path.
 export async function runHubConnect(options: { jsonOutput?: boolean | undefined }): Promise<void> {
+ return withNewHubSession(async(storeNewHubSession)=>{
   if (storedHubProfile()) throw new Error("connection_recovery_denied: existing connection preserved; use api recover-connection for exact-binding recovery, do not replace it");
   const cfg = hubOAuthConfig();
   const { authorizeURL, done } = await runConnectFlow(cfg);
@@ -693,6 +694,7 @@ export async function runHubConnect(options: { jsonOutput?: boolean | undefined 
     jsonOutput: Boolean(options.jsonOutput),
     plainResult: [`已连接 ${cfg.resource}${subject ? ` (${subject})` : ""}`],
   });
+ });
 }
 
 export async function runHubRecoverConnection(options:{jsonOutput?:boolean|undefined}):Promise<void> {

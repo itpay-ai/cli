@@ -300,9 +300,14 @@ export async function recoverHubConnection(env: NodeJS.ProcessEnv = process.env)
  });
 }
 
-export function storeNewHubSession(accessToken:string,refreshToken:string|undefined,expiresIn:number,subject:string,baseURL:string,consumerID:string,env:NodeJS.ProcessEnv=process.env):void {
- withFileLock(`${hubCredentialsPath(env)}.refresh.lock`,()=>{
-  if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: another original profile exists; new connection not saved");
-  storeHubSessionUnlocked(accessToken,refreshToken,expiresIn,subject,baseURL,env,consumerID);
+// Hold the existing credential lock across the browser attempt too: a second
+// consent must not supersede a profile saved by a concurrent connect.
+export async function withNewHubSession<T>(action:(save:(access:string,refresh:string|undefined,seconds:number,subject:string,base:string,consumer:string)=>void)=>Promise<T>,env:NodeJS.ProcessEnv=process.env):Promise<T> {
+ return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`,async()=>{
+  if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: existing connection preserved; use api recover-connection, never replace it");
+  return action((access,refresh,seconds,subject,base,consumer)=>{
+   if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: original profile appeared; new connection not saved");
+   storeHubSessionUnlocked(access,refresh,seconds,subject,base,env,consumer);
+  });
  });
 }
