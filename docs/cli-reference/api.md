@@ -45,3 +45,10 @@ Keep the original state directory and endpoint configuration. Missing/revoked pr
 After successful recovery, only read original references with `api tasks --refresh --request-id <original_request_id> --json` or `api run-status <original_run_id> --json`. Recovery does not authorize `resume`, a new run or a payment. Interactive new-login recovery without original delegation proof is unsupported; stop and report the required evidence category instead of asking the user to log in blindly.
 
 If another active connection occupies the original client slot, recovery returns `connection_recovery_conflict` without replacing or revoking it. Preserve both connections and the private candidate for owner review; do not delete a connection to force recovery.
+
+
+### Original consumer historical receipt
+
+`itpay api original-receipt <exact_original_request_key> --json` reads a saved run result and actual charge using the original OAuth consumer. It does not activate the original connection, displace another active connection, resume a run or authorize spending. Use the exact original admission key (including any `cli-req-` prefix), not a new task key. This requires the paired historical receipt server and a still-valid, unrevoked original delegation.
+
+A refreshed token stays in the existing private recovery candidate; the operational profile and tasks remain unchanged. Normal business commands continue to stop while recovery is pending. Lost GET replies may reuse the candidate; an unknown refresh result stops further refresh. Rejected proof or unavailable pairing requires owner review, never a replacement login or connection revocation. Expired saved results are not regenerated; retained charge facts remain readable. No automatic continuation is offered.
