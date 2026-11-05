@@ -243,6 +243,13 @@ export function storeHubSession(accessToken: string, refreshToken: string | unde
 // Explicit original-connection recovery. Rotated credentials are quarantined
 // separately until both the owner recovery and /me prove the exact old binding.
 export async function recoverHubConnection(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+ await withOriginalHubCandidate(env);
+}
+export async function readOriginalHubReceipt(requestKey:string,env:NodeJS.ProcessEnv=process.env):Promise<unknown> {
+ if(!requestKey || requestKey.length>512 || /[\r\n\0]/.test(requestKey)) throw new Error("receipt_denied: exact original request key required");
+ return withOriginalHubCandidate(env,requestKey);
+}
+async function withOriginalHubCandidate(env:NodeJS.ProcessEnv,receiptRequest?:string):Promise<unknown> {
  return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`,async()=>{
   const original=storedHubProfile(env),cfg=hubOAuthConfig(env);
   if (!original?.subject || !original.consumer_id || !original.refresh_token || original.api_key || original.base_url!==cfg.resource || original.client_id!==cfg.clientID || original.token_url!==cfg.tokenURL || env.ITPAY_HUB_KEY || env.ITPAY_HUB_TOKEN) throw new Error("connection_recovery_denied: original OAuth binding and refresh proof required; preserve profile and tasks");
@@ -283,6 +290,16 @@ export async function recoverHubConnection(env: NodeJS.ProcessEnv = process.env)
   const candidate=pending!.profile!;
   if(!Object.entries(binding).every(([k,v])=>(candidate as unknown as Record<string,unknown>)[k]===v)) throw new Error("connection_recovery_denied: private candidate binding mismatch; preserve original profile");
   if(!candidate.access_token || !(Date.parse(candidate.expires_at??"")>Date.now())) throw new Error("connection_recovery_denied: recovery candidate expired; preserve private proof and request owner review");
+  if(receiptRequest!==undefined) {
+   // Only this GET may use the quarantined same-binding candidate. Keep the
+   // operational profile and recovery file untouched after a successful read.
+   let response:Response;
+   try {response=await fetch(cfg.resource+"/v1/requests/"+encodeURIComponent(receiptRequest),{method:"GET",redirect:"error",headers:{Authorization:"Bearer "+candidate.access_token,"X-ItPay-OAuth-Resource":cfg.resource,"X-ItPay-Receipt-Only":"1","X-ItPay-Expected-Buyer":binding.subject,"X-ItPay-Expected-Consumer":binding.consumer_id},signal:AbortSignal.timeout(10_000)});}catch{throw new Error("receipt_unavailable: original receipt unavailable; preserve profile and private candidate");}
+   if(!response.ok) throw new Error("receipt_denied: original receipt rejected; preserve profile and private candidate");
+   const result=await response.json() as {request_id?:unknown;read_only?:unknown;run?:{run_id?:unknown}};
+   if(result?.request_id!==receiptRequest || result.read_only!==true || typeof result.run?.run_id!=="string") throw new Error("receipt_denied: invalid original receipt reply");
+   return result;
+  }
   let response:Response;
   try {response=await fetch(cfg.resource+"/v1/connection/recover",{method:"POST",redirect:"error",headers:{"Content-Type":"application/json",Authorization:"Bearer "+candidate.access_token,"X-ItPay-OAuth-Resource":cfg.resource},body:JSON.stringify({expected_buyer_id:binding.subject,expected_consumer_id:binding.consumer_id}),signal:AbortSignal.timeout(10_000)});}catch {throw new Error("connection_verification_pending: recovery outcome unknown; preserve original profile and candidate; retry only this recovery, never business");}
   if(response.status===409) throw new Error("connection_recovery_conflict: another active connection requires owner review; preserve original profile, tasks and candidate");

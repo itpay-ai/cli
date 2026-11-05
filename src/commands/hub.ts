@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { HubTaskStore, digestTask, type HubCredentialSelection, type HubTask } from "../state/hub_tasks.js";
 import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
-import { probeHubIdentity, storedHubProfile, recoverHubConnection, withNewHubSession } from "../state/hub_credentials.js";
+import { probeHubIdentity, storedHubProfile, readOriginalHubReceipt, recoverHubConnection, withNewHubSession } from "../state/hub_credentials.js";
 import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
@@ -700,4 +700,9 @@ export async function runHubConnect(options: { jsonOutput?: boolean | undefined 
 export async function runHubRecoverConnection(options:{jsonOutput?:boolean|undefined}):Promise<void> {
  await recoverHubConnection();
  writeCommandEnvelope({status:"ok",result:{status:"recovered",original_binding_preserved:true,business_calls:0},instruction:"原连接已核对并恢复。仅使用原引用 tasks --refresh 或 run-status 读取；本次未续跑、派发或扣费。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
+}
+
+export async function runHubOriginalReceipt(requestKey:string,options:{jsonOutput?:boolean|undefined}):Promise<void> {
+ const receipt=await readOriginalHubReceipt(requestKey);
+ writeCommandEnvelope({status:"ok",result:receipt,instruction:"仅回读原 consumer 的保存结果与实际费用；原连接未激活，其他连接保持活跃。本次不授权续跑或新业务。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
 }

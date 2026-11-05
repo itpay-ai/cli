@@ -1,6 +1,6 @@
 import {storedHubProfile} from "../state/hub_credentials.js";
 import {runAdminCommand} from "./admin.js";
-import {HubTaskRequestError,runHubConnect,runHubRecoverConnection,runHubContinue,runHubCredentialsImport,runHubDoctor,runHubDiscover,runHubInspect,runHubResume,runHubRun,runHubRunStatus,runHubTasks,runHubTopupCreate,runHubTopupSkus,runHubTopupStatus,runHubTransactions,runHubUsage,runHubWallet} from "./hub.js";
+import {HubTaskRequestError,runHubConnect,runHubOriginalReceipt,runHubRecoverConnection,runHubContinue,runHubCredentialsImport,runHubDoctor,runHubDiscover,runHubInspect,runHubResume,runHubRun,runHubRunStatus,runHubTasks,runHubTopupCreate,runHubTopupSkus,runHubTopupStatus,runHubTransactions,runHubUsage,runHubWallet} from "./hub.js";
 import { Command } from "commander";
 import { HttpError } from "../client/http.js";
 import {hubErrorDetails} from "../client/hub.js";
@@ -36,6 +36,11 @@ hubCmd
       reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_connect_failed", instruction: "确认 ITPAY_HUB_URL 可达且浏览器授权已完成。", recovery: [] });
     }
   });
+
+hubCmd.command("original-receipt <request_key>")
+ .description("Read only the original consumer's saved run result and charge; never activate or resume")
+ .option("--json","output JSON")
+ .action(async(requestKey:string,options)=>{try{await runHubOriginalReceipt(requestKey,{jsonOutput:Boolean(options.json)});}catch{writeCommandEnvelope({status:"error",error:{code:"receipt_unavailable",message:"原历史回执未取得。"},instruction:"保留原身份与私有候选，交 owner 核对，不恢复/新建连接或续跑。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});process.exitCode=1;}});
 
 hubCmd.command("recover-connection")
  .description("Recover the exact original OAuth consumer with its original refresh proof; no browser or business retry")
