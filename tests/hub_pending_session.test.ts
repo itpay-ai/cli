@@ -154,12 +154,12 @@ test('a concurrent completed connect waits for refresh lock and cannot be overwr
  }finally{release();await f.close()}
 });
 
-test('temporary verification failure preserves the persisted logical request and offers only its original resume',async()=>{
+test('temporary verification failure preserves the persisted logical request and offers only its scoped reader',async()=>{
  const f=await fixture();try{
   f.setMode('503');
   const proc=spawn(process.execPath,['--import','tsx','src/main.ts','api','run','op-original','--publication','pub-original','--input','{}','--request-id','req-original','--json'],{env:f.env,stdio:['ignore','pipe','pipe']});let out='',err='';proc.stdout.on('data',b=>out+=b);proc.stderr.on('data',b=>err+=b);
   const exit=await new Promise<number|null>(resolve=>proc.on('close',resolve));assert.equal(exit,1,err);const result=JSON.parse(out);
-  assert.equal(result.error.code,'connection_verification_pending');assert.equal(result.result.request_id,'req-original');assert.match(result.next.command,/api resume req-original --json/);assert.doesNotMatch(result.next.command,/api (connect|run)\b/);assert.equal(f.counts().business,0);assert.equal(storedHubProfile(f.env)?.identity_verification_pending,true);assert.ok(!out.includes('synthetic-'));
+  assert.equal(result.error.code,'connection_verification_pending');assert.equal(result.result.request_id,'req-original');assert.match(result.next.command,/api tasks --refresh --request-id req-original --json/);assert.equal(result.next.read_only.method,"GET");assert.doesNotMatch(result.next.command,/api (connect|run)\b/);assert.equal(f.counts().business,0);assert.equal(storedHubProfile(f.env)?.identity_verification_pending,true);assert.ok(!out.includes('synthetic-'));
  }finally{await f.close()}
 });
 

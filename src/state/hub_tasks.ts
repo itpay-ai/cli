@@ -39,7 +39,14 @@ export interface HubTask extends HubCredentialSelection {
   key_prefix?: string | undefined;
   account_id?: string;
   status: "pending" | "blocked" | "dispatched" | "succeeded" | "failed" | "unknown";
-  blocking_reason?: string;
+  blocking_reason?: string | undefined;
+  terminal?: boolean;
+  pending_stage?: string | null;
+  next?: {read_only: {method: "GET"; path: string}} | null;
+  state_source?: "local" | "hub";
+  state_stale?: boolean;
+  last_checked_at?: string;
+  refresh_error?: "unavailable" | "not_found" | "binding_conflict" | "inconsistent_receipt" | undefined;
   created_at: string;
   updated_at: string;
 }
@@ -193,8 +200,13 @@ export class HubTaskStore {
     // terminal states (succeeded/failed) cannot regress.
     return withFileLock(`${file}.lock`, () => {
       const existing = this.readTask(file);
-      if (STATUS_RANK[existing.status] >= STATUS_RANK.succeeded) return existing;
-      const next = { ...existing, ...patch, request_id: requestID, updated_at: new Date().toISOString() };
+      if (existing.run_id && patch.run_id && existing.run_id !== patch.run_id || existing.intent_id && patch.intent_id && existing.intent_id !== patch.intent_id) {
+        throw new Error("invalid_state: authoritative receipt changed the original task binding");
+      }
+      const terminal = STATUS_RANK[existing.status] >= STATUS_RANK.succeeded;
+      // Refresh metadata may advance on a terminal record, but a racing stale
+      // read can never replace its outcome or original binding.
+      const next = { ...existing, ...patch, ...(terminal ? { status: existing.status, terminal: true, pending_stage: null, next: null, blocking_reason: undefined } : {}), request_id: requestID, updated_at: new Date().toISOString() };
       this.writeTask(file, next);
       return next;
     });
@@ -212,7 +224,7 @@ export class HubTaskStore {
 
   /** Bind a migrated/legacy task to the current scope on explicit access. */
   private bindScope(task: HubTask, file: string): HubTask {
-    if (task.hub_origin && task.key_prefix !== undefined) return task;
+    if (task.hub_origin && (task.key_prefix !== undefined || !this.scopeFields.key_prefix)) return task;
     const bound = { ...task, ...this.scopeFields, updated_at: new Date().toISOString() };
     this.writeTask(file, bound);
     return bound;

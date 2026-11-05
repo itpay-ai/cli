@@ -137,7 +137,8 @@ test("F-R01: terminal status survives racing updates", () => {
     const requestID = `req_term_${status}`;
     store.getOrCreate({ request_id: requestID, operation_id: "op", publication_id: "p", input: {} });
     store.update(requestID, { status, run_id: "run_1" });
-    const afterRace = store.update(requestID, { status: "dispatched", run_id: "run_other" });
+    assert.throws(() => store.update(requestID, { status: "dispatched", run_id: "run_other" }), /original task binding/);
+    const afterRace = store.update(requestID, { status: "dispatched" });
     assert.equal(afterRace?.status, status);
     assert.equal(afterRace?.run_id, "run_1");
     assert.equal(store.get(requestID)?.status, status);

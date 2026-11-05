@@ -10,7 +10,7 @@ import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
 import { importHubKey } from "../state/hub_credentials.js";
-import { HubClient, HubApiError, loadHubConfig, type DiscoverItem, type EffectClass, type ServiceKind } from "../client/hub.js";
+import { HubClient, HubApiError, hubErrorDetails, loadHubConfig, type RunReceipt, type RequestStatus, type DiscoverItem, type EffectClass, type ServiceKind } from "../client/hub.js";
 import { type AdmissionRequest, isRunReceipt } from "@itpay/hub-client";
 import { writeCommandEnvelope } from "./hub_guidance.js";
 
@@ -144,14 +144,46 @@ export function readHubCredentialSelection(credentialID?: string, sourceSpec?: s
 
 // Poll a run until terminal or the wait budget expires — bounded backoff,
 // never a new request (AT10).
-async function waitForRun(client: HubClient, runID: string, seconds: number) {
+function runTerminal(rec: RunReceipt): boolean {
+  if (typeof rec.terminal === "boolean") return rec.terminal;
+  // Older fixed servers lack progress fields; execution alone is insufficient.
+  return ["succeeded", "failed", "cancelled"].includes(rec.execution_state) &&
+    ["free", "captured", "released", "refunded", "partially_refunded"].includes(rec.settlement_state);
+}
+function runPendingStage(rec: RunReceipt): string | null {
+  if (runTerminal(rec)) return null;
+  if (rec.pending_stage) return rec.pending_stage;
+  if (["succeeded", "failed", "cancelled"].includes(rec.execution_state)) return "settlement";
+  if (rec.execution_state === "unknown" || rec.settlement_state === "reconciling") return "reconciliation";
+  return rec.execution_state === "queued" || rec.execution_state === "accepted" ? "queued" : "unknown";
+}
+function updateFromRun(store: HubTaskStore, task: HubTask, rec: RunReceipt): HubTask | undefined {
+  if (!rec.run_id || rec.operation_id && rec.operation_id !== task.operation_id || rec.publication_id && rec.publication_id !== task.publication_id) {
+    throw new Error("invalid_state: authoritative run does not match the original task");
+  }
+  const terminal = runTerminal(rec);
+  return store.update(task.request_id, {
+    run_id: rec.run_id, blocking_reason: undefined,
+    status: terminal ? rec.execution_state === "succeeded" ? "succeeded" : "failed" : rec.execution_state === "unknown" ? "unknown" : "dispatched",
+    terminal, pending_stage: runPendingStage(rec), next: terminal ? null : {read_only: {method: "GET", path: `/v1/runs/${encodeURIComponent(rec.run_id)}`}}, state_source: "hub", state_stale: (task.terminal === true || ["succeeded", "failed"].includes(task.status)) && !terminal,
+    last_checked_at: new Date().toISOString(), refresh_error: (task.terminal === true || ["succeeded", "failed"].includes(task.status)) && !terminal ? "inconsistent_receipt" : undefined,
+  });
+}
+function validateWait(seconds: number): void {
+  if (!Number.isFinite(seconds) || !Number.isFinite(seconds * 1000 + Date.now()) || seconds < 0) throw new Error("invalid_input: --wait must be a finite nonnegative number of seconds");
+}
+async function waitForRun(client: HubClient, runID: string, seconds: number, initial?: RunReceipt) {
+  validateWait(seconds);
   const deadline = Date.now() + seconds * 1000;
   let delay = 500;
+  if (initial && (runTerminal(initial) || seconds === 0)) return initial;
+  let latest = initial;
   for (;;) {
+    if (latest && Date.now() >= deadline) return latest;
     const rec = await client.runStatus(runID);
-    if (["succeeded", "failed", "cancelled"].includes(rec.execution_state)) return rec;
-    if (Date.now() >= deadline) return rec;
-    await new Promise((r) => setTimeout(r, delay));
+    latest = rec;
+    if (runTerminal(rec) || Date.now() >= deadline) return rec;
+    await new Promise((r) => setTimeout(r, Math.min(delay, Math.max(0, deadline - Date.now()))));
     delay = Math.min(delay * 2, 5000);
   }
 }
@@ -161,6 +193,7 @@ export async function runHubRun(operationID: string, options: {
   requestId?: string | undefined; waitSeconds?: number | undefined;
   jsonOutput?: boolean | undefined; credentialId?: string | undefined; sourceCredentials?: string | undefined;
 }): Promise<void> {
+  validateWait(options.waitSeconds ?? 0);
   const selections = readHubCredentialSelection(options.credentialId, options.sourceCredentials);
   const client = hub();
   const store = new HubTaskStore();
@@ -176,12 +209,12 @@ export async function runHubRun(operationID: string, options: {
     input, ...selections, ...(options.maxCharge ? { max_charge_atoms: options.maxCharge } : {}),
   });
   if (!created && task.input_digest !== digest) {
-    throw new Error(`idempotency_conflict: request ${task.request_id} already exists with different input/publication/credential selection — use a new --request-id or "itpay api resume ${task.request_id}"`);
+    throw new Error(`idempotency_conflict: original request ${task.request_id} has different frozen facts; preserve its identity, input and publication, do not replace it with a new request`);
   }
   if (!created && task.run_id) {
     // Already dispatched: report the original run — never re-charge.
     const rec = await waitForRun(client, task.run_id, options.waitSeconds ?? 0);
-    store.update(task.request_id, { status: rec.execution_state === "succeeded" ? "succeeded" : rec.execution_state === "failed" ? "failed" : "dispatched" });
+    updateFromRun(store, task, rec);
     renderRun(rec, options.jsonOutput, "replayed");
     return;
   }
@@ -198,9 +231,11 @@ export class HubTaskRequestError extends Error {
  readonly requestID:string;
  readonly references:{request_id:string;run_id?:string;intent_id?:string};
  readonly code:string;
+ readonly details: ReturnType<typeof hubErrorDetails>;
  constructor(error:unknown,task:HubTask) {
   super(error instanceof Error?error.message:"original Hub request did not return a receipt");
   this.requestID=task.request_id;
+  this.details=hubErrorDetails(error);
   this.references={request_id:task.request_id,...(task.run_id?{run_id:task.run_id}:{}),...(task.intent_id?{intent_id:task.intent_id}:{})};
   this.code=error instanceof HttpError?error.code:["authorization_required","connection_verification_pending","credential_persistence_failed","idempotency_conflict","invalid_state"].find(code=>this.message.startsWith(code+":"))??"hub_request_unknown";
  }
@@ -229,31 +264,29 @@ async function dispatchOriginalTask(client:HubClient,store:HubTaskStore,task:Hub
     return;
   }
   let rec = admission;
-  store.update(task.request_id, { run_id: rec.run_id });
+  updateFromRun(store, task, rec);
   if (options.waitSeconds) {
-    rec = await waitForRun(client, rec.run_id, options.waitSeconds) as typeof rec;
+    rec = await waitForRun(client, rec.run_id, options.waitSeconds, rec) as typeof rec;
   }
-  store.update(task.request_id, {
-    status: rec.execution_state === "succeeded" ? "succeeded" : rec.execution_state === "failed" ? "failed" : "dispatched",
-  });
+  updateFromRun(store, task, rec);
   renderRun(rec, options.jsonOutput);
  } catch(error) { throw new HubTaskRequestError(error,store.get(task.request_id)??task); }
 }
 
-function renderRun(rec: any, jsonOutput: boolean | undefined, note?: string) {
+function renderRun(rec: RunReceipt, jsonOutput: boolean | undefined, note?: string) {
   const charged = rec.actual_charge ? atomsToYuan(rec.actual_charge.amount_atoms) : "费用回执未提供";
   writeCommandEnvelope({
     status: rec.execution_state === "succeeded" ? "executed" : rec.execution_state,
-    result: { run_id: rec.run_id, execution_state: rec.execution_state, settlement_state: rec.settlement_state, ...(rec.delivery_state ? {delivery_state:rec.delivery_state} : {}), actual_charge: rec.actual_charge ?? null, result: rec.result ?? null, error: rec.error ?? null, ...(note ? { note } : {}) },
+    result: { terminal: runTerminal(rec), pending_stage: runPendingStage(rec), next: runTerminal(rec) ? null : rec.next ?? {read_only: {method: "GET", path: `/v1/runs/${encodeURIComponent(rec.run_id)}`}}, run_id: rec.run_id, execution_state: rec.execution_state, settlement_state: rec.settlement_state, ...(rec.delivery_state ? {delivery_state:rec.delivery_state} : {}), actual_charge: rec.actual_charge ?? null, result: rec.result ?? null, error: rec.error ?? null, first_error: rec.first_error ?? null, ...(note ? { note } : {}) },
     instruction: rec.execution_state === "succeeded"
       ? `执行状态为 succeeded；交付状态 ${rec.delivery_state ?? "未提供"}，结算状态 ${rec.settlement_state ?? "未提供"}，实际费用回执 ${charged}。仅据实际 result 和交付事实回答，空值不代表查询成功且零条。`
       : `执行状态 ${rec.execution_state}（${rec.error?.code ?? "无错误代码"}），结算状态 ${rec.settlement_state ?? "未提供"}，实际费用回执 ${charged}；用 itpay api run-status ${rec.run_id} 查询原任务，不重复发起。`,
-    next: ["succeeded", "failed"].includes(rec.execution_state) ? null
-      : { command: `itpay api run-status ${rec.run_id}`, reason: "查询原 run 状态，不新建请求" },
+    next: runTerminal(rec) ? null
+      : { command: `itpay api run-status ${rec.run_id}`, reason: "只读查询原 run 状态，不新建请求", read_only: {method: "GET", path: `/v1/runs/${encodeURIComponent(rec.run_id)}`} },
     recovery: [],
   }, {
     jsonOutput: Boolean(jsonOutput),
-    plainResult: [`run ${rec.run_id}  ${rec.execution_state}  ${rec.settlement_state}  ${charged}${note ? "  (" + note + ")" : ""}`],
+    plainResult: [`run ${rec.run_id}  ${rec.execution_state}  ${rec.settlement_state}  ${charged}${note ? "  (" + note + ")" : ""}`, ...(rec.first_error ? [`first_error: ${rec.first_error.code}`] : [])],
   });
 }
 
@@ -262,22 +295,43 @@ function renderRun(rec: any, jsonOutput: boolean | undefined, note?: string) {
 // opens it (or scans the QR) to top up in their own session; crediting then
 // resumes the SAME intent server-side. The CLI never invents a payment URL.
 export async function renderBlockedTask(task: { request_id: string; intent_id?: string }, admission: any, jsonOutput: boolean | undefined) {
-  if(!admission&&task.intent_id){try{const payment=await hub().getAPIPaymentRequest(task.intent_id);admission={intent_id:task.intent_id,blocking_reason:'insufficient_balance',payment_request:payment,required_action:payment.collection_action};}catch{/* Query only; never create a replacement payment on a missing result. */}}
+  if (!admission) {
+    const store = new HubTaskStore();
+    const stored = store.get(task.request_id);
+    if (!stored) throw new Error("not_found: original local task is unavailable");
+    const snapshot = await refreshOriginalTask(hub(), store, stored);
+    const updated = store.get(task.request_id)!;
+    if (snapshot?.run) { renderRun(snapshot.run, jsonOutput); return; }
+    writeCommandEnvelope({status: updated.state_stale ? "unknown" : updated.blocking_reason ?? "blocked",
+      result: {request_id: task.request_id, intent_id: updated.intent_id, run_id: updated.run_id, terminal: updated.terminal ?? false, pending_stage: updated.pending_stage ?? "unknown", state_stale: updated.state_stale, next: snapshot?.next ?? null},
+      instruction: "原请求只读状态；未取得当前官方办理动作不代表余额不足。保留原引用，停止自动恢复或充值。",
+      next: {command: `itpay api tasks --refresh --request-id ${task.request_id}${jsonOutput ? " --json" : ""}`, reason: "只读刷新这一笔原引用", read_only: {method: "GET", path: `/v1/requests/${encodeURIComponent(store.idempotencyKey(task.request_id))}`}}, recovery: [],
+    }, {jsonOutput: Boolean(jsonOutput)});
+    return;
+  }
   const intentID=admission?.intent_id??task.intent_id;
   const action=admission?.required_action;
   const reason=admission?.blocking_reason??'blocked';
   const payment=admission?.payment_request;
   const paymentRequired=payment&&/^[1-9][0-9]*$/.test(String(payment.payer_minor_amount??''));
+  const readOnlyNext = {command: `itpay api tasks --refresh --request-id ${task.request_id}${jsonOutput ? " --json" : ""}`, reason: "只读核对原请求", read_only: {method: "GET" as const, path: `/v1/requests/${encodeURIComponent('cli-req-'+task.request_id)}`}};
+  const progress = {terminal: false, pending_stage: admission?.pending_stage ?? (["authorization_denied", "authorization_revoked", "budget_exceeded"].includes(reason) ? "authorization" : reason === "insufficient_balance" ? "funding" : "unknown"), next: admission?.next ?? {read_only: readOnlyNext.read_only}};
   if(action&&!paymentRequired){
     let target:string|undefined;
     try{const url=new URL(action.target);if(url.protocol==='https:'&&!url.username&&!url.password)target=url.href;}catch{/* No invented replacement URL. */}
     const approval=['authorization_denied','budget_exceeded'].includes(reason);
     const instruction=approval?'请在官方页面核对该 Agent、API 效果范围和消费预算，明确批准后恢复同一原请求。消费授权不会充值或自动扣款。':reason==='insufficient_balance'?'余额不足；请在官方充值页核对原请求和实际金额，到账后恢复同一原请求。':'请在官方页面完成所需操作，再查询同一原请求。';
-    writeCommandEnvelope({status:reason,result:{request_id:task.request_id,intent_id:intentID,...(admission??{})},...(target?{handoff:{type:'open_url',url:target,label:action.label??'打开官方页面'}}:{}),instruction:target?instruction:'未取得可用官方操作链接；保留原请求并核对当前状态。',next:target?{command:qualifyItPayCommand(`itpay api resume ${task.request_id}${jsonOutput?' --json':''}`,declaredAgentType()),reason:approval?'完成消费授权后恢复同一原请求':'完成官方操作后查询同一原请求'}:null,recovery:[]},{jsonOutput:Boolean(jsonOutput),plainResult:[`request ${task.request_id} blocked intent ${intentID??'-'}`,...(target?[target]:[])]});
+    writeCommandEnvelope({status:reason,result:{request_id:task.request_id,intent_id:intentID,...(admission??{}),...progress},...(target?{handoff:{type:'open_url',url:target,label:action.label??'打开官方页面'}}:{}),instruction:target?instruction:'未取得可用官方操作链接；保留原请求并核对当前状态。',next:{command:`itpay api tasks --refresh --request-id ${task.request_id}${jsonOutput?' --json':''}`,reason:'只读核对原请求',read_only:{method:'GET',path:`/v1/requests/${encodeURIComponent('cli-req-'+task.request_id)}`}},recovery:target?[{command:qualifyItPayCommand(`itpay api resume ${task.request_id}${jsonOutput?' --json':''}`,declaredAgentType()),reason:approval?'仅完成消费授权后续跑同一原请求；此动作可能写入':'仅完成官方操作且明确允许恢复后续跑原请求；此动作可能写入'}]:[]},{jsonOutput:Boolean(jsonOutput),plainResult:[`request ${task.request_id} blocked intent ${intentID??'-'}`,...(target?[target]:[])]});
     return;
   }
   const handoff=action&&paymentRequired?await renderPaymentHandoff({action,requestID:task.request_id,amountMinor:Number(admission?.payment_request?.payer_minor_amount??0),currency:admission?.payment_request?.payer_currency??'CNY',jsonOutput:Boolean(jsonOutput)}):null;
-  writeCommandEnvelope({status:admission?.blocking_reason??'blocked',result:{request_id:task.request_id,intent_id:intentID,...(admission??{}),...(handoff?{qr_kind:action.branded===true?'branded_payment_card':'official_checkout_link'}:{})},...(handoff?{handoff:handoff.handoff}:{}),instruction:handoff?.instruction??'当前没有可用的官方品牌付款卡片或收银台链接。保留原请求，查询状态；不要生成或展示 raw QR。',next:handoff?.next??{command:`itpay api resume ${task.request_id}`,reason:'恢复同一原请求'},recovery:[]},{jsonOutput:Boolean(jsonOutput),plainResult:[`request ${task.request_id} blocked intent ${intentID??'-'}`,...(handoff?[JSON.stringify(handoff.handoff)]:[])]});
+  writeCommandEnvelope({
+    status: reason, result: {request_id: task.request_id, intent_id: intentID, ...admission, ...progress, ...(handoff ? {qr_kind: action.branded === true ? "branded_payment_card" : "official_checkout_link"} : {})},
+    ...(handoff ? {handoff: handoff.handoff} : {}),
+    instruction: handoff?.instruction ?? "尚无当前可用的官方办理动作。保留原请求，只读核对状态；不推测余额、不充值或重发。",
+    next: readOnlyNext,
+    recovery: handoff?.next ? [{...handoff.next, reason: "仅完成原官方付款且允许继续后恢复同一请求；此动作可能写入"}] : [],
+  }, {jsonOutput: Boolean(jsonOutput), plainResult: [`request ${task.request_id} blocked intent ${intentID ?? "-"}`, ...(handoff ? [JSON.stringify(handoff.handoff)] : [])]});
 }
 
 export async function runHubWallet(options: { jsonOutput?: boolean | undefined }): Promise<void> {
@@ -455,10 +509,10 @@ export async function runHubContinue(intentID: string, options: { jsonOutput?: b
   writeCommandEnvelope({
     status: res.state ?? res.status ?? "open",
     result: res,
-    instruction: res.run && res.run.execution_state === "succeeded"
-      ? `运行完成，已按价格卡结算 ${res.run.actual_charge ? atomsToYuan(res.run.actual_charge.amount_atoms) : "¥0.000000"}。`
-      : "续跑未成功或仍在途中；同一 intent_id 可安全重试。",
-    next: null, recovery: [],
+    instruction: res.run && runTerminal(res.run)
+      ? `原运行已结束，实际费用 ${res.run.actual_charge ? atomsToYuan(res.run.actual_charge.amount_atoms) : "回执未提供"}；只据权威交付事实回答。`
+      : "原 intent 已提交续跑或仍待所需操作；保留原引用，仅只读核对，不自动再次 POST 或充值。",
+    next: res.run && !runTerminal(res.run) ? {command: `itpay api run-status ${res.run.run_id}${options.jsonOutput ? " --json" : ""}`, reason: "只读查询原运行", read_only: {method: "GET", path: `/v1/runs/${encodeURIComponent(res.run.run_id)}`}} : null, recovery: [],
   }, {
     jsonOutput: Boolean(options.jsonOutput),
     plainResult: [`intent ${intentID}  ${res.state}`],
@@ -466,6 +520,7 @@ export async function runHubContinue(intentID: string, options: { jsonOutput?: b
 }
 
 export async function runHubResume(requestID: string, options: { waitSeconds?: number | undefined; jsonOutput?: boolean | undefined }): Promise<void> {
+  validateWait(options.waitSeconds ?? 0);
   const client = hub();
   const store = new HubTaskStore();
   const task = store.get(requestID);
@@ -475,15 +530,19 @@ export async function runHubResume(requestID: string, options: { waitSeconds?: n
   try {
   if (task.run_id) {
     const rec = await waitForRun(client, task.run_id, options.waitSeconds ?? 0);
-    store.update(requestID, { status: rec.execution_state === "succeeded" ? "succeeded" : rec.execution_state === "failed" ? "failed" : "dispatched" });
+    updateFromRun(store, task, rec);
     renderRun(rec, options.jsonOutput);
     return;
   }
   if (task.intent_id) {
     const res = await client.continueIntent(task.intent_id, `cli-continue-${requestID}`);
     if (res.run) {
-      store.update(requestID, { run_id: res.run.run_id, status: res.run.execution_state === "succeeded" ? "succeeded" : "dispatched" });
-      renderRun(res.run, options.jsonOutput);
+      // Commit the original run binding before any read wait can fail or the
+      // process can exit. A later resume reads it and never POSTs continue again.
+      updateFromRun(store, task, res.run);
+      const rec = await waitForRun(client, res.run.run_id, options.waitSeconds ?? 0, res.run);
+      updateFromRun(store, task, rec);
+      renderRun(rec, options.jsonOutput);
     } else {
       const state = res.blocking_reason ?? res.state ?? res.status ?? "blocked";
       store.update(requestID, { blocking_reason: state });
@@ -504,21 +563,55 @@ export async function runHubResume(requestID: string, options: { waitSeconds?: n
 
 }
 
-export async function runHubTasks(options: { jsonOutput?: boolean | undefined }): Promise<void> {
-  const tasks = new HubTaskStore().list();
-  writeCommandEnvelope({
-    status: "listed",
-    result: { items: tasks },
-    instruction: "本地任务账本；itpay api resume <request_id> 恢复，itpay api run-status <run_id> 查询。",
-    next: null, recovery: [],
-  }, {
-    jsonOutput: Boolean(options.jsonOutput),
-    plainResult: tasks.map((t) => `${t.request_id}  ${t.operation_id}  ${t.status}  ${t.run_id ?? t.intent_id ?? "-"}`),
-  });
+async function refreshOriginalTask(client: HubClient, store: HubTaskStore, task: HubTask): Promise<RequestStatus | undefined> {
+  try {
+    const snapshot = await client.getRequest(store.idempotencyKey(task.request_id));
+    if (snapshot.request_id !== store.idempotencyKey(task.request_id) || task.intent_id && snapshot.intent_id && task.intent_id !== snapshot.intent_id || task.run_id && snapshot.run?.run_id !== task.run_id) {
+      throw new Error("invalid_state: authoritative request binding differs");
+    }
+    if (snapshot.run) {
+      if (snapshot.run.operation_id !== task.operation_id || snapshot.run.publication_id !== task.publication_id) throw new Error("invalid_state: authoritative request changed the frozen operation/publication");
+      updateFromRun(store, task, snapshot.run);
+    }
+    else if (snapshot.intent) store.update(task.request_id, {
+      intent_id: snapshot.intent.intent_id, blocking_reason: snapshot.intent.blocking_reason,
+      status: snapshot.terminal && snapshot.intent.status !== "succeeded" ? "failed" : snapshot.intent.status === "open" ? "blocked" : "unknown",
+      terminal: snapshot.terminal, pending_stage: snapshot.pending_stage,
+      next: snapshot.terminal ? null : {read_only: {method: "GET", path: `/v1/requests/${encodeURIComponent(store.idempotencyKey(task.request_id))}`}},
+      state_source: "hub", state_stale: false, last_checked_at: new Date().toISOString(), refresh_error: undefined,
+    });
+    else throw new Error("invalid_state: original request has no authoritative binding");
+    return snapshot;
+  } catch (error) {
+    store.update(task.request_id, {status: "unknown", blocking_reason: undefined, terminal: false, pending_stage: "unknown", next: {read_only: {method: "GET", path: `/v1/requests/${encodeURIComponent(store.idempotencyKey(task.request_id))}`}}, state_source: "hub", state_stale: true, last_checked_at: new Date().toISOString(), refresh_error: error instanceof HttpError && error.status === 404 ? "not_found" : error instanceof Error && error.message.startsWith("invalid_state:") ? "binding_conflict" : "unavailable"});
+    return undefined;
+  }
 }
-
+export async function runHubTasks(options: { jsonOutput?: boolean | undefined; refresh?: boolean | undefined; requestID?: string | undefined }): Promise<void> {
+  const store = new HubTaskStore();
+  const tasks = options.requestID ? [store.get(options.requestID)].filter((t): t is HubTask => !!t) : store.list();
+  const selected = tasks.slice(0, 20);
+  if (options.refresh) {
+    const client = hub();
+    for (const task of selected) await refreshOriginalTask(client, store, task);
+  }
+  const refreshed = new Set(options.refresh ? selected.map(t => t.request_id) : []);
+  const items = tasks.map(task => {
+    const current = store.get(task.request_id)!;
+    return {...current, terminal: current.terminal ?? false, pending_stage: current.terminal ? null : current.pending_stage ?? "unknown", next: current.terminal ? null : current.next ?? {read_only: {method: "GET", path: `/v1/requests/${encodeURIComponent(store.idempotencyKey(task.request_id))}`}}, ...(!refreshed.has(task.request_id) ? {state_stale: true, state_source: "local"} : {})};
+  });
+  writeCommandEnvelope({status: "listed", result: {items, refresh_attempted_count: refreshed.size, refreshed_count: items.filter(t => refreshed.has(t.request_id) && !t.state_stale).length, refresh_limit: 20},
+    instruction: options.refresh ? "只读刷新原请求；unknown/stale表示未取得当前权威状态，不代表需要充值或可以重发。每次最多20条；可用 --request-id 限定原引用。" : "本地任务快照，可能已过期；用 tasks --refresh 只读核对权威状态。此列表不授权续跑或充值。",
+    next: null, recovery: [],
+  }, {jsonOutput: Boolean(options.jsonOutput), plainResult: items.map(t => `${t.request_id}  ${t.operation_id}  ${t.status}  ${t.run_id ?? t.intent_id ?? "-"}${t.state_stale ? "  stale" : ""}`)});
+}
 export async function runHubRunStatus(runID: string, options: { jsonOutput?: boolean | undefined }): Promise<void> {
   const rec = await hub().runStatus(runID);
+  // Status remains exactly one server GET. Local matching is scoped by the
+  // existing identity namespace and never creates a task or server action.
+  let store: HubTaskStore | undefined;
+  try { store = new HubTaskStore(); } catch { /* Raw-token callers have no local task namespace. */ }
+  if (store) for (const task of store.list().filter(t => t.run_id === runID)) updateFromRun(store, task, rec);
   renderRun(rec, options.jsonOutput);
 }
 

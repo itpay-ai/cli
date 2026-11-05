@@ -2,6 +2,7 @@ import {runAdminCommand} from "./admin.js";
 import {HubTaskRequestError,runHubConnect,runHubContinue,runHubCredentialsImport,runHubDoctor,runHubDiscover,runHubInspect,runHubResume,runHubRun,runHubRunStatus,runHubTasks,runHubTopupCreate,runHubTopupSkus,runHubTopupStatus,runHubTransactions,runHubUsage,runHubWallet} from "./hub.js";
 import { Command } from "commander";
 import { HttpError } from "../client/http.js";
+import {hubErrorDetails} from "../client/hub.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
 import { hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
 
@@ -10,8 +11,8 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
  const auth=code==="authorization_required"||code==="unauthenticated";
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
- const recover=taskID?{command:qualifyItPayCommand(references?.run_id?`itpay api run-status ${references.run_id}${contract?.jsonOutput?" --json":""}`:`itpay api resume ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"读取或恢复同一原任务，不创建替代请求"}:null;
- writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error)},...(references?{result:references}:{}),instruction:code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或充值。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
+ const recover=taskID?{command:qualifyItPayCommand(references?.run_id?`itpay api run-status ${references.run_id}${contract?.jsonOutput?" --json":""}`:`itpay api tasks --refresh --request-id ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"只读核对同一原任务，不创建或续跑请求",read_only:{method:"GET" as const,path:references?.run_id?`/v1/runs/${encodeURIComponent(references.run_id)}`:`/v1/requests/${encodeURIComponent('cli-req-'+taskID)}`}}:null;
+ writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references?{result:references}:{}),instruction:code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或充值。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
  process.exitCode=1;
 }
 
@@ -96,7 +97,7 @@ hubCmd
 
 hubCmd
   .command("resume")
-  .description("Resume a persisted task by request_id — same key, never a new request")
+  .description("Resume the original task (may POST its intent once); --wait only reads the bound run")
   .argument("<request_id>")
   .option("--wait <seconds>", "poll run status until terminal", "0")
   .option("--json", "output JSON")
@@ -110,11 +111,13 @@ hubCmd
 
 hubCmd
   .command("tasks")
-  .description("List durable Hub tasks (request → run/intent binding)")
+  .description("List local Hub task snapshots; --refresh reads original authoritative bindings only")
+  .option("--refresh", "read-only refresh of at most 20 original requests")
+  .option("--request-id <id>", "select one original local request")
   .option("--json", "output JSON")
   .action(async (options) => {
     try {
-      await runHubTasks({ jsonOutput: Boolean(options.json) });
+      await runHubTasks({ jsonOutput: Boolean(options.json), refresh: Boolean(options.refresh), requestID: options.requestId });
     } catch (error) {
       reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_tasks_failed", instruction: "本地任务账本不可读。", recovery: [] });
     }
@@ -122,7 +125,9 @@ hubCmd
 
 hubCmd
   .command("run-status")
-  .description("Query an existing run — never creates a new request")
+  .description("Query an existing run once (read-only); --wait is not supported")
+  .showHelpAfterError("run-status is a single read and rejects --wait; inspect api resume --help only for an authorized original-task continuation.")
+  .addHelpText("after", "\nrun-status accepts no --wait. Use resume <request_id> --wait only when continuing that original task is authorized; an intent resume may perform a write.")
   .argument("<run_id>")
   .option("--json", "output JSON")
   .action(async (runID: string, options) => {

@@ -1,6 +1,6 @@
 Third-party packages reachable from the ItPay Buyer runtime.
 
-===== @itpay/hub-client@0.1.0-integration.b575cbbd6435 (UNLICENSED) =====
+===== @itpay/hub-client@0.1.0-integration.7286bd58df4a (UNLICENSED) =====
 --- LICENSE ---
 UNLICENSED
 

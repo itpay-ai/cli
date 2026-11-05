@@ -110,7 +110,7 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@itpay/hub-client": "file:dependencies/itpay-hub-client-0.1.0-integration.b575cbbd6435.tgz",
+    "@itpay/hub-client": "file:dependencies/itpay-hub-client-0.1.0-integration.7286bd58df4a.tgz",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.7.5",
     "@types/qrcode": "^1.5.5",

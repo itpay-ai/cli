@@ -2,11 +2,11 @@ import {HttpError} from "../client/http.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
 
 // Hub command protocol. Credentials are never added to this output envelope.
-export interface CommandAction { command: string; reason: string; poll_after_ms?: number }
+export interface CommandAction { command: string; reason: string; poll_after_ms?: number; read_only?: {method: "GET"; path: string} }
 export interface CommandEnvelope {
  status: string;
  result?: unknown;
- error?: {code: string; message: string};
+ error?: {code: string; message: string; details?: unknown};
  instruction: string;
  next: CommandAction | null;
  recovery: CommandAction[];

@@ -36,7 +36,7 @@ test('lost admission response resumes frozen body/key across processes and keeps
   const first=await invoke(['run','op','--publication','pub-original','--input','{"nested":{"x":42}}','--max-charge','12345','--source-credentials',JSON.stringify(refs),'--request-id','original','--json']);
   assert.equal(first.code,1);assert.match(first.output,/original/);assert.doesNotMatch(first.output,/itk_synthetic_n3/);
   assert.equal(posts.length,1,'transport failure must not cause automatic POST retry');
-  const envelope=JSON.parse(first.output);assert.equal(envelope.result.request_id,'original');assert.match(envelope.next.command,/api resume original/);
+  const envelope=JSON.parse(first.output);assert.equal(envelope.result.request_id,'original');assert.match(envelope.next.command,/api tasks --refresh --request-id original/);assert.equal(envelope.next.read_only.method,"GET");
   const recovered=await Promise.all([invoke(['resume','original','--json']),invoke(['resume','original','--json'])]);
   for(const result of recovered){assert.equal(result.code,0,result.output);assert.match(result.output,/run-original/)}
   assert.equal(sends,1,'fixture models one accepted logical run, not a new provider send');
