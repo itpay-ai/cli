@@ -10,6 +10,32 @@ Hub SDK只从精确dependencies包及source.json升级，核commit/version/合�
 
 main经PR；说明具体目标、变更、验证/未观察项。删除能力必须列替代与消费者迁移。当前治理自动检查/branch protection是否已启用需核实，规则文字不是已强制执行证据。除CLI next既有专项批准范围外，Actions每次明确授权，见[政策](../.github/ACTIONS_POLICY.md)。发布、版本号与渠道另见[发布](RELEASE.md)。
 
+## 完整使用旅程（目标，未实施）
+
+授权重建先实施；货架与一行调用在授权之后独立交付。本图包含现状证据，不表示目标命令已可用。
+
+```mermaid
+flowchart TD
+ E01[安装与固定包核版：11月5日五宿主实际63] --> E02[独立CLI Device或MCP连接：新Device未测]
+ E02 --> E03[现有网站分类货架：目标未实施]
+ E03 --> E04[说明和真实输入示例：目标未实施]
+ E04 --> E05{绑定报价与原request：目标未实施}
+ E05 -->|免费| E06[返回结果：旧63部分宿主已验]
+ E05 -->|收费且批准充分| E07[执行与收据：旧63仅WB实扣0.01元]
+ E05 -->|余额不足| E08[官方充值页面：零余额全链未测]
+ E08 --> E09[同request自动续接：未测；旧63 ChatGPT恢复卡住]
+ E09 --> E07
+ E06 --> E10[余额与记录和已购结果：新统一入口未测]
+ E07 --> E10
+ E05 -->|确定失败| E11[确认capture为0且hold释放才说没扣钱：供应商失败宿主未测]
+ E07 -->|超时或未知| E12[账务待核对或已扣费：只读原单，不重买]
+ E12 --> E10
+```
+
+状态依据：11/05五宿主是CLI63；65独立original-receipt证据不代表五宿主通过。隔离账务/恢复检查只证明各自fixture范围；充值续接、供应商失败账务和新货架仍待完整验收。逐节点证据、命令输入输出、失败下一步与删除清单见完整合同。
+
+[完整跨仓合同](https://github.com/itpay-ai/itpay_compose_v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)（待审分支，非现网操作指南）。
+
 ## 给 Frank 和后续开发者
 
 从最新main开分支，按当前任务正常开发/相称验证/PR审查和获准合并；部署、迁移、版本/渠道、域名、真实交易与Actions另核授权，不复用旧阶段禁令或无限延续历史批准。CLI只改命令/输出/打包与两Skill，业务归属见[架构](ARCHITECTURE.md)，固定Hub SDK变更由Hub生成制品后显式更新消费者锁。
@@ -110,3 +136,9 @@ flowchart TD
 Charlie安装提示只给setup链接；普通任务：“查询最近24小时全球4级及以上地震，最多100条，费用上限0元。”测试者旁站备真正双入口，不在提示里喂路线/命令；从安装到API结果完整走一轮。Testing整轮统一交Planning，只有既定A/B/C重大情况即时报告，不零碎向Coding派工。收费恢复只沿另行批准原case，不自动新消费。
 
 实施后范围仅PR+获准隔离环境流程；一次必要工程检查和Node+Playwright逐屏断言，真实宿主等有可用批准版本后做。fixture不代签真人通过，产品PR不自动批准部署/CLI发布/固定包更换。连接管理网页仍backlog；显式loopback内部修复不混首版。
+
+### API后半段owner合同
+
+[完整跨仓合同](https://github.com/itpay-ai/itpay_compose_v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)（待审分支，非现网操作指南）。
+
+CLI负责api_commands.ts、hub.ts、hub_guidance.ts、HubTaskStore与SDK；命令参数、默认、验证、JSON和next全部依完整合同，实现只保留一个执行owner。
