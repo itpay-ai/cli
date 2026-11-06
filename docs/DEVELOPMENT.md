@@ -34,7 +34,7 @@ flowchart TD
 
 状态依据：11/05五宿主是CLI63；65独立original-receipt证据不代表五宿主通过。隔离账务/恢复检查只证明各自fixture范围；充值续接、供应商失败账务和新货架仍待完整验收。逐节点证据、命令输入输出、失败下一步与删除清单见完整合同。
 
-[完整跨仓合同](https://github.com/itpay-ai/itpay_compose_v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)（待审分支，非现网操作指南）。
+[完整跨仓合同](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)（待审分支，非现网操作指南）。
 
 ## 给 Frank 和后续开发者
 
@@ -139,6 +139,22 @@ Charlie安装提示只给setup链接；普通任务：“查询最近24小时全
 
 ### API后半段owner合同
 
-[完整跨仓合同](https://github.com/itpay-ai/itpay_compose_v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)（待审分支，非现网操作指南）。
+[完整跨仓合同](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)（待审分支，非现网操作指南）。
 
 CLI负责api_commands.ts、hub.ts、hub_guidance.ts、HubTaskStore与SDK；命令参数、默认、验证、JSON和next全部依完整合同，实现只保留一个执行owner。
+
+### 主图节点到owner（均为目标设计，不冒称已实现）
+
+|节点|实际owner与拟变更|
+|---|---|
+|E01|CLI安装/setup、V4固定包artifact校验；当前包不改|
+|E02|前述Device连接图与profile/connection owner；MCP授权流程保持|
+|E03|Hub market.go分类reader、catalog/store.go；CLI拟runApiCategories/List|
+|E04|Hub registry/intake/presentation；CLI拟runApiShow|
+|E05|CLI拟runApiCall与HubTaskStore；Hub runs.Admit/Continue；变价reconfirm拟新增|
+|E06/E07|Hub runs settlement与run_results、charge记录；CLI原request展示|
+|E08/E09|Hub官方wallet/topup与topup_worker.resumeIntent、ContinueQueued；CLI原request resume|
+|E10|Hub Get/GetRequest、wallet、拟scope records分页；CLI status/records|
+|E11/E12|Hub settleWithPolicy、Billing.Release/Capture、unknown/reconciling；CLI按原单账务事实提示|
+
+仅发现旧共享连接冲突时，拟connect legacy选择入口提示：“发现原有连接，请选择由哪个Agent保留；其他Agent新连，旧任务归原连接。”由owner选择现有profile，不复制token；无冲突不问。
