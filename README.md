@@ -5,10 +5,10 @@ Services与API两个入口；安装与正式Skill见现有setup及发布导航�
 ```mermaid
 flowchart TD
  A01[安装 / 固定profile与包版本] --> A02[Device链接 / 每轮等120秒]
- A02 --> A03[同页确认OAuth和可选单次消费额度]
+ A02 --> A03[同页确认连接和预填单次额度 / 可切仅免费]
  A03 --> AS[原 verifier 对应的 AS done 302 / 网关落盘]
  AS --> HC[Backend worker提交原receipt / V4激活代次]
- A04 -->|新任务| B01[网站同一可售货架 / CLI和原MCP discover]
+ A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI和原MCP discover]
  B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
  B02 --> B03[用户同意后call / 自动原ID和展示价]
  B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]

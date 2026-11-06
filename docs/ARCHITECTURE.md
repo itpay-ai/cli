@@ -52,7 +52,7 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 flowchart LR
  P[每安装固定profile / 每进程同锁] --> O[Device / V4同一Buyer的逻辑connection]
  O --> A[原 verifier 对应的 AS done 302 / 网关落盘]
- O --> G[Hub独立receipt prepare / 可选单次额度]
+ O --> G[Hub独立receipt prepare / 预填单次额度]
  A --> J[Backend worker提交原receipt / 封旧执行代次]
  G --> J
  J --> C[激活当前代次 / consumer保持]

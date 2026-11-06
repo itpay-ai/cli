@@ -1,3 +1,4 @@
+import { selectHubInstallation } from "../state/hub_installation.js";
 import {storedHubProfile} from "../state/hub_credentials.js";
 import {runAdminCommand} from "./admin.js";
 import {HubTaskRequestError,runHubConnect,runHubOriginalReceipt,runHubRecoverConnection,runHubContinue,runHubCredentialsImport,runHubDoctor,runHubDiscover,runHubInspect,runHubResume,runHubRun,runHubRunStatus,runHubTasks,runHubTopupCreate,runHubTopupSkus,runHubTopupStatus,runHubTransactions,runHubUsage,runHubWallet} from "./hub.js";
@@ -20,8 +21,13 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
 
 export function registerAPICommands(program: Command): void {
 const hubCmd = program.command("api").alias("hub").description("ItPay API Hub: metered API catalog, prepaid runs, wallet")
+ .option("--profile <file>","absolute API installation selector")
  .option("--host <host>","payment presentation host")
  .option("--target <target>","trusted host destination for payment presentation");
+hubCmd.hook("preAction", (command) => {
+  const profile = command.opts().profile as string | undefined;
+  if (profile) selectHubInstallation(profile);
+});
 hubCmd.command("admin <action>").description("Admin imports, credentials and safe acceptance via scoped ItPay Key")
  .option("--input <source>","JSON from stdin (-) or private @file; never secret argv","-").option("--json","output JSON")
  .action(async(action:string,options)=>{try{await runAdminCommand(action,String(options.input));}catch{reportCLIError(new Error("Admin action failed. Check the masked response, key scopes and current administrator role."));}});

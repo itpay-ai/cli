@@ -41,7 +41,7 @@ Charlie已定新普通Agent无默认周期上限、保留可信单次同意；�
 
 同宿主两会话默认共享安装profile、连接及该安装尚未完成的auth_handle，connect在锁内复用它；业务request ID各自独立。不同Agent各自随机安装ID；selector与精确路径见后面的13项合同。legacy归原使用者，新Agent新profile授权。
 
-Device connect交链接后立即`connect continue <handle> --wait 120`；pending有效继续等，expired自动新OAuth链接，拒绝/取消停止到用户说重来；错账号给本人可信脱敏账号和切换入口；网络未知保留原handle。网页同页显示Agent/设备、OAuth同意与可选付费同意，免费连接为默认；两owner独立记账，全部就绪、token→/me核验并原子保存后CLI才说已连接。旧页错误由gateway接Device专用风格页，按钮重开原笔链接；验A失效→重开A→A/B均connected。
+Device connect交链接后立即`connect continue <handle> --wait 120`；pending有效继续等，expired自动新OAuth链接，拒绝/取消停止到用户说重来；错账号给本人可信脱敏账号和切换入口；网络未知保留原handle。网页同页显示 Agent 与设备，默认单次 ¥0.01，原任务按已展示报价预填，用户可修改金额或切换仅免费；两owner独立记账，全部就绪、token→/me核验并原子保存后CLI才说已连接。旧页错误由gateway接Device专用风格页，按钮重开原笔链接；验A失效→重开A→A/B均connected。
 
 目标 CLI 先查同一 handle 的 status，ready 后才锁内兑换。pending 可跨进程保存原 proof/code，候选 token 仅内存。首次 /me 新鲜核验原绑定后原子保存。兑换不明先核原 flow，已消费且未保存则重新同意，保原业务。
 
@@ -53,10 +53,10 @@ V4去Reserve/Activate互相expire与单active索引，grant reference唯一保�
 ```mermaid
 flowchart TD
  A01[安装 / 固定profile与包版本] --> A02[Device链接 / 每轮等120秒]
- A02 --> A03[同页确认OAuth和可选单次消费额度]
+ A02 --> A03[同页确认连接和预填单次额度 / 可切仅免费]
  A03 --> AS[原 verifier 对应的 AS done 302 / 网关落盘]
  AS --> HC[Backend worker提交原receipt / V4激活代次]
- A04 -->|新任务| B01[网站同一可售货架 / CLI和原MCP discover]
+ A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI和原MCP discover]
  B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
  B02 --> B03[用户同意后call / 自动原ID和展示价]
  B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
