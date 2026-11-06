@@ -46,25 +46,18 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 
 
 <a id="agent-connection-architecture"></a>
-## Agent 连接架构目标（待实施）
-
-**状态：目标设计，尚未实现；本次只改文档。** 当前CLI仍默认本机callback，正式固定下载/Skill不提供下列拟命令。Hub #34是独立已验候选；本docs分支不包含其产品补丁，不部署、不发CLI、不改固定下载包、不运行Actions。
-
-已定：同账号多设备/多Agent独立连接，本地profile/pending、consumer、grant和撤销独立；共Hub钱包，不复制预算。新任务双入口真实可用时CLI优先；原任务原入口/consumer。CLI与MCP无权限、过期、撤销联动，MCP授权流程不改。默认Device每轮`--wait120`，有效pending继续等待，明确expired自动更新OAuth链接；denied停止、人说重来才新开；网络未知不当过期。宿主真正停止后CLI不能唤醒它。
+## Agent连接目标（未实施）
 
 ```mermaid
 flowchart LR
-  CA["CLI Agent A / 本地profile A"] --> RA["Hub REST / consumer A"]
-  CB["同机Agent B / 本地profile B"] --> RB["Hub REST / consumer B"]
-  HM["Hub MCP / 独立OAuth"] --> HC["独立consumer / grant"]
-  SM["Services MCP / 独立OAuth"] --> SC["独立resource / Services绑定"]
-  RA --> WA["同Buyer的Hub钱包 / 各consumer预算独立"]
-  RB --> WA
-  HC --> WA
-  V4["V4身份与Device授权 / 每连接可单撤销"] -."可信claims".-> RA
-  V4 -."可信claims".-> RB
-  V4 -."不联动权限或到期".-> HC
-  SC --> VS["V4 Services / 原订单与购买同意"]
+ A[Agent A / 固定profile A] --> C[consumer A / 独立grant]
+ B[Agent B / 固定profile B] --> E[consumer B / 独立grant]
+ M[MCP / 独立OAuth] --> H[独立consumer]
+ V[V4身份和Device / 精确撤销] --> C
+ V --> E
+ C --> W[同Buyer钱包 / 原业务ACL]
+ E --> W
+ H --> W
 ```
 
-当前源码图保留；目标图中每Agent独立本地profile与多connection尚待实现，不能从共同Buyer推断共consumer或跨入口任务权限。Services业务故障不应挡Hub纯API；共同V4身份backend仍是真实依赖。图节点到函数、迁移与UX见[开发目标](DEVELOPMENT.md#agent-connection-target)。
+固定profile隔离pending/凭据/任务；legacy归原Agent，新Agent新授权。原consumer权限与撤销独立；普通Agent周期默认null是待确认的货架阶段建议，现有显式预算保留。CLI与MCP无权限、过期、撤销联动，原任务原入口。节点owner及按图验收见[开发合同](DEVELOPMENT.md#agent-connection-target)。
