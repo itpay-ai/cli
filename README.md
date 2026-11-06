@@ -13,12 +13,52 @@ flowchart LR
 
 逻辑职责图，不代表部署拓扑。新任务在宿主允许且能执行 CLI 时优先 CLI；CLI 直接调用 HTTP API，不经过 MCP。详见[完整架构](docs/ARCHITECTURE.md)。
 
+## Agent 连接目标（待实施）
+
+默认Device和多Agent独立连接尚未实现；当前正式setup/固定包不变。CLI/MCP独立凭据，无权限、过期、撤销联动；新任务双可用时CLI优先，原任务原入口。
+
+```mermaid
+flowchart LR
+  CA["CLI Agent A / 本地profile A"] --> RA["Hub REST / consumer A"]
+  CB["同机Agent B / 本地profile B"] --> RB["Hub REST / consumer B"]
+  HM["Hub MCP / 独立OAuth"] --> HC["独立consumer / grant"]
+  SM["Services MCP / 独立OAuth"] --> SC["独立resource / Services绑定"]
+  RA --> WA["同Buyer的Hub钱包 / 各consumer预算独立"]
+  RB --> WA
+  HC --> WA
+  V4["V4身份与Device授权 / 每连接可单撤销"] -."可信claims".-> RA
+  V4 -."可信claims".-> RB
+  V4 -."不联动权限或到期".-> HC
+  SC --> VS["V4 Services / 原订单与购买同意"]
+```
+
+```mermaid
+flowchart TD
+  P["选择本地profile / 原任务原入口"] --> C["connect立即返回链接与pending"]
+  C --> H["Agent交链接"]
+  H --> W["立即continue --wait 120"]
+  H --> B["人登录后单页一次明确授权"]
+  B --> S["token -> /me -> 原账号与consumer -> 原子保存"]
+  S --> OK["connected / 自动接原任务"]
+  W --> V{"本轮结果"}
+  V -->|pending且链接有效| W
+  V -->|明确expired| N["说明过期 / 自动新OAuth链接"]
+  N --> W
+  V -->|denied或取消| STOP["停止 / 人说重来才新开"]
+  V -->|账号不符或网络错误| KEEP["明确指引 / 原profile与任务不变"]
+  B -->|旧页失效| ERR["Device错误页 / 重开原笔链接"]
+  ERR --> B
+```
+
+架构与UX均为目标，不代表当前服务器或CLI可用。节点到源码、每轮120秒结果、旧页恢复/版本配对见[开发目标](docs/DEVELOPMENT.md#agent-connection-target)和[当前与目标边界](docs/ARCHITECTURE.md#agent-connection-architecture)。
+
+
 - 办事、铁路/其他服务、订单和已购内容：读 [Services Skill](skills/itpay/SKILL.md)，按需 `itpay services --help` 或 [Services索引](docs/cli-reference/index.md)。无需先读API维护文档。
 - 发现/调用API、用量与Hub任务恢复：读 [API Skill](skills/itpay-api/SKILL.md)，`itpay api --help` 和 [API参考](docs/cli-reference/api.md)。无需先读Services铁路教程。`hub`是同一API注册的兼容别名，首选api。
 
 共用登录账号不代表资源、scope、设备登记、consumer或业务同意可互换。每次命令保留真实宿主声明、同Backend/Hub端点与获准状态目录；不清身份、换宿主或重建未知任务恢复额度。
 
-2026-10-28记录的源码/固定候选版本为2.1.56，该轮未发布新版本；后续版本按正常[发布流程](docs/RELEASE.md)及当前授权管理。本地候选包含两份Skill和API参考页：`itpay skill show itpay`读取Services，`itpay skill show itpay-api`读取API；两者均返回完整原文。API不使用Services覆盖目录。隔离安装检查不代表npm next/latest已更新或真实宿主体验通过；最终包来源/hash以配套source.json为准。
+实际发布、固定下载和验收候选分别按[发布](docs/RELEASE.md)与包source/hash核对，README不把历史固定版本当当前版本。现有包保留Services/API两Skill；新Device命令只有在批准候选交付后才写正式setup/Skill。
 
 维护者：[架构](docs/ARCHITECTURE.md)、[合同](docs/CONTRACTS.md)、[开发](docs/DEVELOPMENT.md)、[发布](docs/RELEASE.md)、[测试](docs/TESTING.md)、[待办](docs/BACKLOG.md)。2026-10-28三产品源码整理已正常PR合并，部分真实子路径完成；购买/履约、自然宿主及完整旅程仍未验收。本地help/包检查和main合并均不代表服务器已部署或完整验收通过。
 

@@ -24,3 +24,5 @@
 按[任务阅读与修改导航](docs/DEVELOPMENT.md#按任务开工)选择唯一owner、文件和必要验证；部署先读本仓部署/发布正文及目标workflow。Services、用户UI、两个MCP与各自卡片、OAuth、跨仓合同分别定位，不创造第三套UI MCP。新任务宿主允许且可执行CLI时优先官方固定CLI，否则按业务选择对应托管MCP；已受理/unknown保留原身份/入口/请求与授权，失败不得换入口绕权限。
 
 Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
+
+授权/连接变更先更新[当前与目标图](docs/ARCHITECTURE.md#agent-connection-architecture)再改代码；图须与实际实现/版本同步，按图逐屏验收。详细范围、节点owner与版本门槛见[开发目标](docs/DEVELOPMENT.md#agent-connection-target)，未实现目标不得写成正式setup能力。
