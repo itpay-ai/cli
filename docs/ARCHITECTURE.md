@@ -51,11 +51,16 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 ```mermaid
 flowchart LR
  P[每安装固定profile / 每进程同锁] --> O[Device / V4同一Buyer的逻辑connection]
- O --> C[可更新的AS授权代次 / consumer保持]
- O --> G[Hub独立消费grant / 可选单次额度]
- C --> H[Hub逐请求资源和连接校验]
- G --> H
- H --> W[共钱包 / 原request与历史ACL]
+ O --> A[AS回跳完成事实]
+ O --> G[Hub独立receipt prepare / 可选单次额度]
+ A --> J[Backend worker提交原receipt / 封旧执行代次]
+ G --> J
+ J --> C[激活当前代次 / consumer保持]
+ C --> T[status ready / CLI兑换与新鲜me]
+ C -.封旧代次后精确撤销.-> X[旧AS consent清理]
+ T --> H[Hub资源及代次校验]
+ H --> R[CLI普通读及call身份 / 3秒缓存]
+ H --> W[Hub当次执行门禁 / grant余额预算 / 原单ACL]
  M[MCP独立OAuth] --> H
 ```
 

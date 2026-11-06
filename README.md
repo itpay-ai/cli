@@ -6,12 +6,17 @@ Services与API两个入口；安装与正式Skill见现有setup及发布导航�
 flowchart TD
  A01[安装 / 固定profile与包版本] --> A02[Device链接 / 每轮等120秒]
  A02 --> A03[同页确认OAuth和可选单次消费额度]
- A03 --> A04[OAuth完成 / 已选消费批准落库后核验保存]
+ A03 --> AS[AS回跳完成 / 可信完成事实]
+ AS --> HC[Backend worker提交原receipt / V4激活代次]
  A04 -->|新任务| B01[网站同一可售货架 / CLI和原MCP discover]
  B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
  B02 --> B03[用户同意后call / 自动原ID和展示价]
  B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
  A05 --> A03
+ HC -.旧代次封禁 / 原AS授权精确清理.-> O01
+ A03 --> PENDING[未就绪 / 按原handle继续等]
+ HC -->|ready| A04[status ready / Device兑换 / 新鲜 me / 原子保存]
+ PENDING -.只读status.-> HC
  A04 -->|已有原请求| B04[先读原单 / 有run只读、未派发才接续]
  B04 --> R[结果与收据 / status只读]
  B03 -->|免费或付费成功| R

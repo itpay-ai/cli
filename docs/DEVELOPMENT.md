@@ -43,6 +43,8 @@ Charlie已定新普通Agent无默认周期上限、保留可信单次同意；�
 
 Device connect交链接后立即`connect continue <handle> --wait 120`；pending有效继续等，expired自动新OAuth链接，拒绝/取消停止到用户说重来；错账号给本人可信脱敏账号和切换入口；网络未知保留原handle。网页同页显示Agent/设备、OAuth同意与可选付费同意，免费连接为默认；两owner独立记账，全部就绪、token→/me核验并原子保存后CLI才说已连接。旧页错误由gateway接Device专用风格页，按钮重开原笔链接；验A失效→重开A→A/B均connected。
 
+目标 CLI 先查同一 handle 的 status，ready 后才锁内兑换。pending 可跨进程保存原 proof/code，候选 token 仅内存。首次 /me 新鲜核验原绑定后原子保存。兑换不明先核原 flow，已消费且未保存则重新同意，保原业务。
+
 V4去Reserve/Activate互相expire与单active索引，grant reference唯一保留。connection身份PK查询；created_at/ID keyset列表默认50、最多100条。设备展示名、Agent类型、AS consent ID及授权代次见身份合同。CLI loopback旧分支删除；Hub/MCP的HTTPS callback、PKCE和Services设备链保持。
 
 <a id="api-journey-contract"></a>
@@ -52,12 +54,17 @@ V4去Reserve/Activate互相expire与单active索引，grant reference唯一保�
 flowchart TD
  A01[安装 / 固定profile与包版本] --> A02[Device链接 / 每轮等120秒]
  A02 --> A03[同页确认OAuth和可选单次消费额度]
- A03 --> A04[OAuth完成 / 已选消费批准落库后核验保存]
+ A03 --> AS[AS回跳完成 / 可信完成事实]
+ AS --> HC[Backend worker提交原receipt / V4激活代次]
  A04 -->|新任务| B01[网站同一可售货架 / CLI和原MCP discover]
  B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
  B02 --> B03[用户同意后call / 自动原ID和展示价]
  B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
  A05 --> A03
+ HC -.旧代次封禁 / 原AS授权精确清理.-> O01
+ A03 --> PENDING[未就绪 / 按原handle继续等]
+ HC -->|ready| A04[status ready / Device兑换 / 新鲜 me / 原子保存]
+ PENDING -.只读status.-> HC
  A04 -->|已有原请求| B04[先读原单 / 有run只读、未派发才接续]
  B04 --> R[结果与收据 / status只读]
  B03 -->|免费或付费成功| R
