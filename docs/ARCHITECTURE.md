@@ -50,14 +50,13 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 
 ```mermaid
 flowchart LR
- A[Agent A / 固定profile A] --> C[consumer A / 独立grant]
- B[Agent B / 固定profile B] --> E[consumer B / 独立grant]
- M[MCP / 独立OAuth] --> H[独立consumer]
- V[V4身份和Device / 精确撤销] --> C
- V --> E
- C --> W[同Buyer钱包 / 原业务ACL]
- E --> W
- H --> W
+ P[每安装固定profile / 每进程同锁] --> O[Device / V4同一Buyer的逻辑connection]
+ O --> C[可更新的AS授权代次 / consumer保持]
+ O --> G[Hub独立消费grant / 可选单次额度]
+ C --> H[Hub逐请求资源和连接校验]
+ G --> H
+ H --> W[共钱包 / 原request与历史ACL]
+ M[MCP独立OAuth] --> H
 ```
 
-固定profile隔离pending/凭据/任务；legacy归原Agent，新Agent新授权。原consumer权限与撤销独立；普通Agent周期默认null是待确认的货架阶段建议，现有显式预算保留。CLI与MCP无权限、过期、撤销联动，原任务原入口。节点owner及按图验收见[开发合同](DEVELOPMENT.md#agent-connection-target)。
+新普通Agent无默认周期限额，旧显式和APIKey预算保持；CLI/MCP独立授权。profile与可信连接分开；同页双owner同意、稳定consumer代次和原请求接续见[开发合同](DEVELOPMENT.md#agent-connection-target)。CLI loopback删除，MCP HTTPS callback/PKCE及Services链保持。

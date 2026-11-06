@@ -37,104 +37,96 @@ Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围�
 <a id="agent-connection-target"></a>
 ## 授权与连接（目标，未实施）
 
-先授权重建，再独立交付货架；Charlie确认后实施。CLI当前默认callback，固定下载包保持现状。新任务双入口可用时CLI优先，原任务原入口；CLI与MCP无权限、过期、撤销联动，MCP授权流程保持。
+Charlie已定新普通Agent无默认周期上限、保留可信单次同意；旧显式额度与API Key预算保持。先授权重建，货架后独立交付。本稿新增身份续接、同页消费批准等机制仍须图复审后开工。CLI/MCP凭据独立，无权限、过期、撤销联动；原任务原入口。
 
-每Agent安装入口持久随机profile ID；credentials/pending/locks/tasks均在该profile，Services原状态保留。legacy由原来使用它的Agent继续使用，新Agent新profile、新授权。历史共享归属不明时保留原文件和原任务，不推断或迁移。
+同宿主两会话默认共享安装profile、连接及该安装尚未完成的auth_handle，connect在锁内复用它；业务request ID各自独立。不同Agent各自随机安装ID；selector与精确路径见后面的13项合同。legacy归原使用者，新Agent新profile授权。
 
-Device connect立即返回链接和handle，Agent交链接后执行`connect continue <handle> --wait 120`。interval/slow_down持久化；同handle串行poll，sleep不持全局锁。interval=5秒时120秒约24次poll，slow_down逐步降低频率；这是估算。宿主停执行后由原可恢复调用继续等待。
+Device connect交链接后立即`connect continue <handle> --wait 120`；pending有效继续等，expired自动新OAuth链接，拒绝/取消停止到用户说重来；错账号给本人可信脱敏账号和切换入口；网络未知保留原handle。网页同页显示Agent/设备、OAuth同意与可选付费同意，免费连接为默认；两owner独立记账，全部就绪、token→/me核验并原子保存后CLI才说已连接。旧页错误由gateway接Device专用风格页，按钮重开原笔链接；验A失效→重开A→A/B均connected。
 
-|结果|Agent / 浏览器 / next|
-|---|---|
-|connected|token→/me→原Buyer/consumer核验→原子保存；CLI“已连接”，网页“已授权，回到Agent”，自动接原任务|
-|pending且有效|“还在等你授权，链接仍有效”；继续下一轮120秒|
-|expired|“链接已过期”；自动新OAuth链接，网页提示回Agent|
-|denied/cancelled|“已取消，已停止”；用户说重来才新发|
-|account_mismatch|本人可信脱敏当前/期望账号及切换入口，保留原任务|
-|旧页失效|gateway仅Device verify错误回本站风格页，按钮重开该笔原链接；MCP及CSRF保持|
-|network_error|保留原handle/profile，原轮重试|
-
-V4 Reserve/Activate去互相expire和单active唯一索引，保留grant_ref唯一；新增nullable consent ID、Agent类型、设备展示名。鉴权按PK精确查；账号列表created_at/ID keyset，默认50、最多100条并加索引。管理网页后置。显示标签不是身份凭证。
+V4去Reserve/Activate互相expire与单active索引，grant reference唯一保留。connection身份PK查询；created_at/ID keyset列表默认50、最多100条。设备展示名、Agent类型、AS consent ID及授权代次见身份合同。CLI loopback旧分支删除；Hub/MCP的HTTPS callback、PKCE和Services设备链保持。
 
 <a id="api-journey-contract"></a>
 ## API首版合同（目标，未实施）
 
 ```mermaid
 flowchart TD
- A[安装与固定版本核对] --> B[本Agent独立连接]
- B --> C[网站分类 / categories和list]
- C --> S[show：用途、价格、真实示例、TTL]
- S --> Y[Agent告知用户并取得同意]
- Y --> Q[call：自动原请求ID和已展示价格]
- Q -->|免费或付费成功| R[结果与收据 / status只读取回]
- Q -->|余额不足| T[原单官方充值]
- T --> W[到账worker或call内部续原单]
- W --> R
- Q -->|准入前变价且确认零扣费| N[原单结束 / 展示新价]
- N --> S
- Q -->|确定失败且零扣费| F[本次没扣钱]
- Q -->|派发未知或已扣费| U[status只读原单和费用]
- R --> Z[wallet余额 / owner网页记录]
+ A01[安装 / 固定profile与包版本] --> A02[Device链接 / 每轮等120秒]
+ A02 --> A03[同页确认OAuth和可选单次消费额度]
+ A03 --> A04[OAuth完成 / 已选消费批准落库后核验保存]
+ A04 -->|新任务| B01[网站同一可售货架 / CLI和原MCP discover]
+ B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
+ B02 --> B03[用户同意后call / 自动原ID和展示价]
+ B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
+ A05 --> A03
+ A04 -->|已有原请求| B04[先读原单 / 有run只读、未派发才接续]
+ B04 --> R[结果与收据 / status只读]
+ B03 -->|免费或付费成功| R
+ B03 -->|余额不足| T[原单官方充值 / 隔离仅fakepass]
+ T -->|有原intent| W[到账worker或call内部继续原单]
+ W --> B04
+ B03 -->|准入前变价且0扣0冻结| N[原单结束 / show新价再获同意]
+ N --> B02
+ B03 -->|结果未知| U[status原单 / 账务待核对]
+ B03 -->|确定失败且0扣0冻结| F[本次没扣钱]
+ R --> V[wallet余额和主动充值链接]
+ V -->|主动充值| T
+ T -->|无原intent只更新余额| V
+ A02 -.脱敏事件.-> O01[原events和outbox / admin trace与漏斗]
+ B03 -.原request事件.-> O01
+ R -.费用与交付事实.-> O01
+ O01 -.只读事实.-> O02[原60秒worker / 三异常WARN]
+ O03[原worker和AS cron / 到期清正文] -.保留费用和未决引用.-> O01
 ```
 
-公共规则：`api`与`hub`同一命令组；固定profile持久端点与凭据，next为短命令。JSON沿现envelope，金额为CNY scale6整数atoms字符串。身份按原account/key/consumer；资金事实不明先读原单。安装/连接命令与下列六业务命令分开。
+公共规则：api/hub同组，业务只有六命令；安装/连接另列。专属launcher自动选择selector，每个next同时携`--profile /绝对路径/api-profile.json`。以下JSON中的路径是目标安装示例。profile只选本地状态，不授服务端权限。金额为CNY scale6 atoms字符串；未知结果沿原account/key/consumer读原请求。
 
 ### categories
-参数：`api categories [--json]`。从网站同一taxonomy reader列全部实际分类，空分类count=0。
+参数：`api categories [--json]`。网站同一reader列真实分类和空架。
 ```json
-{"status":"listed","result":{"items":[{"id":"category_cec3a9b89b2e391393d0f68e","name":"数据","slug":"Data","count":2}]},"next":{"command":"itpay api list --category category_cec3a9b89b2e391393d0f68e --json"}}
+{"status":"listed","result":{"items":[{"id":"category_cec3a9b89b2e391393d0f68e","name":"数据","slug":"Data","count":1}]},"next":{"command":"itpay api --profile /Users/tzz/.local/share/itpay/hosts/codex-desktop/api-profile.json list --category category_cec3a9b89b2e391393d0f68e --json"}}
 ```
-next：选择分类→list；读取失败→原categories重试。
+next：选分类→list；读取失败→原命令重试。
 
 ### list
-参数：`api list [--category <ID或真实slug或标签>] [--query <1..200字符>] [--limit <1..100，默认20>] [--cursor <opaque，最多1024字符>] [--json]`；省略category=全部可售API，重名返回候选。
+参数：`api list [--category <真实ID/slug/标签>] [--query <1..200字符>] [--limit <1..100，默认20>] [--cursor <opaque，最多1024字符>] [--json]`；省类别=全部可售，重名返回候选。
 ```json
-{"status":"listed","result":{"items":[{"id":"op_827bbbc019ca229e06dab0e234f72d5f","name":"Frankfurter汇率","purpose":"读取指定货币对的每日参考汇率","price":"¥0.01/次"}],"page":{"next_cursor":null}},"next":{"command":"itpay api show op_827bbbc019ca229e06dab0e234f72d5f --json"}}
+{"status":"listed","result":{"items":[{"id":"op_827bbbc019ca229e06dab0e234f72d5f","name":"Frankfurter汇率","purpose":"读取指定货币对每日参考汇率","price":"¥0.01/次"}],"page":{"next_cursor":null}},"next":null}
 ```
-next：商品→show；空架→其他分类；目录错误→重试。商品仅四字段，分页在外层，服务端过滤后分页。
+next：选商品→show；空架→其他分类；错误→重试。商品仅四字段，服务端先过滤再分页。
 
 ### show
-参数：`api show <operation_id，1..200字符> [--json]`；读取后缓存本profile、operation、publication对应的价格及示例，按operation另存已展示指针，并发采用文件锁和原子写。
+参数：`api show <operation_id，1..200字符> [--json]`。缓存按profile、Hub origin、operation、publication分别存；同operation展示指针在本profile锁内原子更新。
 ```json
-{"status":"shown","result":{"id":"op_827bbbc019ca229e06dab0e234f72d5f","purpose":"读取EUR/USD每日参考汇率，非实时交易报价","price":"¥0.01/次","ttl_days":7,"example":"itpay api call op_827bbbc019ca229e06dab0e234f72d5f --input '{\"path_base\":\"EUR\",\"path_quote\":\"USD\"}'"},"next":null}
+{"status":"shown","result":{"id":"op_5dbe7c963383f7699fc3807ed0665bb6","purpose":"按UTC时间段及最低震级查询全球地震","price":"免费","ttl_days":7,"example_input":{"query_starttime":"2026-11-05T00:00:00Z","query_endtime":"2026-11-06T00:00:00Z","query_format":"geojson","query_limit":100,"query_minmagnitude":4,"query_nodata":404}},"next":null}
 ```
-next：Agent告知用途、价格、TTL，获同意后call；未上架→返回list。每个上架商品须有合法公共输入的可复制示例。
+next：Agent告知用途/价格/TTL、取得用户同意后call。USGS给合法固定ISO一行例子，并说明查最近24小时应按当前UTC替换start/end；没有动态Node命令。未上架→list。
 
 ### call
-参数：正常仅`api call <operation_id> --input '<JSON object>' [--json]`，支持现有@file/stdin；schema本地及服务端验证。原请求ID生成并落盘、max_charge取已展示价、每轮120秒等待均在内部。
+参数：正常仅`api call <id> --input '<JSON object>' [--json]`，支持@file/stdin。原ID、展示价max_charge与每轮120秒等待内部处理；直接取show缓存提交，不二次inspect。无show→一句“先show查看用途和价格”。缓存与publication同寿命，不加报价有效期层；变价由服务端门禁拒绝，输入按缓存schema及服务端校验。
 ```json
-{"status":"succeeded","result":{"request_id":"req_example","run_id":"run_example","captured_atoms":"10000","held_atoms":"0","result":{"example":"supplier result"},"result_expires_at":"2026-11-13T10:00:00Z"},"next":{"command":"itpay api status req_example --json"}}
+{"status":"succeeded","result":{"request_id":"req_example","run_id":"run_example","captured_atoms":"10000","held_atoms":"0","result":{"example":"supplier result"},"result_expires_at":"2026-11-13T10:00:00Z"},"next":{"command":"itpay api --profile /Users/tzz/.local/share/itpay/hosts/codex-desktop/api-profile.json status req_example --json"}}
 ```
-next：成功→status取原结果；未show→“先show查看用途和价格”；余额不足→原intent官方页并继续内部等待；缺消费批准→原consumer owner消费页，批准后原call内部接续；变价且零扣费→show新价并重新取得同意；未知/仍held→status原单。
+next：成功→status；连接失效→同profile锁内refresh或Device续原consumer；缺消费同意→同页明确付费选择；余额不足→原单官方fakepass页并等原单；准入前变价且0/0→show新价；未知→status。
 
 ### status
-参数：`api status <request_id，1..128字符> [--json]`；纯GET原请求及原run，可取收据和保存结果。
+参数：`api status <request_id，1..128字符> [--json]`；只GET原request/run，兼原收据与保存结果。
 ```json
-{"status":"pending","result":{"request_id":"req_example","execution_state":"unknown","settlement_state":"reconciling","held_atoms":"10000","captured_atoms":null},"next":{"command":"itpay api status req_example --json"}}
+{"status":"pending","result":{"request_id":"req_example","execution_state":"unknown","settlement_state":"reconciling","held_atoms":"10000","captured_atoms":null},"next":{"command":"itpay api --profile /Users/tzz/.local/share/itpay/hosts/codex-desktop/api-profile.json status req_example --json"}}
 ```
-next：pending/unknown→同status；结果过期→费用事实仍可读；404→核原profile或owner网页。此命令没有执行/扣费副作用。
+next：pending/unknown→同status；过期→仍读费用；401→connect原profile后读原单；404→核原连接或owner网页。此命令无续跑/扣款副作用。
 
 ### wallet
-参数：`api wallet [--json]`；读共享账户钱包，显式预算存在时另列。
+参数：`api wallet [--json]`；服务端同时给主动充值入口。
 ```json
-{"status":"ready","result":{"available_atoms":"100000","held_atoms":"0","currency":"CNY","scale":6,"period_limit_atoms":null},"next":null}
+{"status":"ready","result":{"available_atoms":"100000","held_atoms":"0","currency":"CNY","scale":6,"period_limit_atoms":null,"topup_url":"https://dev.itpay.ai/me/wallet"},"next":null}
 ```
-next：有原blocked请求→原官方动作；显式周期额度耗尽→“授权额度已用完，充值不会增加额度”，由owner处理；查询错误→重试而非余额0。
+next：主动充值打开该官方链接；已有blocked则附原intent链接；显式累计额度耗尽由owner处理，充值不增加它。
 
-## 自动原单接续
+## 原单接续与资金
 
-首版没有第七个业务resume。`call`首次落盘request ID及冻结输入/价格，再入Admit；遇blocked保留同一handle并等待官方动作。每轮先GET原请求，已有run只读；到账worker用原actor执行ContinueQueued。授权完成但尚无run时，call内部按原intent做一次Continue，随后只轮询原run。新一轮进程只由返回的恢复动作`api call --pending <本profile handle>`进入，参数与新id/input互斥：读取已有任务、原账号/consumer、原输入和原id，复核授权再继续，不重新Admit新单。该高级恢复形式仅在机器next出现，普通show→call教程没有额外flags。等待进程活着则无需人再发命令；宿主暂停后由Agent执行原next，不宣称CLI能唤醒宿主。
+call先落盘原ID、publication、价格和输入；内部恢复形式仅`api call --pending <本profile handle>`，与新id/input互斥。每轮先读原单：已有run只读，无run且官方条件完成才一次Continue。到账worker每5秒以原actor调用ContinueQueued。重连必须先保原consumer，再查原单；自动更新OAuth不创建替代业务。宿主暂停后由Agent执行原next，CLI本身不唤醒宿主。
 
-服务端仍以Admit的expected_publication_id和max_charge校验价格，resolveSpendingGrant/validateCallerGrant复核consumer、scope/effect、有效期及单次额度，Billing.Reserve锁钱包和实际预算。现有有效grant内调用无需重新OAuth；没有可信批准则走现owner消费批准页。
-
-## 变价结束原单
-
-现Admit在插run/冻结前对比publication，差异返回publication_changed；Continue用原snapshot重入Admit，当前失败分支会把resuming恢复open。拟最小修改是在同一runs owner将该变价分支事务化：锁原intent，确认没有run、provider attempt、reservation/charge后标cancelled、blocking_reason=publication_changed，保留原digest与读取引用；同事务中续接竞争者须再验intent状态。新价格从当前descriptor读取返回。无需新HTTP业务接口。
-
-原单确认capture0、held0后提示“价格已变，本次没扣钱”；show新价→用户同意→新的call生成新ID。若已有run、派发未知或冻结尚未释放，先读原run结算，继续原请求核对。已知失败释放后可明确新请求，不改写旧publication。
-
-## 结果与费用
-
-show显示实际TTL；结果按原request/run取回，与同operation/input的新鲜查询区分。首版三商品分别7/7/1天；过期只读费用事实。确定失败且capture0、held0显示“本次没扣钱”；unknown/reconciling显示“结果和费用待核对，当前冻结¥X”；captured但读结果失败显示“已扣¥X，正在读取原结果”。完整记录首版走现owner网页；records命令及Hub MCP新商品工具下一期。
+Admit复核expected_publication_id、max_charge和当前grant；变价时，原单确认无run/attempt/reservation/capture后在runs owner事务中结束blocked intent，保留digest，提示新价与“本次没扣钱”；随后新show、同意、新call。已有run/派发未知/仍held先核对原结算。确定失败0扣0冻结才说没扣钱；unknown/reconciling说待核对；captured但结果读失败只读原结果。结果按原request取回，实际TTL7/7/1天，过期仍读费用。
 
 
-完整分类、商品清理、额度源码结论和逐文件删除表见[跨仓完整设计](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#api-journey-contract)。本仓按其中owner表实施。
+十三项具体机制、字段/接口、数值、owner与分期统一见[跨仓合同](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#connection-13-contract)。本仓只在表中唯一owner实施。

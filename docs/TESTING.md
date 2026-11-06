@@ -25,3 +25,8 @@ API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算�
 ## 完整旅程证据
 
 [跨仓逐步证据与执行case](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/TESTING.md#api-journey-evidence)。11/05实际CLI63；新Device/六业务命令未实施，真实收费成功仅WB¥0.01，充值续接与供应商失败账务待验。
+
+<a id="connection-13-testing"></a>
+## 新身份与观测验收（待实施）
+
+[十三项单批隔离case](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/TESTING.md#connection-13-testing)。当前无新环境/业务测试，正常文档钩子不代签这些目标。
