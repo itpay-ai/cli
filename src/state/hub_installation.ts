@@ -115,6 +115,7 @@ export function selectHubInstallation(selector: string): void {
 }
 
 export function qualifyHubInstallation(command: string): string | undefined {
-  if (!activeSelector) return undefined;
-  return command.replace(/^itpay (api|hub)(?= |$)/, `itpay $1 --profile ${shellQuote(activeSelector)}`);
+  const apiPrefix = /^itpay(?: --agent-type(?:=| )[a-z0-9-]+)? (?:api|hub)(?= |$)/;
+  if (!activeSelector || !apiPrefix.test(command)) return undefined;
+  return command.replace(apiPrefix, prefix => `${prefix} --profile ${shellQuote(activeSelector!)}`);
 }
