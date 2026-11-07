@@ -38,3 +38,5 @@ wallet reads available and held atoms and provides the official proactive top-up
 Only open a top-up when the user authorized funding. N6.2 acceptance uses fakepass-platform-2, simulated, CNY and the advertised minimum ¥10 SKU. A page or callback does not prove wallet credit. Read the original server request and final charge. Do not create another payment or replacement intent.
 
 Present only returned official links and branded cards or their official rendered images. Never reconstruct, crop or encode a payment QR, request credentials in chat, or expose tokens or private request bodies.
+
+New task-driven installations use one official Agent connection page. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.

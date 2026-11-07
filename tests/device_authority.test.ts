@@ -635,3 +635,17 @@ test('missing host declaration fails before reading corrupt identity or creating
  await assert.rejects(()=>authority.authorizationHeaders({method:'GET',path:'/v1/agent-device-account-bindings',body:''}),AgentTypeRequiredError);
  assert.equal(readFileSync(statePath,'utf8'),'preserve corrupt fixture identity');assert.equal(existsSync(privateKeyPath),false);assert.equal(requests,0);
 });
+
+test('unified Services binding requires the original session but Hub preparation does not enroll',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'itpay-common-authority-'));
+ const server=new DeviceServer();
+ const authority=new DeviceAuthority({baseURL:'https://test.itpay.ai',requestedAgentType:'muse',compatibilityHeaders:{},statePath:join(root,'identity.json'),privateKeyPath:join(root,'private.pem'),fetchImpl:server.fetch});
+ for(const path of ['/v1/agent-connections/start','/v1/agent-connections/acn_fixture/hub'])assert.deepEqual(await authority.authorizationHeaders({method:'POST',path,body:'{}'}),{});
+ assert.equal(server.requestCount,0);
+ const first=await authority.authorizationHeaders({method:'POST',path:'/v1/agent-connections/acn_fixture/services',body:'{}'});
+ assert.match(first.Authorization!,/^ItPayDevice /);assert.equal(server.deviceCount,1);
+ await authority.recoverAuthorization();
+ const recovered=await authority.authorizationHeaders({method:'POST',path:'/v1/agent-connections/acn_fixture/services',body:'{}'});
+ assert.match(recovered.Authorization!,/^ItPayDevice /);assert.equal(server.deviceCount,1);
+ fs.rmSync(root,{recursive:true,force:true});
+});

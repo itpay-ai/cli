@@ -89,3 +89,25 @@ flowchart TD
 ```
 
 原断点：首次expiry的HTTP裸错误丢恢复信息、launcher拒绝重复profile、setup需人工拼装。本阶段已实现CLI/Skill接入和T07安全投影，Hub和Services仍独立授权，保留两套权限owner、预算、旧profile和原请求。CLI不执行自然语言任务，持久保存原意交还宿主；不将安装/链接/进程退出0称为授权或业务成功。第二批统一同意页/按需双签发尚未实施。
+
+## N6.3 第二批：一次同意、按需凭据（目标，尚未部署）
+
+```mermaid
+flowchart TD
+ T[CLI保存原任务与宿主独立profile] --> K[本地原Ed25519公钥 / 不调用Services]
+ K --> C[V4 Agent连接：账号+本Agent公钥+原消费规则]
+ C --> P[一个官方同意页 / 人确认一次]
+ P --> S[持久化本人同意 / 活跃与撤销门禁]
+ S --> API[需要API：同一连接证明启动原Device OAuth]
+ API --> AS[原Hydra登录/同意协议 / 消费已有明确同意，不再请人点]
+ AS --> H[原Hub批准回执 / 预算 / 原consumer和代次]
+ H --> HT[换取Hub OAuth / 新鲜me核验 / 原请求先status]
+ S --> SV[需要Services：原设备登记和会话 / 同一公钥证明]
+ SV --> SB[绑定同一账号 / 原签名及原单ACL]
+ X[本人撤销Agent连接] --> S
+ X -->|立即拒绝已关联凭据| HT
+ X -->|立即拒绝已关联凭据| SB
+ API -.不调用Services / 不等Services健康.-> HT
+```
+
+当前仍是两条独立本人授权。目标是新增V4持久同意记录，不是新身份或令牌系统：账号仍由V4登录，Hub令牌仍由Hydra签发、预算仍归Hub，Services仍用原设备签名和会话。未请求的业务不登记设备、不换取其凭据；旧profile/已受理或unknown任务不迁移。普通新连接的默认单次和旧显式预算沿原规则，不隐式付款。共享同意不共享token/resource/grant，也不把Services失败放进API就绪条件。

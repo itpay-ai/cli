@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Command} from 'commander';
+import {createHash,createPublicKey,verify} from 'node:crypto';
 import {hubCredentialsPath,storeHubSession} from '../src/state/hub_credentials.js';
 import {HubTaskStore,hubTasksDir} from '../src/state/hub_tasks.js';
 import {registerAPICommands} from '../src/commands/api_commands.js';
@@ -30,10 +31,24 @@ test('api and hub are one registration object, with original Services entry inta
 async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
- let ready=false,resource="",starts=0,exchanges=0,probes=0;
+ let ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
  let originalConsumer: string | undefined;
  const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
+  if(req.url==="/v1/agent-connections/start") {
+   commonStarts++;
+   let raw="";for await(const part of req)raw+=part;
+   const body=JSON.parse(raw);const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
+   if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
+   const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
+   assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
+   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",buyer_id:ready?"fixture-buyer":"",status:ready?"active":"pending",...(ready?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
+  }
+  if(req.url==="/v1/agent-connections/acn_fixture/hub"){
+   starts++;assert.ok(ready);binding.buyer_id=resource+"|fixture-buyer";
+   res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",verification_uri_complete:resource+"/verify",expires_in:120,interval:1}));return;
+  }
+  if(req.url?.startsWith("/v1/agent-device")||req.url?.startsWith("/v1/agent-connections/acn_fixture/services"))throw new Error("API path touched Services");
   if(req.url==="/v1/oauth/device/start") {
    starts++;
    let raw="";for await(const part of req)raw+=part;
@@ -80,7 +95,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  assert.ok(address&&typeof address!=="string");
  resource="http://127.0.0.1:"+address.port;
  const env={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),
-  HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
+  HOME:home,ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
  function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {
   return new Promise((resolve,reject)=>{
    const boundary = args.indexOf("--");
@@ -106,7 +121,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   rmSync(home,{recursive:true});
  }
  return {env,resource,handle,binding,cli,setup,close,approve:()=>{ready=true},
-  calls:()=>({starts,exchanges,probes,originalConsumer})};
+  calls:()=>({starts,exchanges,probes,originalConsumer,commonStarts})};
 }
 
 test("Device connect exchanges only after approval and verifies before saving",async()=>{
@@ -127,7 +142,7 @@ test("Device connect exchanges only after approval and verifies before saving",a
   assert.doesNotMatch(connected.output,/synthetic-device-access|synthetic-refresh/);
   const credential=hubCredentialsPath({...f.env,ITPAY_STATE_DIR:state});
   assert.equal(JSON.parse(readFileSync(credential,"utf8")).profiles.default.authorization_id,"generation");
-  assert.deepEqual(f.calls(),{starts:1,exchanges:1,probes:1,originalConsumer:undefined});
+  assert.deepEqual(f.calls(),{starts:1,exchanges:1,probes:1,originalConsumer:undefined,commonStarts:0});
  } finally {await f.close()}
 });
 
@@ -142,7 +157,7 @@ test("Device renewal starts with the original consumer and leaves its credential
   const pending=await f.cli(["api","--profile",selector,"connect"]);
   assert.equal(pending.value.status,"pending");
   assert.deepEqual(readFileSync(path),before);
-  assert.deepEqual(f.calls(),{starts:1,exchanges:0,probes:0,originalConsumer:f.binding.consumer_id});
+  assert.deepEqual(f.calls(),{starts:1,exchanges:0,probes:0,originalConsumer:f.binding.consumer_id,commonStarts:0});
  } finally {await f.close()}
 });
 
@@ -208,9 +223,9 @@ test("task-driven entry emits a link first, reuses pending across turns and conn
   assert.equal(first.value.result.agent_type,"muse");
   assert.doesNotMatch(first.output,/synthetic-device-code|synthetic-poll-proof/);
   const paused=await f.cli([...args,"--wait","0"]);assert.equal(paused.value.status,"pending");
-  assert.equal(paused.value.result.task.id,first.value.result.task.id);assert.equal(f.calls().starts,1);
+  assert.equal(paused.value.result.task.id,first.value.result.task.id);assert.equal(f.calls().starts,0);assert.equal(f.calls().commonStarts,2);
   f.approve();const final=await f.cli([...args,"--wait","5"]);
-  assert.equal(final.value.status,"connected");assert.match(final.value.next.command,/api --profile .* list --json/);
+  assert.equal(final.value.status,"connected",final.output);assert.match(final.value.next.command,/api --profile .* list --json/);
   const again=await f.cli(args);assert.equal(again.value.status,"connected");
   assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
  }finally{await f.close();}
