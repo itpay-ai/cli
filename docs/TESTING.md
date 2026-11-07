@@ -54,3 +54,9 @@ lint 和 548 tests 通过；shelf 回归断言同一 show 的 shown_event_id 传
 实际注册入口回归：首链接输出、缓冲返回、原句与句柄跨进程复用、批准后一次兑换、第二次直接连接；本地HTTP fixture，不代签自然宿主。独立宿主/端点根目录、私有任务、原request绑定、替换拒绝、明确新意图保留旧收据、同selector重复profile与foreign拒绝均有定点断言。T07既有rail expiry消费者与unknown恢复回归保持。
 
 四项阶段自然观察为发现入口、首链接/额外回话、批准到结果/任意下一句恢复、第二次直用/原请求一次效果；真实宿主记录与工程结果分开，不另开五宿主矩阵。
+
+## N6.3 统一连接候选（2026-11-07，未发布）
+
+新 root 在任何网络等待前保存原任务、安装私钥及连接 start key；同一原密钥/账号一次同意，API 只通过 V4 identity owner 启动原 Device，不登记 Services；Services 首次需要时才走原设备/会话并绑定。同 profile 原请求和旧独立连接不迁移。显式 reconnect 保留同钥和原账号，不因新业务任务自动重开拒绝/撤销。
+
+44 项入口/命令/原设备证明专项通过，含真实新进程、跨语言 Ed25519 proof fixture、链接先行、同 key/start 复用、API 不触及 Services、一次原 Device 兑换与新鲜 me、第二次直接使用、密钥丢失拒绝重建和旧 profile 保留。`npm run test:package` 已验证当前候选打包/安装与原历史身份/unknown 保护，非 npm 发布、非自然宿主验收。全量与最终制品结果以本批完成回读为准。

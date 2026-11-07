@@ -1,3 +1,4 @@
+import {agentConnectionRequest, type AgentConnectionState} from "./agent_connection.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -18,11 +19,12 @@ type Flow = {
   poll_proof: string;
   expires_in: number;
   interval: number;
+  approval_required?: true;
 };
 type Pending = { start_key: string; request_id?: string; intent_id?: string; original?: Binding; flow?: Flow; next_poll_at?: number; exchange_started?: true; allow_missing_original?: true };
 
 export type DeviceResult =
-  | { phase: "pending"; handle: string; url: string }
+  | { phase: "pending"; handle: string; url: string; approval_required?: true }
   | { phase: "connected"; binding: Binding; request_id?: string }
   | { phase: "denied" | "cancelled" | "exchange_unknown" };
 
@@ -112,20 +114,27 @@ async function start(cfg: HubOAuthConfig, path: string, state?: Pending, request
     save(path, state);
   }
   const issuer = new URL(cfg.tokenURL).origin;
-  const response = await fetch(issuer + "/v1/oauth/device/start", {
+  const brokerPath=hubCredentialsPath()+".agent-connection.json";
+  const broker=existsSync(brokerPath)?JSON.parse(readFileSync(brokerPath,"utf8")) as {root:string;state:AgentConnectionState}:undefined;
+  if(broker && (!broker.state.buyer_id || !broker.state.connection_id))throw new Error("original Agent account unavailable");
+  // An original intent needing renewed spending consent keeps the existing
+  // explicit Device consent path and original consumer; never expand its cap.
+  const useBroker=broker&&!state.intent_id;
+  const response = useBroker ? await agentConnectionRequest(broker.root,broker.state,`/v1/agent-connections/${broker.state.connection_id}/hub`,{start_key:state.start_key}) : await fetch(issuer + "/v1/oauth/device/start", {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(8_000),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: cfg.clientID, resource: cfg.resource, start_key: state.start_key,
       ...(state.original ? { original_consumer_id: state.original.consumer_id } : {}),
       ...(state.intent_id ? { original_intent_id: state.intent_id } : {}) }),
   });
-  if (!response.ok) throw new Error("authorization_required: Device authorization could not start for this installation");
+  if (!response.ok) {if(useBroker&&response.status===503)throw Object.assign(new Error("original Hub credential preparation pending"),{code:"agent_connection_pending"});throw new Error("authorization_required: Device authorization could not start for this installation");}
   const flow = await response.json() as Flow;
   if (!/^[A-Za-z0-9_-]{12,128}$/.test(flow.handle) || typeof flow.device_code !== "string" || !flow.device_code ||
     typeof flow.poll_proof !== "string" || !flow.poll_proof || !Number.isSafeInteger(flow.expires_in) || flow.expires_in < 1 ||
     !Number.isSafeInteger(flow.interval) || flow.interval < 1 || flow.interval > 120) throw new Error("Device start response is incomplete");
   const url = new URL(flow.verification_uri_complete);
   if (url.origin !== issuer || url.username || url.password || url.hash) throw new Error("Device link origin mismatch");
+  if(broker&&state.intent_id)flow.approval_required=true;
   state.flow = flow;
   state.next_poll_at = Date.now() + flow.interval * 1000;
   save(path, state);
@@ -134,7 +143,7 @@ async function start(cfg: HubOAuthConfig, path: string, state?: Pending, request
 }
 
 function pending(flow: Flow): DeviceResult {
-  return { phase: "pending", handle: flow.handle, url: flow.verification_uri_complete };
+  return { phase: "pending", handle: flow.handle, url: flow.verification_uri_complete, ...(flow.approval_required?{approval_required:true}:{}) };
 }
 
 function validBinding(value: Partial<Approval>, clientID: string): value is Approval {
@@ -258,6 +267,11 @@ export async function connectHubDevice(handle: string | undefined, waitSeconds: 
         throw new Error("authorization_required: Device approval does not match the original account and consumer");
       }
       if (state.exchange_started) return { result: { phase: "exchange_unknown" } };
+      const brokerPath=hubCredentialsPath()+".agent-connection.json";
+      if(existsSync(brokerPath)){
+        const broker=JSON.parse(readFileSync(brokerPath,"utf8")) as {state:AgentConnectionState};
+        if(status.buyer_id!==new URL(cfg.tokenURL).origin+"|"+broker.state.buyer_id)throw new Error("original Agent API account changed");
+      }
       const binding: Binding = { buyer_id: status.buyer_id, consumer_id: status.consumer_id };
       const connected = await finishHubDeviceSession(state.original, status, cfg.resource, async () => {
         state.exchange_started = true;

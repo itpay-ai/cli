@@ -18,3 +18,7 @@ API业务入口只有 categories/list/show/call/status/wallet。show 私有缓�
 `api connect --request <原请求>` 在所选 profile 内完成恢复，成功后先返回 `status <原请求>`；需要接续时再使用 `call --pending <原请求>`。保留原 consumer、输入、publication、报价及存量 BYOK 引用。不同账号、consumer、resource 不得读入或重发原任务。
 
 历史私有 `.recovery.json` 由 connect 复用同一绑定的候选，经 authority 与新鲜 `/v1/me` 核对后保存；不增加独立恢复命令。未知 refresh 结果保留凭据和候选，不重复 refresh；身份冲突或缺失原证明保留现场交 owner。恢复本身不产生 run、hold、charge 或付款。CLI status 只有 GET，unknown 不能成为重新提交的依据。
+
+第二批一次同意/按需凭据的authority合同见V4 CONTRACTS的“N6.3 一次同意的连接契约”；CLI只保存原意、密钥和精确引用，不实现账号或消费授权owner。当前/目标图见ARCHITECTURE，尚未上线前不写成正式Skill能力。
+
+新统一 root 的 `connection.json` 固定 Backend、真实 Agent 类型、start key、connection ID 与已核 buyer。安装 Ed25519 私钥先原子落盘，已有连接密钥缺失即拒绝，不悄悄生成新身份。API broker 引用只在该 API profile 的私有状态中保存；原 Device exchange、me、refresh/unknown 与 consumer 比对保持。原 intent 要求新增消费同意时沿原显式 Device 同意，不把账户连接当作扩大预算；拒绝/撤销后仅本人明确要求才运行 `agent --reconnect`。

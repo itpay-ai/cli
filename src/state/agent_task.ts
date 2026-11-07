@@ -40,9 +40,9 @@ export function attachAgentRequest(selector: string | undefined, requestID: stri
  });
 }
 
-export function recordAgentAuthorization(root:string,phase:'denied'|'cancelled'):void {
+export function recordAgentAuthorization(root:string,phase:'denied'|'cancelled'|undefined):void {
  const path=join(root,'task.json');withFileLock(path+'.lock',()=>{
   const task=JSON.parse(readFileSync(path,'utf8')) as SavedTask;
-  task.authorization_terminal=phase;const tmp=path+'.'+randomUUID();writeFileSync(tmp,JSON.stringify(task)+'\n',{mode:0o600,flag:'wx'});renameSync(tmp,path);
+  if(phase)task.authorization_terminal=phase;else delete task.authorization_terminal;const tmp=path+'.'+randomUUID();writeFileSync(tmp,JSON.stringify(task)+'\n',{mode:0o600,flag:'wx'});renameSync(tmp,path);
  });
 }

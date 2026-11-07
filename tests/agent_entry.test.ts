@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync,mkdirSync,readFileSync,rmSync,chmodSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,readFileSync,rmSync,chmodSync,writeFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {actualAgentType,agentRoot} from '../src/commands/agent.js';
@@ -38,4 +38,19 @@ test('pinned next commands keep the installed CLI across fresh shells',async()=>
  const command=pinAgentExecutable("ITPAY_STATE_DIR='/private/state' itpay --agent-type muse services get se_original --json",{ITPAY_AGENT_EXECUTABLE:"/approved/Agent's tool/bin/itp.mjs"});
  assert.match(command,/ITPAY_AGENT_EXECUTABLE=/);assert.match(command,/se_original --json$/);assert.doesNotMatch(command,/ itpay --agent-type/);
  assert.equal(pinAgentExecutable('itpay api list',{}),'itpay api list');
+});
+
+test('unified connection never replaces its key or silently adopts a legacy installation',async()=>{
+ const {prepareAgentConnection}=await import('../src/state/agent_connection.js');
+ const root=mkdtempSync(join(tmpdir(),'itpay-common-key-'));
+ try{
+  const first=prepareAgentConnection(root,'https://dev.itpay.ai','muse');assert.ok(first);
+  assert.equal(prepareAgentConnection(root,'https://dev.itpay.ai','muse')?.start_key,first.start_key);
+  assert.throws(()=>prepareAgentConnection(root,'https://app.itpay.ai','muse'),/endpoint\/type changed/);
+  rmSync(join(root,'services','device','device-private.pem'));
+  assert.throws(()=>prepareAgentConnection(root,'https://dev.itpay.ai','muse'),/DEVICE_KEY_MISSING/);
+  const legacy=join(root,'legacy');mkdirSync(join(legacy,'api'),{recursive:true});writeFileSync(join(legacy,'api','api-profile.json'),'{}');
+  assert.equal(prepareAgentConnection(legacy,'https://dev.itpay.ai','muse'),undefined);
+  assert.equal(existsSync(join(legacy,'connection.json')),false);
+ }finally{rmSync(root,{recursive:true,force:true})}
 });

@@ -97,7 +97,7 @@ export class DeviceAuthority {
   }
 
   async authorizationHeaders(input: { method: string; path: string; body: string } & AuthorizationBudget): Promise<Record<string, string>> {
-    if (!PROTECTED_PATHS.some((prefix) => input.path.startsWith(prefix))) return {};
+    if (!PROTECTED_PATHS.some((prefix) => input.path.startsWith(prefix)) && !/^\/v1\/agent-connections\/[^/]+\/services$/.test(input.path)) return {};
     checkAuthorizationBudget(input);
     const auth = await this.ensureAuthorization(input);
     checkAuthorizationBudget(input);
