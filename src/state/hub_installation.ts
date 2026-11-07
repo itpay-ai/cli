@@ -114,6 +114,14 @@ export function selectHubInstallation(selector: string): void {
   activeSelector = path;
 }
 
+export function selectedHubInstallationPath(): string | undefined {
+  return activeSelector;
+}
+
+export function hasHubInstallation(): boolean {
+  return activeSelector !== undefined;
+}
+
 export function qualifyHubInstallation(command: string): string | undefined {
   const apiPrefix = /^itpay(?: --agent-type(?:=| )[a-z0-9-]+)? (?:api|hub)(?= |$)/;
   if (!activeSelector || !apiPrefix.test(command)) return undefined;

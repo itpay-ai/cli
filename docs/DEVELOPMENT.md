@@ -37,7 +37,7 @@ Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围�
 <a id="agent-connection-target"></a>
 ## 授权与连接（目标，未实施）
 
-Charlie已定新普通Agent无默认周期上限、保留可信单次同意；旧显式额度与API Key预算保持。先授权重建，货架后独立交付。本稿新增身份续接、同页消费批准等机制仍须图复审后开工。CLI/MCP凭据独立，无权限、过期、撤销联动；原任务原入口。
+Charlie已定新普通Agent无默认周期上限、保留可信单次同意；旧显式额度与API Key预算保持。先授权重建，货架后独立交付。授权实现使用同页批准和稳定连接代次，独立宿主验收使用固定配对候选。CLI/MCP凭据独立，无权限、过期、撤销联动；原任务原入口。
 
 同宿主两会话默认共享安装profile、连接及该安装尚未完成的auth_handle，connect在锁内复用它；业务request ID各自独立。不同Agent各自随机安装ID；selector与精确路径见后面的13项合同。legacy归原使用者，新Agent新profile授权。
 
@@ -139,3 +139,10 @@ Admit复核expected_publication_id、max_charge和当前grant；变价时，原�
 
 
 十三项具体机制、字段/接口、数值、owner与分期统一见[跨仓合同](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/DEVELOPMENT.md#connection-13-contract)。本仓只在表中唯一owner实施。
+
+
+### CLI Device 授权入口
+
+`setup --api-prefix <绝对目录>` 创建当前安装的私有选择文件与启动器。`api --profile <选择文件> connect` 返回授权链接和原等待命令，`connect continue <handle> --wait 120` 接着等待，`connect status` 显示当前安装和代次。续接带已有本地请求时传 `connect --request <request_id>`，连上后先读原单。已确认兑换但本地未保存时，由本人选择 `connect restart` 恢复同一连接。旧独立恢复入口仍用于未迁移连接的历史兼容。
+
+在本地候选配对中，Device 客户端向配置的 issuer 启动和轮询，并在 ready 后用标准 Device grant 兑换；首次 `/me` 的买家、consumer、批准和代次一致才写私有凭据。失败或重连继续使用原安装。

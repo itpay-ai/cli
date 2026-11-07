@@ -39,6 +39,6 @@ flowchart TD
  O03[原worker和AS cron / 到期清正文] -.保留费用和未决引用.-> O01
 ```
 
-目标未实施：授权先做、货架后做，新增身份续接/同页同意合同待图复审；现有固定安装包保持现状。
+Device 授权在本阶段的三仓草稿中实现，需用配对候选验证。货架在授权验收后实施，现有固定安装包继续使用原版本。
 
 [开发合同](docs/DEVELOPMENT.md#api-journey-contract) · [架构](docs/ARCHITECTURE.md) · [测试与证据](docs/TESTING.md#api-journey-evidence) · [维护入口](AGENTS.md) · [部署与发布](docs/RELEASE.md) · [合同](docs/CONTRACTS.md) · [待办](docs/BACKLOG.md)

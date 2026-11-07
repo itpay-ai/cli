@@ -46,7 +46,7 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 
 
 <a id="agent-connection-architecture"></a>
-## Agent连接目标（未实施）
+## Agent 连接与授权代次
 
 ```mermaid
 flowchart LR

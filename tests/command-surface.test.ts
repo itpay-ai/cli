@@ -71,72 +71,133 @@ test('registered API commands keep original requests, safe errors and Services i
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(home,{recursive:true,force:true});}
 });
 
-test('API connect uses synthetic PKCE callback and verifies the exact resource and consumer',async()=>{
- const home=mkdtempSync(join(tmpdir(),'itpay-api-oauth-contract-'));
- let resource='';let exchanges=0;
- const issuer=createServer(async(req,res)=>{
-  res.setHeader('Content-Type','application/json');
-  if(req.url==='/oauth2/token'){
-   let raw='';for await(const b of req)raw+=b;const form=new URLSearchParams(raw);
-   assert.equal(form.get('grant_type'),'authorization_code');assert.equal(form.get('code'),'synthetic-code');assert.equal(form.get('resource'),resource);assert.ok(form.get('code_verifier'));exchanges++;
-   res.end(JSON.stringify({access_token:'synthetic-oauth-access',refresh_token:'synthetic-oauth-refresh',expires_in:300}));return;
+async function deviceFixture(identityStatus = 200) {
+ const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
+ const handle="synthetic-handle-001";
+ const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
+ let ready=false,resource="",starts=0,exchanges=0,probes=0;
+ let originalConsumer: string | undefined;
+ const server=createServer(async(req,res)=>{
+  res.setHeader("Content-Type","application/json");
+  if(req.url==="/v1/oauth/device/start") {
+   starts++;
+   let raw="";for await(const part of req)raw+=part;
+   const body=JSON.parse(raw);
+   assert.equal(body.client_id,"fixture-public-cli");
+   assert.equal(body.resource,resource);
+   originalConsumer=body.original_consumer_id;
+   res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",
+    verification_uri_complete:resource+"/verify",expires_in:120,interval:1}));
+   return;
   }
-  if(req.url==='/v1/me'){assert.equal(req.headers['x-itpay-oauth-resource'],resource);assert.equal(req.headers.authorization,'Bearer synthetic-oauth-access');res.end(JSON.stringify({buyer_id:'fixture-buyer',consumer_id:'oauth:fixture-public-cli'}));return;}
-  res.writeHead(404);res.end('{}');
+  if(req.url===`/v1/oauth/device/${handle}/status`) {
+   assert.equal(req.headers.authorization,"Bearer synthetic-poll-proof");
+   res.end(JSON.stringify(ready?{phase:"ready_to_exchange",...binding}:{phase:"pending"}));
+   return;
+  }
+  if(req.url==="/oauth2/token") {
+   exchanges++;
+   let raw="";for await(const part of req)raw+=part;
+   const form=new URLSearchParams(raw);
+   assert.equal(form.get("grant_type"),"urn:ietf:params:oauth:grant-type:device_code");
+   assert.equal(form.get("device_code"),"synthetic-device-code");
+   assert.equal(form.get("resource"),resource);
+   res.end(JSON.stringify({access_token:"synthetic-device-access",refresh_token:"synthetic-refresh",token_type:"Bearer",expires_in:300}));
+   return;
+  }
+  if(req.url==="/v1/me") {
+   probes++;
+   assert.equal(req.headers.authorization,"Bearer synthetic-device-access");
+   assert.equal(req.headers["x-itpay-oauth-resource"],resource);
+   res.writeHead(identityStatus);
+   res.end(JSON.stringify(identityStatus===200?binding:{}));
+   return;
+  }
+  res.writeHead(404);res.end("{}");
  });
- await new Promise<void>(r=>issuer.listen(0,'127.0.0.1',r));const addr=issuer.address();if(!addr||typeof addr==='string')throw Error('fixture listener');resource='http://127.0.0.1:'+addr.port;
- try{
-  const child=spawn(process.execPath,['--import','tsx','src/main.ts','api','connect','--json'],{cwd:root,env:{...process.env,HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:'fixture-public-cli',ITPAY_HUB_TOKEN:'',ITPAY_HUB_KEY:''},stdio:['ignore','pipe','pipe']});
-  let output='',diagnostic='';child.stdout.on('data',b=>output+=b);
-  const authorized=new Promise<void>((resolve,reject)=>{let started=false;child.stderr.on('data',b=>{diagnostic+=b;const match=diagnostic.match(/Open to authorize ItPay: (http[^\s]+)/);if(!match||started)return;started=true;(async()=>{const auth=new URL(match[1]!);assert.equal(auth.searchParams.get('resource'),resource);assert.equal(auth.searchParams.get('code_challenge_method'),'S256');const callback=new URL(auth.searchParams.get('redirect_uri')!);callback.searchParams.set('state',auth.searchParams.get('state')!);callback.searchParams.set('code','synthetic-code');const response=await fetch(callback);assert.equal(response.status,200);resolve();})().catch(reject);});});
-  const exited=new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
-  await authorized;assert.equal(await exited,0,diagnostic);const envelope=JSON.parse(output);assert.equal(envelope.status,'connected');assert.equal(envelope.result.subject,'fixture-buyer');assert.match(envelope.next.command,/\bitpay (?:--agent-type [a-z0-9-]+ )?api doctor --json$/);assert.ok(envelope.next.command.includes("ITPAY_HUB_URL='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_HUB_OAUTH_ISSUER='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_STATE_DIR='"+home+"'"));assert.equal(exchanges,1);assert.ok(!output.includes('synthetic-oauth-access'));assert.ok(!output.includes('synthetic-oauth-refresh'));
- }finally{await new Promise<void>(r=>issuer.close(()=>r()));rmSync(home,{recursive:true,force:true});}
+ await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
+ const address=server.address();
+ assert.ok(address&&typeof address!=="string");
+ resource="http://127.0.0.1:"+address.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),
+  HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
+ function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {
+  return new Promise((resolve,reject)=>{
+   const child=spawn(process.execPath,["--import","tsx","src/main.ts",...args,"--json"],{cwd:root,env,stdio:["ignore","pipe","pipe"]});
+   let output="";
+   child.stdout.on("data",part=>output+=part);
+   child.on("error",reject);
+   const deadline=setTimeout(()=>{child.kill("SIGTERM");reject(new Error("Device command timed out"))},15_000);
+   child.on("close",code=>{clearTimeout(deadline);try{resolve({code,value:JSON.parse(output),output})}catch(err){reject(err)}});
+  });
+ }
+ async function setup() {
+  const result=await cli(["setup","--api-prefix",join(home,"installation")]);
+  assert.equal(result.code,0);
+  const selector=result.value.result.selector as string;
+  const profileID=result.value.result.profile_id as string;
+  return {selector,state:join(home,"installation","state","hub-profiles",profileID)};
+ }
+ async function close() {
+  server.closeAllConnections();
+  await new Promise<void>(resolve=>server.close(()=>resolve()));
+  rmSync(home,{recursive:true});
+ }
+ return {env,resource,handle,binding,cli,setup,close,approve:()=>{ready=true},
+  calls:()=>({starts,exchanges,probes,originalConsumer})};
+}
+
+test("Device connect exchanges only after approval and verifies before saving",async()=>{
+ const f=await deviceFixture();
+ try {
+  const {selector,state}=await f.setup();
+  const api=["api","--profile",selector,"connect"];
+  const pending=await f.cli(api);
+  assert.equal(pending.value.status,"pending");
+  assert.match(pending.value.next.command,/--profile.*connect continue synthetic-handle-001 --wait 120/);
+  assert.doesNotMatch(pending.output,/synthetic-device-code|synthetic-poll-proof/);
+  assert.equal((await f.cli([...api,"continue",f.handle,"--wait","0"])).value.status,"pending");
+  assert.equal(f.calls().exchanges,0);
+  f.approve();
+  const connected=await f.cli([...api,"continue",f.handle,"--wait","5"]);
+  assert.equal(connected.value.status,"connected");
+  assert.deepEqual(connected.value.result.binding,{buyer_id:f.binding.buyer_id,consumer_id:f.binding.consumer_id});
+  assert.doesNotMatch(connected.output,/synthetic-device-access|synthetic-refresh/);
+  const credential=hubCredentialsPath({...f.env,ITPAY_STATE_DIR:state});
+  assert.equal(JSON.parse(readFileSync(credential,"utf8")).profiles.default.authorization_id,"generation");
+  assert.deepEqual(f.calls(),{starts:1,exchanges:1,probes:1,originalConsumer:undefined});
+ } finally {await f.close()}
 });
 
-
-test('connect refuses to replace the original profile before browser OAuth or identity calls',async()=>{
- const home=mkdtempSync(join(tmpdir(),'itpay-connect-unsaved-'));let resource='',exchanges=0,probes=0;
- const issuer=createServer(async(req,res)=>{
-  res.setHeader('Content-Type','application/json');
-  if(req.url==='/oauth2/token'){
-   let raw='';for await(const b of req)raw+=b;const form=new URLSearchParams(raw);assert.equal(form.get('grant_type'),'authorization_code');assert.equal(form.get('resource'),resource);exchanges++;
-   res.end(JSON.stringify({access_token:'new-synthetic-access',refresh_token:'new-synthetic-refresh',expires_in:300}));return;
-  }
-  if(req.url==='/v1/me'){probes++;assert.equal(req.headers['x-itpay-oauth-resource'],resource);res.writeHead(503);res.end('{}');return}
-  res.writeHead(404);res.end('{}');
- });
- await new Promise<void>(resolve=>issuer.listen(0,'127.0.0.1',resolve));const address=issuer.address();assert.ok(address&&typeof address!=='string');resource='http://127.0.0.1:'+address.port;
- const env={...Object.fromEntries(Object.entries(process.env).filter(([name])=>!name.startsWith('ITPAY_'))),HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:'fixture-public-cli'};
- storeHubSession('original-synthetic-access','original-synthetic-refresh',300,'original-buyer',resource,env,'oauth:fixture-public-cli');
- const path=hubCredentialsPath(env),before=readFileSync(path);
- const child=spawn(process.execPath,['--import','tsx','src/main.ts','--agent-type','codex-desktop','api','connect','--json'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let output='',diagnostic='';child.stdout.on('data',b=>output+=b);
- const exit=new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve)});
- try{
-  child.stderr.on('data',b=>diagnostic+=b);
-  assert.equal(await exit,1);const envelope=JSON.parse(output);assert.equal(envelope.error.code,'connection_recovery_denied');assert.deepEqual(readFileSync(path),before);assert.equal(exchanges,0);assert.equal(probes,0);assert.doesNotMatch(diagnostic,/Open to authorize/);assert.ok(!output.includes('original-synthetic'));
-
- }finally{if(child.exitCode===null)child.kill('SIGTERM');await new Promise<void>(resolve=>issuer.close(()=>resolve()));rmSync(home,{recursive:true,force:true})}
+test("Device renewal starts with the original consumer and leaves its credentials unchanged while pending",async()=>{
+ const f=await deviceFixture();
+ try {
+  const {selector,state}=await f.setup();
+  const env={...f.env,ITPAY_STATE_DIR:state};
+  storeHubSession("original-access","original-refresh",300,f.binding.buyer_id,f.resource,env,f.binding.consumer_id);
+  const path=hubCredentialsPath(env);
+  const before=readFileSync(path);
+  const pending=await f.cli(["api","--profile",selector,"connect"]);
+  assert.equal(pending.value.status,"pending");
+  assert.deepEqual(readFileSync(path),before);
+  assert.deepEqual(f.calls(),{starts:1,exchanges:0,probes:0,originalConsumer:f.binding.consumer_id});
+ } finally {await f.close()}
 });
 
-test('first connect who503 reports an unsaved attempt without saving a new profile',async()=>{
- const home=mkdtempSync(join(tmpdir(),'itpay-connect-unsaved-'));let resource='',exchanges=0,probes=0;
- const issuer=createServer(async(req,res)=>{
-  res.setHeader('Content-Type','application/json');
-  if(req.url==='/oauth2/token'){
-   let raw='';for await(const b of req)raw+=b;const form=new URLSearchParams(raw);assert.equal(form.get('grant_type'),'authorization_code');assert.equal(form.get('resource'),resource);exchanges++;
-   res.end(JSON.stringify({access_token:'new-synthetic-access',refresh_token:'new-synthetic-refresh',expires_in:300}));return;
-  }
-  if(req.url==='/v1/me'){probes++;assert.equal(req.headers['x-itpay-oauth-resource'],resource);res.writeHead(503);res.end('{}');return}
-  res.writeHead(404);res.end('{}');
- });
- await new Promise<void>(resolve=>issuer.listen(0,'127.0.0.1',resolve));const address=issuer.address();assert.ok(address&&typeof address!=='string');resource='http://127.0.0.1:'+address.port;
- const env={...Object.fromEntries(Object.entries(process.env).filter(([name])=>!name.startsWith('ITPAY_'))),HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:'fixture-public-cli'};
- const path=hubCredentialsPath(env);
- const child=spawn(process.execPath,['--import','tsx','src/main.ts','--agent-type','codex-desktop','api','connect','--json'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let output='',diagnostic='';child.stdout.on('data',b=>output+=b);
- const exit=new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve)});
- try{
-  await new Promise<void>((resolve,reject)=>{let started=false;child.stderr.on('data',b=>{diagnostic+=b;const match=diagnostic.match(/Open to authorize ItPay: (http[^\s]+)/);if(!match||started)return;started=true;(async()=>{const auth=new URL(match[1]!);assert.equal(auth.searchParams.get('resource'),resource);const callback=new URL(auth.searchParams.get('redirect_uri')!);callback.searchParams.set('state',auth.searchParams.get('state')!);callback.searchParams.set('code','synthetic-code');assert.equal((await fetch(callback)).status,200);resolve()})().catch(reject)})});
-  assert.equal(await exit,1);const envelope=JSON.parse(output);assert.equal(envelope.error.code,'connection_not_saved');assert.match(envelope.instruction,/尚未保存/);assert.match(envelope.instruction,/原有连接未替换/);assert.doesNotMatch(envelope.instruction,/不重新授权/);assert.match(envelope.next.command,/api connect --json$/);assert.ok(envelope.next.command.includes("ITPAY_HUB_URL='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_HUB_OAUTH_ISSUER='"+resource+"'"));assert.ok(envelope.next.command.includes("ITPAY_HUB_OAUTH_CLIENT='fixture-public-cli'"));assert.ok(envelope.next.command.includes("ITPAY_STATE_DIR='"+home+"'"));assert.equal(existsSync(path),false);assert.equal(exchanges,1);assert.equal(probes,1);assert.ok(!output.includes('synthetic-access'));assert.ok(!output.includes('synthetic-refresh'));
- }finally{if(child.exitCode===null)child.kill('SIGTERM');await new Promise<void>(resolve=>issuer.close(()=>resolve()));rmSync(home,{recursive:true,force:true})}
+test("first Device connect with an unavailable identity probe saves no credentials and never repeats the exchange",async()=>{
+ const f=await deviceFixture(503);
+ try {
+  const {selector,state}=await f.setup();
+  const api=["api","--profile",selector,"connect"];
+  await f.cli(api);
+  f.approve();
+  const first=await f.cli([...api,"continue",f.handle,"--wait","5"]);
+  assert.equal(first.code,1);
+  assert.equal(first.value.error.code,"connection_verification_pending");
+  assert.equal(existsSync(hubCredentialsPath({...f.env,ITPAY_STATE_DIR:state})),false);
+  const resumed=await f.cli([...api,"continue",f.handle,"--wait","5"]);
+  assert.equal(resumed.value.status,"exchange_unknown");
+  assert.equal(f.calls().exchanges,1);
+  assert.equal(f.calls().probes,1);
+ } finally {await f.close()}
 });

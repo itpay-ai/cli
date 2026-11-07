@@ -4,8 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { HubTaskStore, digestTask, type HubCredentialSelection, type HubTask } from "../state/hub_tasks.js";
-import { hubOAuthConfig, runConnectFlow } from "../state/hub_oauth.js";
-import { probeHubIdentity, storedHubProfile, readOriginalHubReceipt, recoverHubConnection, withNewHubSession } from "../state/hub_credentials.js";
+import { readOriginalHubReceipt, recoverHubConnection } from "../state/hub_credentials.js";
 import {declaredAgentType, qualifyItPayCommand} from "../state/agent_type.js";
 import {renderPaymentHandoff} from "../render/payment_handoff.js";
 import { HttpError } from "../client/http.js";
@@ -519,15 +518,23 @@ export async function runHubContinue(intentID: string, options: { jsonOutput?: b
   });
 }
 
-export async function runHubResume(requestID: string, options: { waitSeconds?: number | undefined; jsonOutput?: boolean | undefined }): Promise<void> {
+export async function runHubResume(requestID: string, options: { readFirst?: boolean; waitSeconds?: number | undefined; jsonOutput?: boolean | undefined }): Promise<void> {
   validateWait(options.waitSeconds ?? 0);
   const client = hub();
   const store = new HubTaskStore();
-  const task = store.get(requestID);
+  let task = store.get(requestID);
   if (!task) {
     throw new Error(`not_found: unknown task ${requestID} — check "itpay api tasks"`);
   }
   try {
+  if (options.readFirst) {
+    const snapshot = await refreshOriginalTask(client, store, task);
+    if (!snapshot || (!snapshot.run && (!snapshot.intent || snapshot.terminal || snapshot.intent.status !== "open"))) {
+      await runHubTasks({ requestID, jsonOutput: options.jsonOutput });
+      return;
+    }
+    task = store.get(requestID)!;
+  }
   if (task.run_id) {
     const rec = await waitForRun(client, task.run_id, options.waitSeconds ?? 0);
     updateFromRun(store, task, rec);
@@ -644,59 +651,6 @@ export async function runHubCredentialsImport(options: { jsonOutput?: boolean | 
 // profile to a Hub session (A03/F-R11). The user approves once; afterwards
 // the bearer token (stored 0600) carries owner-level rights including
 // top-up — while imported keys stay the prepaid-only developer path.
-export async function runHubConnect(options: { jsonOutput?: boolean | undefined }): Promise<void> {
- return withNewHubSession(async(storeNewHubSession)=>{
-  if (storedHubProfile()) throw new Error("connection_recovery_denied: existing connection preserved; use api recover-connection for exact-binding recovery, do not replace it");
-  const cfg = hubOAuthConfig();
-  const { authorizeURL, done } = await runConnectFlow(cfg);
-  // The handoff is diagnostic output; --json stdout remains one terminal document.
-  if (options.jsonOutput) process.stderr.write(`Open to authorize ItPay: ${authorizeURL}\n`);
-  else writeCommandEnvelope({
-    status: "authorization_required",
-    result: {
-      authorize_url: authorizeURL,
-      client_id: cfg.clientID,
-      resource: cfg.resource,
-    },
-    instruction: "在浏览器完成一次授权；CLI 等待回调后自动绑定。",
-    next: null,
-    recovery: [],
-  }, {
-    jsonOutput: Boolean(options.jsonOutput),
-    plainResult: ["打开浏览器完成授权：", `  ${authorizeURL}`],
-  });
-  const tokens = await done;
-  let me: Awaited<ReturnType<typeof probeHubIdentity>>;
-  try {
-    me = await probeHubIdentity(cfg.resource, tokens.accessToken);
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("connection_verification_pending:")) {
-      // Unlike refresh, this new connection has not persisted a pending profile.
-      throw new Error("connection_not_saved: identity verification unavailable; this connection was not saved and the existing connection was not replaced");
-    }
-    throw error;
-  }
-  if (!me.buyer_id || (!me.consumer_id || (me.consumer_id !== `oauth:${cfg.clientID}` && !me.consumer_id.startsWith(`oauth:${cfg.clientID}:`)))) throw new Error("authorization_required: OAuth consumer mismatch");
-  const subject = me.buyer_id;
-  storeNewHubSession(tokens.accessToken, tokens.refreshToken, tokens.expiresIn, subject!, cfg.resource, me.consumer_id!);
-  writeCommandEnvelope({
-    status: "connected",
-    result: {
-      hub: cfg.resource,
-      subject: subject ?? null,
-      expires_in: tokens.expiresIn,
-      refresh_token: Boolean(tokens.refreshToken),
-    },
-    instruction: "已连接。可以 itpay api discover / run；充值请在网页或 topup 命令中明确进行。",
-    next: { command: "itpay api doctor --json", reason: "验证连接与目录可用" },
-    recovery: [],
-  }, {
-    jsonOutput: Boolean(options.jsonOutput),
-    plainResult: [`已连接 ${cfg.resource}${subject ? ` (${subject})` : ""}`],
-  });
- });
-}
-
 export async function runHubRecoverConnection(options:{jsonOutput?:boolean|undefined}):Promise<void> {
  await recoverHubConnection();
  writeCommandEnvelope({status:"ok",result:{status:"recovered",original_binding_preserved:true,business_calls:0},instruction:"原连接已核对并恢复。仅使用原引用 tasks --refresh 或 run-status 读取；本次未续跑、派发或扣费。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});

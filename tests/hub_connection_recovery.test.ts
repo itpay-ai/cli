@@ -4,7 +4,7 @@ import {createServer} from 'node:http';
 import {mkdtempSync,readFileSync,writeFileSync,existsSync,rmSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {recoverHubConnection,connectedHubToken,storeHubSession,hubCredentialsPath,storedHubProfile,withNewHubSession} from '../src/state/hub_credentials.js';
+import {recoverHubConnection,connectedHubToken,storeHubSession,hubCredentialsPath,storedHubProfile,finishHubDeviceSession} from '../src/state/hub_credentials.js';
 async function fixture(mode:string){
  const dir=mkdtempSync(join(tmpdir(),'itpay-recover-'));const calls={oauth:0,recover:0,me:0,business:0};let lost=false;let conflict=mode==='conflict';
  const server=createServer(async(req,res)=>{
@@ -23,7 +23,7 @@ async function fixture(mode:string){
    res.end(JSON.stringify({buyer_id:'original-buyer',consumer_id:'oauth:client:original',status:'recovered'}));return;
   }
   if(req.url==='/v1/me'){
-   calls.me++;res.end(JSON.stringify({buyer_id:mode==='wrong-buyer'?'other-buyer':'original-buyer',consumer_id:mode==='wrong-consumer'?'oauth:client:other':'oauth:client:original'}));return;
+   calls.me++;res.end(JSON.stringify({buyer_id:mode==='wrong-buyer'?'other-buyer':'original-buyer',consumer_id:mode==='wrong-consumer'?'oauth:client:other':'oauth:client:original',...(mode==='device'?{device_approval_id:'approval',authorization_id:'generation'}:{})}));return;
   }
   calls.business++;res.writeHead(500);res.end('{}');
  });
@@ -52,17 +52,35 @@ test('conflict preserves both original and rotated candidate; same candidate can
 test('expired conflict candidate rotates its saved refresh proof, never reuses consumed original refresh',async()=>{
  const f=await fixture('conflict');try{await assert.rejects(recoverHubConnection(f.env),/connection_recovery_conflict/);const path=f.path+'.recovery.json',pending=JSON.parse(readFileSync(path,'utf8'));pending.profile.expires_at=new Date(0).toISOString();writeFileSync(path,JSON.stringify(pending),{mode:0o600});f.clearConflict();await recoverHubConnection(f.env);assert.equal(f.calls.oauth,2);assert.equal(f.calls.business,0);f.assertTask()}finally{await f.close()}
 });
-test('browser session guard rejects an existing original before any new consent',async()=>{
- const f=await fixture('ok');try{await assert.rejects(withNewHubSession(async()=>{throw new Error('new consent must not start')},f.env),/connection_recovery_denied/);assert.deepEqual(readFileSync(f.path),f.before);assert.deepEqual(f.calls,{oauth:0,recover:0,me:0,business:0});f.assertTask()}finally{await f.close()}
+test("Device exchange guard preserves an existing original without a matching binding",async()=>{
+ const f=await fixture("ok");
+ try {
+  await assert.rejects(finishHubDeviceSession(undefined,{buyer_id:"original-buyer",consumer_id:"oauth:client:original",device_approval_id:"approval",authorization_id:"generation"},f.env.ITPAY_HUB_URL,
+   async()=>{throw new Error("exchange must not start")},f.env),/connection_recovery_denied/);
+  assert.deepEqual(readFileSync(f.path),f.before);
+  assert.deepEqual(f.calls,{oauth:0,recover:0,me:0,business:0});
+  f.assertTask();
+ } finally {await f.close()}
 });
 test('issuer outage is unknown, never mistaken for revoked consent or retried refresh',async()=>{
  const f=await fixture('refresh-unavailable');try{await assert.rejects(recoverHubConnection(f.env),/connection_verification_pending/);await assert.rejects(recoverHubConnection(f.env),/outcome unknown/);assert.deepEqual(readFileSync(f.path),f.before);assert.equal(f.calls.oauth,1);assert.equal(f.calls.business,0);f.assertTask()}finally{await f.close()}
 });
 
-test('concurrent browser attempts hold the credential lock before starting a second consent',async()=>{
- const dir=mkdtempSync(join(tmpdir(),'itpay-connect-lock-'));const env={ITPAY_STATE_DIR:dir,ITPAY_HUB_URL:'http://127.0.0.1:1',ITPAY_HUB_OAUTH_ISSUER:'http://127.0.0.1:1',ITPAY_HUB_OAUTH_CLIENT:'client'};let started=0;let release!:()=>void;let entered!:()=>void;const gate=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>entered=r);
- try{
-  const first=withNewHubSession(async save=>{started++;entered();await gate;save('synthetic','synthetic-refresh',300,'buyer',env.ITPAY_HUB_URL,'oauth:client:original')},env);await ready;
-  const second=withNewHubSession(async()=>{started++},env);release();await first;await assert.rejects(second,/connection_recovery_denied/);assert.equal(started,1);assert.equal(storedHubProfile(env)?.consumer_id,'oauth:client:original');
- }finally{rmSync(dir,{recursive:true,force:true})}
+test("concurrent first Device exchanges serialize against the verified profile",async()=>{
+ const f=await fixture("device");
+ const dir=mkdtempSync(join(tmpdir(),"itpay-device-exchange-lock-"));
+ const env={...f.env,ITPAY_STATE_DIR:dir};
+ const approval={buyer_id:"original-buyer",consumer_id:"oauth:client:original",device_approval_id:"approval",authorization_id:"generation"};
+ let started=0;
+ try {
+  const exchange=()=>finishHubDeviceSession(undefined,approval,env.ITPAY_HUB_URL,async()=>{
+   started++;
+   return {accessToken:"synthetic",refreshToken:"synthetic-refresh",expiresIn:300};
+  },env);
+  const results=await Promise.allSettled([exchange(),exchange()]);
+  assert.equal(results.filter(result=>result.status==="fulfilled").length,1);
+  assert.equal(started,1);
+  assert.equal(storedHubProfile(env)?.authorization_id,"generation");
+  assert.equal(f.calls.me,1);
+ } finally {rmSync(dir,{recursive:true});await f.close()}
 });
