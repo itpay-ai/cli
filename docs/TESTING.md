@@ -60,3 +60,11 @@ lint 和 548 tests 通过；shelf 回归断言同一 show 的 shown_event_id 传
 新 root 在任何网络等待前保存原任务、安装私钥及连接 start key；同一原密钥/账号一次同意，API 只通过 V4 identity owner 启动原 Device，不登记 Services；Services 首次需要时才走原设备/会话并绑定。同 profile 原请求和旧独立连接不迁移。显式 reconnect 保留同钥和原账号，不因新业务任务自动重开拒绝/撤销。
 
 44 项入口/命令/原设备证明专项通过，含真实新进程、跨语言 Ed25519 proof fixture、链接先行、同 key/start 复用、API 不触及 Services、一次原 Device 兑换与新鲜 me、第二次直接使用、密钥丢失拒绝重建和旧 profile 保留。`npm run test:package` 已验证当前候选打包/安装与原历史身份/unknown 保护，非 npm 发布、非自然宿主验收。全量与最终制品结果以本批完成回读为准。
+
+### N6.3 第二批开发安装实测
+
+PR156 main `407908f68e14cf402d434ba86ea642e9ea0ee101`，最终 hook lint/554 tests通过，打包安装 smoke通过。75文件本地包 `itpay-cli-2.1.65-n63-unified-407908f.tgz`，317932 bytes，SHA256 `2c91cdf7e65c73e7b69d47631a7d20ddcfc3981e831aa019494a8fbd358a236e`；仅开发 `/agent` 发现，不发布 npm 或替换固定下载。
+
+实际安装包新测试 root 的统一页一个确认 POST：首链接2.313秒，API15.768秒 connected，后续 Services8.556秒 connected、无第二链接，第二次 API4.844秒直接 connected。数字为工程命令完整 wall-clock，含网络/轮询，不是自然业务出结果 SLA。旧 source 试验 root 拒绝被不同安装 launcher 接管，按合同保留；实包改用明确独立的工程 root，未迁移已受理任务。
+
+同一合成 buyer 另一个连接从公开管理页撤销后，原 Hub/Services 凭据身份读取从200变401；SQL核两 consumer 的 runs/charged_runs/reserved_runs 均0。自然四项/T07原输入缺口仍由同阶段 Testing 记录，不以工程 cookie、fixture 或源码试验代签。

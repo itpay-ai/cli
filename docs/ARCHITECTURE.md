@@ -90,7 +90,7 @@ flowchart TD
 
 原断点：首次expiry的HTTP裸错误丢恢复信息、launcher拒绝重复profile、setup需人工拼装。本阶段已实现CLI/Skill接入和T07安全投影，Hub和Services仍独立授权，保留两套权限owner、预算、旧profile和原请求。CLI不执行自然语言任务，持久保存原意交还宿主；不将安装/链接/进程退出0称为授权或业务成功。第二批统一同意页/按需双签发尚未实施。
 
-## N6.3 第二批：一次同意、按需凭据（目标，尚未部署）
+## N6.3 第二批：一次同意、按需凭据（开发服已实现）
 
 ```mermaid
 flowchart TD
@@ -110,4 +110,4 @@ flowchart TD
  API -.不调用Services / 不等Services健康.-> HT
 ```
 
-当前仍是两条独立本人授权。目标是新增V4持久同意记录，不是新身份或令牌系统：账号仍由V4登录，Hub令牌仍由Hydra签发、预算仍归Hub，Services仍用原设备签名和会话。未请求的业务不登记设备、不换取其凭据；旧profile/已受理或unknown任务不迁移。普通新连接的默认单次和旧显式预算沿原规则，不隐式付款。共享同意不共享token/resource/grant，也不把Services失败放进API就绪条件。
+开发服新安装使用 V4 持久同意记录，旧独立连接保留原路径。这，不是新身份或令牌系统：账号仍由V4登录，Hub令牌仍由Hydra签发、预算仍归Hub，Services仍用原设备签名和会话。未请求的业务不登记设备、不换取其凭据；旧profile/已受理或unknown任务不迁移。普通新连接的默认单次和旧显式预算沿原规则，不隐式付款。共享同意不共享token/resource/grant，也不把Services失败放进API就绪条件。
