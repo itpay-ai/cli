@@ -97,7 +97,7 @@ test('Public CLI supports official dev and isolates its state from production', 
     assert.equal(qualifyBackendCommand('itpay orders', env), `ITPAY_BACKEND_URL=${V4_DEV_BASE_URL} itpay orders`);
     assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home }));
     assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL }));
-    for (const value of ['http://v4-dev.itpay.ai', 'https://v4-dev.itpay.ai:443', 'https://v4-dev.itpay.ai:8443', 'https://user@v4-dev.itpay.ai', 'https://v4-dev.itpay.ai.evil.invalid', 'https://evil-v4-dev.itpay.ai', 'https://v4-dev.itpay.ai/path', 'https://v4-dev.itpay.ai?x=1', 'https://v4-dev.itpay.ai#x']) {
+    for (const value of ['https://dev.itpay.ai', 'https://dev.itpay.ai:443', 'https://dev.itpay.ai:8443', 'https://user@v4-dev.itpay.ai', 'https://dev.itpay.ai.evil.invalid', 'https://evil-v4-dev.itpay.ai', 'https://dev.itpay.ai/path', 'https://dev.itpay.ai?x=1', 'https://dev.itpay.ai#x']) {
       assert.throws(() => resolveBackendURL({ ...env, ITPAY_BACKEND_URL: value, ITPAY_CLI_DEV: '1' }));
     }
   } finally { rmSync(home, { recursive: true, force: true }); }

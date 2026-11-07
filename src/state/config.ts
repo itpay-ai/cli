@@ -36,7 +36,7 @@ export interface CLIConfig {
 
 export const DEFAULT_BASE_URL = "https://app.itpay.ai";
 export const DEV_BASE_URL = "https://dev.itpay.ai";
-export const V4_DEV_BASE_URL = "https://v4-dev.itpay.ai";
+export const V4_DEV_BASE_URL = "https://dev.itpay.ai";
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
 export const TEST_BASE_URL = "https://app-test.itpay.ai";
 export const OFFICIAL_BACKEND_URLS = [DEFAULT_BASE_URL, SANDBOX_BASE_URL, DEV_BASE_URL, TEST_BASE_URL, V4_DEV_BASE_URL] as const;
