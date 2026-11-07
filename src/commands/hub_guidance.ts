@@ -43,6 +43,7 @@ export function hubFailureInstruction(error: unknown, fallback: string): string 
 
 function routingInstruction(value: CommandEnvelope): string {
  const result = value.result && typeof value.result === "object" ? value.result as Record<string,unknown> : {};
+ if(value.status==="price_changed" && result.captured_atoms==="0" && result.held_atoms==="0")return "原请求保留只读；明确同意当前新价后才可创建新请求。";
  const original = ["request_id","run_id","intent_id","order_id","topup_id"].some(key=>typeof result[key]==="string" && result[key]!=="") || ["unknown","unavailable"].includes(value.status) || ["hub_request_unknown","request_timeout","request_cancelled"].includes(value.error?.code ?? "");
  return original ? "继续原身份、入口和已有请求引用，不换路重发。" : "当前为 API Hub；办理、交付与售后使用 Services，空结果只限当前目录及条件。";
 }

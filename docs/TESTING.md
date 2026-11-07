@@ -38,3 +38,9 @@ API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算�
 隔离真实CLI包→Hydra→V4/Hub→CollectionPort/fakepass通过原请求¥10模拟充值接续、一次¥0.01扣费、确定失败0扣释放、响应丢失只读恢复；第二次付费后总扣20000atoms、账本守恒。USGS固定原workflow和新generic的正常/空/404对照通过，历史run仍可读。此为工程与协议链证据，非五宿主自然体验、生产部署或MCP OAuth签收。最初旧命令断言、缺帮助参数及历史包联网超时日志保留；替代测试检查新合同，未弱化unknown或资金边界。
 
 原始日志、配对manifest及重复入口位于本机 `~/.codex/artifacts/itpay-cli-device-redesign-20261106/evidence/n62-implementation-20261107/`；`REPLACEMENTS.md`列删除消费者与替代验证。N6.1冻结包不改。
+
+## N6.2 两项独立反馈（2026-11-07）
+
+变价CLI回执当场展示Hub核实的当前CNY¥0.02和旧请求0扣/0冻结；next为show，取得新价明确同意后才新call。无零副作用证明则先status，关闭原单不再带旧充值handoff。隔离旧¥0.01原intent取消且仍可只读，测试驱动明确同意新价后新请求一次capture20000atoms。
+
+付款页面问题归隔离装配：补现有renderer与冻结Web静态收银台，不改Payment业务。Node/Playwright从CLI原intent链接仅操作可见控件，唯一¥10/fakepass-platform-2模拟充值、官方品牌卡200、官方收银台及新窗口确认、返回同单已到账，原call --pending同请求/run一次10000atoms。无手拼地址、私有付款接口或额外建单。两格2次capture共30000atoms、held0、journal平衡；run_events0如实列缺口。证据、节点映射与首错位于本机 `~/.codex/artifacts/itpay-cli-device-redesign-20261106/evidence/n62-review-fixes-20261107/`。新价同意为明确自动测试条件，不代签真人/真实宿主。未部署/发布/Actions。

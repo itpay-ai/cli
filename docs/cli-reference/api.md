@@ -17,3 +17,5 @@ All support --json. Installation uses setup --api-prefix. Connection uses api co
 Show purpose, price and TTL before obtaining consent. A publication change requires reading the original receipt and showing the new price. A network-unknown write permits only original status reads. A failed call is called free of charge only when captured and held are both confirmed zero. Source result expiry does not remove fee facts.
 
 The developer credentials import, admin and doctor commands are outside the six business commands. Services/cart/buy/checkout keep their separate authority and entry points.
+
+A `price_changed` receipt includes `current_price` (CNY, scale 6, atoms) and verified original captured/held facts. When both are zero, the next command is show; explicit new-price consent is required before a new call. The ended original remains readable with status and has no stale funding handoff.

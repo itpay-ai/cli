@@ -184,7 +184,17 @@ export class HubClient {
 }
 
 
-export interface SafeHubErrorDetails { stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
+export interface PublicPriceChange { current_publication_id?:string; current_price?:{currency:"CNY";scale:6;amount_atoms:string};captured_atoms?:"0";held_atoms?:"0" }
+export function safePriceChange(raw:unknown):PublicPriceChange|undefined {
+ if(!raw || typeof raw!=="object")return undefined;
+ const d=raw as Record<string,unknown>,p=d.current_price as Record<string,unknown>|undefined;
+ const out:PublicPriceChange={};
+ if(typeof d.current_publication_id==="string" && /^[A-Za-z0-9_-]{1,200}$/.test(d.current_publication_id))out.current_publication_id=d.current_publication_id;
+ if(p?.currency==="CNY" && p.scale===6 && typeof p.amount_atoms==="string" && /^[0-9]{1,19}$/.test(p.amount_atoms))out.current_price={currency:"CNY",scale:6,amount_atoms:p.amount_atoms};
+ if(d.captured_atoms==="0" && d.held_atoms==="0"){out.captured_atoms="0";out.held_atoms="0"}
+ return Object.keys(out).length?out:undefined;
+}
+export interface SafeHubErrorDetails { price_change?:PublicPriceChange; stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
 
 // SDK diagnostics are useful, but neither arbitrary detail fields nor raw path
 // parameters/query strings belong in an agent-visible error.
@@ -192,6 +202,7 @@ export function safeHubErrorDetails(raw: unknown): SafeHubErrorDetails | undefin
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const d = raw as Record<string, unknown>;
   const out: SafeHubErrorDetails = {};
+  const price=safePriceChange(d.price_change);if(price)out.price_change=price;
   if (d.stage === "metadata" || d.stage === "status" || d.stage === "action") out.stage = d.stage;
   if (typeof d.method === "string" && ["GET", "POST", "PUT", "DELETE", "PATCH"].includes(d.method)) out.method = d.method as NonNullable<SafeHubErrorDetails["method"]>;
   if (typeof d.path === "string") {

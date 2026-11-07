@@ -15,7 +15,7 @@ Use categories to read the website's real categories, including empty ones. Use 
 
 Use show <operation_id> to read purpose, exact price, example input and result retention. Explain those facts and obtain consent before call. USGS time fields use absolute UTC ISO timestamps. Replace the example interval with the current requested interval, preserve the minimum magnitude and limit at most 100. Results capped at the limit are not an exhaustive catalogue. Frankfurter is daily reference data with its own date, not a live trading quote.
 
-After consent use call <operation_id> --input '<JSON object>' (or @file / stdin). The CLI uses this installation's shown publication and price, saves the original request and supplies its ID. It does not re-inspect or invent a cap. A missing display requires show first. A price/publication change requires status of the rejected original request, then show and renewed consent. Do not reuse the old price for a replacement.
+After consent use call <operation_id> --input '<JSON object>' (or @file / stdin). The CLI uses this installation's shown publication and price, saves the original request and supplies its ID. It does not re-inspect or invent a cap. A missing display requires show first. A price/publication change receipt shows the server-verified current price/currency and original zero-capture/zero-hold facts when confirmed. Keep the original request read-only, then show the current product and obtain explicit consent to the new price before a new call. If those facts are unavailable, status the original request first. Do not reuse the old price for a replacement.
 
 ## Follow the original request
 

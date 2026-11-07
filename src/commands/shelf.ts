@@ -1,4 +1,4 @@
-import {HubClient,loadHubConfig,type RunReceipt,type RequestStatus} from "../client/hub.js";
+import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPriceChange,type RunReceipt,type RequestStatus} from "../client/hub.js";
 import {HttpError} from "../client/http.js";
 import {HubTaskStore,type HubTask} from "../state/hub_tasks.js";
 import {loadShown,saveShown,type ShelfDescriptor} from "../state/hub_show_cache.js";
@@ -6,7 +6,7 @@ import {HubTaskRequestError,readRunInput} from "./hub.js";
 import {writeCommandEnvelope,type CommandAction} from "./hub_guidance.js";
 
 type Facts=RunReceipt&{held_atoms?:string;captured_atoms?:string;result_expires_at?:string};
-type Snapshot=RequestStatus&{required_action?:{web_action?:{target?:string};target?:string}};
+type Snapshot=RequestStatus&{price_change?:PublicPriceChange;required_action?:{web_action?:{target?:string};target?:string}};
 const client=()=>new HubClient(loadHubConfig());
 export function priceLabel(price:{mode:string;amount_atoms?:string}):string{
  if(price.mode==="free")return "免费";
@@ -51,13 +51,16 @@ function render(task:HubTask,snapshot:Snapshot,json:boolean):void{
  const reason=snapshot.intent?.blocking_reason??"unknown";
  const target=snapshot.required_action?.web_action?.target??snapshot.required_action?.target;
  const changed=snapshot.terminal && reason==="publication_changed";
+ const price=safePriceChange(snapshot.price_change);
+ const zero=changed && price?.captured_atoms==="0" && price.held_atoms==="0";
+ const label=price?.current_price?"CNY "+priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
  writeCommandEnvelope({status:changed?"price_changed":reason,
-  result:{request_id:task.request_id,intent_id:task.intent_id,captured_atoms:changed?"0":null,held_atoms:changed?"0":null},
-  ...(target?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
-  instruction:changed?"原单已结束，本次没扣钱。重新 show 核对价格并取得同意。":
+  result:{request_id:task.request_id,intent_id:task.intent_id,captured_atoms:zero?"0":null,held_atoms:zero?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
+  ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
+  instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0、冻结0，本次没扣钱。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
    reason==="insufficient_balance"?"请在原单官方页面充值，到账后继续原请求。":"保留原请求，按官方操作完成授权或核对。",
-  next:changed?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
-   snapshot.terminal?null:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+  next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
+   changed?statusAction(task.request_id,json):snapshot.terminal?null:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
 export async function shelfCategories(json:boolean):Promise<void>{
  const result=await client().shelfGet<{items:unknown[]}>("/v1/catalog/categories");
@@ -91,9 +94,9 @@ export async function shelfStatus(id:string,json:boolean):Promise<void>{
   if(error instanceof HttpError && error.status===404 && !task.intent_id && !task.run_id &&
     ["publication_changed","authorization_required"].includes(task.blocking_reason??"")){
    const changed=task.blocking_reason==="publication_changed";
-   writeCommandEnvelope({status:changed?"price_changed":"not_admitted",result:{request_id:id,captured_atoms:"0",held_atoms:"0"},
-    instruction:changed?"原提交已在准入前被拒，本次没扣钱。show 当前价格后重新取得同意。":"原请求尚未准入，按原保存输入继续。",
-    next:changed?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"核对当前价格"}:pendingAction(id,json),recovery:[]},{jsonOutput:json});
+   writeCommandEnvelope({status:changed?"price_changed":"not_admitted",result:{request_id:id,captured_atoms:changed?null:"0",held_atoms:changed?null:"0"},
+    instruction:changed?"原提交已被拒；当前价格和费用回执暂不可读。先核对原请求，未核实前不要新 call。":"原请求尚未准入，按原保存输入继续。",
+    next:changed?statusAction(id,json):pendingAction(id,json),recovery:[]},{jsonOutput:json});
    return;
   }
   throw new HubTaskRequestError(error,store.get(id)??task)
@@ -147,8 +150,15 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    // Server admission rejected before any run, or it closed the unexecuted
    // original intent under its lock. Read that original evidence next.
    store.update(task.request_id,{status:"failed",blocking_reason:"publication_changed"});
-   writeCommandEnvelope({status:"price_changed",result:{request_id:task.request_id},
-    instruction:"价格或发布已更新，先 status 核对原请求，再 show 查看当前价格。",next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+   try {
+    const original=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
+    render(remember(store,store.get(task.request_id)!,original),original,json);
+   }catch(readError){
+    const price=hubErrorDetails(error)?.price_change;
+    if(readError instanceof HttpError && readError.status===404 && price){
+     render(task,{request_id:store.idempotencyKey(task.request_id),terminal:true,pending_stage:null,next:null,intent:{intent_id:task.intent_id??"",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:price} as Snapshot,json);
+    }else throw new HubTaskRequestError(readError,store.get(task.request_id)??task);
+   }
    return;
   }
   const code=error instanceof HttpError?error.code:error instanceof Error&&error.message.startsWith("authorization_required:")?"authorization_required":undefined;

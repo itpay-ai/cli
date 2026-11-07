@@ -18,6 +18,7 @@ test("original request recovery never dispatches unknown or foreign receipts and
   reads++;
   if(mode==="unavailable"){res.writeHead(503);res.end(JSON.stringify({error:{code:"unavailable",message:"fixture outage"}}));return;}
   if(mode==="absent"){res.writeHead(404);res.end(JSON.stringify({error:{code:"not_found",message:"no receipt"}}));return;}
+  if(mode.startsWith("changed")){res.end(JSON.stringify({request_id:key,terminal:true,intent:{intent_id:"intent-price",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:{current_price:{currency:"CNY",scale:6,amount_atoms:"20000"},...(mode==="changed"?{captured_atoms:"0",held_atoms:"0"}:{})}}));return;}
   res.end(JSON.stringify({request_id:key,terminal:mode==="failed",run:{run_id:"run-original",operation_id:mode==="foreign"?"op-other":"op-original",publication_id:"pub-original",execution_state:mode==="failed"?"failed":"unknown",settlement_state:mode==="failed"?"released":"reconciling",delivery_state:"none",...(mode==="failed"?{held_atoms:"0",captured_atoms:"0",first_error:{code:"upstream_failed",message:"original failure"}}:{})}}));
  });
  await new Promise<void>(r=>server.listen(0,"127.0.0.1",r));
@@ -36,6 +37,11 @@ test("original request recovery never dispatches unknown or foreign receipts and
   mode="foreign";await assert.rejects(shelfStatus(task.request_id,true),/binding changed/);
   mode="unavailable";await assert.rejects(shelfStatus(task.request_id,true));
   mode="absent";await assert.rejects(shelfCall(undefined,{pending:task.request_id,json:true}));
+  const priced=store.getOrCreate({operation_id:"op-original",publication_id:"pub-original",input:{q:"price"},max_charge_atoms:"10000"}).task;
+  key=store.idempotencyKey(priced.request_id);mode="changed";raw="";await shelfStatus(priced.request_id,true);
+  const receipt=JSON.parse(raw);assert.equal(receipt.handoff,undefined);assert.equal(receipt.result.current_price.currency,"CNY");assert.equal(receipt.result.current_price.amount_atoms,"20000");assert.equal(receipt.result.captured_atoms,"0");assert.match(receipt.instruction,/CNY ¥0.02/);
+  mode="changed-unverified";raw="";await shelfStatus(priced.request_id,true);
+  assert.equal(JSON.parse(raw).result.captured_atoms,null);assert.doesNotMatch(JSON.parse(raw).instruction,/本次没扣钱/);
   assert.equal(posts,0,"unknown and unavailable receipts must never cause a new admission");
   const saved=store.get(task.request_id)!;
   assert.deepEqual(saved.input,{q:"frozen"});assert.equal(saved.publication_id,"pub-original");
