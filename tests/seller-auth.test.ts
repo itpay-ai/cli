@@ -88,7 +88,7 @@ test('Public CLI supports official dev and isolates its state from production', 
   } finally { rmSync(home, {recursive:true,force:true}); }
  });
 
- test('V4 dev accepts only its exact HTTPS origin and keeps old environments isolated', () => {
+ test('Development uses one exact HTTPS origin and isolates production and sandbox', () => {
   const home = mkdtempSync(join(tmpdir(), 'itpay-v4-dev-'));
   try {
     const env = { HOME: home, ITPAY_BACKEND_URL: V4_DEV_BASE_URL };
@@ -96,8 +96,9 @@ test('Public CLI supports official dev and isolates its state from production', 
     assert.equal(resolveBackendURL({ ...env, ITPAY_BACKEND_URL: V4_DEV_BASE_URL + '/' }), V4_DEV_BASE_URL);
     assert.equal(qualifyBackendCommand('itpay orders', env), `ITPAY_BACKEND_URL=${V4_DEV_BASE_URL} itpay orders`);
     assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home }));
-    assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL }));
-    for (const value of ['https://dev.itpay.ai', 'https://dev.itpay.ai:443', 'https://dev.itpay.ai:8443', 'https://user@v4-dev.itpay.ai', 'https://dev.itpay.ai.evil.invalid', 'https://evil-v4-dev.itpay.ai', 'https://dev.itpay.ai/path', 'https://dev.itpay.ai?x=1', 'https://dev.itpay.ai#x']) {
+    assert.equal(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL }));
+    assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: "https://sandbox.itpay.ai" }));
+    for (const value of ['http://dev.itpay.ai', 'https://dev.itpay.ai:443', 'https://dev.itpay.ai:8443', 'https://user@dev.itpay.ai', 'https://dev.itpay.ai.evil.invalid', 'https://evil-v4-dev.itpay.ai', 'https://dev.itpay.ai/path', 'https://dev.itpay.ai?x=1', 'https://dev.itpay.ai#x']) {
       assert.throws(() => resolveBackendURL({ ...env, ITPAY_BACKEND_URL: value, ITPAY_CLI_DEV: '1' }));
     }
   } finally { rmSync(home, { recursive: true, force: true }); }

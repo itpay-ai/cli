@@ -447,8 +447,8 @@ test('all auth and original-task continuations keep host Backend and custom priv
  process.env.ITPAY_AGENT_TYPE='workbuddy';process.env.ITPAY_BACKEND_URL='https://dev.itpay.ai';process.env.ITPAY_STATE_DIR="/tmp/itpay test's private";
  try{for(const jsonOutput of [false,true]){
   const out:string[]=[];writeCommandEnvelope({status:'fixture',result:{account_action:{optional:true,command:'itpay auth login --json'},expired_action:{command:'itpay auth login --json'},resume:{command:'itpay services get original --json'}},instruction:'fixture',next:{command:'itpay auth status --json',reason:'same authorization'},recovery:[{command:'itpay services next original --json',reason:'same task'}]},{jsonOutput,output:s=>out.push(s)});
-  const text=out.join('');assert.match(text,/ITPAY_STATE_DIR=/);assert.match(text,/ITPAY_BACKEND_URL=https:\/\/v4-dev.itpay.ai/);assert.match(text,/itpay --agent-type workbuddy auth status/);
-  if(jsonOutput){const x=JSON.parse(text);for(const command of [x.next.command,x.recovery[0].command,x.result.account_action.command,x.result.expired_action.command,x.result.resume.command]){assert.match(command,/^ITPAY_STATE_DIR=/);assert.match(command,/--agent-type workbuddy/);assert.match(command,/ITPAY_BACKEND_URL=https:\/\/v4-dev.itpay.ai/);}}
+  const text=out.join('');assert.match(text,/ITPAY_STATE_DIR=/);assert.match(text,/ITPAY_BACKEND_URL=https:\/\/dev.itpay.ai/);assert.match(text,/itpay --agent-type workbuddy auth status/);
+  if(jsonOutput){const x=JSON.parse(text);for(const command of [x.next.command,x.recovery[0].command,x.result.account_action.command,x.result.expired_action.command,x.result.resume.command]){assert.match(command,/^ITPAY_STATE_DIR=/);assert.match(command,/--agent-type workbuddy/);assert.match(command,/ITPAY_BACKEND_URL=https:\/\/dev.itpay.ai/);}}
  }}finally{for(const [key,value]of Object.entries({ITPAY_AGENT_TYPE:old.type,ITPAY_BACKEND_URL:old.backend,ITPAY_STATE_DIR:old.state})){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
 });
 
