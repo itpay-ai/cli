@@ -41,7 +41,7 @@ Charlie已定新普通Agent无默认周期上限、保留可信单次同意；�
 
 同宿主两会话默认共享安装profile、连接及该安装尚未完成的auth_handle，connect在锁内复用它；业务request ID各自独立。不同Agent各自随机安装ID；selector与精确路径见后面的13项合同。legacy归原使用者，新Agent新profile授权。
 
-Device connect交链接后立即`connect continue <handle> --wait 120`；pending有效继续等，expired自动新OAuth链接，拒绝/取消停止到用户说重来；错账号给本人可信脱敏账号和切换入口；网络未知保留原handle。网页同页显示 Agent 与设备，默认单次 ¥0.01，原任务按已展示报价预填，用户可修改金额或切换仅免费；两owner独立记账，全部就绪、token→/me核验并原子保存后CLI才说已连接。旧页错误由gateway接Device专用风格页，按钮重开原笔链接；验A失效→重开A→A/B均connected。
+Device connect交链接后立即`connect continue --wait 120 -- <handle>`；pending有效继续等，expired自动新OAuth链接，拒绝/取消停止到用户说重来；错账号给本人可信脱敏账号和切换入口；网络未知保留原handle。网页同页显示 Agent 与设备，默认单次 ¥0.01，原任务按已展示报价预填，用户可修改金额或切换仅免费；两owner独立记账，全部就绪、token→/me核验并原子保存后CLI才说已连接。旧页错误由gateway接Device专用风格页，按钮重开原笔链接；验A失效→重开A→A/B均connected。
 
 目标 CLI 先查同一 handle 的 status，ready 后才锁内兑换。pending 可跨进程保存原 proof/code，候选 token 仅内存。首次 /me 新鲜核验原绑定后原子保存。兑换不明先核原 flow，已消费且未保存则重新同意，保原业务。
 
@@ -143,6 +143,6 @@ Admit复核expected_publication_id、max_charge和当前grant；变价时，原�
 
 ### CLI Device 授权入口
 
-`setup --api-prefix <绝对目录>` 创建当前安装的私有选择文件与启动器。`api --profile <选择文件> connect` 返回授权链接和原等待命令，`connect continue <handle> --wait 120` 接着等待，`connect status` 显示当前安装和代次。续接带已有本地请求时传 `connect --request <request_id>`，连上后先读原单。已确认兑换但本地未保存时，由本人选择 `connect restart` 恢复同一连接。旧独立恢复入口仍用于未迁移连接的历史兼容。
+`setup --api-prefix <绝对目录>` 创建当前安装的私有选择文件与启动器。`api --profile <选择文件> connect` 返回授权链接和原等待命令，`connect continue --wait 120 -- <handle>` 接着等待，`connect status` 显示当前安装和代次。续接带已有本地请求时传 `connect --request <request_id>`，连上后先读原单。已确认兑换但本地未保存时，由本人选择 `connect restart` 恢复同一连接。旧独立恢复入口仍用于未迁移连接的历史兼容。
 
 在本地候选配对中，Device 客户端向配置的 issuer 启动和轮询，并在 ready 后用标准 Device grant 兑换；首次 `/me` 的买家、consumer、批准和代次一致才写私有凭据。失败或重连继续使用原安装。

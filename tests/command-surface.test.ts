@@ -71,9 +71,8 @@ test('registered API commands keep original requests, safe errors and Services i
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(home,{recursive:true,force:true});}
 });
 
-async function deviceFixture(identityStatus = 200) {
+async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001") {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
- const handle="synthetic-handle-001";
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
  let ready=false,resource="",starts=0,exchanges=0,probes=0;
  let originalConsumer: string | undefined;
@@ -123,7 +122,9 @@ async function deviceFixture(identityStatus = 200) {
   HOME:home,ITPAY_STATE_DIR:home,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
  function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {
   return new Promise((resolve,reject)=>{
-   const child=spawn(process.execPath,["--import","tsx","src/main.ts",...args,"--json"],{cwd:root,env,stdio:["ignore","pipe","pipe"]});
+   const boundary = args.indexOf("--");
+   const argv = boundary < 0 ? [...args, "--json"] : [...args.slice(0, boundary), "--json", ...args.slice(boundary)];
+   const child=spawn(process.execPath,["--import","tsx","src/main.ts",...argv],{cwd:root,env,stdio:["ignore","pipe","pipe"]});
    let output="";
    child.stdout.on("data",part=>output+=part);
    child.on("error",reject);
@@ -148,18 +149,18 @@ async function deviceFixture(identityStatus = 200) {
 }
 
 test("Device connect exchanges only after approval and verifies before saving",async()=>{
- const f=await deviceFixture();
+ const f=await deviceFixture(200, "-synthetic-handle-001");
  try {
   const {selector,state}=await f.setup();
   const api=["api","--profile",selector,"connect"];
   const pending=await f.cli(api);
   assert.equal(pending.value.status,"pending");
-  assert.match(pending.value.next.command,/--profile.*connect continue synthetic-handle-001 --wait 120/);
+  assert.match(pending.value.next.command,/--profile.*connect continue --wait 120 --json -- -synthetic-handle-001/);
   assert.doesNotMatch(pending.output,/synthetic-device-code|synthetic-poll-proof/);
-  assert.equal((await f.cli([...api,"continue",f.handle,"--wait","0"])).value.status,"pending");
+  assert.equal((await f.cli([...api,"continue","--wait","0","--",f.handle])).value.status,"pending");
   assert.equal(f.calls().exchanges,0);
   f.approve();
-  const connected=await f.cli([...api,"continue",f.handle,"--wait","5"]);
+  const connected=await f.cli([...api,"continue","--wait","5","--",f.handle]);
   assert.equal(connected.value.status,"connected");
   assert.deepEqual(connected.value.result.binding,{buyer_id:f.binding.buyer_id,consumer_id:f.binding.consumer_id});
   assert.doesNotMatch(connected.output,/synthetic-device-access|synthetic-refresh/);
@@ -191,11 +192,11 @@ test("first Device connect with an unavailable identity probe saves no credentia
   const api=["api","--profile",selector,"connect"];
   await f.cli(api);
   f.approve();
-  const first=await f.cli([...api,"continue",f.handle,"--wait","5"]);
+  const first=await f.cli([...api,"continue","--wait","5","--",f.handle]);
   assert.equal(first.code,1);
   assert.equal(first.value.error.code,"connection_verification_pending");
   assert.equal(existsSync(hubCredentialsPath({...f.env,ITPAY_STATE_DIR:state})),false);
-  const resumed=await f.cli([...api,"continue",f.handle,"--wait","5"]);
+  const resumed=await f.cli([...api,"continue","--wait","5","--",f.handle]);
   assert.equal(resumed.value.status,"exchange_unknown");
   assert.equal(f.calls().exchanges,1);
   assert.equal(f.calls().probes,1);

@@ -60,7 +60,7 @@ hubCmd
       if (!Number.isInteger(wait) || wait < 0 || wait > 120) throw new Error("Device wait must be between 0 and 120 seconds");
       const result = action === "restart" ? await restartHubDevice() : await connectHubDevice(handle, wait, options.request);
       const next = result.phase === "pending" ? {
-        command: `itpay api connect continue ${result.handle} --wait 120${options.json ? " --json" : ""}`,
+        command: `itpay api connect continue --wait 120${options.json ? " --json" : ""} -- ${result.handle}`,
         reason: "等待原授权完成",
       } : result.phase === "connected" && result.request_id ? {
         command: `itpay api resume ${result.request_id} --read-first${options.json ? " --json" : ""}`,
