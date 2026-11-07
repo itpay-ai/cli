@@ -17,11 +17,12 @@ import { writeCommandEnvelope } from "./guidance.js";
 
 // Explicit runtime identity wins. Never infer a host from an old device or HOME path.
 export function actualAgentType(env: NodeJS.ProcessEnv = process.env): string {
- const explicit = declaredAgentType(env);
- if (explicit && isInstallAgentType(explicit)) return explicit;
+ const explicit = declaredAgentType({},process.argv);
+ if (explicit) {if(isInstallAgentType(explicit))return explicit;throw new Error('unsupported actual --agent-type');}
  const signals = [env.CODEX_THREAD_ID ? "codex-desktop" : undefined, env.CLAUDECODE ? "claude-code-desktop" : undefined,
   env.MUSE_SESSION_ID ? "muse" : undefined, env.DOT_SESSION_ID ? "dot" : undefined, env.WORKBUDDY_SESSION_ID ? "workbuddy" : undefined].filter(Boolean);
  if (signals.length === 1) return signals[0]!;
+ if(signals.length===0 && env.ITPAY_AGENT_TYPE){const configured=canonicalAgentType(env.ITPAY_AGENT_TYPE);if(configured&&isInstallAgentType(configured))return configured;}
  throw new Error("host_context_required: Agent must supply its own actual --agent-type; do not ask the user to choose an identity");
 }
 
@@ -71,10 +72,13 @@ export function registerAgentCommand(program: Command): void {
    }
    process.env.ITPAY_STATE_DIR=join(root,'services');
    const config=loadConfig();const backend=newBackendClient(config);
-   let result=await agentAuth('login',config.baseURL,backend) as Record<string,unknown>;
+   let result=await agentAuth('status',config.baseURL,backend) as Record<string,unknown>;
+   if(['login_required','auth_pending','auth_expired','auth_session_missing'].includes(String(result.status))) result=await agentAuth('login',config.baseURL,backend) as Record<string,unknown>;
    const done=()=>result.status==='authenticated';
    const servicesNext=`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR!)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`;
-   const emitServices=()=>emit(done()?'connected':String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR},done()?servicesNext:result.status==='auth_pending'?again:null,done()?'账号已连接；读Services Skill继续保存的原任务。':'展示原官方登录入口并立即等待，不要求用户回来报告完成。');
+   const emitServices=()=>{
+    if(result.status==='auth_denied'||result.status==='auth_cancelled')recordAgentAuthorization(root,result.status==='auth_denied'?'denied':'cancelled');
+    emit(done()?'connected':String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR},done()?servicesNext:result.status==='auth_pending'?again:null,done()?'账号已连接；读Services Skill继续保存的原任务。':'展示原官方登录入口并立即等待，不要求用户回来报告完成。');};
    emitServices();if(done()||options.buffered||wait===0||result.status!=='auth_pending')return;
    const deadline=Date.now()+wait*1000;
    do{await sleep(Math.min(2000,Math.max(0,deadline-Date.now())));result=await agentAuth('status',config.baseURL,backend) as Record<string,unknown>;}while(result.status==='auth_pending'&&Date.now()<deadline);

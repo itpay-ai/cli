@@ -9,7 +9,8 @@ test('runtime context selects independent host roots without adopting a differen
  const argv=process.argv;process.argv=['node','itpay'];
  try{
   assert.equal(actualAgentType({CODEX_THREAD_ID:'thread'}),'codex-desktop');
-  assert.equal(actualAgentType({ITPAY_AGENT_TYPE:'muse',CODEX_THREAD_ID:'thread'}),'muse');
+  assert.equal(actualAgentType({ITPAY_AGENT_TYPE:'muse',CODEX_THREAD_ID:'thread'}),'codex-desktop');
+  process.argv=['node','itpay','--agent-type','dot'];assert.equal(actualAgentType({ITPAY_AGENT_TYPE:'codex-cli',CODEX_THREAD_ID:'thread'}),'dot');process.argv=['node','itpay'];
   assert.throws(()=>actualAgentType({CODEX_THREAD_ID:'one',DOT_SESSION_ID:'two'}),/host_context_required/);
   for(const type of ['dot','muse','workbuddy'])assert.equal(actualAgentType({ITPAY_AGENT_TYPE:type}),type);
   assert.notEqual(agentRoot('dot',{HOME:'/tmp/agent'}),agentRoot('muse',{HOME:'/tmp/agent'}));
