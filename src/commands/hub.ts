@@ -591,6 +591,10 @@ async function refreshOriginalTask(client: HubClient, store: HubTaskStore, task:
     return snapshot;
   } catch (error) {
     store.update(task.request_id, {status: "unknown", blocking_reason: undefined, terminal: false, pending_stage: "unknown", next: {read_only: {method: "GET", path: `/v1/requests/${encodeURIComponent(store.idempotencyKey(task.request_id))}`}}, state_source: "hub", state_stale: true, last_checked_at: new Date().toISOString(), refresh_error: error instanceof HttpError && error.status === 404 ? "not_found" : error instanceof Error && error.message.startsWith("invalid_state:") ? "binding_conflict" : "unavailable"});
+    if (error instanceof Error && error.message.startsWith("authorization_required:") ||
+      error instanceof HttpError && ["unauthenticated", "authorization_required"].includes(error.code)) {
+      throw new HubTaskRequestError(error, store.get(task.request_id) ?? task);
+    }
     return undefined;
   }
 }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Command} from 'commander';
 import {hubCredentialsPath,storeHubSession} from '../src/state/hub_credentials.js';
+import {HubTaskStore,hubTasksDir} from '../src/state/hub_tasks.js';
 import {registerAPICommands} from '../src/commands/api_commands.js';
 import {spawnSync,spawn} from 'node:child_process';
 import {createServer} from 'node:http';
@@ -71,7 +72,7 @@ test('registered API commands keep original requests, safe errors and Services i
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(home,{recursive:true,force:true});}
 });
 
-async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001") {
+async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
  let ready=false,resource="",starts=0,exchanges=0,probes=0;
@@ -95,9 +96,14 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    return;
   }
   if(req.url==="/oauth2/token") {
-   exchanges++;
    let raw="";for await(const part of req)raw+=part;
    const form=new URLSearchParams(raw);
+   if(form.get("grant_type")==="refresh_token" && refreshStatus) {
+    res.writeHead(refreshStatus);
+    res.end(JSON.stringify({error:refreshStatus===400?"invalid_grant":"temporarily_unavailable"}));
+    return;
+   }
+   exchanges++;
    assert.equal(form.get("grant_type"),"urn:ietf:params:oauth:grant-type:device_code");
    assert.equal(form.get("device_code"),"synthetic-device-code");
    assert.equal(form.get("resource"),resource);
@@ -202,3 +208,36 @@ test("first Device connect with an unavailable identity probe saves no credentia
   assert.equal(f.calls().probes,1);
  } finally {await f.close()}
 });
+
+for (const refreshStatus of [400,503]) {
+ test(`original task reads preserve Device recovery semantics for refresh ${refreshStatus}`,async()=>{
+  const f=await deviceFixture(200,"synthetic-handle-001",refreshStatus);
+  try {
+   const {selector,state}=await f.setup();
+   const env={...f.env,ITPAY_STATE_DIR:state};
+   storeHubSession("original-access","original-refresh",300,f.binding.buyer_id,f.resource,env,f.binding.consumer_id);
+   const path=hubCredentialsPath(env);
+   const credentials=JSON.parse(readFileSync(path,"utf8"));
+   credentials.profiles.default.refresh_after="2000-01-01T00:00:00.000Z";
+   writeFileSync(path,JSON.stringify(credentials));
+   const store=new HubTaskStore(hubTasksDir(env));
+   const {task}=store.getOrCreate({request_id:"original-request",operation_id:"op",publication_id:"pub",input:{q:"original"}});
+   store.update(task.request_id,{status:"blocked",intent_id:"original-intent"});
+   for(const action of [["resume",task.request_id,"--read-first"],["tasks","--refresh","--request-id",task.request_id]]) {
+    const result=await f.cli(["api","--profile",selector,...action]);
+    if(refreshStatus===400) {
+     assert.equal(result.value.error.code,"authorization_required");
+     assert.match(result.value.next.command,/connect --request original-request/);
+     assert.ok(result.value.next.command.includes(selector));
+    } else {
+     assert.equal(result.value.status,"listed");
+     assert.equal(result.value.next,null);
+    }
+    assert.equal(store.get(task.request_id)?.intent_id,"original-intent");
+    assert.deepEqual(store.get(task.request_id)?.input,{q:"original"});
+   }
+   assert.equal(f.calls().starts,0);
+   assert.equal(readFileSync(path,"utf8"),JSON.stringify(credentials));
+  } finally {await f.close()}
+ });
+}
