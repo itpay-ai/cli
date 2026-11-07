@@ -51,7 +51,7 @@ test('Agent login binds the signed device after Web completion without storing a
 
 test('known missing Agent Type is not swallowed into auth_status_unknown',async()=>{
  const {AgentTypeRequiredError}=await import('../src/state/agent_type.js');
- await assert.rejects(()=>agentAuth('login','https://v4-dev.itpay.ai',{
+ await assert.rejects(()=>agentAuth('login','https://dev.itpay.ai',{
   agentAccountStatus:async()=>{throw new AgentTypeRequiredError();},bindAgentAccount:async()=>{throw Error('must not bind');},
  }),AgentTypeRequiredError);
 });
