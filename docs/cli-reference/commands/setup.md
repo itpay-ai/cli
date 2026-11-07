@@ -1,3 +1,9 @@
+# Task-driven Agent entry
+
+For a new task use `itpay agent --surface api|services --task @/absolute/private-task.txt --json`. It selects this actual host's independent profile, saves the original task, prepares only the requested path, emits its official authorization link and waits up to120s. The Agent supplies its own --agent-type when runtime signals are absent; the person does not choose a type. For buffered tool output add --buffered, show the returned link and immediately execute next. Pending is not connected. Resume after any next reply with agent and no task; explicit new intent uses --new-task, retaining prior receipts. Existing accepted requests keep their original profile/commands; never copy them into a new host profile. Read the returned connected original task and same-package Skill; original API requests go to status first.
+
+This entry is available in the development candidate from https://dev.itpay.ai/agent, not implicitly the fixed/npm package. First-batch Services and Hub remain independently authorized. Legacy setup below remains a diagnostic/compatibility path.
+
 # `itpay setup`
 
 Use the host's permitted persistent npm installation or a normal global install. Fix that exact executable for all commands; installation location does not change the device identity directory.
@@ -17,3 +23,5 @@ Reuse the existing launcher and permitted state directory across chats; a new ch
 API installations use `itpay setup --api-prefix <absolute-directory> --json`.
 The returned private selector is supplied to `itpay api --profile <selector>`;
 its dedicated launcher selects it automatically. This does not create API authority.
+
+Agent options: `--task <text|@file>` saves the original request; `--surface api|services` selects its owner; `--request <id>` refers only to a local request in this same selected profile; `--wait <0..120>` bounds a wait round; `--buffered` returns the link before a separate wait call; `--new-task` records a genuinely new intent while preserving prior receipts; `--json` emits progress frames; `--help` describes this entry. Resume with no `--task` to keep the saved original.

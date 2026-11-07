@@ -78,7 +78,7 @@ test("CLI version matches package version", () => {
 test("top-level help gives one Agent-owned setup path and human intent map", async () => {
   const result = await runCLI(["--help"], {});
   assert.match(result.stdout, /Agent quick start:/);
-  assert.match(result.stdout, /itpay setup --agent-type <actual_type> --json/);
+  assert.match(result.stdout, /itpay agent --surface api\|services --task @<private-task-file> --json/);
   assert.match(result.stdout, /Previously purchased item vault list/);
   assert.match(result.stdout, /The Agent runs commands/);
   assert.doesNotMatch(result.stdout, /ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai/);

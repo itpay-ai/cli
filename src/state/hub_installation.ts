@@ -88,14 +88,20 @@ export function prepareHubInstallation(prefix: string, executable = process.argv
   const selector = join(root, "api-profile.json");
   const launcher = join(root, "bin", "itpay");
   return withFileLock(selector + ".lock", () => {
-    const command = `#!/bin/sh\ncase "$1" in api|hub) shift ;; esac\nfor arg do\n  case "$arg" in --profile|--profile=*) exit 2 ;; esac\ndone\nexec ${shellQuote(process.execPath)} ${shellQuote(absolute(executable))} api --profile ${shellQuote(selector)} "$@"\n`;
-    if (existsSync(launcher) && (!lstatSync(launcher).isFile() || readFileSync(launcher, "utf8") !== command)) {
-      throw new Error("API installation already has a different launcher");
+    const legacy = `#!/bin/sh\ncase "$1" in api|hub) shift ;; esac\nfor arg do\n  case "$arg" in --profile|--profile=*) exit 2 ;; esac\ndone\nexec ${shellQuote(process.execPath)} ${shellQuote(absolute(executable))} api --profile ${shellQuote(selector)} "$@"\n`;
+    const forward = `const {spawnSync}=require('node:child_process');const [exe,selector,...input]=process.argv.slice(1);if(['api','hub'].includes(input[0]))input.shift();const args=[];for(let i=0;i<input.length;i++){let v;if(input[i]==='--profile')v=input[++i];else if(input[i].startsWith('--profile='))v=input[i].slice(10);else {args.push(input[i]);continue;}if(v!==selector){process.stderr.write('profile_mismatch: this launcher belongs to '+selector+'\\n');process.exit(2);}}const r=spawnSync(process.execPath,[exe,'api','--profile',selector,...args],{stdio:'inherit'});if(r.error){process.stderr.write(r.error.message+'\\n');process.exit(1);}process.exit(r.status??1);`;
+    const command = `#!/bin/sh\nexec ${shellQuote(process.execPath)} -e ${shellQuote(forward)} ${shellQuote(absolute(executable))} ${shellQuote(selector)} "$@"\n`;
+    let upgrade = false;
+    if (existsSync(launcher)) {
+      if (!lstatSync(launcher).isFile()) throw new Error("API installation already has a different launcher");
+      const prior = readFileSync(launcher, "utf8");
+      if (prior !== command && prior !== legacy) throw new Error("API installation already has a different launcher");
+      upgrade = prior === legacy;
     }
     const profile = existsSync(selector) ? readProfile(selector) : newInstallation(root);
     mkdirSync(dirname(launcher), { recursive: true, mode: 0o700 });
     if (!existsSync(selector)) atomicWrite(selector, JSON.stringify(profile, null, 2) + "\n", 0o600);
-    if (!existsSync(launcher)) atomicWrite(launcher, command, 0o700);
+    if (!existsSync(launcher) || upgrade) atomicWrite(launcher, command, 0o700);
     return { selector, launcher, profile_id: profile.profile_id };
   });
 }
@@ -125,5 +131,6 @@ export function hasHubInstallation(): boolean {
 export function qualifyHubInstallation(command: string): string | undefined {
   const apiPrefix = /^itpay(?: --agent-type(?:=| )[a-z0-9-]+)? (?:api|hub)(?= |$)/;
   if (!activeSelector || !apiPrefix.test(command)) return undefined;
+  if (/ --profile(?:=| )/.test(command)) return command;
   return command.replace(apiPrefix, prefix => `${prefix} --profile ${shellQuote(activeSelector!)}`);
 }

@@ -9,6 +9,12 @@ Use the official pinned CLI when this host permits execution. API calls and stru
 
 The API business commands are categories, list, show, call, status and wallet. Connection and installation are separate. Use the selected installation from setup --api-prefix. Follow every returned next.command exactly, including its absolute --profile selector. Never clear credentials, change accounts or create a substitute request to recover quota or an unknown result.
 
+## Start from the user's task
+
+Do not ask the user to prepare ItPay first. If no CLI is installed, read https://dev.itpay.ai/agent inside the actual execution environment. Run the official `agent --task @<private-task-file> --surface api --json` entry, supplying your own actual `--agent-type` only when runtime detection needs it. This prepares this host's independent profile and saves the task before connection. Existing legacy profiles and credentials are preserved; never adopt another host's identity. Explicit existing request/profile continuations keep their original launcher instead.
+
+Show the returned official link immediately. The entry emits the link and waits in the same call; use `--buffered` if this host cannot display streaming output, then run the returned next command immediately. Do not ask for permission to initiate the requested connection or tell the user to report "done". Only the person approves in the official page. `pending` or exit 0 is not connected. If the host ends the turn, any next reply resumes `agent` without a new task argument. Follow the saved original request status before continuing; an explicitly new user intent uses `--new-task`, retaining the prior receipt. Never restart after denial/cancellation without a new explicit intent.
+
 ## Find and consent
 
 Use categories to read the website's real categories, including empty ones. Use list with the returned category ID or its label, and optional query. Follow the returned cursor for more products. Ordinary public shelves show USGS and Frankfurter. Test products appear only for a server-authorized test account with the server switch enabled.

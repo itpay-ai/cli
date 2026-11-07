@@ -1,3 +1,4 @@
+import { registerAgentCommand } from "./commands/agent.js";
 import { prepareHubInstallation, shellQuote } from "./state/hub_installation.js";
 import { registerAPICommands } from "./commands/api_commands.js";
 import { AgentTypeRequiredError } from "./state/agent_type.js";
@@ -71,10 +72,10 @@ program
   .addHelpText("after", `
 Agent quick start:
   1. Use one official package in the host's permitted persistent npm location.
-  2. Run: itpay setup --agent-type <actual_type> --json
+  2. Run: itpay agent --surface api|services --task @<private-task-file> --json
   3. Read the same-package Services or API Skill for the requested outcome.
   Keep the existing launcher, actual Agent Type and state directory across sessions.
-  Setup checks Services device/account status, not API Hub authorization.
+  The agent entry prepares only the requested path and saves the task before connecting.
 
 Common human intents:
   API or structured data     skill show itpay-api --json → api categories
@@ -2032,6 +2033,7 @@ services
   });
 
 
+registerAgentCommand(program);
 registerAPICommands(program);
 
 program.parseAsync(process.argv).catch((error) => {

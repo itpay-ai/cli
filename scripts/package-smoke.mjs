@@ -113,6 +113,7 @@ syncBuiltinESMExports();
     ["", "index.md"],
     ["readyz", "commands/readyz.md"],
     ["setup", "commands/setup.md"],
+    ["agent", "commands/setup.md"],
     ...["auth", "auth login", "auth status"].map(command => [command, "commands/auth.md"]),
     ["device", "commands/device.md"], ["device recover", "commands/device.md"], ["device repair-lock", "commands/device.md"], ["device reset-key", "commands/device.md"],
     ["skill", "commands/skill.md"], ["skill show", "commands/skill.md"],

@@ -48,3 +48,9 @@ API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算�
 ### N62 报价事件与原单链（2026-11-07）
 
 lint 和 548 tests 通过；shelf 回归断言同一 show 的 shown_event_id 传入两个不同原 request，status/pending 不重发。打包 tgz（2.1.65）经 managed-prefix/global 和 package smoke 通过。真实隔离 Hub 五路径证明报价→受理→供应商→费用→交付、充值→原 intent 续接和变价无 run 关闭；2 captures 共 20000 CNY atoms、held 0、journal 平衡，重复查询不变。证据在 `~/.codex/artifacts/itpay-cli-device-redesign-20261106/evidence/n62-events-20261107/`，详细边界以 Hub/V4 TESTING 为准；没有 SDK 更新、npm 发布、Actions 或自然用户 UX 结论。
+
+## N6.3 / T07 同阶段第一批
+
+实际注册入口回归：首链接输出、缓冲返回、原句与句柄跨进程复用、批准后一次兑换、第二次直接连接；本地HTTP fixture，不代签自然宿主。独立宿主/端点根目录、私有任务、原request绑定、替换拒绝、明确新意图保留旧收据、同selector重复profile与foreign拒绝均有定点断言。T07既有rail expiry消费者与unknown恢复回归保持。
+
+四项阶段自然观察为发现入口、首链接/额外回话、批准到结果/任意下一句恢复、第二次直用/原请求一次效果；真实宿主记录与工程结果分开，不另开五宿主矩阵。
