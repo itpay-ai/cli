@@ -49,14 +49,14 @@ export function registerAgentCommand(program: Command): void {
    const text=options.task?.startsWith('@')?readFileSync(options.task.slice(1),'utf8'):options.task as string|undefined;
    const task=saveAgentTask(root,text,options.surface,options.request,Boolean(options.newTask));
    const executable=resolve(process.argv[1]!);
-   const publicEnv=`ITPAY_HUB_OAUTH_ISSUER=${shellQuote(new URL(hubOAuthConfig().tokenURL).origin)} ITPAY_BACKEND_URL=${shellQuote(resolveBackendURL())} ITPAY_HUB_URL=${shellQuote(hubOAuthConfig().resource)} ${process.env.ITPAY_AGENT_HOME ? 'ITPAY_AGENT_HOME='+shellQuote(process.env.ITPAY_AGENT_HOME)+' ' : ''}`;
+   const publicEnv=`ITPAY_AGENT_EXECUTABLE=${shellQuote(executable)} ITPAY_HUB_OAUTH_ISSUER=${shellQuote(new URL(hubOAuthConfig().tokenURL).origin)} ITPAY_BACKEND_URL=${shellQuote(resolveBackendURL())} ITPAY_HUB_URL=${shellQuote(hubOAuthConfig().resource)} ${process.env.ITPAY_AGENT_HOME ? 'ITPAY_AGENT_HOME='+shellQuote(process.env.ITPAY_AGENT_HOME)+' ' : ''}`;
    const again=`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} agent --wait 120 --json`;
    const emit=(phase:string,details:Record<string,unknown>,next:string|null,instruction:string)=>writeCommandEnvelope({status:phase,result:{...details,task,agent_type:type},instruction,next:next?{command:next,reason:phase==='pending'?'立即继续等待原授权，无需用户回复':'继续原任务'}:null,recovery:[]},{jsonOutput:Boolean(options.json)});
    if(task.authorization_terminal){emit(task.authorization_terminal,{},null,'本人已拒绝或取消；不自动重开授权。明确的新任务才使用--new-task。');return;}
    if(task.surface==='api'){
     const installation=prepareHubInstallation(join(root,'api'));selectHubInstallation(installation.selector);
     const current=hubDeviceStatus();
-    const next=task.request_id?`${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} status ${task.request_id} --json`:`${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} list --json`;
+    const next=task.request_id?`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} status ${task.request_id} --json`:`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} list --json`;
     if(current.phase==='connected'){
      try { await new HubClient(loadHubConfig()).me();emit('connected',{selector:installation.selector},next,'连接已保存；继续已保存任务。已有request只读原单，不再次call。');return; }
      catch(error){if(!(error instanceof Error && error.message.startsWith('authorization_required:')))throw error;}

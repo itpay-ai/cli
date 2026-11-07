@@ -15,7 +15,7 @@ export function saveAgentTask(root: string, text: string | undefined, surface: s
   }
   if(!text){if(!prior)throw new Error("task_required: supply the original user task and --surface api|services once");return prior;}
   if(text.length>16000||!text.trim()||!['api','services'].includes(surface??''))throw new Error("invalid task or surface");
-  if(prior?.text===text && prior.surface===surface){if(request&&request!==prior.request_id)throw new Error("original task request cannot be replaced");return prior;}
+  if(!newTask && prior?.text===text && prior.surface===surface){if(request&&request!==prior.request_id)throw new Error("original task request cannot be replaced");return prior;}
   if(prior && !newTask)throw new Error("task_conflict: resume without --task; only an explicitly new user intent uses --new-task");
   if(prior){mkdirSync(join(root,'tasks'),{recursive:true,mode:0o700});writeFileSync(join(root,'tasks',prior.id+'.json'),JSON.stringify(prior)+'\n',{mode:0o600});}
   const task:SavedTask={id:randomUUID(),text,surface:surface as SavedTask['surface'],...(request?{request_id:request}:{})};
