@@ -56,3 +56,7 @@ An OIDC verify run exchanges GitHub identity for a temporary npm token and sends
 本轮Block V（2026-10-28）无发布：固定2.1.56下载包source3245354保持，a261e99只用于同原state的一次generic请求恢复。源码/文档HEAD、未发布dist与已分发包必须分列；推送PR不重新打同版本包，不移动candidate/next/latest。完整旅程未验完，见TESTING/BACKLOG。
 
 Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
+
+## N6.3 开发本地包（2026-11-07，非npm发布）
+
+PR154 main `e9131fb998231e324ebc906a4cfce596247e5147` 构建版本2.1.65的独立开发包 `itpay-cli-2.1.65-n63-e9131fb.tgz`，由 https://dev.itpay.ai/agent 的脚本固定下载。同版本npm包不是该制品。552项标准hook与main的test:package通过，公开包已在实际Codex终端独立前缀安装；正常Device同意后原等待connected，再次使用不新发链接。此为工程连接观察，不代签自然宿主或T07业务恢复。npm、candidate/next/latest与固定下载均未变；文档维护HEAD不冒称包source。服务组合/四项阶段观察归V4正式TESTING/DEPLOYMENT。

@@ -68,7 +68,7 @@ flowchart LR
 
 新普通Agent无默认周期限额，旧显式和APIKey预算保持；CLI/MCP独立授权。profile与可信连接分开；同页双owner同意、稳定consumer代次和原请求接续见[开发合同](DEVELOPMENT.md#agent-connection-target)。CLI loopback删除，MCP HTTPS callback/PKCE及Services链保持。
 
-## N6.3：当前断点与本阶段目标（实施前）
+## N6.3：当前断点与本阶段第一批
 
 ```mermaid
 flowchart TD
@@ -88,4 +88,4 @@ flowchart TD
  Guard -->|已有购买或unknown| Original[只读原购买，不新建]
 ```
 
-当前：Hub和Services仍独立授权；首次expiry的HTTP裸错误丢恢复信息；专用launcher拒绝重复profile；setup需人工拼装。目标：本阶段只改CLI/Skill接入和T07安全投影，保留两套权限owner、预算、旧profile和原请求。CLI不执行自然语言任务，持久保存原意交还宿主；不将安装/链接/进程退出0称为授权或业务成功。第二批统一同意页/按需双签发尚未实施。
+原断点：首次expiry的HTTP裸错误丢恢复信息、launcher拒绝重复profile、setup需人工拼装。本阶段已实现CLI/Skill接入和T07安全投影，Hub和Services仍独立授权，保留两套权限owner、预算、旧profile和原请求。CLI不执行自然语言任务，持久保存原意交还宿主；不将安装/链接/进程退出0称为授权或业务成功。第二批统一同意页/按需双签发尚未实施。
