@@ -11,7 +11,7 @@ export async function verifyHubPackaged(packageRoot,scratch){
  const metadata=JSON.parse(readFileSync(join(packageRoot,'package.json'),'utf8'));
  assert.deepEqual(metadata.itpayCommands,['services','api']);
  const entry=join(packageRoot,'bin/itp.mjs');
- for(const group of ['api','hub','services']){const p=spawnSync(process.execPath,[entry,group,'--help'],{encoding:'utf8',env:{...process.env,HOME:home,ITPAY_STATE_DIR:state}});assert.equal(p.status,0,p.stderr);assert.match(p.stdout,/Usage:/);if(group!=='services')assert.match(p.stdout,/discover/);else assert.match(p.stdout,/purchase/)}
+ for(const group of ['api','hub','services']){const p=spawnSync(process.execPath,[entry,group,'--help'],{encoding:'utf8',env:{...process.env,HOME:home,ITPAY_STATE_DIR:state}});assert.equal(p.status,0,p.stderr);assert.match(p.stdout,/Usage:/);if(group!=='services')assert.match(p.stdout,/categories/);else assert.match(p.stdout,/purchase/)}
  let refreshCalls=0,walletCalls=0;
  const server=createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');
