@@ -161,6 +161,16 @@ async function serverStatus(cfg: HubOAuthConfig, flow: Flow): Promise<({ phase: 
   return undefined;
 }
 
+async function acknowledgeDeviceSave(cfg: HubOAuthConfig, flow: Flow): Promise<void> {
+  try {
+    const issuer = new URL(cfg.tokenURL).origin;
+    await fetch(`${issuer}/v1/oauth/device/${flow.handle}/saved`, {
+      method: "POST", headers: { Authorization: `Bearer ${flow.poll_proof}` },
+      redirect: "error", signal: AbortSignal.timeout(2_500),
+    });
+  } catch { /* the verified credentials are already saved */ }
+}
+
 export async function restartHubDevice(): Promise<DeviceResult> {
   const cfg = hubOAuthConfig();
   const path = pendingPath();
@@ -227,6 +237,7 @@ export async function connectHubDevice(handle: string | undefined, waitSeconds: 
         if (validBinding(status, cfg.clientID) && current?.subject === status.buyer_id &&
           current.consumer_id === status.consumer_id && current.authorization_id === status.authorization_id &&
           current.device_approval_id === status.device_approval_id) {
+          await acknowledgeDeviceSave(cfg, flow);
           unlinkSync(path);
           return { result: { phase: "connected", binding: { buyer_id: status.buyer_id, consumer_id: status.consumer_id },
             ...(state.request_id ? { request_id: state.request_id } : {}) } };
@@ -253,6 +264,7 @@ export async function connectHubDevice(handle: string | undefined, waitSeconds: 
         return { result: pending(flow), wait: flow.interval * 1000 };
       }
       if (connected === "exchange_unknown") return { result: { phase: "exchange_unknown" } };
+      await acknowledgeDeviceSave(cfg, flow);
       unlinkSync(path);
       return { result: { phase: "connected", binding, ...(state.request_id ? { request_id: state.request_id } : {}) } };
     });
