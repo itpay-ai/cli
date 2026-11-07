@@ -13,7 +13,7 @@ flowchart LR
   AS[API Skill：CLI仓唯一正文]
   subgraph CP[单个CLI进程]
     SC[Services命令与Backend HTTP client]
-    AC[api命令：hub仅兼容别名]
+    AC[api六业务命令 / hub兼容别名]
     SDK[固定Hub SDK：客户端库，不是服务器]
     Journal[端点隔离的设备/OAuth/原任务状态]
     AC --> SDK
@@ -60,6 +60,8 @@ flowchart LR
  C -.全入口验证后才可异步精确撤销.-> X[旧AS consent清理]
  T --> H[Hub资源及代次校验]
  H --> R[CLI普通读及call身份 / 3秒缓存]
+ R --> S[show缓存原publication及展示价]
+ S --> K[call原请求 / status只读 / call --pending接续原intent]
  H --> W[Hub当次执行门禁 / grant余额预算 / 原单ACL]
  M[MCP独立OAuth] --> H
 ```

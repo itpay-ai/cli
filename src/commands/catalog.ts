@@ -16,8 +16,8 @@ export async function runCatalogList(
     status: empty ? "catalog_empty" : "listed",
     result: { catalog_version: manifest.version, services },
     instruction: empty
-      ? "当前 Services 目录没有已发布服务，不代表 API Hub 没有匹配项；API/数据任务使用 itpay api discover。本次读取结束，不猜测服务或自动重试。"
-      : options.locale === "en" ? "This is the Services catalog, not the API Hub catalog. API/data tasks use itpay api discover. Explain the service, operations and pricing; start only a matching declared operation." : "向用户解释主服务、辅助步骤和价格；这是 Services 目录，不含 API Hub 目录。API/结构化数据用 itpay api discover，不能因这里未列出就判定 ItPay 无此能力。办理、交付和售后按匹配的 service_id、操作及价格继续。",
+      ? "当前 Services 目录没有已发布服务，不代表 API Hub 没有匹配项；API/数据任务使用 itpay api categories。本次读取结束，不猜测服务或自动重试。"
+      : options.locale === "en" ? "This is the Services catalog, not the API Hub catalog. API/data tasks use itpay api categories. Explain the service, operations and pricing; start only a matching declared operation." : "向用户解释主服务、辅助步骤和价格；这是 Services 目录，不含 API Hub 目录。API/结构化数据用 itpay api categories，不能因这里未列出就判定 ItPay 无此能力。办理、交付和售后按匹配的 service_id、操作及价格继续。",
     next: services.length === 1 && firstServiceID
       ? { command: `itpay services start ${firstServiceID}${jsonFlag}`, reason: "仅当当前服务符合用户请求时读取输入合同；不表示购买同意" }
       : null,

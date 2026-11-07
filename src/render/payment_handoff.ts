@@ -24,7 +24,7 @@ export async function renderPaymentHandoff(input:PaymentHandoffInput){
  // V3 default QR fallback is deliberately suppressed when no branded source was returned.
  plan.preferredQRSources=png?[png]:[];
  plan.paymentOnly=true;
- const nextCommand=qualifyItPayCommand((input.resumeCommand??`itpay api resume ${input.requestID}`)+`${input.jsonOutput?' --json':''}`,agentType);
+ const nextCommand=qualifyItPayCommand((input.resumeCommand??`itpay api call --pending ${input.requestID}`)+`${input.jsonOutput?' --json':''}`,agentType);
  plan.afterActionCommand=nextCommand;
  if(png&&input.prepareImage!==false&&['markdown','terminal'].includes(platformKeyForHost(host)))await ensureIdeImageAttach(plan,{});
  const platform=platformKeyForHost(host);

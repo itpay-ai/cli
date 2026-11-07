@@ -5,7 +5,7 @@ import {
   HubApiError,
   type EffectClass,
   type ServiceKind,
-  type AdmissionRequest,
+  type AdmissionRequest as SdkAdmissionRequest,
   type ContinueIntentResponse,
   type DiscoverItem,
   type DiscoverRequest,
@@ -25,9 +25,9 @@ import { HttpError } from "./http.js";
 import { connectedHubToken, storedHubProfile, storedHubToken, storedHubKey } from "../state/hub_credentials.js";
 
 export { HubApiError };
+export type AdmissionRequest=SdkAdmissionRequest&{shown_event_id?:string};
 
 export type {
-  AdmissionRequest,
   EffectClass,
   ServiceKind,
   ContinueIntentResponse,
@@ -85,6 +85,30 @@ export class HubClient {
 
   constructor(private readonly cfg: HubConfig) {
     this.sdk = new SdkHubClient(toSdkConfig(cfg));
+  }
+
+  shelfGet<T>(path: string): Promise<T> {
+    return this.wrap(async () => {
+      const token = this.cfg.sessionEnv ? storedHubProfile(this.cfg.sessionEnv)?.access_token : this.cfg.bearerToken;
+      const headers: Record<string,string> = {"Accept":"application/json", "X-ItPay-OAuth-Resource":this.cfg.baseURL};
+      if(token) headers.Authorization="Bearer "+token;
+      else if(this.cfg.apiKey) headers["X-ItPay-Key"]=this.cfg.apiKey;
+      let response:Response;
+      try {response=await fetch(this.cfg.baseURL+path,{headers,redirect:"error",signal:AbortSignal.timeout(10_000)});}
+      catch(error){
+        const timeout=error instanceof Error && ["AbortError","TimeoutError"].includes(error.name);
+        throw new HttpError(0,{code:timeout?"request_timeout":"network_error",
+          message:timeout?"catalog metadata read timed out":"catalog metadata unavailable"},"Hub metadata read failed");
+      }
+      const body=await response.json();
+      if(!response.ok) {
+        const problem=body as {error?:{code?:unknown;message?:unknown}};
+        throw new HubApiError(response.status,{error:{
+          code:typeof problem?.error?.code==="string"?problem.error.code:"invalid_response",
+          message:typeof problem?.error?.message==="string"?problem.error.message:"catalog response unavailable"}});
+      }
+      return body as T;
+    });
   }
 
   adminTool(action: string,args: Record<string, unknown>){return this.wrap(()=>this.sdk.adminTool(action,args));}
@@ -160,7 +184,17 @@ export class HubClient {
 }
 
 
-export interface SafeHubErrorDetails { stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
+export interface PublicPriceChange { current_publication_id?:string; current_price?:{currency:"CNY";scale:6;amount_atoms:string};captured_atoms?:"0";held_atoms?:"0" }
+export function safePriceChange(raw:unknown):PublicPriceChange|undefined {
+ if(!raw || typeof raw!=="object")return undefined;
+ const d=raw as Record<string,unknown>,p=d.current_price as Record<string,unknown>|undefined;
+ const out:PublicPriceChange={};
+ if(typeof d.current_publication_id==="string" && /^[A-Za-z0-9_-]{1,200}$/.test(d.current_publication_id))out.current_publication_id=d.current_publication_id;
+ if(p?.currency==="CNY" && p.scale===6 && typeof p.amount_atoms==="string" && /^[0-9]{1,19}$/.test(p.amount_atoms))out.current_price={currency:"CNY",scale:6,amount_atoms:p.amount_atoms};
+ if(d.captured_atoms==="0" && d.held_atoms==="0"){out.captured_atoms="0";out.held_atoms="0"}
+ return Object.keys(out).length?out:undefined;
+}
+export interface SafeHubErrorDetails { price_change?:PublicPriceChange; stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
 
 // SDK diagnostics are useful, but neither arbitrary detail fields nor raw path
 // parameters/query strings belong in an agent-visible error.
@@ -168,6 +202,7 @@ export function safeHubErrorDetails(raw: unknown): SafeHubErrorDetails | undefin
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const d = raw as Record<string, unknown>;
   const out: SafeHubErrorDetails = {};
+  const price=safePriceChange(d.price_change);if(price)out.price_change=price;
   if (d.stage === "metadata" || d.stage === "status" || d.stage === "action") out.stage = d.stage;
   if (typeof d.method === "string" && ["GET", "POST", "PUT", "DELETE", "PATCH"].includes(d.method)) out.method = d.method as NonNullable<SafeHubErrorDetails["method"]>;
   if (typeof d.path === "string") {

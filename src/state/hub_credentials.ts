@@ -176,7 +176,7 @@ export function storedHubProfile(env: NodeJS.ProcessEnv = process.env): HubCrede
 
 export async function connectedHubToken(env: NodeJS.ProcessEnv = process.env, rejectedToken?: string): Promise<string> {
  return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`, async () => {
-  if (existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_verification_pending: original recovery pending; only api recover-connection may verify its candidate, no business retry");
+  if (existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_verification_pending: original recovery pending; only api connect may verify its original candidate, no business retry");
   const p = storedHubProfile(env);
   if (!p?.access_token || !p.subject) throw new Error("authorization_required: reconnect ItPay");
   const cfg = hubOAuthConfig(env);

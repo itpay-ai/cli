@@ -24,6 +24,7 @@ export interface HubTask extends HubCredentialSelection {
   request_id: string;
   operation_id: string;
   publication_id: string;
+  shown_event_id?: string;
   input: unknown;
   input_digest: string;
   max_charge_atoms?: string;
@@ -171,6 +172,7 @@ export class HubTaskStore {
       const task: HubTask = {
         request_id: requestID,
         operation_id: seed.operation_id, publication_id: seed.publication_id, input: seed.input,
+        ...(seed.shown_event_id?{shown_event_id:seed.shown_event_id}:{}),
         input_digest: digestTask(seed.operation_id, seed.publication_id, seed.input, seed.max_charge_atoms, { ...(seed.credential_id ? { credential_id: seed.credential_id } : {}), ...(seed.source_credentials ? { source_credentials: seed.source_credentials } : {}) }),
         ...(seed.max_charge_atoms ? { max_charge_atoms: seed.max_charge_atoms } : {}),
         ...(seed.credential_id ? { credential_id: seed.credential_id } : {}),

@@ -77,7 +77,7 @@ Agent quick start:
   Setup checks Services device/account status, not API Hub authorization.
 
 Common human intents:
-  API or structured data     skill show itpay-api --json → api discover
+  API or structured data     skill show itpay-api --json → api categories
   Service handling/delivery    skill show itpay --json → catalog list
   Previously purchased item vault list
   Purchase history           orders
@@ -596,7 +596,7 @@ program
 
 // --- catalog --------------------------------------------------------------
 
-const catalogCmd = program.command("catalog").description("Browse the Services catalog (API data uses api discover)");
+const catalogCmd = program.command("catalog").description("Browse the Services catalog (API data uses api categories)");
 
 catalogCmd
   .command("list")

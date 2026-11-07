@@ -8,7 +8,7 @@ flowchart TD
  A02 --> A03[同页确认连接和预填单次额度 / 可切仅免费]
  A03 --> AS[原 verifier 对应的 AS done 302 / 网关落盘]
  AS --> HC[Backend worker提交原receipt / V4激活代次]
- A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI和原MCP discover]
+ A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI list与原MCP discover]
  B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
  B02 --> B03[用户同意后call / 自动原ID和展示价]
  B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
@@ -19,7 +19,7 @@ flowchart TD
  PENDING -.只读status.-> HC
  PENDING -->|明确失效或过期| A02
  PENDING -->|拒绝或取消| STOP[结束原 flow / 停止兑换]
- A04 -->|已有原请求| B04[先读原单 / 有run只读、未派发才接续]
+ A04 -->|已有原请求| B04[status原单 / 有run只读、未派发call --pending]
  B04 --> R[结果与收据 / status只读]
  B03 -->|免费或付费成功| R
  B03 -->|余额不足| T[原单官方充值 / 隔离仅fakepass]

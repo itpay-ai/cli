@@ -4,7 +4,7 @@
 
 Services自然旅程：被测Agent只拿Services Skill、其实际包/帮助和运行返回；理解完整地点/条件、必要时定向查证、先给简短路线判断，再Exact/Smart查询、完整结果、按委托选择、仅补必要同意、展示官方入口、沿原任务恢复。不能给源码/正确命令救场。本轮V4已运行真实查询但无可选行程，购买后续未验；旧环境成功不代表此候选通过。
 
-API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算中 discover→inspect→绑定publication调用→状态/结果/用量→原任务恢复；不能要求先读铁路或API维护内部材料。购买/充值仍按真实同意和宿主政策，不能用Key权限绕开。
+API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算中 categories→list→show→call→status→wallet，原任务用 status 核对、call --pending 接续；不能要求先读铁路或API维护内部材料。购买/充值仍按真实同意和宿主政策，不能用Key权限绕开。
 
 两条旅程分别记实际版本/包hash/材料、耗时、有用结果、人工帮助、约束保持、失败和恢复。完整fakepass仅付款/出票/退款模拟，其余真实链路；本轮仅已明确批准的v4-dev隔离测试；不外推新部署/发布或真实交易授权。UI核验优先Node+Playwright。未观察宿主、未运行数据库/PSP、工程失败与真实体验结论分别列明。
 
@@ -30,3 +30,21 @@ API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算�
 ## 新身份与观测验收（待实施）
 
 [十三项单批隔离case](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/TESTING.md#connection-13-testing)。当前无新环境/业务测试，正常文档钩子不代签这些目标。
+
+## N6.2 六命令候选（2026-11-07）
+
+本批未发布2.1.65候选使用 categories/list/show/call/status/wallet；私有show缓存、展示价/publication冻结、连接成功先status、call --pending仅原intent接续。旧业务注册及专用教程已替代，Services Skill/购物车/购买/checkout保持。完整正常pre-commit包含lint及548测试通过；实包smoke使用原SHA核对的2.1.46包作升级对照，覆盖安装/两Skill完整性、跨进程refresh锁、unknown原单只读、原连接冲突保留与候选复用。npm包版本/渠道/固定下载不变。
+
+隔离真实CLI包→Hydra→V4/Hub→CollectionPort/fakepass通过原请求¥10模拟充值接续、一次¥0.01扣费、确定失败0扣释放、响应丢失只读恢复；第二次付费后总扣20000atoms、账本守恒。USGS固定原workflow和新generic的正常/空/404对照通过，历史run仍可读。此为工程与协议链证据，非五宿主自然体验、生产部署或MCP OAuth签收。最初旧命令断言、缺帮助参数及历史包联网超时日志保留；替代测试检查新合同，未弱化unknown或资金边界。
+
+原始日志、配对manifest及重复入口位于本机 `~/.codex/artifacts/itpay-cli-device-redesign-20261106/evidence/n62-implementation-20261107/`；`REPLACEMENTS.md`列删除消费者与替代验证。N6.1冻结包不改。
+
+## N6.2 两项独立反馈（2026-11-07）
+
+变价CLI回执当场展示Hub核实的当前CNY¥0.02和旧请求0扣/0冻结；next为show，取得新价明确同意后才新call。无零副作用证明则先status，关闭原单不再带旧充值handoff。隔离旧¥0.01原intent取消且仍可只读，测试驱动明确同意新价后新请求一次capture20000atoms。
+
+付款页面问题归隔离装配：补现有renderer与冻结Web静态收银台，不改Payment业务。Node/Playwright从CLI原intent链接仅操作可见控件，唯一¥10/fakepass-platform-2模拟充值、官方品牌卡200、官方收银台及新窗口确认、返回同单已到账，原call --pending同请求/run一次10000atoms。无手拼地址、私有付款接口或额外建单。两格2次capture共30000atoms、held0、journal平衡；run_events0如实列缺口。证据、节点映射与首错位于本机 `~/.codex/artifacts/itpay-cli-device-redesign-20261106/evidence/n62-review-fixes-20261107/`。新价同意为明确自动测试条件，不代签真人/真实宿主。未部署/发布/Actions。
+
+### N62 报价事件与原单链（2026-11-07）
+
+lint 和 548 tests 通过；shelf 回归断言同一 show 的 shown_event_id 传入两个不同原 request，status/pending 不重发。打包 tgz（2.1.65）经 managed-prefix/global 和 package smoke 通过。真实隔离 Hub 五路径证明报价→受理→供应商→费用→交付、充值→原 intent 续接和变价无 run 关闭；2 captures 共 20000 CNY atoms、held 0、journal 平衡，重复查询不变。证据在 `~/.codex/artifacts/itpay-cli-device-redesign-20261106/evidence/n62-events-20261107/`，详细边界以 Hub/V4 TESTING 为准；没有 SDK 更新、npm 发布、Actions 或自然用户 UX 结论。

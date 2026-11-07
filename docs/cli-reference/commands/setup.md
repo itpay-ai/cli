@@ -13,3 +13,7 @@ Run once after installation or upgrade. Unsupported/missing type and unavailable
 For testing set `ITPAY_BACKEND_URL=https://dev.itpay.ai` on every invocation; production defaults to app.itpay.ai. Do not switch environments to hide failure. `install`, `readyz` and `auth status` remain diagnostic/compatibility commands, not a required initialization chain.
 
 Reuse the existing launcher and permitted state directory across chats; a new chat is not a new identity. A genuinely separate identity requires explicit authorization. New tasks prefer the permitted, available official CLI; otherwise use the corresponding hosted MCP. Do not require cloud hosts to attempt installation. Accepted, payment-pending and unknown tasks preserve their original entry and references.
+
+API installations use `itpay setup --api-prefix <absolute-directory> --json`.
+The returned private selector is supplied to `itpay api --profile <selector>`;
+its dedicated launcher selects it automatically. This does not create API authority.

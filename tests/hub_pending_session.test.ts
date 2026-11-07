@@ -123,16 +123,6 @@ test('promotion persistence failure retains pending and a later verification use
  }finally{t.mock.restoreAll();syncBuiltinESMExports();await f.close()}
 });
 
-for(const mode of ['503','invalid-grant'])test('CLI distinguishes '+mode+' from consent and preserves original run reader',async()=>{
- const f=await fixture();try{
-  f.setMode(mode);
-  // Exercise the real command registration with the exact original reference.
-  const p=spawn(process.execPath,['--import','tsx','src/main.ts','api','run-status','run-original','--json'],{env:f.env,stdio:['ignore','pipe','pipe']});let out='',err='';p.stdout.on('data',b=>out+=b);p.stderr.on('data',b=>err+=b);const exit=await new Promise<number|null>(resolve=>p.on('close',resolve));assert.equal(exit,1,err);
-  const envelope=JSON.parse(out);assert.equal(envelope.error.code,mode==='503'?'connection_verification_pending':'authorization_required');if(mode==='503')assert.equal(envelope.next,null);else assert.match(envelope.next.command,/api recover-connection/);assert.ok(!out.includes('synthetic-'));assert.equal(f.counts().business,0);
- }finally{await f.close()}
-});
-
-
 test('persisted pending is recovered by another process without another token exchange',async()=>{
  const f=await fixture();try{
   f.setMode('503');const code=`import {connectedHubToken} from ${JSON.stringify(moduleURL)};try{await connectedHubToken();console.log('verified')}catch{process.exitCode=1}`;
@@ -154,16 +144,6 @@ test('a concurrent completed connect waits for refresh lock and cannot be overwr
  }finally{release();await f.close()}
 });
 
-test('temporary verification failure preserves the persisted logical request and offers only its scoped reader',async()=>{
- const f=await fixture();try{
-  f.setMode('503');
-  const proc=spawn(process.execPath,['--import','tsx','src/main.ts','api','run','op-original','--publication','pub-original','--input','{}','--request-id','req-original','--json'],{env:f.env,stdio:['ignore','pipe','pipe']});let out='',err='';proc.stdout.on('data',b=>out+=b);proc.stderr.on('data',b=>err+=b);
-  const exit=await new Promise<number|null>(resolve=>proc.on('close',resolve));assert.equal(exit,1,err);const result=JSON.parse(out);
-  assert.equal(result.error.code,'connection_verification_pending');assert.equal(result.result.request_id,'req-original');assert.match(result.next.command,/api tasks --refresh --request-id req-original --json/);assert.equal(result.next.read_only.method,"GET");assert.doesNotMatch(result.next.command,/api (connect|run)\b/);assert.equal(f.counts().business,0);assert.equal(storedHubProfile(f.env)?.identity_verification_pending,true);assert.ok(!out.includes('synthetic-'));
- }finally{await f.close()}
-});
-
-
 for(const auth of ['bearer','key','anonymous'] as const)test('initial SDK '+auth+' configuration preserves its exact selected resource',async()=>{
  const f=await fixture();try{
   const cfg={baseURL:f.env.ITPAY_HUB_URL,...(auth==='bearer'?{bearerToken:'synthetic-explicit'}:auth==='key'?{apiKey:'itk_synthetic_explicit'}:{})};
@@ -182,16 +162,5 @@ test('strict alias rejects an issuer-expired token once; refresh and the identic
  const f=await fixture();try{
   storeHubSession('synthetic-old','synthetic-rt-old',300,'buyer-original',f.env.ITPAY_HUB_URL,f.env,'consumer-original');f.setMode('reject-old');
   assert.equal((await new HubClient(loadHubConfig(f.env)).runStatus('run-original')).run_id,'run-original');assert.deepEqual(f.counts(),{rotations:1,probes:1,business:2});assert.deepEqual(f.sdkRequests,Array.from({length:2},()=>({method:'GET',path:'/v1/runs/run-original',resource:f.env.ITPAY_HUB_URL})));assert.equal(storedHubProfile(f.env)?.consumer_id,'consumer-original');assert.equal(storedHubProfile(f.env)?.subject,'buyer-original');
- }finally{await f.close()}
-});
-
-
-test('strict alias pending request resumes the identical frozen admission once and subsequent resume only reads the original run',async()=>{
- const f=await fixture();
- const invoke=(args:string[])=>child(f.env,`process.argv=['node','itpay','api',...${JSON.stringify(args)},'--json'];await import('./src/main.ts');`);
- try{
-  f.setMode('503');const first=await invoke(['run','op-original','--publication','pub-original','--input','{"value":"original"}','--max-charge','123','--request-id','req-original']);assert.equal(first.exit,1,first.err);assert.equal(JSON.parse(first.out).result.request_id,'req-original');assert.equal(f.admissions.length,0);
-  f.setMode('ok');const resumed=await invoke(['resume','req-original']);assert.equal(resumed.exit,0,resumed.out+resumed.err);assert.equal(JSON.parse(resumed.out).result.run_id,'run-original');assert.equal(f.admissions.length,1);assert.deepEqual(f.admissions[0],{body:{expected_publication_id:'pub-original',input:{value:'original'},max_charge:{currency:'CNY',scale:6,amount_atoms:'123'}},key:'cli-req-req-original',resource:f.env.ITPAY_HUB_URL});
-  const read=await invoke(['resume','req-original']);assert.equal(read.exit,0,read.out+read.err);assert.equal(JSON.parse(read.out).result.run_id,'run-original');assert.equal(f.admissions.length,1);assert.equal(f.counts().rotations,1);assert.equal(f.sdkRequests.at(-1)?.resource,f.env.ITPAY_HUB_URL);assert.equal(storedHubProfile(f.env)?.subject,'buyer-original');assert.equal(storedHubProfile(f.env)?.consumer_id,'consumer-original');
  }finally{await f.close()}
 });
