@@ -1,3 +1,4 @@
+import { pinAgentExecutable } from "../state/agent_executable.js";
 import { qualifyHubInstallation } from "../state/hub_installation.js";
 import {HttpError} from "../client/http.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
@@ -19,7 +20,7 @@ export function writeCommandEnvelope(value: CommandEnvelope, options: {jsonOutpu
  const qualify=(action:CommandAction):CommandAction|null=>{
   if(!action.command.startsWith("itpay ")) return action;
   const installed = qualifyHubInstallation(action.command);
-  if (installed) return {...action,command:qualifyItPayCommand(installed,declaredAgentType())};
+  if (installed) return {...action,command:pinAgentExecutable(qualifyItPayCommand(installed,declaredAgentType()))};
   return null;
  };
  value={...value,instruction:value.instruction+" "+routingInstruction(value),next:value.next?qualify(value.next):null,recovery:value.recovery.map(qualify).filter((action):action is CommandAction=>action!==null)};

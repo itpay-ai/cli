@@ -1,3 +1,4 @@
+import { pinAgentExecutable } from "../../state/agent_executable.js";
 import { HttpError } from "../../client/http.js";
 import { resolveOutput, type OutputSink } from "../../render/sink.js";
 import { declaredAgentType, qualifyItPayCommand } from "../../state/agent_type.js";
@@ -283,6 +284,6 @@ export function printErrorRecovery(error: unknown, output?: OutputSink): void {
 // Do not persist or infer the host type in shared device storage.
 function qualifyCommand(command: string, agentType: string | undefined): string {
   const qualified = qualifyBackendCommand(qualifyItPayCommand(command, agentType));
-  return command.startsWith("itpay ") && process.env.ITPAY_STATE_DIR
-    ? `ITPAY_STATE_DIR=${shellArgument(process.env.ITPAY_STATE_DIR)} ${qualified}` : qualified;
+  return pinAgentExecutable(command.startsWith("itpay ") && process.env.ITPAY_STATE_DIR
+    ? `ITPAY_STATE_DIR=${shellArgument(process.env.ITPAY_STATE_DIR)} ${qualified}` : qualified);
 }

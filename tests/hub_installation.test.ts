@@ -22,6 +22,11 @@ test("host installs have stable independent private selectors and a fixed launch
     assert.equal(launch.status, 0);
     assert.deepEqual(JSON.parse(launch.stdout), ["api", "--profile", first.selector, "doctor", "--json"]);
     assert.equal(spawnSync(first.launcher, ["doctor", "--profile", other.selector]).status, 2);
+    const duplicate = spawnSync(first.launcher, ["api", "--profile", first.selector, "doctor", "--json"], {encoding:"utf8"});
+    assert.equal(duplicate.status,0,duplicate.stderr);
+    assert.deepEqual(JSON.parse(duplicate.stdout),["api","--profile",first.selector,"doctor","--json"]);
+    const foreign=spawnSync(first.launcher,["doctor","--profile",other.selector],{encoding:"utf8"});
+    assert.match(foreign.stderr,/profile_mismatch/);
     selectHubInstallation(first.selector);
     assert.match(process.env.ITPAY_STATE_DIR ?? "", new RegExp(first.profile_id + "$"));
     assert.equal(qualifyHubInstallation("itpay --agent-type codex-desktop api doctor"),

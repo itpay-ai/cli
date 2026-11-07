@@ -90,7 +90,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    child.stdout.on("data",part=>output+=part);
    child.on("error",reject);
    const deadline=setTimeout(()=>{child.kill("SIGTERM");reject(new Error("Device command timed out"))},15_000);
-   child.on("close",code=>{clearTimeout(deadline);try{resolve({code,value:JSON.parse(output),output})}catch(err){reject(err)}});
+   child.on("close",code=>{clearTimeout(deadline);try{resolve({code,value:JSON.parse(output.split(/\n(?=\{)/).at(-1)!),output})}catch(err){reject(err)}});
   });
  }
  async function setup() {
@@ -197,3 +197,21 @@ for (const refreshStatus of [400,503]) {
   } finally {await f.close()}
  });
 }
+
+test("task-driven entry emits a link first, reuses pending across turns and connects once",async()=>{
+ const f=await deviceFixture();
+ try{
+  const args=["--agent-type","muse","agent"];
+  const first=await f.cli([...args,"--surface","api","--task","find free earthquake data","--buffered"]);
+  assert.equal(first.code,0);assert.equal(first.value.status,"pending");assert.equal(first.value.result.task.text,"find free earthquake data");
+  assert.match(first.value.next.command,/agent --wait 120 --json/);
+  assert.equal(first.value.result.agent_type,"muse");
+  assert.doesNotMatch(first.output,/synthetic-device-code|synthetic-poll-proof/);
+  const paused=await f.cli([...args,"--wait","0"]);assert.equal(paused.value.status,"pending");
+  assert.equal(paused.value.result.task.id,first.value.result.task.id);assert.equal(f.calls().starts,1);
+  f.approve();const final=await f.cli([...args,"--wait","5"]);
+  assert.equal(final.value.status,"connected");assert.match(final.value.next.command,/api --profile .* list --json/);
+  const again=await f.cli(args);assert.equal(again.value.status,"connected");
+  assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
+ }finally{await f.close();}
+});

@@ -1,3 +1,5 @@
+import { attachAgentRequest } from "../state/agent_task.js";
+import { selectedHubInstallationPath } from "../state/hub_installation.js";
 import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPriceChange,type RunReceipt,type RequestStatus} from "../client/hub.js";
 import {HttpError} from "../client/http.js";
 import {HubTaskStore,type HubTask} from "../state/hub_tasks.js";
@@ -117,6 +119,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   task=store.getOrCreate({operation_id:operation,publication_id:shown.current_publication_id,input,
    max_charge_atoms:shown.price_card.amount_atoms,...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
  }
+ attachAgentRequest(selectedHubInstallationPath(),task.request_id);
  try{
   if(!options.pending){
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
