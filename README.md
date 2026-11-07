@@ -1,27 +1,44 @@
 # ItPay CLI
 
-一个 `itpay` 入口，两种按需读法。CLI、命令注册、打包与随包Skill的唯一源码在 `itpay-ai/cli`；API Hub和Services/Payment分别由独立Hub与compose-v4维护。
-
-## 架构概览
+Services与API两个入口；安装与正式Skill见现有setup及发布导航。
 
 ```mermaid
-flowchart LR
-  Agent["Agent"] --> CLI["一套 ItPay CLI"]
-  CLI --> Services["Services 命令 / Skill"] --> V4["V4 API"]
-  CLI --> API["api 命令 / API Skill"] --> SDK["固定 Hub SDK"] --> Hub["Hub API"]
+flowchart TD
+ A01[安装 / 固定profile与包版本] --> A02[Device链接 / 每轮等120秒]
+ A02 --> A03[同页确认连接和预填单次额度 / 可切仅免费]
+ A03 --> AS[原 verifier 对应的 AS done 302 / 网关落盘]
+ AS --> HC[Backend worker提交原receipt / V4激活代次]
+ A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI和原MCP discover]
+ B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
+ B02 --> B03[用户同意后call / 自动原ID和展示价]
+ B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
+ A05 --> A03
+ HC -.全入口验证后才可异步清理旧 AS 授权.-> O01
+ A03 --> PENDING[未就绪 / 按原handle继续等]
+ HC -->|ready| A04[status ready / Device兑换 / 新鲜 me / 原子保存]
+ PENDING -.只读status.-> HC
+ PENDING -->|明确失效或过期| A02
+ PENDING -->|拒绝或取消| STOP[结束原 flow / 停止兑换]
+ A04 -->|已有原请求| B04[先读原单 / 有run只读、未派发才接续]
+ B04 --> R[结果与收据 / status只读]
+ B03 -->|免费或付费成功| R
+ B03 -->|余额不足| T[原单官方充值 / 隔离仅fakepass]
+ T -->|有原intent| W[到账worker或call内部继续原单]
+ W --> B04
+ B03 -->|准入前变价且0扣0冻结| N[原单结束 / show新价再获同意]
+ N --> B02
+ B03 -->|结果未知| U[status原单 / 账务待核对]
+ B03 -->|确定失败且0扣0冻结| F[本次没扣钱]
+ R --> V[wallet余额和主动充值链接]
+ V -->|主动充值| T
+ T -->|无原intent只更新余额| V
+ A02 -.脱敏事件.-> O01[原events和outbox / admin trace与漏斗]
+ B03 -.原request事件.-> O01
+ R -.费用与交付事实.-> O01
+ O01 -.只读事实.-> O02[原60秒worker / 三异常WARN]
+ O03[原worker和AS cron / 到期清正文] -.保留费用和未决引用.-> O01
 ```
 
-逻辑职责图，不代表部署拓扑。新任务在宿主允许且能执行 CLI 时优先 CLI；CLI 直接调用 HTTP API，不经过 MCP。详见[完整架构](docs/ARCHITECTURE.md)。
+Device 授权在本阶段的三仓草稿中实现，需用配对候选验证。货架在授权验收后实施，现有固定安装包继续使用原版本。
 
-- 办事、铁路/其他服务、订单和已购内容：读 [Services Skill](skills/itpay/SKILL.md)，按需 `itpay services --help` 或 [Services索引](docs/cli-reference/index.md)。无需先读API维护文档。
-- 发现/调用API、用量与Hub任务恢复：读 [API Skill](skills/itpay-api/SKILL.md)，`itpay api --help` 和 [API参考](docs/cli-reference/api.md)。无需先读Services铁路教程。`hub`是同一API注册的兼容别名，首选api。
-
-共用登录账号不代表资源、scope、设备登记、consumer或业务同意可互换。每次命令保留真实宿主声明、同Backend/Hub端点与获准状态目录；不清身份、换宿主或重建未知任务恢复额度。
-
-2026-10-28记录的源码/固定候选版本为2.1.56，该轮未发布新版本；后续版本按正常[发布流程](docs/RELEASE.md)及当前授权管理。本地候选包含两份Skill和API参考页：`itpay skill show itpay`读取Services，`itpay skill show itpay-api`读取API；两者均返回完整原文。API不使用Services覆盖目录。隔离安装检查不代表npm next/latest已更新或真实宿主体验通过；最终包来源/hash以配套source.json为准。
-
-维护者：[架构](docs/ARCHITECTURE.md)、[合同](docs/CONTRACTS.md)、[开发](docs/DEVELOPMENT.md)、[发布](docs/RELEASE.md)、[测试](docs/TESTING.md)、[待办](docs/BACKLOG.md)。2026-10-28三产品源码整理已正常PR合并，部分真实子路径完成；购买/履约、自然宿主及完整旅程仍未验收。本地help/包检查和main合并均不代表服务器已部署或完整验收通过。
-
-## 维护任务入口
-
-维护者首次读 [AGENTS](AGENTS.md)，再按[任务导航](docs/DEVELOPMENT.md#按任务开工)找到owner、修改位置与验证。用户使用Services或API各自Skill即可。服务端部署组合在[V4部署矩阵](https://github.com/itpay-ai/compose-v4/blob/main/docs/DEPLOYMENT.md#可选源码组合与支持边界)：Hub为主、Services为主、完整组合的依赖和未支持项分别列明；源码合并不表示已部署。
+[开发合同](docs/DEVELOPMENT.md#api-journey-contract) · [架构](docs/ARCHITECTURE.md) · [测试与证据](docs/TESTING.md#api-journey-evidence) · [维护入口](AGENTS.md) · [部署与发布](docs/RELEASE.md) · [合同](docs/CONTRACTS.md) · [待办](docs/BACKLOG.md)

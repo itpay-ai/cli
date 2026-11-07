@@ -1,3 +1,4 @@
+import { prepareHubInstallation, shellQuote } from "./state/hub_installation.js";
 import { registerAPICommands } from "./commands/api_commands.js";
 import { AgentTypeRequiredError } from "./state/agent_type.js";
 import {runServicesPurchase} from "./commands/services/purchase.js";
@@ -379,9 +380,16 @@ program
 
 program.command("setup")
   .description("Prepare this actual Agent and report device/account readiness without starting login")
+  .option("--api-prefix <directory>", "prepare the API installation in an absolute host directory")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     try {
+      if (options.apiPrefix) {
+        const installation = prepareHubInstallation(String(options.apiPrefix));
+        writeCommandEnvelope({ status: "api_setup_ready", result: installation,
+          instruction: "使用此安装的 API 启动器连接账号。", next: { command: `${shellQuote(installation.launcher)} api connect${options.json ? " --json" : ""}`, reason: "在此安装内建立账号连接" }, recovery: [] }, { jsonOutput: Boolean(options.json) });
+        return;
+      }
       const config = loadConfig();
       const skillPath = validateSetup(config.agentType);
       await runSetup(newBackendClient(config), config, skillPath, { jsonOutput: Boolean(options.json) });

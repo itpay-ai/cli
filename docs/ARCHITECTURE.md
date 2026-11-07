@@ -43,3 +43,25 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 构建为Node18+ Buyer ESM，发布制品包括正式Skill/Buyer JSON/按命令参考和许可声明；Hub SDK从dependencies固定tgz打入bundle，没有可编辑vendor副本。机器声明在package/lock、SDK.source.json和release_identity.ts，文档不改这些版本。两份Skill和API参考页均入本地候选；API reader独立校验包内摘要/名称并忽略Services覆盖目录，不写身份或访问网络。未完成的自然体验见[待办](BACKLOG.md)。
 
 删除前检查注册、CLI内部reader、随包文件清单、包测试和现有用户恢复状态；命令别名与字段不能仅靠文档消失。owner边界和变化规则见[合同](CONTRACTS.md)。
+
+
+<a id="agent-connection-architecture"></a>
+## Agent 连接与授权代次
+
+```mermaid
+flowchart LR
+ P[每安装固定profile / 每进程同锁] --> O[Device / V4同一Buyer的逻辑connection]
+ O --> A[原 verifier 对应的 AS done 302 / 网关落盘]
+ O --> G[Hub独立receipt prepare / 预填单次额度]
+ A --> J[Backend worker提交原receipt / 封旧执行代次]
+ G --> J
+ J --> C[激活当前代次 / consumer保持]
+ C --> T[status ready / CLI兑换与新鲜me]
+ C -.全入口验证后才可异步精确撤销.-> X[旧AS consent清理]
+ T --> H[Hub资源及代次校验]
+ H --> R[CLI普通读及call身份 / 3秒缓存]
+ H --> W[Hub当次执行门禁 / grant余额预算 / 原单ACL]
+ M[MCP独立OAuth] --> H
+```
+
+新普通Agent无默认周期限额，旧显式和APIKey预算保持；CLI/MCP独立授权。profile与可信连接分开；同页双owner同意、稳定consumer代次和原请求接续见[开发合同](DEVELOPMENT.md#agent-connection-target)。CLI loopback删除，MCP HTTPS callback/PKCE及Services链保持。

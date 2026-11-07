@@ -1,3 +1,4 @@
+import { qualifyHubInstallation } from "../state/hub_installation.js";
 import {HttpError} from "../client/http.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
 
@@ -17,6 +18,8 @@ export function writeCommandEnvelope(value: CommandEnvelope, options: {jsonOutpu
  // token/key fields or an URL containing userinfo, query credentials or hash.
  const qualify=(action:CommandAction):CommandAction|null=>{
   if(!action.command.startsWith("itpay ")) return action;
+  const installed = qualifyHubInstallation(action.command);
+  if (installed) return {...action,command:qualifyItPayCommand(installed,declaredAgentType())};
   const assignments:string[]=[];
   for(const name of ["ITPAY_HUB_URL","ITPAY_HUB_OAUTH_ISSUER","ITPAY_HUB_OAUTH_CLIENT","ITPAY_HUB_OAUTH_SCOPE","ITPAY_STATE_DIR"]){
    const raw=process.env[name];if(!raw)continue;

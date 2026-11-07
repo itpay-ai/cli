@@ -20,3 +20,13 @@ API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算�
 - WorkBuddy白名单错误/裸QR为已登记用户反馈，用户MCP16工具自然旅程未验；独立Payment及双入口身份/测试商户已由用户批准后置。CLI不能替服务器owner修配置或替宿主签通过。
 
 私有ENTRY-CHECK.md S00–S39及原resume JSON为真实观察；fixture/PG/源码各自分列。npm未发布、固定下载包未替换、Actions未运行，完整块V未通过。
+
+<a id="api-journey-evidence"></a>
+## 完整旅程证据
+
+[跨仓逐步证据与执行case](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/TESTING.md#api-journey-evidence)。11/05实际CLI63；新Device/六业务命令未实施，真实收费成功仅WB¥0.01，充值续接与供应商失败账务待验。
+
+<a id="connection-13-testing"></a>
+## 新身份与观测验收（待实施）
+
+[十三项单批隔离case](https://github.com/itpay-ai/compose-v4/blob/codex/agent-connection-docs-20261106/docs/TESTING.md#connection-13-testing)。当前无新环境/业务测试，正常文档钩子不代签这些目标。

@@ -20,6 +20,8 @@ interface HubCredentialsFile {
     refresh_after?: string | undefined;
     subject?: string | undefined;
     consumer_id?: string | undefined;
+    device_approval_id?: string;
+    authorization_id?: string;
     token_url?: string | undefined;
     client_id?: string | undefined;
     identity_verification_pending?: boolean;
@@ -73,7 +75,7 @@ export function storedHubKeyPrefix(env: NodeJS.ProcessEnv = process.env): string
 }
 
 // Store a connected OAuth session as the default profile (0600).
-function storeHubSessionUnlocked(accessToken: string, refreshToken: string | undefined, expiresIn: number, subject: string | undefined, baseURL: string, env: NodeJS.ProcessEnv = process.env, consumerID?: string): void {
+function storeHubSessionUnlocked(accessToken: string, refreshToken: string | undefined, expiresIn: number, subject: string | undefined, baseURL: string, env: NodeJS.ProcessEnv = process.env, consumerID?: string, device?: { device_approval_id: string; authorization_id: string }): void {
   const path = hubCredentialsPath(env);
   const file = existsSync(path)
     ? JSON.parse(readFileSync(path, "utf8")) as HubCredentialsFile
@@ -90,6 +92,7 @@ function storeHubSessionUnlocked(accessToken: string, refreshToken: string | und
     consumer_id: consumerID ?? `oauth:${hubOAuthConfig(env).clientID}`,
     client_id: hubOAuthConfig(env).clientID,
     token_url: hubOAuthConfig(env).tokenURL,
+    ...(device ?? {}),
     created_at: new Date().toISOString(),
   };
   saveHubProfileUnlocked(file.profiles["default"]!, env);
@@ -119,11 +122,12 @@ function saveHubProfileUnlocked(profile: HubProfile, env: NodeJS.ProcessEnv): vo
   }
 }
 
-export async function probeHubIdentity(resource: string, accessToken: string): Promise<{ buyer_id?: string; consumer_id?: string }> {
+export async function probeHubIdentity(resource: string, accessToken: string): Promise<{ buyer_id?: string; consumer_id?: string; device_approval_id?: string; authorization_id?: string }> {
   let response: Response;
   try {
     response = await fetch(`${resource}/v1/me`, {
       headers: { Authorization: `Bearer ${accessToken}`, "X-ItPay-OAuth-Resource": resource },
+      redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
@@ -136,9 +140,12 @@ export async function probeHubIdentity(resource: string, accessToken: string): P
   try {
     const identity: unknown = await response.json();
     if (!identity || typeof identity !== "object" || Array.isArray(identity)) throw new Error();
-    const me = identity as { buyer_id?: unknown; consumer_id?: unknown };
+    const me = identity as { buyer_id?: unknown; consumer_id?: unknown; device_approval_id?: unknown; authorization_id?: unknown };
     if (typeof me.buyer_id !== "string" || !me.buyer_id || typeof me.consumer_id !== "string" || !me.consumer_id) throw new Error();
-    return { buyer_id: me.buyer_id, consumer_id: me.consumer_id };
+    return { buyer_id: me.buyer_id, consumer_id: me.consumer_id,
+      ...(typeof me.device_approval_id === "string" ? { device_approval_id: me.device_approval_id } : {}),
+      ...(typeof me.authorization_id === "string" ? { authorization_id: me.authorization_id } : {}),
+    };
   } catch {
     throw new Error("connection_verification_pending: identity response invalid; preserve the original connection and references, do not reconnect");
   }
@@ -221,7 +228,8 @@ export async function connectedHubToken(env: NodeJS.ProcessEnv = process.env, re
    saveHubProfileUnlocked(candidate, env);
   }
   const identity = await probeHubIdentity(cfg.resource, candidate.access_token!);
-  if (identity.buyer_id !== p.subject || identity.consumer_id !== p.consumer_id) {
+  if (identity.buyer_id !== p.subject || identity.consumer_id !== p.consumer_id ||
+    (p.device_approval_id !== undefined && (identity.device_approval_id !== p.device_approval_id || identity.authorization_id !== p.authorization_id))) {
    throw new Error("authorization_required: refreshed identity changed");
   }
   if (!(Date.parse(candidate.expires_at ?? "") > Date.now())) {
@@ -317,14 +325,34 @@ async function withOriginalHubCandidate(env:NodeJS.ProcessEnv,receiptRequest?:st
  });
 }
 
-// Hold the existing credential lock across the browser attempt too: a second
-// consent must not supersede a profile saved by a concurrent connect.
-export async function withNewHubSession<T>(action:(save:(access:string,refresh:string|undefined,seconds:number,subject:string,base:string,consumer:string)=>void)=>Promise<T>,env:NodeJS.ProcessEnv=process.env):Promise<T> {
- return withAsyncFileLock(`${hubCredentialsPath(env)}.refresh.lock`,async()=>{
-  if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: existing connection preserved; use api recover-connection, never replace it");
-  return action((access,refresh,seconds,subject,base,consumer)=>{
-   if(storedHubProfile(env) || existsSync(hubCredentialsPath(env)+".recovery.json")) throw new Error("connection_recovery_denied: original profile appeared; new connection not saved");
-   storeHubSessionUnlocked(access,refresh,seconds,subject,base,env,consumer);
+// Exchange and replace credentials under the same lock used for refresh.
+// Browser polling takes place outside this lock.
+export async function finishHubDeviceSession(
+  original: { buyer_id: string; consumer_id: string } | undefined,
+  approved: { buyer_id: string; consumer_id: string; device_approval_id: string; authorization_id: string },
+  resource: string,
+  exchange: () => Promise<import("./hub_oauth.js").ConnectResult | "slow_down" | "authorization_pending" | "exchange_unknown">,
+  env: NodeJS.ProcessEnv = process.env,
+  event: (name: string) => void = () => {},
+  allowMissingOriginal = false,
+): Promise<"saved" | "slow_down" | "authorization_pending" | "exchange_unknown"> {
+  return withAsyncFileLock(hubCredentialsPath(env) + ".refresh.lock", async () => {
+    const current = storedHubProfile(env);
+    if (existsSync(hubCredentialsPath(env) + ".recovery.json") ||
+      (original ? !(allowMissingOriginal && !current) && (current?.subject !== original.buyer_id || current?.consumer_id !== original.consumer_id) : Boolean(current))) {
+      throw new Error("connection_recovery_denied: original local connection changed during Device authorization");
+    }
+    const tokens = await exchange();
+    if (typeof tokens === "string") return tokens;
+    event("auth.device_exchanged");
+    const me = await probeHubIdentity(resource, tokens.accessToken);
+    if (me.buyer_id !== approved.buyer_id || me.consumer_id !== approved.consumer_id ||
+      me.device_approval_id !== approved.device_approval_id || me.authorization_id !== approved.authorization_id) {
+      throw new Error("connection_recovery_denied: verified Device identity does not match the approved account and consumer");
+    }
+    event("auth.identity_verified");
+    storeHubSessionUnlocked(tokens.accessToken, tokens.refreshToken, tokens.expiresIn, me.buyer_id, resource, env, me.consumer_id, { device_approval_id: approved.device_approval_id, authorization_id: approved.authorization_id });
+    event("auth.connected");
+    return "saved";
   });
- });
 }

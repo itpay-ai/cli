@@ -10,10 +10,10 @@ import {importHubKey} from '../src/state/hub_credentials.js';
 import {writeCommandEnvelope} from '../src/commands/hub_guidance.js';
 
 test('only an explicitly selected official dev API Hub supplies its canonical issuer',()=>{
- const local=hubOAuthConfig({});assert.equal(local.resource,'http://localhost:18090');assert.equal(local.authorizeURL,'http://localhost:24444/oauth2/auth');
+ const local=hubOAuthConfig({});assert.equal(local.resource,'http://localhost:18090');assert.equal(local.tokenURL,'http://localhost:24444/oauth2/token');
  assert.equal(hubOAuthConfig({ITPAY_BACKEND_URL:'https://v4-dev.itpay.ai'}).resource,local.resource,'Services selection cannot switch API identity');
  const dev=hubOAuthConfig({ITPAY_HUB_URL:'https://market-v4-dev.itpay.ai/'});
- assert.equal(dev.resource,'https://market-v4-dev.itpay.ai');assert.equal(dev.authorizeURL,'https://auth-v4-dev.itpay.ai/oauth2/auth');assert.equal(dev.tokenURL,'https://auth-v4-dev.itpay.ai/oauth2/token');assert.equal(dev.clientID,'itpay-cli-local');
+ assert.equal(dev.resource,'https://market-v4-dev.itpay.ai');assert.equal(dev.tokenURL,'https://auth-v4-dev.itpay.ai/oauth2/token');assert.equal(dev.clientID,'itpay-cli-local');
  assert.equal(hubOAuthConfig({ITPAY_HUB_URL:dev.resource,ITPAY_HUB_OAUTH_ISSUER:'https://explicit.example'}).tokenURL,'https://explicit.example/oauth2/token');
  assert.equal(hubOAuthConfig({ITPAY_HUB_URL:'https://unrelated.example'}).tokenURL,local.tokenURL,'do not guess another host issuer');
 });
