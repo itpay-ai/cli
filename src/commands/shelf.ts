@@ -115,12 +115,12 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   const shown=loadShown(operation);
   const input=await readRunInput(options.input);
   task=store.getOrCreate({operation_id:operation,publication_id:shown.current_publication_id,input,
-   max_charge_atoms:shown.price_card.amount_atoms}).task;
+   max_charge_atoms:shown.price_card.amount_atoms,...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
  }
  try{
   if(!options.pending){
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
-    input:task.input as Record<string,unknown>,...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
+    input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
    if("run_id" in admission)store.update(task.request_id,{run_id:admission.run_id,status:"dispatched"});
    else if("intent_id" in admission)store.update(task.request_id,{intent_id:admission.intent_id,status:"blocked",blocking_reason:admission.blocking_reason});
   }
@@ -128,7 +128,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   try { snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot; }
   catch(error) {
    if(!(options.pending && error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required"))throw error;
-   await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
+   await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
     max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   }

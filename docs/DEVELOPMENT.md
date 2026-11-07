@@ -146,3 +146,7 @@ Admit复核expected_publication_id、max_charge和当前grant；变价时，原�
 `setup --api-prefix <绝对目录>` 创建当前安装的私有选择文件与启动器。`api --profile <选择文件> connect` 返回授权链接和原等待命令，`connect continue --wait 120 -- <handle>` 接着等待，`connect status` 显示当前安装和代次。续接带已有本地请求时传 `connect --request <request_id>`，连上后先读原单。已确认兑换但本地未保存时，由本人选择 `connect restart` 恢复同一连接。旧连接私有恢复候选由 connect 在原绑定内处理，不保留独立业务恢复注册。
 
 在本地候选配对中，Device 客户端向配置的 issuer 启动和轮询，并在 ready 后用标准 Device grant 兑换；首次 `/me` 的买家、consumer、批准和代次一致才写私有凭据。失败或重连继续使用原安装。
+
+### N62 报价事件关联
+
+`api show` 缓存 Hub 的可选 `shown_event_id`，新 call 将该引用与原 publication/输入/最高费用一起保存并发送；一个 show 可关联多个不同原 request。该元数据不进入幂等摘要，不改固定 SDK、权限、扣费或续接算法。继续和 status 保持原 request，服务端从原事件恢复充值 parent；没有报价引用的旧记录仍可读，不补造 show。事件与只读查询合同以 Hub DEVELOPMENT 的 N62 表为准。

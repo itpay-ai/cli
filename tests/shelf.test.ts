@@ -16,7 +16,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
  let shows=0,requestKey="";
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
-  current_publication_id:"pub-shown",price_card:{mode:"per_call",amount_atoms:"10000",unit:"call"},
+  current_publication_id:"pub-shown",shown_event_id:"123",price_card:{mode:"per_call",amount_atoms:"10000",unit:"call"},
   input_schema:{type:"object",properties:{q:{type:"string"}},required:["q"]},example_input:{q:"example"},result_retention_days:7};
  const run={run_id:"run-original",operation_id:"op-fixture",publication_id:"pub-shown",execution_state:"succeeded",
   settlement_state:"captured",delivery_state:"inline",captured_atoms:"10000",held_atoms:"0",result:{value:"original"}};
@@ -67,7 +67,10 @@ test("six command shelf freezes shown facts and status never redispatches",async
   await cli([...prefix,"status",id]);await cli([...prefix,"status",id]);
   await cli([...prefix,"call","--pending",id]);
   assert.equal(posts.length,1);assert.equal(shows,1);
-  assert.deepEqual(posts[0]!.body,{expected_publication_id:"pub-shown",input:{q:"actual"},max_charge:{currency:"CNY",scale:6,amount_atoms:"10000"}});
+  assert.deepEqual(posts[0]!.body,{expected_publication_id:"pub-shown",shown_event_id:"123",input:{q:"actual"},max_charge:{currency:"CNY",scale:6,amount_atoms:"10000"}});
+  const again=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
+  assert.notEqual(again.value.result.request_id,id);assert.equal(posts.length,2);assert.equal(shows,1);
+  assert.equal(posts[1]!.body.shown_event_id,"123");assert.notEqual(posts[1]!.key,posts[0]!.key);
   assert.equal((await cli([...prefix,"wallet"])).value.result.topup_url,"https://official.invalid/me/wallet");
   assert.equal(readFileSync(sentinel,"utf8"),"unchanged");
   for(const old of ["discover","inspect","run","resume","tasks","continue","run-status","original-receipt","usage","transactions","topups","topup","topup-status","recover-connection"]){

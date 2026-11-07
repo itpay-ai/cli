@@ -5,7 +5,7 @@ import {
   HubApiError,
   type EffectClass,
   type ServiceKind,
-  type AdmissionRequest,
+  type AdmissionRequest as SdkAdmissionRequest,
   type ContinueIntentResponse,
   type DiscoverItem,
   type DiscoverRequest,
@@ -25,9 +25,9 @@ import { HttpError } from "./http.js";
 import { connectedHubToken, storedHubProfile, storedHubToken, storedHubKey } from "../state/hub_credentials.js";
 
 export { HubApiError };
+export type AdmissionRequest=SdkAdmissionRequest&{shown_event_id?:string};
 
 export type {
-  AdmissionRequest,
   EffectClass,
   ServiceKind,
   ContinueIntentResponse,

@@ -5,7 +5,7 @@ import {withFileLock} from "./file_lock.js";
 import {hubCredentialsPath} from "./hub_credentials.js";
 import {loadHubConfig,type OperationDescriptor} from "../client/hub.js";
 
-export type ShelfDescriptor=OperationDescriptor&{example_input:Record<string,unknown>};
+export type ShelfDescriptor=OperationDescriptor&{example_input:Record<string,unknown>;shown_event_id?:string};
 function cachePath(operation:string):string {
  const origin=loadHubConfig().baseURL;
  const key=createHash("sha256").update(origin+"\0"+operation).digest("hex");
