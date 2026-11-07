@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { withAsyncFileLock } from "./file_lock.js";
-import { finishHubDeviceSession, hubCredentialsPath, storedHubProfile } from "./hub_credentials.js";
+import { finishHubDeviceSession, recoverHubConnection, hubCredentialsPath, storedHubProfile } from "./hub_credentials.js";
 import { selectedHubInstallationPath } from "./hub_installation.js";
 import { CLI_VERSION, API_CONTRACT_REVISION } from "./release_identity.js";
 import { HubTaskStore } from "./hub_tasks.js";
@@ -201,6 +201,14 @@ export async function restartHubDevice(): Promise<DeviceResult> {
 }
 
 export async function connectHubDevice(handle: string | undefined, waitSeconds: number, requestID?: string): Promise<DeviceResult> {
+  if(!handle && existsSync(hubCredentialsPath()+".recovery.json")) {
+    await recoverHubConnection();
+    const recovered=storedHubProfile();
+    if(!recovered?.subject || !recovered.consumer_id)throw new Error("connection_recovery_denied: verified original binding unavailable");
+    return {phase:"connected",binding:{buyer_id:recovered.subject,consumer_id:recovered.consumer_id},
+      ...(requestID?{request_id:requestID}:{})};
+  }
+
   const cfg = hubOAuthConfig();
   const path = pendingPath();
   const lock = path + ".lock";

@@ -20,16 +20,7 @@ export function writeCommandEnvelope(value: CommandEnvelope, options: {jsonOutpu
   if(!action.command.startsWith("itpay ")) return action;
   const installed = qualifyHubInstallation(action.command);
   if (installed) return {...action,command:qualifyItPayCommand(installed,declaredAgentType())};
-  const assignments:string[]=[];
-  for(const name of ["ITPAY_HUB_URL","ITPAY_HUB_OAUTH_ISSUER","ITPAY_HUB_OAUTH_CLIENT","ITPAY_HUB_OAUTH_SCOPE","ITPAY_STATE_DIR"]){
-   const raw=process.env[name];if(!raw)continue;
-   if(name==="ITPAY_HUB_URL"||name==="ITPAY_HUB_OAUTH_ISSUER"){
-    try{const u=new URL(raw);if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.search||u.hash)return null}catch{return null}
-   }
-   const quoted="'"+raw.replaceAll("'", "'\"'\"'")+"'";
-   assignments.push(name+"="+quoted);
-  }
-  return {...action,command:[...assignments,qualifyItPayCommand(action.command,declaredAgentType())].join(" ")};
+  return null;
  };
  value={...value,instruction:value.instruction+" "+routingInstruction(value),next:value.next?qualify(value.next):null,recovery:value.recovery.map(qualify).filter((action):action is CommandAction=>action!==null)};
  const out = options.output ?? ((text: string) => { process.stdout.write(text); });

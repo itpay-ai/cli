@@ -4,7 +4,7 @@
 
 Services自然旅程：被测Agent只拿Services Skill、其实际包/帮助和运行返回；理解完整地点/条件、必要时定向查证、先给简短路线判断，再Exact/Smart查询、完整结果、按委托选择、仅补必要同意、展示官方入口、沿原任务恢复。不能给源码/正确命令救场。本轮V4已运行真实查询但无可选行程，购买后续未验；旧环境成功不代表此候选通过。
 
-API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算中 discover→inspect→绑定publication调用→状态/结果/用量→原任务恢复；不能要求先读铁路或API维护内部材料。购买/充值仍按真实同意和宿主政策，不能用Key权限绕开。
+API自然旅程：另一任务只读API Skill/API帮助，在受限scope/预算中 categories→list→show→call→status→wallet，原任务用 status 核对、call --pending 接续；不能要求先读铁路或API维护内部材料。购买/充值仍按真实同意和宿主政策，不能用Key权限绕开。
 
 两条旅程分别记实际版本/包hash/材料、耗时、有用结果、人工帮助、约束保持、失败和恢复。完整fakepass仅付款/出票/退款模拟，其余真实链路；本轮仅已明确批准的v4-dev隔离测试；不外推新部署/发布或真实交易授权。UI核验优先Node+Playwright。未观察宿主、未运行数据库/PSP、工程失败与真实体验结论分别列明。
 

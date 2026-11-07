@@ -56,7 +56,7 @@ flowchart TD
  A02 --> A03[同页确认连接和预填单次额度 / 可切仅免费]
  A03 --> AS[原 verifier 对应的 AS done 302 / 网关落盘]
  AS --> HC[Backend worker提交原receipt / V4激活代次]
- A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI和原MCP discover]
+ A04 -->|连接已保存，新任务| B01[网站同一可售货架 / CLI list与原MCP discover]
  B01 --> B02[show：用途、价格、ISO示例、TTL并缓存]
  B02 --> B03[用户同意后call / 自动原ID和展示价]
  B03 -->|连接失效| A05[锁内refresh / 必要时Device续原consumer]
@@ -67,7 +67,7 @@ flowchart TD
  PENDING -.只读status.-> HC
  PENDING -->|明确失效或过期| A02
  PENDING -->|拒绝或取消| STOP[结束原 flow / 停止兑换]
- A04 -->|已有原请求| B04[先读原单 / 有run只读、未派发才接续]
+ A04 -->|已有原请求| B04[status原单 / 有run只读、未派发call --pending]
  B04 --> R[结果与收据 / status只读]
  B03 -->|免费或付费成功| R
  B03 -->|余额不足| T[原单官方充值 / 隔离仅fakepass]
@@ -143,6 +143,6 @@ Admit复核expected_publication_id、max_charge和当前grant；变价时，原�
 
 ### CLI Device 授权入口
 
-`setup --api-prefix <绝对目录>` 创建当前安装的私有选择文件与启动器。`api --profile <选择文件> connect` 返回授权链接和原等待命令，`connect continue --wait 120 -- <handle>` 接着等待，`connect status` 显示当前安装和代次。续接带已有本地请求时传 `connect --request <request_id>`，连上后先读原单。已确认兑换但本地未保存时，由本人选择 `connect restart` 恢复同一连接。旧独立恢复入口仍用于未迁移连接的历史兼容。
+`setup --api-prefix <绝对目录>` 创建当前安装的私有选择文件与启动器。`api --profile <选择文件> connect` 返回授权链接和原等待命令，`connect continue --wait 120 -- <handle>` 接着等待，`connect status` 显示当前安装和代次。续接带已有本地请求时传 `connect --request <request_id>`，连上后先读原单。已确认兑换但本地未保存时，由本人选择 `connect restart` 恢复同一连接。旧连接私有恢复候选由 connect 在原绑定内处理，不保留独立业务恢复注册。
 
 在本地候选配对中，Device 客户端向配置的 issuer 启动和轮询，并在 ready 后用标准 Device grant 兑换；首次 `/me` 的买家、consumer、批准和代次一致才写私有凭据。失败或重连继续使用原安装。

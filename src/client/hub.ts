@@ -87,6 +87,30 @@ export class HubClient {
     this.sdk = new SdkHubClient(toSdkConfig(cfg));
   }
 
+  shelfGet<T>(path: string): Promise<T> {
+    return this.wrap(async () => {
+      const token = this.cfg.sessionEnv ? storedHubProfile(this.cfg.sessionEnv)?.access_token : this.cfg.bearerToken;
+      const headers: Record<string,string> = {"Accept":"application/json", "X-ItPay-OAuth-Resource":this.cfg.baseURL};
+      if(token) headers.Authorization="Bearer "+token;
+      else if(this.cfg.apiKey) headers["X-ItPay-Key"]=this.cfg.apiKey;
+      let response:Response;
+      try {response=await fetch(this.cfg.baseURL+path,{headers,redirect:"error",signal:AbortSignal.timeout(10_000)});}
+      catch(error){
+        const timeout=error instanceof Error && ["AbortError","TimeoutError"].includes(error.name);
+        throw new HttpError(0,{code:timeout?"request_timeout":"network_error",
+          message:timeout?"catalog metadata read timed out":"catalog metadata unavailable"},"Hub metadata read failed");
+      }
+      const body=await response.json();
+      if(!response.ok) {
+        const problem=body as {error?:{code?:unknown;message?:unknown}};
+        throw new HubApiError(response.status,{error:{
+          code:typeof problem?.error?.code==="string"?problem.error.code:"invalid_response",
+          message:typeof problem?.error?.message==="string"?problem.error.message:"catalog response unavailable"}});
+      }
+      return body as T;
+    });
+  }
+
   adminTool(action: string,args: Record<string, unknown>){return this.wrap(()=>this.sdk.adminTool(action,args));}
   discover(query: DiscoverRequest): Promise<DiscoverResponse> {
     return this.wrap(() => this.sdk.discover(query));
