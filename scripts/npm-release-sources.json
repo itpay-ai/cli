@@ -1,9 +1,9 @@
 {
   "dev": {
-    "sha": "f0a951df3d1152e1255523d647f4602ee5b76659",
-    "version": "2.1.66",
+    "sha": "d3e88d44ef74e7f8d762f04fb5105731c77b69cb",
+    "version": "2.1.67",
     "api": "sha256:f20af3780a0e12a79a6ca9507ba65167a4018338495af66d87931e55619b618a",
-    "sha256": "c8dd1631ec8a53dee10f1a9faf0712f95cdfacbd4ee9933ee48941428910ea35"
+    "sha256": "e4b63efbce213e2c53f6766c4d4e3881e4a2b74601efa5383bc3801b0d79303b"
   },
   "prod": {
     "sha": "3cc612a853f9cff49574f416dfc0bc12ffbeefae",
