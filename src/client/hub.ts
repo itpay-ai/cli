@@ -65,9 +65,7 @@ export function loadHubConfig(env: NodeJS.ProcessEnv = process.env): HubConfig {
   };
 }
 
-// Conflict rule (R03): bearer and key credentials must not name different
-// subjects silently. When both are present the bearer wins and the key is
-// dropped with a loud warning — never a silent account mix.
+// R03: loadHubConfig selects one credential and rejects conflicting explicit overrides.
 function toSdkConfig(cfg: HubConfig): { baseUrl: string; resource: string; token?: string; apiKeyHeader?: "X-ItPay-Key" | "Authorization" } {
   // REST calls must select the same OAuth resource as the original profile, including allowed aliases.
   const base = { baseUrl: cfg.baseURL, resource: cfg.baseURL.replace(/\/+$/, "") };
