@@ -68,3 +68,7 @@ PR156 main `407908f68e14cf402d434ba86ea642e9ea0ee101`，最终 hook lint/554 tes
 实际安装包新测试 root 的统一页一个确认 POST：首链接2.313秒，API15.768秒 connected，后续 Services8.556秒 connected、无第二链接，第二次 API4.844秒直接 connected。数字为工程命令完整 wall-clock，含网络/轮询，不是自然业务出结果 SLA。旧 source 试验 root 拒绝被不同安装 launcher 接管，按合同保留；实包改用明确独立的工程 root，未迁移已受理任务。
 
 同一合成 buyer 另一个连接从公开管理页撤销后，原 Hub/Services 凭据身份读取从200变401；SQL核两 consumer 的 runs/charged_runs/reserved_runs 均0。自然四项/T07原输入缺口仍由同阶段 Testing 记录，不以工程 cookie、fixture 或源码试验代签。
+
+### N6.4 Key 与钱包组件验证（2026-11-08）
+
+TypeScript typecheck与Key选择、stdin首次Agent、wallet两个只读模式、六命令、Device及原请求恢复的针对性测试通过。覆盖Key/OAuth共存、显式Key优先、不同凭据任务隔离、被拒Key不回退OAuth、机器用量/截断提示及官方账单URL。组件结果不代签dev模拟充值闭环或真实宿主；后者在本轮Owner亲测包单列。未运行Actions、npm发布或制品核对步骤。

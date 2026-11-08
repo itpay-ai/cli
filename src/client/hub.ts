@@ -22,7 +22,7 @@ import {
   type WalletTransaction,
 } from "@itpay/hub-client";
 import { HttpError } from "./http.js";
-import { connectedHubToken, storedHubProfile, storedHubToken, storedHubKey } from "../state/hub_credentials.js";
+import { connectedHubToken, storedHubProfile, storedHubToken, storedHubKey, hubCredentialKind } from "../state/hub_credentials.js";
 
 export { HubApiError };
 export type AdmissionRequest=SdkAdmissionRequest&{shown_event_id?:string};
@@ -54,20 +54,18 @@ export interface HubConfig {
 
 export function loadHubConfig(env: NodeJS.ProcessEnv = process.env): HubConfig {
   const profile = storedHubProfile(env);
+  const kind=hubCredentialKind(env);
   const explicit = Boolean(env.ITPAY_HUB_TOKEN || env.ITPAY_HUB_KEY);
   return {
-    sessionEnv: !explicit && profile?.access_token ? env : undefined,
+    sessionEnv: kind==="oauth" && !explicit && profile?.access_token ? env : undefined,
     baseURL: (env.ITPAY_HUB_URL ?? "http://localhost:18090").replace(/\/+$/, ""),
-    // Session token from `hub connect` or env override wins over a stored
-    // imported key; the SDK precedence rule applies to whichever we send.
-    bearerToken: env.ITPAY_HUB_TOKEN ?? (env.ITPAY_HUB_KEY ? undefined : storedHubToken(env)),
-    apiKey: env.ITPAY_HUB_KEY ?? (profile?.access_token ? undefined : storedHubKey(env)),
+    // One explicit credential selection is shared with local task ownership.
+    bearerToken: kind==="oauth" ? env.ITPAY_HUB_TOKEN || storedHubToken(env) : undefined,
+    apiKey: kind==="api_key" ? env.ITPAY_HUB_KEY || storedHubKey(env) : undefined,
   };
 }
 
-// Conflict rule (R03): bearer and key credentials must not name different
-// subjects silently. When both are present the bearer wins and the key is
-// dropped with a loud warning — never a silent account mix.
+// R03: loadHubConfig selects one credential and rejects conflicting explicit overrides.
 function toSdkConfig(cfg: HubConfig): { baseUrl: string; resource: string; token?: string; apiKeyHeader?: "X-ItPay-Key" | "Authorization" } {
   // REST calls must select the same OAuth resource as the original profile, including allowed aliases.
   const base = { baseUrl: cfg.baseURL, resource: cfg.baseURL.replace(/\/+$/, "") };

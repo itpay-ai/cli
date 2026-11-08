@@ -16,7 +16,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { withFileLock } from "./file_lock.js";
-import { storedHubKeyPrefix, storedHubProfile } from "./hub_credentials.js";
+import { storedHubKeyPrefix, storedHubProfile, hubCredentialKind } from "./hub_credentials.js";
 
 export type HubCredentialSelection = { credential_id?: string; source_credentials?: Record<string, { credential_id: string; expected_version: string }> };
 
@@ -86,8 +86,9 @@ export function hubTasksScope(env: NodeJS.ProcessEnv = process.env): string {
   const key = env.ITPAY_HUB_KEY ?? "";
   const profile = storedHubProfile(env);
   let consumer: string;
+  const kind=hubCredentialKind(env);
   if (env.ITPAY_HUB_TOKEN) throw new Error("authorization_required: connect a verified OAuth profile before using local tasks");
-  if (key) consumer = `key:${key}`;
+  if (kind==="api_key") consumer = `key:${key || profile?.api_key}`;
   else if (profile?.access_token) {
     if (!profile.subject || !profile.consumer_id) throw new Error("authorization_required: reconnect to verify task owner");
     consumer = JSON.stringify(["oauth", profile.subject, profile.consumer_id]);

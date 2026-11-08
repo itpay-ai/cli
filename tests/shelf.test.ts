@@ -33,6 +33,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
    res.end(JSON.stringify(run));return;
   }
   if(path.startsWith("/v1/requests/")){res.end(JSON.stringify({request_id:requestKey,run,terminal:true,pending_stage:null,next:null}));return;}
+  if(path==="/v1/me"){res.end(JSON.stringify({buyer_id:"fixture",key_id:"key-fixture",consumer_id:""}));return;}
   if(path==="/v1/me/wallet"){res.end(JSON.stringify({available:{currency:"CNY",scale:6,amount_atoms:"990000"},held:{currency:"CNY",scale:6,amount_atoms:"0"},topup_url:"https://official.invalid/me/wallet"}));return;}
   res.writeHead(404);res.end(JSON.stringify({error:{code:"not_found",message:"unexpected route"}}));
  });

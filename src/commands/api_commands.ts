@@ -1,7 +1,7 @@
 import {shelfCategories,shelfList,shelfShow,shelfCall,shelfStatus} from "./shelf.js";
 import { connectHubDevice, hubDeviceStatus, restartHubDevice } from "../state/hub_device.js";
 import { hasHubInstallation, selectHubInstallation } from "../state/hub_installation.js";
-import {storedHubProfile} from "../state/hub_credentials.js";
+import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
 import {runAdminCommand} from "./admin.js";
 import {HubTaskRequestError,runHubCredentialsImport,runHubDoctor,runHubWallet} from "./hub.js";
 import { Command } from "commander";
@@ -11,7 +11,7 @@ import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
 import { hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
 
 function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
- const code=error instanceof HubTaskRequestError?error.code:error instanceof HttpError?error.code:error instanceof Error&&["show_required","connection_recovery_conflict","connection_recovery_denied","authorization_required","connection_not_saved","connection_verification_pending","credential_persistence_failed"].some(code=>error.message.startsWith(code+":"))?error.message.split(":",1)[0]!:contract?.code??"command_failed";
+ const code=error instanceof HubTaskRequestError?error.code:error instanceof HttpError?error.code:error instanceof Error&&["credential_conflict","show_required","connection_recovery_conflict","connection_recovery_denied","authorization_required","connection_not_saved","connection_verification_pending","credential_persistence_failed"].some(code=>error.message.startsWith(code+":"))?error.message.split(":",1)[0]!:contract?.code??"command_failed";
  let original=false;
  let installed=hasHubInstallation();
  try {
@@ -20,6 +20,12 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
   installed ||= Boolean(profile?.device_approval_id);
  } catch { original=true; }
  const auth=code==="authorization_required"||code==="unauthenticated";
+ let key=false;try{key=hubCredentialKind()==="api_key"}catch{/* conflict remains an error */}
+ if(key){
+  const base=new URL(process.env.ITPAY_HUB_URL??"http://localhost:18090");
+  const keysURL=base.origin+"/me/keys";
+  writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:"API Key request failed"},result:{credential_kind:"api_key",keys_url:keysURL,...(error instanceof HubTaskRequestError?error.references:{})},instruction:auth?"当前 API Key 无效或已撤销；到返回的本人密钥页检查，使用安全 stdin 重新导入所选 Key，不发起 OAuth 或退回其他身份。":"当前 Key 的范围、预算或原请求受限；核对具体错误及本人密钥页。保留原凭据和原单，不切换 OAuth 绕过。",next:null,recovery:[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});process.exitCode=1;return;
+ }
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
  const recover=taskID?{command:qualifyItPayCommand(`itpay api status ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"只读核对同一原请求"}:null;
@@ -111,11 +117,13 @@ hubCmd
 
 hubCmd
   .command("wallet")
-  .description("Show wallet balances")
+  .description("Read wallet, current credential usage or scoped transactions")
+  .option("--usage", "read current Key/Consumer usage; not account-wide")
+  .option("--transactions", "read scoped transactions; owner history uses the official page")
   .option("--json", "output JSON")
   .action(async (options) => {
     try {
-      await runHubWallet({ jsonOutput: Boolean(options.json) });
+      await runHubWallet({ jsonOutput: Boolean(options.json),usage:Boolean(options.usage),transactions:Boolean(options.transactions) });
     } catch (error) {
       reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_wallet_failed", instruction: "确认原安装的连接身份。", recovery: [] });
     }

@@ -111,3 +111,7 @@ flowchart TD
 ```
 
 开发服新安装使用 V4 持久同意记录，旧独立连接保留原路径。这，不是新身份或令牌系统：账号仍由V4登录，Hub令牌仍由Hydra签发、预算仍归Hub，Services仍用原设备签名和会话。未请求的业务不登记设备、不换取其凭据；旧profile/已受理或unknown任务不迁移。普通新连接的默认单次和旧显式预算沿原规则，不隐式付款。共享同意不共享token/resource/grant，也不把Services失败放进API就绪条件。
+
+### API Key 与 OAuth 的显式选择
+
+API 环境 Key 或安全 stdin 导入的 Key 可直接使用同一 API SDK；按需 API 入口先核所选 Key，不发起 OAuth。显式 Key 不被安装 profile 清除；私有存储保留 OAuth 与 Key，最后一次明确导入/连接选择凭据。原任务按原凭据隔离，切换凭据不能接管原单。Services 身份保持独立。

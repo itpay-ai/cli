@@ -12,6 +12,7 @@ interface HubCredentialsFile {
   schema_version: "itpay.hub_credentials.v1";
   profiles: Record<string, {
     base_url: string;
+    selected_credential?: "api_key" | "oauth";
     key_prefix?: string | undefined;
     api_key?: string | undefined;
     access_token?: string | undefined;
@@ -44,6 +45,7 @@ function importHubKeyUnlocked(apiKey: string, baseURL: string, env: NodeJS.Proce
     ? JSON.parse(readFileSync(path, "utf8")) as HubCredentialsFile
     : { schema_version: "itpay.hub_credentials.v1" as const, profiles: {} };
   file.profiles["default"] = {
+    ...file.profiles.default, selected_credential: "api_key",
     base_url: baseURL, key_prefix: apiKey.slice(0, 14), api_key: apiKey,
     created_at: new Date().toISOString(),
   };
@@ -83,6 +85,8 @@ function storeHubSessionUnlocked(accessToken: string, refreshToken: string | und
   const issuedAt = Date.now();
   const margin = Math.min(30_000, Math.max(100, expiresIn * 100));
   file.profiles["default"] = {
+    ...(file.profiles.default?.api_key ? {api_key:file.profiles.default.api_key,key_prefix:file.profiles.default.key_prefix} : {}),
+    selected_credential: "oauth",
     base_url: baseURL,
     access_token: accessToken,
     ...(refreshToken ? { refresh_token: refreshToken } : {}),
@@ -172,6 +176,16 @@ export function storedHubProfile(env: NodeJS.ProcessEnv = process.env): HubCrede
  if (!existsSync(path)) return undefined;
  // Corrupt credentials must not silently fall back to another identity.
  return (JSON.parse(readFileSync(path, "utf8")) as HubCredentialsFile).profiles.default;
+}
+
+// Select once for HTTP and local task scope. Never silently substitute an identity.
+export function hubCredentialKind(env: NodeJS.ProcessEnv = process.env): "api_key" | "oauth" | "none" {
+ if(env.ITPAY_HUB_KEY && env.ITPAY_HUB_TOKEN)throw new Error("credential_conflict: select one explicit API credential; do not combine Key and OAuth env overrides");
+ if(env.ITPAY_HUB_KEY)return "api_key";
+ if(env.ITPAY_HUB_TOKEN)return "oauth";
+ const p=storedHubProfile(env);
+ if(p?.selected_credential==="api_key" && p.api_key)return "api_key";
+ return p?.access_token ? "oauth" : p?.api_key ? "api_key" : "none";
 }
 
 export async function connectedHubToken(env: NodeJS.ProcessEnv = process.env, rejectedToken?: string): Promise<string> {
