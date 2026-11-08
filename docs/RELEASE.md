@@ -68,3 +68,5 @@ N6.3 第二批仅开发入口使用本地 main `407908f6` 构建2.1.65：`itpay-
 2.1.66承载已合并N6.4，目标candidate-dev和next，latest/candidate-prod保持2.1.41。Charlie已明确允许仅既有发布流程内部保留自动检查；不新增或另做制品核对。stage及promote仍按既有保护流程，实际结果发布后回填。旧npm2.1.65直接discover已实际成功但没有升级提示，旧二进制不会自动更新；dev启动器负责实际版本检查及同prefix安装正式版本，保留账号/profile/原请求。
 
 N6.4正式版本stage 42460852408：main f0a951d构建/完整检查和prepare通过，npm接受2.1.66；publish后即时标签可见性未收敛导致run失败，未重发。按既有release流程将该次工作流产出的dev来源记录写入原policy，待registry可见后以promote提升next；prod来源/标签不动，不另行计算或比对制品。最终标签与dev安装读数见同批Owner亲测包。
+
+N6.4最终发行：promote [42461459054](https://github.com/itpay-ai/cli/actions/runs/42461459054)成功，candidate-dev=next=2.1.66；latest=candidate-prod=2.1.41。正式包source为main f0a951d；同一次既有stage已被npm接受，未重复发布。dev /agent与install.sh精确安装官方npm2.1.66，隔离旧npm2.1.65同prefix重跑公开安装脚本实际升级并--version读回2.1.66；随包API Skill、两钱包模式help和dev目录读取通过。旧二进制直接discover实际成功但没有升级提示，直接旧路径不会自动升级；Owner原安装/身份/profile/原请求未修改。生产及固定下载未改，下游sync未运行。

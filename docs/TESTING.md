@@ -78,3 +78,5 @@ TypeScript typecheck与Key选择、stdin首次Agent、wallet两个只读模式�
 首次stage 42460171151在prepare拒绝：555/556通过，task-driven新OAuth连接错误走legacy路径，function coverage89.32%未达既有90%；publish未运行、npm版本未占用。根因是Key探测提前创建空api-profile，早于统一连接的legacy判定。仅在已有API安装或显式Key时预选profile，首次OAuth先准备统一连接，原Key/旧profile规则保留。新增拒绝后跨回合不再发OAuth、Key诊断成功/失败无OAuth回退断言；10项针对性测试及typecheck通过。后续完整检查与npm实际状态由对应发布run回填，不降低覆盖门槛。
 
 PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；stage42460852408的prepare完整构建/检查通过，发布任务npm接受版本后仅因即时tag读回未同步而失败，不能把该run标全绿。只读观察registry，再以既有promote完成渠道；不重复发布。
+
+正式2.1.66：stage42460852408的prepare为557/557、函数覆盖90.11%、packed CLI smoke通过；stage发布run最终failure仅因npm异步可见性，如实保留。registry可见后promote42461459054成功，candidate-dev/next2.1.66且prod两标签2.1.41。实际公开dev installer在隔离同prefix完成2.1.65→2.1.66，版本、agent/help、wallet读模式help、随包API Skill与公开categories通过，无认证或计费调用。
