@@ -31,7 +31,7 @@ test('api and hub are one registration object, with original Services entry inta
 async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
- let ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
+ let denied=false,ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
  let originalConsumer: string | undefined;
  const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
@@ -42,7 +42,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
    const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
    assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
-   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",buyer_id:ready?"fixture-buyer":"",status:ready?"active":"pending",...(ready?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
+   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",buyer_id:ready?"fixture-buyer":"",status:denied?"denied":ready?"active":"pending",...((ready||denied)?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
   }
   if(req.url==="/v1/agent-connections/acn_fixture/hub"){
    starts++;assert.ok(ready);binding.buyer_id=resource+"|fixture-buyer";
@@ -120,7 +120,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   await new Promise<void>(resolve=>server.close(()=>resolve()));
   rmSync(home,{recursive:true});
  }
- return {env,resource,handle,binding,cli,setup,close,approve:()=>{ready=true},
+ return {env,resource,handle,binding,cli,setup,close,approve:()=>{ready=true},deny:()=>{denied=true},
   calls:()=>({starts,exchanges,probes,originalConsumer,commonStarts})};
 }
 
@@ -228,5 +228,19 @@ test("task-driven entry emits a link first, reuses pending across turns and conn
   assert.equal(final.value.status,"connected",final.output);assert.match(final.value.next.command,/api --profile .* list --json/);
   const again=await f.cli(args);assert.equal(again.value.status,"connected");
   assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
+ }finally{await f.close();}
+});
+
+
+test("denied unified API connection remains terminal across turns without starting OAuth",async()=>{
+ const f=await deviceFixture();
+ try{
+  const args=["--agent-type","muse","agent"];
+  const first=await f.cli([...args,"--surface","api","--task","read free data","--buffered"]);
+  assert.equal(first.value.status,"pending");f.deny();
+  const denied=await f.cli([...args,"--wait","0"]);assert.equal(denied.value.status,"denied");assert.equal(denied.value.next,null);
+  const reads=f.calls().commonStarts;
+  const again=await f.cli(args);assert.equal(again.value.status,"denied");assert.equal(again.value.result.task.id,first.value.result.task.id);
+  assert.equal(f.calls().commonStarts,reads);assert.equal(f.calls().starts,0);assert.equal(f.calls().exchanges,0);
  }finally{await f.close();}
 });
