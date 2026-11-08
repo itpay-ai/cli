@@ -1,3 +1,4 @@
+import {walletTopup} from "./wallet_topup.js";
 import {shelfCategories,shelfList,shelfShow,shelfCall,shelfStatus} from "./shelf.js";
 import { connectHubDevice, hubDeviceStatus, restartHubDevice } from "../state/hub_device.js";
 import { hasHubInstallation, selectHubInstallation } from "../state/hub_installation.js";
@@ -117,12 +118,17 @@ hubCmd
 
 hubCmd
   .command("wallet")
-  .description("Read wallet, current credential usage or scoped transactions")
+  .description("Read wallet or prepare an explicit own-wallet top-up")
+  .option("--topup <amount>","prepare a CNY wallet top-up; minimum 10 CNY")
+  .option("--topup-status <topup_id>","read the original top-up")
+  .option("--request <request_id>","retain your original pending API request")
+  .option("--no-open","this host does not open a browser; retain the same payment links")
   .option("--usage", "read current Key/Consumer usage; not account-wide")
   .option("--transactions", "read scoped transactions; owner history uses the official page")
   .option("--json", "output JSON")
   .action(async (options) => {
     try {
+      if(options.topup||options.topupStatus){await walletTopup({topup:options.topup,topupStatus:options.topupStatus,request:options.request,noOpen:options.open===false,jsonOutput:Boolean(options.json)});return;}
       await runHubWallet({ jsonOutput: Boolean(options.json),usage:Boolean(options.usage),transactions:Boolean(options.transactions) });
     } catch (error) {
       reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_wallet_failed", instruction: "确认原安装的连接身份。", recovery: [] });

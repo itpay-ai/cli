@@ -69,7 +69,7 @@ export async function runHubWallet(options: { jsonOutput?: boolean; usage?: bool
    truncated:data.has_more??(scope!=="owner"&&data.items.length>=100),limit:data.limit??(scope==="owner"?50:100)};
  }else result={available_atoms:bal.available.amount_atoms,held_atoms:bal.held.amount_atoms,currency:bal.available.currency,scale:bal.available.scale,period_limit_atoms:null,topup_url:bal.topup_url??null,scope:"account_balance",identity};
  result.owner_billing_url=bal.owner_billing_url??bal.topup_url??null;
- writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。全账号充值、冻结及原款退款请本人打开账单入口。":"余额属于账号，不代表本连接消费额度。主动充值打开官方入口，由本人选档并付款；链接不是充值订单。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
+ writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。全账号充值、冻结及原款退款请本人打开账单入口。":"余额属于账号，不代表本连接消费额度。主动充值打开官方入口，由本人选档并付款；链接不是充值订单。也可以告诉我金额，直接给你扫码付款。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
 }
 
 export async function runHubDoctor(options: { jsonOutput?: boolean | undefined }): Promise<void> {
