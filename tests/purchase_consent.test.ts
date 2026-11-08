@@ -287,10 +287,10 @@ test('run shares the remaining deadline with quote and authoritative checkout pr
 
 test('real CLI authorization timeout exits without late verification or original business write',async()=>{
  const {createServer}=await import('node:http');const {mkdtempSync,readFileSync,readdirSync,existsSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
- const mock=await startMockBackend();const home=mkdtempSync(join(tmpdir(),'itpay-process-auth-budget-'));const calls:string[]=[];
+ const mock=await startMockBackend();const home=mkdtempSync(join(tmpdir(),'itpay-process-auth-budget-'));const calls:string[]=[];let enrollmentStarted=0;
  const server=createServer(async(req,res)=>{
   const path=req.url!;calls.push(`${req.method} ${path.split('?')[0]}`);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
-  if(path==='/v1/agent-device-enrollments')await new Promise(resolve=>setTimeout(resolve,2200));
+  if(path==='/v1/agent-device-enrollments'){enrollmentStarted=Date.now();await new Promise(resolve=>setTimeout(resolve,2200));}
   if(res.destroyed)return;
   const f=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});res.statusCode=f.status;res.setHeader('content-type','application/json');res.end(await f.text());
  });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert(address&&typeof address!=='string');
@@ -298,7 +298,7 @@ test('real CLI authorization timeout exits without late verification or original
  const file=join(home,'query.json');writeFileSync(file,JSON.stringify({keyword:'fixture'}));const started=Date.now();let output='';
  try{
   try{await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,'services','run','svc_qizhidao_company_lookup','--input-json',file,'--timeout','1','--json'],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:5000});assert.fail('expected timeout');}catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);}
-  const elapsed=Date.now()-started;assert(elapsed<2100,'CLI exits before slow enrollment returns');
+  const elapsed=Date.now()-started;assert(enrollmentStarted>0 && Date.now()-enrollmentStarted<2100,'CLI exits before slow enrollment returns, excluding process startup');
   const stateRoot=join(home,'.itpay-v3');const snapshots=()=>JSON.stringify(existsSync(stateRoot)?readdirSync(stateRoot,{recursive:true}).filter(x=>String(x).endsWith('.json')).map(x=>[x,readFileSync(join(stateRoot,String(x)),'utf8')]):[]);const snapshot=snapshots();
   await new Promise(resolve=>setTimeout(resolve,2300));assert.equal(snapshots(),snapshot);
   assert.equal(calls.filter(x=>x.includes('/agent-device-enrollments')).length,1);assert.equal(calls.filter(x=>x==='POST /v1/service-executions').length,0);
