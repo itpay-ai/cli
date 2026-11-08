@@ -22,3 +22,7 @@ API业务入口只有 categories/list/show/call/status/wallet。show 私有缓�
 第二批一次同意/按需凭据的authority合同见V4 CONTRACTS的“N6.3 一次同意的连接契约”；CLI只保存原意、密钥和精确引用，不实现账号或消费授权owner。当前/目标图见ARCHITECTURE，尚未上线前不写成正式Skill能力。
 
 新统一 root 的 `connection.json` 固定 Backend、真实 Agent 类型、start key、connection ID 与已核 buyer。安装 Ed25519 私钥先原子落盘，已有连接密钥缺失即拒绝，不悄悄生成新身份。API broker 引用只在该 API profile 的私有状态中保存；原 Device exchange、me、refresh/unknown 与 consumer 比对保持。原 intent 要求新增消费同意时沿原显式 Device 同意，不把账户连接当作扩大预算；拒绝/撤销后仅本人明确要求才运行 `agent --reconnect`。
+
+## N6.4 Key 与只读钱包模式
+
+wallet --usage / --transactions 保持六业务命令，复用Hub reader并标范围/截断；账号余额不等于本凭据消费授权。完整账单用owner_billing_url本人登录。环境Key显式优先，stdin导入选择Key并保留OAuth；显式connect选择OAuth。两种环境凭据同时给出须报冲突，原任务scope不合并。Key无效、撤销或范围不足不自动回退OAuth，指向本人/me/keys。

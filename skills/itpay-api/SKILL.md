@@ -33,10 +33,16 @@ If refresh is explicitly rejected, follow the returned connect --request command
 
 ## Wallet and payment
 
-wallet reads available and held atoms and provides the official proactive top-up URL. Wallet balance is shared account money, not this consumer's authorization cap. Insufficient balance uses the original intent's official top-up page and original call --pending wait command. Funding never increases an explicit spending cap.
+wallet reads available and held atoms and provides the official proactive top-up URL. For “what have I used”, use wallet --usage or wallet --transactions: these report only the current Consumer/Key scope, with truncation where applicable. Known requests still use status. Full account funding, holds and cash refunds use owner_billing_url in the normal owner browser; do not use Computer Use to expand machine scope. Wallet balance is shared account money, not this consumer's authorization cap. Insufficient balance uses the original intent's official top-up page and original call --pending wait command. Funding never increases an explicit spending cap.
 
 Only open a top-up when the user authorized funding. N6.2 acceptance uses fakepass-platform-2, simulated, CNY and the advertised minimum ¥10 SKU. A page or callback does not prove wallet credit. Read the original server request and final charge. Do not create another payment or replacement intent.
 
 Present only returned official links and branded cards or their official rendered images. Never reconstruct, crop or encode a payment QR, request credentials in chat, or expose tokens or private request bodies.
 
 New task-driven installations use one official Agent connection page. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.
+
+## API Key access
+
+A user may securely inject ITPAY_HUB_KEY or import the selected Key with api credentials import through private stdin. Never ask for it in chat, put it in argv/logs, or echo it. A Key authorizes API Hub only within its catalog, effects and spending grant. It does not authorize Services or payment writes. An explicit environment Key wins over a saved OAuth connection; importing a Key selects it while preserving OAuth privately. An explicit normal connect selects OAuth. Never switch credentials to resume an existing request: its original task namespace remains isolated.
+
+For an API task with a selected Key, agent prepares only that API installation and reads its identity without OAuth. Read wallet identity.credential_kind and account_hint before work; all hosts in a shared-wallet test must show the same hint. If mismatched, stop that new task and have the owner select the intended Key or normally reconnect the intended account; keep all existing requests and do not revoke another host. Invalid/revoked Key or insufficient scope directs the owner to /me/keys and secure stdin import, never automatic OAuth fallback. A top-up URL is navigation, not a created top-up; /hub/mcp is a protocol connection URL, not a payment page.

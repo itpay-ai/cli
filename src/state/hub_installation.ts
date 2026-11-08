@@ -115,8 +115,7 @@ export function selectHubInstallation(selector: string): void {
   process.env.ITPAY_HUB_OAUTH_ISSUER = profile.issuer;
   process.env.ITPAY_HUB_OAUTH_CLIENT = profile.client_id;
   process.env.ITPAY_HUB_OAUTH_SCOPE = profile.scope;
-  delete process.env.ITPAY_HUB_TOKEN;
-  delete process.env.ITPAY_HUB_KEY;
+  // Explicit credentials remain explicit; selecting a directory cannot change identity.
   activeSelector = path;
 }
 

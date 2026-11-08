@@ -49,12 +49,27 @@ export class HubTaskRequestError extends Error {
  }
 }
 
-export async function runHubWallet(options: { jsonOutput?: boolean | undefined }): Promise<void> {
- const bal=await hub().wallet() as Awaited<ReturnType<HubClient["wallet"]>>&{topup_url?:string};
- writeCommandEnvelope({status:"ready",result:{available_atoms:bal.available.amount_atoms,held_atoms:bal.held.amount_atoms,
-  currency:bal.available.currency,scale:bal.available.scale,period_limit_atoms:null,topup_url:bal.topup_url??null},
-  instruction:"余额不代表本连接的授权额度。需要主动充值时打开返回的官方入口。",
-  next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
+export function describeHubIdentity(me: Awaited<ReturnType<HubClient["me"]>>, kind: string) {
+ const extra=me as typeof me & {key_id?:string;account_hint?:string};
+ return {credential_kind:kind,account_hint:extra.account_hint??(me.buyer_id ? "…"+me.buyer_id.slice(-6) : null),
+  ...(kind==="api_key"?{key_id:extra.key_id??null}:{consumer_id:me.consumer_id??null})};
+}
+export async function runHubWallet(options: { jsonOutput?: boolean; usage?: boolean; transactions?: boolean }): Promise<void> {
+ if(options.usage&&options.transactions)throw new Error("invalid_input: choose --usage or --transactions");
+ const cfg=loadHubConfig(),client=new HubClient(cfg);
+ const me=await client.me(),identity=describeHubIdentity(me,cfg.apiKey?"api_key":me.consumer_id?"oauth":"owner");
+ const scope=cfg.apiKey?"api_key":me.consumer_id?"consumer":"owner";
+ const bal=await client.wallet() as Awaited<ReturnType<HubClient["wallet"]>>&{topup_url?:string;owner_billing_url?:string};
+ let result:Record<string,unknown>;
+ if(options.usage)result={...await client.usage(),scope,identity};
+ else if(options.transactions){
+  const data=await client.walletTransactions() as Awaited<ReturnType<HubClient["walletTransactions"]>>&{has_more?:boolean;limit?:number;next_page?:number};
+  // Older servers include account funding credits. They are not this credential's usage.
+  result={...data,items:scope==="owner"?data.items:data.items.filter(x=>["charge","charge_refund"].includes(x.kind)),scope,identity,
+   truncated:data.has_more??(scope!=="owner"&&data.items.length>=100),limit:data.limit??(scope==="owner"?50:100)};
+ }else result={available_atoms:bal.available.amount_atoms,held_atoms:bal.held.amount_atoms,currency:bal.available.currency,scale:bal.available.scale,period_limit_atoms:null,topup_url:bal.topup_url??null,scope:"account_balance",identity};
+ result.owner_billing_url=bal.owner_billing_url??bal.topup_url??null;
+ writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。全账号充值、冻结及原款退款请本人打开账单入口。":"余额属于账号，不代表本连接消费额度。主动充值打开官方入口，由本人选档并付款；链接不是充值订单。",next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
 }
 
 export async function runHubDoctor(options: { jsonOutput?: boolean | undefined }): Promise<void> {
@@ -110,15 +125,15 @@ export async function runHubCredentialsImport(options: { jsonOutput?: boolean | 
     process.stdin.on("data", (c) => { buf += c; });
     process.stdin.on("end", () => { clearTimeout(timeout); resolve(buf); });
     process.stdin.on("error", (error) => { clearTimeout(timeout); reject(error); });
-    const timeout = setTimeout(() => reject(new Error("timeout: pipe the key on stdin — echo $KEY | itpay api credentials import")), 30_000);
+    const timeout = setTimeout(() => reject(new Error("timeout: provide the selected API Key through private stdin to api credentials import")), 30_000);
   });
   const key = raw.trim();
   const cfg = loadHubConfig();
   const { key_prefix } = importHubKey(key, cfg.baseURL);
   writeCommandEnvelope({
     status: "imported",
-    result: { key_prefix },
-    instruction: `密钥已安全保存（前缀 ${key_prefix}…）。后续 itpay api 命令自动使用，不再需要环境变量。`,
+    result: { key_prefix:key_prefix.slice(0,8)+"…",credential_kind:"api_key" },
+    instruction: `密钥已安全保存（前缀 ${key_prefix.slice(0,8)}…）。后续 itpay api 命令自动使用，不再需要环境变量。`,
     next: { command: "itpay api wallet", reason: "验证凭据有效" },
     recovery: [],
   }, {
