@@ -80,3 +80,8 @@ TypeScript typecheck与Key选择、stdin首次Agent、wallet两个只读模式�
 PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；stage42460852408的prepare完整构建/检查通过，发布任务npm接受版本后仅因即时tag读回未同步而失败，不能把该run标全绿。只读观察registry，再以既有promote完成渠道；不重复发布。
 
 正式2.1.66：stage42460852408的prepare为557/557、函数覆盖90.11%、packed CLI smoke通过；stage发布run最终failure仅因npm异步可见性，如实保留。registry可见后promote42461459054成功，candidate-dev/next2.1.66且prod两标签2.1.41。实际公开dev installer在隔离同prefix完成2.1.65→2.1.66，版本、agent/help、wallet读模式help、随包API Skill与公开categories通过，无认证或计费调用。
+
+
+## 2026-11-08 定额充值正式 dev 工程观察
+
+2.1.67 完整本地 check（558 tests、coverage、packed smoke）通过；修复旧超时测试后，stage42481174293 prepare 的完整 check 通过。定额充值返回本人账号、同单官方 HTML/PNG/收银台，link-only 不要求图片。dev 邮箱账号从0充值30，原 req_06985cf697ed4f77ab04ad80703a551f 经正常原 intent 授权重绑后续接一次扣0.01；支付宝既定账号在独立 dev 工程连接从0充值30，原 req_dc4a09f9fbdd478087239cc36de49505 续接一次扣0.01。两者均实际读回29.99、冻结0；邮箱随后原模拟充值退款29.97，最终0.02、冻结0，支付宝保留29.99。账务只读确认各一次入账、一次capture，不重放旧unknown请求。仅开发模拟资金，非自然宿主验收；真实账号 session 操作使用现有浏览器，页面付款用 Node+Playwright。dev 运行组合与完整账务引用归 V4 TESTING/DEPLOYMENT。

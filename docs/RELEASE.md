@@ -70,3 +70,12 @@ N6.3 第二批仅开发入口使用本地 main `407908f6` 构建2.1.65：`itpay-
 N6.4正式版本stage 42460852408：main f0a951d构建/完整检查和prepare通过，npm接受2.1.66；publish后即时标签可见性未收敛导致run失败，未重发。按既有release流程将该次工作流产出的dev来源记录写入原policy，待registry可见后以promote提升next；prod来源/标签不动，不另行计算或比对制品。最终标签与dev安装读数见同批Owner亲测包。
 
 N6.4最终发行：promote [42461459054](https://github.com/itpay-ai/cli/actions/runs/42461459054)成功，candidate-dev=next=2.1.66；latest=candidate-prod=2.1.41。正式包source为main f0a951d；同一次既有stage已被npm接受，未重复发布。dev /agent与install.sh精确安装官方npm2.1.66，隔离旧npm2.1.65同prefix重跑公开安装脚本实际升级并--version读回2.1.66；随包API Skill、两钱包模式help和dev目录读取通过。旧二进制直接discover实际成功但没有升级提示，直接旧路径不会自动升级；Owner原安装/身份/profile/原请求未修改。生产及固定下载未改，下游sync未运行。
+
+
+## 2026-11-08 定额充值 2.1.67 已发布 next
+
+功能 PR163，计时测试修复 PR164，固定 dev 来源 PR165 已正常合并。原 stage 42480277914 在 prepare 被既有超时测试拦截，未发布；改为从 enrollment 请求开始计时，保留原网络上限及无迟发业务断言。stage 42481174293 的 prepare 完整通过，npm 接受原包并签 provenance；即时标签可见性未收敛导致 publish job 失败，未重发。随后 candidate-dev 实读为2.1.67；promote 42481914109 在既有内部检查后成功把 next 提升到同一原包。
+
+原包 source/workflow `d3e88d44ef74e7f8d762f04fb5105731c77b69cb`，既有 stage manifest 的 tar SHA256 `e4b63efbce213e2c53f6766c4d4e3881e4a2b74601efa5383bc3801b0d79303b`。promote 的可信 workflow revision `08fe53633b6340a4b2ff6acf8e34c976900b6769`。只记录既有流程产物，无额外制品核对。最终 candidate-dev=next=2.1.67，latest=candidate-prod=2.1.41。生产未变、下游 sync 未运行。
+
+dev /agent、install.sh 和固定下载同步官方2.1.67。公开安装脚本在隔离旧安装中原位升级到2.1.67，保留原 profile 与 unknown 请求文件；没有登录、setup 或业务调用。真实宿主由 Charlie 亲测。
