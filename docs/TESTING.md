@@ -72,3 +72,7 @@ PR156 main `407908f68e14cf402d434ba86ea642e9ea0ee101`，最终 hook lint/554 tes
 ### N6.4 Key 与钱包组件验证（2026-11-08）
 
 TypeScript typecheck与Key选择、stdin首次Agent、wallet两个只读模式、六命令、Device及原请求恢复的针对性测试通过。覆盖Key/OAuth共存、显式Key优先、不同凭据任务隔离、被拒Key不回退OAuth、机器用量/截断提示及官方账单URL。组件结果不代签dev模拟充值闭环或真实宿主；后者在本轮Owner亲测包单列。未运行Actions、npm发布或制品核对步骤。
+
+## N6.4 正式2.1.66发布检查
+
+首次stage 42460171151在prepare拒绝：555/556通过，task-driven新OAuth连接错误走legacy路径，function coverage89.32%未达既有90%；publish未运行、npm版本未占用。根因是Key探测提前创建空api-profile，早于统一连接的legacy判定。仅在已有API安装或显式Key时预选profile，首次OAuth先准备统一连接，原Key/旧profile规则保留。新增拒绝后跨回合不再发OAuth、Key诊断成功/失败无OAuth回退断言；10项针对性测试及typecheck通过。后续完整检查与npm实际状态由对应发布run回填，不降低覆盖门槛。

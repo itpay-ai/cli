@@ -3,7 +3,7 @@ import {hubCredentialsPath,hubCredentialKind,importHubKey} from "../state/hub_cr
 import {describeHubIdentity} from "./hub.js";
 import { HubClient, loadHubConfig } from "../client/hub.js";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -61,6 +61,8 @@ export function registerAgentCommand(program: Command): void {
    if(task.authorization_terminal&&!options.reconnect){emit(task.authorization_terminal,{},null,'本人已拒绝或取消；不自动重开授权。明确的新任务才使用--new-task。');return;}
    if(task.surface==='api'){
     const selected=loadHubConfig();
+    // Do not create an empty API profile before unified OAuth preparation: it is a legacy-root marker.
+    if(selected.apiKey || existsSync(join(root,'api','api-profile.json'))){
     const installation=prepareHubInstallation(join(root,'api'));selectHubInstallation(installation.selector);
     if(selected.apiKey && !process.env.ITPAY_HUB_KEY){
      const installed=loadHubConfig();
@@ -71,6 +73,7 @@ export function registerAgentCommand(program: Command): void {
      const me=await new HubClient(loadHubConfig()).me();
      const next=`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} ${task.request_id?'status '+task.request_id:'list'} --json`;
      emit('connected',{selector:installation.selector,identity:describeHubIdentity(me,'api_key')},next,'使用所选 API Key，无需 OAuth。继续同一私密环境或此安装已导入的 Key；原请求仍受原凭据范围保护。');return;
+    }
     }
    }
    const common=prepareAgentConnection(root,resolveBackendURL(),type);

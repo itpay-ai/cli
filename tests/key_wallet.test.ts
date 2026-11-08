@@ -36,7 +36,8 @@ test('profile key reads scoped usage without OAuth and rejected key cannot fall 
   res.setHeader('Content-Type','application/json');
   if(req.method!=='GET')writes++;
   if(req.headers.authorization){oauth++;res.writeHead(401);res.end('{"error":{"code":"unauthenticated","message":"not this identity"}}');return;}
-  if(req.headers['x-itpay-key']==='itk_rejected'){res.writeHead(401);res.end('{"error":{"code":"unauthenticated","message":"key rejected"}}');return;}
+  if(['itk_rejected','itk_diagnostics_rejected'].includes(String(req.headers['x-itpay-key']))){res.writeHead(401);res.end('{"error":{"code":"unauthenticated","message":"key rejected"}}');return;}
+  if(req.url==='/v1/discover'){res.end(JSON.stringify({items:[{operation_id:'free-op'}]}));return;}
   if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'issuer|buyer_AAAAAA',key_id:'key-a',account_hint:'…AAAAAA',consumer_id:''}));return;}
   if(req.url==='/v1/me/wallet'){res.end(JSON.stringify({available:{amount_atoms:'9990000',currency:'CNY',scale:6},held:{amount_atoms:'0',currency:'CNY',scale:6},topup_url:'https://official.example/me/wallet',owner_billing_url:'https://official.example/me/usage?wallet=1'}));return;}
   if(req.url==='/v1/me/usage'){res.end(JSON.stringify({gross_atoms:'10000',net_atoms:'10000',consumer_key:'key-a',by_operation:[]}));return;}
@@ -59,5 +60,8 @@ test('profile key reads scoped usage without OAuth and rejected key cannot fall 
   const imported=await new Promise<string>(resolve=>{const p=spawn(process.execPath,['--import','tsx','src/main.ts','api','credentials','import','--json'],{cwd:root,env:{...env,ITPAY_HUB_KEY:''}});let out='';p.stdout.on('data',x=>out+=x);p.on('close',()=>resolve(out));p.stdin.end('itk_synthetic_key_a');});
   assert.doesNotMatch(imported,/itk_synthetic_key_a/);
   const selected=await cli(['--agent-type','muse','agent','--surface','api','--task','free data','--wait','0'],{ITPAY_AGENT_HOME:join(state,'imported-agent'),ITPAY_HUB_KEY:''});assert.equal(selected.value.status,'connected',JSON.stringify(selected.value));assert.equal(selected.value.result.identity.credential_kind,'api_key');assert.equal(oauth,0);
+  const balance=await cli(['api','wallet']);assert.equal(balance.value.result.available_atoms,'9990000');assert.equal(balance.value.result.identity.account_hint,'…AAAAAA');
+  const healthy=await cli(['api','doctor']);assert.equal(healthy.code,0);assert.equal(healthy.value.status,'ok');
+  const rejected=await cli(['api','doctor'],{ITPAY_HUB_KEY:'itk_diagnostics_rejected'});assert.equal(rejected.code,1);assert.equal(rejected.value.status,'degraded');assert.equal(rejected.value.result.authenticated,false);assert.equal(oauth,0);
  }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
