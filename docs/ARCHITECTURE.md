@@ -115,3 +115,8 @@ flowchart TD
 ### API Key 与 OAuth 的显式选择
 
 API 环境 Key 或安全 stdin 导入的 Key 可直接使用同一 API SDK；按需 API 入口先核所选 Key，不发起 OAuth。显式 Key 不被安装 profile 清除；私有存储保留 OAuth 与 Key，最后一次明确导入/连接选择凭据。原任务按原凭据隔离，切换凭据不能接管原单。Services 身份保持独立。
+
+
+## 本人钱包充值接线
+
+明确金额 → 原凭据本地保存 funding key → Hub 同账号同金额未付卡 → 官方 HTML/PNG 和同单收银台 → 本人付款 → 只读原 topup → 客户端自己持有的原 call --pending。普通钱包查询只给入口，不隐式建单；消费 grant 继续独立控制收费调用。

@@ -65,3 +65,20 @@ test('profile key reads scoped usage without OAuth and rejected key cannot fall 
   const rejected=await cli(['api','doctor'],{ITPAY_HUB_KEY:'itk_diagnostics_rejected'});assert.equal(rejected.code,1);assert.equal(rejected.value.status,'degraded');assert.equal(rejected.value.result.authenticated,false);assert.equal(oauth,0);
  }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
+
+test('link-only host prepares and reuses one amount top-up and completes its same checkout',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'wallet-topup-'));let paid=false;const keys=new Set<string>();let origin='';
+ const receipt=()=>({topup_id:'top_same',status:paid?'credited':'payment_pending',amount:'30.00',currency:'CNY',account_hint:'…walletA',expires_at:'2099-01-01T00:00:00Z',page_url:origin+'/card',checkout_url:origin+'/checkout',image:origin+'/card.png'});
+ const server=createServer(async(req,res)=>{res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'fixture-walletA',key_id:'key-a'}));return}
+  if(req.url==='/v1/me/topups'&&req.method==='POST'){let raw='';for await(const b of req)raw+=b;assert.equal(JSON.parse(raw).amount_cny,'30');keys.add(String(req.headers['idempotency-key']));res.end(JSON.stringify(receipt()));return}
+  if(req.url==='/v1/me/topups/top_same'){res.end(JSON.stringify(receipt()));return}
+  if(req.url==='/checkout'){res.setHeader('Content-Type','text/html');res.end('<form method="post" action="/confirm">Confirm simulated payment</form>');return}
+  if(req.url==='/confirm'&&req.method==='POST'){paid=true;res.end('{"status":"confirmed"}');return}
+  res.writeHead(404);res.end('{}');
+ });await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const addr=server.address();assert.ok(addr&&typeof addr!=='string');origin='http://127.0.0.1:'+addr.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_STATE_DIR:state,ITPAY_HUB_URL:origin,ITPAY_HUB_KEY:'itk_synthetic_topup'};
+ const cli=(args:string[])=>new Promise<any>((resolve,reject)=>{const c=spawn(process.execPath,['--import','tsx','src/main.ts','api','wallet',...args,'--json'],{cwd:root,env});let raw='',err='';c.stdout.on('data',b=>raw+=b);c.stderr.on('data',b=>err+=b);c.on('close',code=>{try{assert.equal(code,0,err+raw);resolve(JSON.parse(raw))}catch(e){reject(e)}});c.on('error',reject)});
+ try{const first=await cli(['--topup','30','--no-open']);assert.equal(first.result.browser.status,'unavailable');assert.equal(first.result.checkout_url,origin+'/checkout');const repeat=await cli(['--topup','30','--no-open']);assert.equal(repeat.result.topup_id,first.result.topup_id);assert.equal(keys.size,1);const page=await fetch(first.result.checkout_url);assert.match(await page.text(),/Confirm simulated/);await fetch(origin+'/confirm',{method:'POST'});const done=await cli(['--topup-status','top_same','--no-open']);assert.equal(done.status,'credited');assert.match(done.instruction,/已到账/);assert.equal(done.next,null)}
+ finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+});

@@ -26,3 +26,6 @@ API业务入口只有 categories/list/show/call/status/wallet。show 私有缓�
 ## N6.4 Key 与只读钱包模式
 
 wallet --usage / --transactions 保持六业务命令，复用Hub reader并标范围/截断；账号余额不等于本凭据消费授权。完整账单用owner_billing_url本人登录。环境Key显式优先，stdin导入选择Key并保留OAuth；显式connect选择OAuth。两种环境凭据同时给出须报冲突，原任务scope不合并。Key无效、撤销或范围不足不自动回退OAuth，指向本人/me/keys。
+
+
+本人钱包定额充值使用 wallet --topup 与固定 Hub SDK 的 amount_cny。资金任务按原 API profile/凭据 namespace 保存，POST 前保存幂等键；重复展示不移交其他连接的业务请求。码页、图与收银台来自同一个服务端回执，展示能力不足不阻断同单链接办理。低余额提醒按原 run 通知编号去重，报告余额和比较价格。

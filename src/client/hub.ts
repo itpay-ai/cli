@@ -144,7 +144,7 @@ export class HubClient {
   topupSkus(): Promise<{ items: TopUpSKU[] }> {
     return this.wrap(() => this.sdk.topupSkus());
   }
-  createTopup(body: { sku_id: string; payer_currency: string; continuation_id?: string;channel?:string;mode?:string }, idempotencyKey: string): Promise<TopUpOrder> {
+  createTopup(body: ({ sku_id: string; payer_currency: string } | {amount_cny:string;payer_currency?:"CNY"}) & { continuation_id?: string;channel?:string;mode?:string }, idempotencyKey: string): Promise<TopUpOrder> {
     return this.wrap(() => this.sdk.createTopup(body, idempotencyKey));
   }
   topupChannels(currency: "CNY"|"USD"="CNY") {return this.wrap(()=>this.sdk.topupChannels(currency));}

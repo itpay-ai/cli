@@ -27,3 +27,8 @@ A `price_changed` receipt includes `current_price` (CNY, scale 6, atoms) and ver
 Use a secret manager to inject ITPAY_HUB_KEY or pipe a private secret source to `itpay api credentials import --json`. Never pass the secret in argv or chat. With --profile, import into that same installation; an explicit environment Key remains selected. It does not need OAuth. Saved OAuth and Key remain private; the last explicit import/connect selects the credential, while a Key environment override selects that Key. Supplying both environment bearer and Key is an error. Requests remain isolated by original credential; neither a new Key nor OAuth can take over old requests.
 
 Check `wallet` identity.account_hint and credential_kind; matching hints identify the same wallet, not the same consumer. Invalid/revoked Key or insufficient Key scope points to the official /me/keys page, without OAuth fallback. Hub MCP accepts Key only through its existing X-ItPay-Key protocol header; normal ChatGPT MCP uses OAuth. Do not paste a Key into chat or put it in a Bearer field. Services identity is independent.
+
+
+### 本人钱包定额充值
+
+`itpay api wallet --topup 30 --json` 准备本人钱包的人民币充值，按分报价，最低 ¥10。若为已有挂起请求充值，加 `--request <原 request_id>`；付款后按返回 next 读取原充值并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原充值。OAuth/API Hub Key 准备充值不要求消费 grant；充值不会增加调用额度、商户收款或退款权限。

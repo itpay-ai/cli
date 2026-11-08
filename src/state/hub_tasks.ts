@@ -31,6 +31,7 @@ export interface HubTask extends HubCredentialSelection {
   run_id?: string;
   intent_id?: string;
   topup_id?: string;
+  low_balance_notified?: boolean;
   topup_seq?: number;
   // Ownership facts (F-R02): scope under which this task was created. A
   // resume must run under the same origin + credential; these are enforced

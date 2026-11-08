@@ -42,25 +42,29 @@ function render(task:HubTask,snapshot:Snapshot,json:boolean):void{
  const run=snapshot.run as Facts|undefined;
  if(run){
   const zero=run.captured_atoms==="0" && run.held_atoms==="0";
+  const balanceNotice=(run as typeof run & {low_balance?:unknown}).low_balance;
+  const firstNotice=Boolean(balanceNotice&&!task.low_balance_notified);
+  if(firstNotice)new HubTaskStore().update(task.request_id,{low_balance_notified:true});
   writeCommandEnvelope({status:run.execution_state==="succeeded"?"succeeded":snapshot.terminal?"failed":"pending",
    result:{request_id:task.request_id,run_id:run.run_id,execution_state:run.execution_state,
     settlement_state:run.settlement_state,delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
-    held_atoms:run.held_atoms??null,result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
+    held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
    instruction:run.execution_state==="failed"&&zero?"本次没扣钱。":snapshot.terminal?"按原结果与费用回执回答。":"结果待核对，继续读取原请求。",
    next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
   return;
  }
  const reason=snapshot.intent?.blocking_reason??"unknown";
+ const uncharged=["insufficient_balance","authorization_denied","authorization_revoked","budget_exceeded"].includes(reason);
  const target=snapshot.required_action?.web_action?.target??snapshot.required_action?.target;
  const changed=snapshot.terminal && reason==="publication_changed";
  const price=safePriceChange(snapshot.price_change);
  const zero=changed && price?.captured_atoms==="0" && price.held_atoms==="0";
  const label=price?.current_price?"CNY "+priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
  writeCommandEnvelope({status:changed?"price_changed":reason,
-  result:{request_id:task.request_id,intent_id:task.intent_id,captured_atoms:zero?"0":null,held_atoms:zero?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
+  result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
   instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0、冻结0，本次没扣钱。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
-   reason==="insufficient_balance"?"请在原单官方页面充值，到账后继续原请求。":"保留原请求，按官方操作完成授权或核对。",
+   reason==="insufficient_balance"?"请在原单官方页面充值，到账后继续原请求。也可以告诉我金额，直接给你扫码付款。":"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
    changed?statusAction(task.request_id,json):snapshot.terminal?null:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
