@@ -5,6 +5,8 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
+Development acceptance uses the official @itpay/cli@2.1.66 release. Check the actual launcher with --version before testing; if older, read https://dev.itpay.ai/agent and rerun its installer in the same tool prefix, preserving the original profile, account and requests. Direct old binaries do not automatically update. Production latest remains separate.
+
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
 The API business commands are categories, list, show, call, status and wallet. Connection and installation are separate. Use the selected installation from setup --api-prefix. Follow every returned next.command exactly, including its absolute --profile selector. Never clear credentials, change accounts or create a substitute request to recover quota or an unknown result.

@@ -62,3 +62,7 @@ Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围�
 PR154 main `e9131fb998231e324ebc906a4cfce596247e5147` 构建版本2.1.65的独立开发包 `itpay-cli-2.1.65-n63-e9131fb.tgz`，由 https://dev.itpay.ai/agent 的脚本固定下载。同版本npm包不是该制品。552项标准hook与main的test:package通过，公开包已在实际Codex终端独立前缀安装；正常Device同意后原等待connected，再次使用不新发链接。此为工程连接观察，不代签自然宿主或T07业务恢复。npm、candidate/next/latest与固定下载均未变；文档维护HEAD不冒称包source。服务组合/四项阶段观察归V4正式TESTING/DEPLOYMENT。
 
 N6.3 第二批仅开发入口使用本地 main `407908f6` 构建2.1.65：`itpay-cli-2.1.65-n63-unified-407908f.tgz`，317932 bytes，SHA256 `2c91cdf7e65c73e7b69d47631a7d20ddcfc3981e831aa019494a8fbd358a236e`。npm/固定下载/next/latest 未变化，Actions未运行；旧开发包保留，不能只凭2.1.65版本号判定实际安装来源。
+
+## N6.4 正式开发版本准备（2026-11-08）
+
+2.1.66承载已合并N6.4，目标candidate-dev和next，latest/candidate-prod保持2.1.41。Charlie已明确允许仅既有发布流程内部保留自动检查；不新增或另做制品核对。stage及promote仍按既有保护流程，实际结果发布后回填。旧npm2.1.65直接discover已实际成功但没有升级提示，旧二进制不会自动更新；dev启动器负责实际版本检查及同prefix安装正式版本，保留账号/profile/原请求。
