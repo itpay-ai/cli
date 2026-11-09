@@ -79,3 +79,8 @@ N6.4最终发行：promote [42461459054](https://github.com/itpay-ai/cli/actions
 原包 source/workflow `d3e88d44ef74e7f8d762f04fb5105731c77b69cb`，既有 stage manifest 的 tar SHA256 `e4b63efbce213e2c53f6766c4d4e3881e4a2b74601efa5383bc3801b0d79303b`。promote 的可信 workflow revision `08fe53633b6340a4b2ff6acf8e34c976900b6769`。只记录既有流程产物，无额外制品核对。最终 candidate-dev=next=2.1.67，latest=candidate-prod=2.1.41。生产未变、下游 sync 未运行。
 
 dev /agent、install.sh 和固定下载同步官方2.1.67。公开安装脚本在隔离旧安装中原位升级到2.1.67，保留原 profile 与 unknown 请求文件；没有登录、setup 或业务调用。真实宿主由 Charlie 亲测。
+
+
+## Account/connection dev candidate (2026-11-09)
+
+This batch delivers an unpublished source-tagged main build based on package version 2.1.67 through /dev-packages/itpay-cli-account-connection-20261109.tgz and the dev /agent installer. It is distinct from the npm 2.1.67 package: api account is present and the installer records the dated candidate. No npm tag or fixed /downloads/itpay-cli.tgz replacement. Existing prefixes, device keys, profiles and original tasks are preserved. Actual deployment sources and readback are recorded in compose-v4 docs/DEPLOYMENT.md after activation; source merge alone is not deployment.

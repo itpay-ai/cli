@@ -4,7 +4,7 @@ import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPrice
 import {HttpError} from "../client/http.js";
 import {HubTaskStore,type HubTask} from "../state/hub_tasks.js";
 import {loadShown,saveShown,type ShelfDescriptor} from "../state/hub_show_cache.js";
-import {HubTaskRequestError,readRunInput} from "./hub.js";
+import {HubTaskRequestError,readRunInput,TOPUP_INSTRUCTION,currentAccountLabel} from "./hub.js";
 import {writeCommandEnvelope,type CommandAction} from "./hub_guidance.js";
 
 type Facts=RunReceipt&{held_atoms?:string;captured_atoms?:string;result_expires_at?:string};
@@ -38,7 +38,7 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  }
  throw new Error("invalid_state: original request has no receipt");
 }
-function render(task:HubTask,snapshot:Snapshot,json:boolean):void{
+async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>{
  const run=snapshot.run as Facts|undefined;
  if(run){
   const zero=run.captured_atoms==="0" && run.held_atoms==="0";
@@ -49,7 +49,7 @@ function render(task:HubTask,snapshot:Snapshot,json:boolean):void{
    result:{request_id:task.request_id,run_id:run.run_id,execution_state:run.execution_state,
     settlement_state:run.settlement_state,delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
     held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
-   instruction:run.execution_state==="failed"&&zero?"本次没扣钱。":snapshot.terminal?"按原结果与费用回执回答。":"结果待核对，继续读取原请求。",
+   instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:run.execution_state==="failed"&&zero?"本次没扣钱。":snapshot.terminal?"按原结果与费用回执回答。":"结果待核对，继续读取原请求。",
    next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
   return;
  }
@@ -64,7 +64,7 @@ function render(task:HubTask,snapshot:Snapshot,json:boolean):void{
   result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
   instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0、冻结0，本次没扣钱。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
-   reason==="insufficient_balance"?"请在原单官方页面充值，到账后继续原请求。也可以告诉我金额，直接给你扫码付款。":"保留原请求，按官方操作完成授权或核对。",
+   reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
    changed?statusAction(task.request_id,json):snapshot.terminal?null:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
@@ -95,7 +95,7 @@ export async function shelfStatus(id:string,json:boolean):Promise<void>{
  if(!task)throw new Error("not_found: original request is not in this installation");
  try{
   const snapshot=await client().getRequest(store.idempotencyKey(id)) as Snapshot;
-  render(remember(store,task,snapshot),snapshot,json);
+  await render(remember(store,task,snapshot),snapshot,json);
  }catch(error){
   if(error instanceof HttpError && error.status===404 && !task.intent_id && !task.run_id &&
     ["publication_changed","authorization_required"].includes(task.blocking_reason??"")){
@@ -151,7 +151,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
    task=remember(store,task,snapshot);
   }
-  render(task,snapshot,json);
+  await render(task,snapshot,json);
  }catch(error){
   if(error instanceof HttpError && error.code==="publication_changed"){
    // Server admission rejected before any run, or it closed the unexecuted
@@ -159,11 +159,11 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    store.update(task.request_id,{status:"failed",blocking_reason:"publication_changed"});
    try {
     const original=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
-    render(remember(store,store.get(task.request_id)!,original),original,json);
+    await render(remember(store,store.get(task.request_id)!,original),original,json);
    }catch(readError){
     const price=hubErrorDetails(error)?.price_change;
     if(readError instanceof HttpError && readError.status===404 && price){
-     render(task,{request_id:store.idempotencyKey(task.request_id),terminal:true,pending_stage:null,next:null,intent:{intent_id:task.intent_id??"",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:price} as Snapshot,json);
+     await render(task,{request_id:store.idempotencyKey(task.request_id),terminal:true,pending_stage:null,next:null,intent:{intent_id:task.intent_id??"",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:price} as Snapshot,json);
     }else throw new HubTaskRequestError(readError,store.get(task.request_id)??task);
    }
    return;

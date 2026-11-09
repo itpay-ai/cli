@@ -1,10 +1,11 @@
+import {firstConnection} from './first_connection.js';
 import {walletTopup} from "./wallet_topup.js";
 import {shelfCategories,shelfList,shelfShow,shelfCall,shelfStatus} from "./shelf.js";
 import { connectHubDevice, hubDeviceStatus, restartHubDevice } from "../state/hub_device.js";
 import { hasHubInstallation, selectHubInstallation } from "../state/hub_installation.js";
 import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
 import {runAdminCommand} from "./admin.js";
-import {HubTaskRequestError,runHubCredentialsImport,runHubDoctor,runHubWallet} from "./hub.js";
+import {runHubAccount,HubTaskRequestError,runHubCredentialsImport,runHubDoctor,runHubWallet} from "./hub.js";
 import { Command } from "commander";
 import { HttpError } from "../client/http.js";
 import {hubErrorDetails} from "../client/hub.js";
@@ -46,6 +47,7 @@ hubCmd.hook("preAction", (command) => {
 hubCmd.command("admin <action>").description("Admin imports, credentials and safe acceptance via scoped ItPay Key")
  .option("--input <source>","JSON from stdin (-) or private @file; never secret argv","-").option("--json","output JSON")
  .action(async(action:string,options)=>{try{await runAdminCommand(action,String(options.input));}catch{reportCLIError(new Error("Admin action failed. Check the masked response, key scopes and current administrator role."));}});
+hubCmd.command("account").description("Read this connection's own masked account information").option("--json","output JSON").action(async options=>{try{await runHubAccount(Boolean(options.json))}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"account_unavailable",instruction:"保留原连接；当前账号信息暂不可读取。",recovery:[]})}});
 hubCmd
   .command("connect [action] [handle]")
   .description("Connect this CLI to your ItPay account")
@@ -66,6 +68,7 @@ hubCmd
       }
       const wait = Number(options.wait);
       if (!Number.isInteger(wait) || wait < 0 || wait > 120) throw new Error("Device wait must be between 0 and 120 seconds");
+      if(action===undefined&&!options.request&&await firstConnection("api",Boolean(options.json),wait))return;
       const result = action === "restart" ? await restartHubDevice() : await connectHubDevice(handle, wait, options.request);
       const next = result.phase === "pending" ? {
         command: `itpay api connect continue --wait 120${options.json ? " --json" : ""} -- ${result.handle}`,
@@ -119,7 +122,7 @@ hubCmd
 hubCmd
   .command("wallet")
   .description("Read wallet or prepare an explicit own-wallet top-up")
-  .option("--topup <amount>","prepare a CNY wallet top-up; minimum 10 CNY")
+  .option("--topup <amount>","prepare a custom CNY amount; scan or click the same order; minimum 10 CNY")
   .option("--topup-status <topup_id>","read the original top-up")
   .option("--request <request_id>","retain your original pending API request")
   .option("--no-open","this host does not open a browser; retain the same payment links")
