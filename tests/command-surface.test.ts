@@ -97,8 +97,8 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  const address=server.address();
  assert.ok(address&&typeof address!=="string");
  resource="http://127.0.0.1:"+address.port;
- const env:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),
-  HOME:home,ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
+ const env:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_")&&!["CODEX_THREAD_ID","CLAUDECODE","MUSE_SESSION_ID","DOT_SESSION_ID","WORKBUDDY_SESSION_ID"].includes(key))),
+  HOME:home,ITPAY_AGENT_TYPE:"muse",ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
  writeFileSync(join(home,'itpay'),'#!/bin/sh\nexec '+shellArgument(process.execPath)+' --import tsx '+shellArgument(join(root,'src/main.ts'))+' "$@"\n',{mode:0o700});
  env.PATH=home+':'+(process.env.PATH??'');
  function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {
