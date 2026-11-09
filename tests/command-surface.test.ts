@@ -28,7 +28,7 @@ test('api and hub are one registration object, with original Services entry inta
 // Exercise the actual registered API boundary, not a second CLI implementation.
 // Every endpoint is loopback and all payment/identity facts are synthetic.
 
-async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number) {
+async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
  let denied=false,ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
@@ -36,6 +36,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
   if(req.url==="/v1/agent-connections/start") {
+   if(!unified){res.writeHead(404);res.end("{}");return;}
    commonStarts++;
    let raw="";for await(const part of req)raw+=part;
    const body=JSON.parse(raw);const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
@@ -125,7 +126,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
 }
 
 test("Device connect exchanges only after approval and verifies before saving",async()=>{
- const f=await deviceFixture(200, "-synthetic-handle-001");
+ const f=await deviceFixture(200, "-synthetic-handle-001",undefined,false);
  try {
   const {selector,state}=await f.setup();
   const api=["api","--profile",selector,"connect"];
@@ -162,7 +163,7 @@ test("Device renewal starts with the original consumer and leaves its credential
 });
 
 test("first Device connect with an unavailable identity probe saves no credentials and never repeats the exchange",async()=>{
- const f=await deviceFixture(503);
+ const f=await deviceFixture(503,"synthetic-handle-001",undefined,false);
  try {
   const {selector,state}=await f.setup();
   const api=["api","--profile",selector,"connect"];
@@ -243,4 +244,16 @@ test("denied unified API connection remains terminal across turns without starti
   const again=await f.cli(args);assert.equal(again.value.status,"denied");assert.equal(again.value.result.task.id,first.value.result.task.id);
   assert.equal(f.calls().commonStarts,reads);assert.equal(f.calls().starts,0);assert.equal(f.calls().exchanges,0);
  }finally{await f.close();}
+});
+
+test("fresh setup connect uses one account page and finishes without a second consent",async()=>{
+ const f=await deviceFixture();try{
+  const {selector}=await f.setup();
+  const args=["--agent-type","muse","api","--profile",selector,"connect"];
+  const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");
+  assert.match(pending.output,/agent\/connect/);assert.equal(f.calls().starts,0);
+  f.approve();const ready=await f.cli([...args,"--wait","5"]);
+  assert.equal(ready.value.status,"connected");assert.match(ready.value.instruction,/当前账号/);
+  assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
+ }finally{await f.close()}
 });

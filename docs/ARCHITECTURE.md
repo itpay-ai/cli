@@ -120,3 +120,18 @@ API 环境 Key 或安全 stdin 导入的 Key 可直接使用同一 API SDK；按
 ## 本人钱包充值接线
 
 明确金额 → 原凭据本地保存 funding key → Hub 同账号同金额未付卡 → 官方 HTML/PNG 和同单收银台 → 本人付款 → 只读原 topup → 客户端自己持有的原 call --pending。普通钱包查询只给入口，不隐式建单；消费 grant 继续独立控制收费调用。
+
+
+## Account connection update (2026-11-09, implementation)
+
+```mermaid
+flowchart LR
+ CLI[New CLI connection] --> C[V4 consent enabled_surfaces]
+ C --> S[Services original device proof]
+ C --> H[Hub original Device exchange]
+ V[V4 own-account read-only summary] --> M[Hub me / MCP account / CLI account]
+ V --> B[Browser account]
+ O[Signed original Collection Buyer] --> P[Credited account on payment card]
+```
+
+One enabled_surfaces field records consent; spending caps and accepted tasks retain their original identity. Credentials are issued on demand. V4 owns the account summary; authenticated Hub OAuth and api_hub Keys read the same masked own-account fields. No new profile scope or public ID. Human account references use the canonical Buyer final six characters everywhere. Wallet links name the current connection; browser wallets name the browser account; signed cards name the frozen credited account. Original-object account mismatches stop before the generic wallet and preserve the local return path. Implementation is not deployment or natural-host acceptance evidence.

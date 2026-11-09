@@ -52,7 +52,11 @@ For an API task with a selected Key, agent prepares only that API installation a
 
 ## Amount-based own-wallet top-up
 
-When the user only asks to top up, return wallet.topup_url and say: “也可以告诉我金额，直接给你扫码付款。” For insufficient_balance, keep the original request and its continuation link with the same hint. Never turn these two cases into an unsolicited payment order.
+可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。
+用户已给金额时，直接执行原安装的 wallet --topup 金额；有原待续接请求时带 --request。
+Every wallet link or payment card must identify the current account as 名字 · 末6位 from the authenticated account information. Browser and credited accounts are separate facts. Fixed SKUs are shortcuts, never amount limits.
+
+When the user only asks to top up, return wallet.topup_url and say: “可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。” For insufficient_balance, keep the original request and its continuation link with the same hint. Never turn these two cases into an unsolicited payment order.
 
 When an amount is explicit, run `itpay api wallet --topup 30 --json` (use the user's amount). If continuing a saved insufficient-balance task, add `--request <original request_id>`. OAuth and valid api_hub Keys can prepare their own wallet top-up without a spending grant. The server quotes positive CNY amounts in cents, minimum ¥10; for a smaller amount say “最低 ¥10，本单按 ¥10”. The reply and official card must identify the masked credited account, actual amount and expiry.
 

@@ -1,6 +1,6 @@
 import {prepareAgentConnection,connectAgent,bindAgentServices,saveAgentConnection} from "../state/agent_connection.js";
 import {hubCredentialsPath,hubCredentialKind,importHubKey} from "../state/hub_credentials.js";
-import {describeHubIdentity} from "./hub.js";
+import {describeAccount,currentAccountLabel,describeHubIdentity} from "./hub.js";
 import { HubClient, loadHubConfig } from "../client/hub.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -72,11 +72,11 @@ export function registerAgentCommand(program: Command): void {
     if(hubCredentialKind()==='api_key'){
      const me=await new HubClient(loadHubConfig()).me();
      const next=`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} ${task.request_id?'status '+task.request_id:'list'} --json`;
-     emit('connected',{selector:installation.selector,identity:describeHubIdentity(me,'api_key')},next,'使用所选 API Key，无需 OAuth。继续同一私密环境或此安装已导入的 Key；原请求仍受原凭据范围保护。');return;
+     emit('connected',{selector:installation.selector,identity:describeHubIdentity(me,'api_key')},next,describeAccount(me)+'\n使用所选 API Key，无需 OAuth。继续同一私密环境或此安装已导入的 Key；原请求仍受原凭据范围保护。');return;
     }
     }
    }
-   const common=prepareAgentConnection(root,resolveBackendURL(),type);
+   const common=prepareAgentConnection(root,resolveBackendURL(),type,{surface:task.surface});
    if(common){
     let view=await connectAgent(root,common,Boolean(options.reconnect));
     if(options.reconnect)recordAgentAuthorization(root,undefined);
@@ -86,6 +86,7 @@ export function registerAgentCommand(program: Command): void {
      const deadline=Date.now()+wait*1000;
      while(view.status==='pending'&&Date.now()<deadline){await sleep(Math.min(2000,deadline-Date.now()));view=await connectAgent(root,common);}
     }
+    if(view.status==='active'&&view.enabled_surfaces&&!view.enabled_surfaces.includes(task.surface))throw new Error('requested surface was not enabled; keep the original connection');
     if(view.status!=='active'){
      if(view.status==='denied')recordAgentAuthorization(root,'denied');
      emit(view.status,{authorization:view},view.status==='pending'||view.status==='expired'?again:null,'保留原任务与连接；拒绝或撤销后停止，不自动重开。');return;
@@ -97,7 +98,7 @@ export function registerAgentCommand(program: Command): void {
     const current=hubDeviceStatus();
     const next=task.request_id?`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} status ${task.request_id} --json`:`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} api --profile ${shellQuote(installation.selector)} list --json`;
     if(current.phase==='connected'){
-     try { const me=await new HubClient(loadHubConfig()).me();if(common&&me.buyer_id!==new URL(hubOAuthConfig().tokenURL).origin+'|'+common.buyer_id)throw new Error('original Agent API account changed');emit('connected',{selector:installation.selector},next,'连接已保存；继续已保存任务。已有request只读原单，不再次call。');return; }
+     try { const me=await new HubClient(loadHubConfig()).me();if(common&&me.buyer_id!==new URL(hubOAuthConfig().tokenURL).origin+'|'+common.buyer_id)throw new Error('original Agent API account changed');emit('connected',{selector:installation.selector},next,describeAccount(me)+'\n连接已保存；继续已保存任务。已有request只读原单，不再次call。');return; }
      catch(error){if(!(error instanceof Error && error.message.startsWith('authorization_required:')))throw error;}
     }
     let result=await connectHubDevice(undefined,0,task.request_id);
@@ -107,7 +108,7 @@ export function registerAgentCommand(program: Command): void {
      result=await connectHubDevice(result.handle,wait);
     }
     if(result.phase==='denied'||result.phase==='cancelled')recordAgentAuthorization(root,result.phase);
-    emit(result.phase,{...result,...(common&&result.phase==='pending'&&!result.approval_required?{url:undefined}:{}),selector:installation.selector},result.phase==='connected'?next:result.phase==='pending'?again:null,result.phase==='connected'?'已核验并保存连接，继续原任务。':'保留同一任务和等待句柄；pending不代表授权成功，下轮任意回复从agent继续。');return;
+    emit(result.phase,{...result,...(common&&result.phase==='pending'&&!result.approval_required?{url:undefined}:{}),selector:installation.selector},result.phase==='connected'?next:result.phase==='pending'?again:null,result.phase==='connected'?(await currentAccountLabel())+'\n已核验并保存连接，继续原任务。':'保留同一任务和等待句柄；pending不代表授权成功，下轮任意回复从agent继续。');return;
    }
    process.env.ITPAY_STATE_DIR=join(root,'services');
    const config=loadConfig();const backend=newBackendClient(config);
@@ -118,7 +119,7 @@ export function registerAgentCommand(program: Command): void {
    const servicesNext=`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR!)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`;
    const emitServices=()=>{
     if(result.status==='auth_denied'||result.status==='auth_cancelled')recordAgentAuthorization(root,result.status==='auth_denied'?'denied':'cancelled');
-    emit(done()?'connected':String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR},done()?servicesNext:result.status==='auth_pending'?again:null,done()?'账号已连接；读Services Skill继续保存的原任务。':'展示原官方登录入口并立即等待，不要求用户回来报告完成。');};
+    emit(done()?'connected':String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR},done()?servicesNext:result.status==='auth_pending'?again:null,done()?String((result as {instruction?:string}).instruction??'账号已连接；读Services Skill继续保存的原任务。'):'展示原官方登录入口并立即等待，不要求用户回来报告完成。');};
    emitServices();if(done()||options.buffered||wait===0||result.status!=='auth_pending')return;
    const deadline=Date.now()+wait*1000;
    do{await sleep(Math.min(2000,Math.max(0,deadline-Date.now())));result=await agentAuth('status',config.baseURL,backend) as Record<string,unknown>;}while(result.status==='auth_pending'&&Date.now()<deadline);

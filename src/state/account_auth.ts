@@ -12,6 +12,7 @@ type BindingClient = {
     agentAccountStatus(): Promise<{
         status: string;
         phone_verified?: boolean;
+        account_information?:{display_name?:string;account_hint?:string};
     }>;
     bindAgentAccount(input: {
         dashboard_auth_session_id: string;
@@ -19,6 +20,7 @@ type BindingClient = {
     }): Promise<{
         status: string;
         phone_verified?: boolean;
+        account_information?:{display_name?:string;account_hint?:string};
     }>;
 };
 export function agentAuth(action: 'login' | 'status', baseURL: string, backend: BindingClient, env = process.env, fetcher: typeof fetch = fetch, options: {
@@ -109,12 +111,12 @@ function sessionGone(env: NodeJS.ProcessEnv, purpose: string, baseURL: string, s
 // AUTH04: a successful bind resumes the SAME task that paused for login —
 // from the local task journal, never a placeholder and never a guess at the
 // latest order.
-function authenticatedEnvelope(env: NodeJS.ProcessEnv, phoneVerified: boolean): CommandEnvelope {
+function authenticatedEnvelope(env: NodeJS.ProcessEnv, phoneVerified: boolean, info?:{display_name?:string;account_hint?:string}): CommandEnvelope {
     const paused = new TaskJournal(taskJournalPath(env)).pausedTasks()
         .filter((task) => task.stage === 'login_required' || task.stage === 'quota_paused');
     const resumable = paused.filter((task) => typeof task.resume_command === 'string');
-    const result: Record<string, unknown> = { bound: true, phone_verified: phoneVerified };
-    let instruction = '登录与绑定已完成，告知用户可继续之前的查询；已注册账号查询不消耗试用次数，仍受正常限流。';
+    const result: Record<string, unknown> = { bound: true, phone_verified: phoneVerified,...(info?{account_information:info}:{}) };
+    let instruction = (info?'当前账号：'+(info.display_name||'名称未设置')+' · '+info.account_hint+'\n':'')+'登录与绑定已完成，告知用户可继续之前的查询；已注册账号查询不消耗试用次数，仍受正常限流。';
     let next: CommandAction | null = null;
     if (resumable.length === 1) {
         next = { command: resumable[0]!.resume_command!, reason: '恢复登录前暂停的同一查询' };
@@ -144,7 +146,7 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
             if (readOnlyStatus)
                 return { status: current.status, result: { bound: current.status === 'authenticated' }, instruction: '设备账号状态已读取。', next: null, recovery: [] };
             if (current.status === 'authenticated')
-                return authenticatedEnvelope(env, current.phone_verified === true);
+                return authenticatedEnvelope(env, current.phone_verified === true,current.account_information);
         }
         catch (error) {
             if (error instanceof AuthRequestError || error instanceof AgentTypeRequiredError)
@@ -179,7 +181,7 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
         if (bound.status !== 'authenticated')
             throw new Error('Agent binding did not complete');
         rmSync(authStatePath(baseURL, env, purpose), { force: true });
-        return authenticatedEnvelope(env, bound.phone_verified === true);
+        return authenticatedEnvelope(env, bound.phone_verified === true,bound.account_information);
     }
     if (action === 'login') {
         {

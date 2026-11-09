@@ -1,3 +1,4 @@
+import {firstConnection} from './commands/first_connection.js';
 import { registerAgentCommand } from "./commands/agent.js";
 import { prepareHubInstallation, shellQuote } from "./state/hub_installation.js";
 import { registerAPICommands } from "./commands/api_commands.js";
@@ -405,6 +406,7 @@ for (const action of ["login", "status"] as const) {
   authCmd.command(action).option("--json", "output JSON").action(async (options) => {
     const config = loadConfig();
     try {
+      if(action==="login"&&await firstConnection("services",Boolean(options.json)))return;
       const result = await agentAuth(action, config.baseURL, newBackendClient(config)) as Record<string, unknown>;
       // AUTH06: auth output goes through the same envelope renderer as every
       // other command — next/recovery keep Agent Type + Backend qualification
