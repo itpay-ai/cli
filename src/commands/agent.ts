@@ -78,13 +78,13 @@ export function registerAgentCommand(program: Command): void {
    }
    const common=prepareAgentConnection(root,resolveBackendURL(),type,{surface:task.surface});
    if(common){
-    let view=await connectAgent(root,common,Boolean(options.reconnect));
+    let view=await connectAgent(root,common,Boolean(options.reconnect),task.surface);
     if(options.reconnect)recordAgentAuthorization(root,undefined);
     if(view.status==='pending'){
      emit('pending',{authorization:view},again,'展示此官方链接；本人确认一次后自动继续原任务。立即执行next等待。');
      if(options.buffered||wait===0)return;
      const deadline=Date.now()+wait*1000;
-     while(view.status==='pending'&&Date.now()<deadline){await sleep(Math.min(2000,deadline-Date.now()));view=await connectAgent(root,common);}
+     while(view.status==='pending'&&Date.now()<deadline){await sleep(Math.min(2000,deadline-Date.now()));view=await connectAgent(root,common,false,task.surface);}
     }
     if(view.status==='active'&&view.enabled_surfaces&&!view.enabled_surfaces.includes(task.surface))throw new Error('requested surface was not enabled; keep the original connection');
     if(view.status!=='active'){

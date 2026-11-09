@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {shellArgument} from '../src/services/shared/envelope.js';
 import assert from 'node:assert/strict';
 import {Command} from 'commander';
 import {createHash,createPublicKey,verify} from 'node:crypto';
@@ -31,6 +32,7 @@ test('api and hub are one registration object, with original Services entry inta
 async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
+ let exchangeReady=true;
  let denied=false,ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
  let originalConsumer: string | undefined;
  const server=createServer(async(req,res)=>{
@@ -63,7 +65,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   }
   if(req.url===`/v1/oauth/device/${handle}/status`) {
    assert.equal(req.headers.authorization,"Bearer synthetic-poll-proof");
-   res.end(JSON.stringify(ready?{phase:"ready_to_exchange",...binding}:{phase:"pending"}));
+   res.end(JSON.stringify(ready&&exchangeReady?{phase:"ready_to_exchange",...binding}:{phase:"pending"}));
    return;
   }
   if(req.url==="/oauth2/token") {
@@ -95,8 +97,10 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  const address=server.address();
  assert.ok(address&&typeof address!=="string");
  resource="http://127.0.0.1:"+address.port;
- const env={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),
+ const env:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),
   HOME:home,ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
+ writeFileSync(join(home,'itpay'),'#!/bin/sh\nexec '+shellArgument(process.execPath)+' --import tsx '+shellArgument(join(root,'src/main.ts'))+' "$@"\n',{mode:0o700});
+ env.PATH=home+':'+(process.env.PATH??'');
  function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {
   return new Promise((resolve,reject)=>{
    const boundary = args.indexOf("--");
@@ -122,6 +126,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   rmSync(home,{recursive:true});
  }
  return {env,resource,handle,binding,cli,setup,close,approve:()=>{ready=true},deny:()=>{denied=true},
+  holdExchange:()=>{exchangeReady=false},releaseExchange:()=>{exchangeReady=true},
   calls:()=>({starts,exchanges,probes,originalConsumer,commonStarts})};
 }
 
@@ -252,8 +257,21 @@ test("fresh setup connect uses one account page and finishes without a second co
   const args=["--agent-type","muse","api","--profile",selector,"connect"];
   const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");
   assert.match(pending.output,/agent\/connect/);assert.equal(f.calls().starts,0);
-  f.approve();const ready=await f.cli([...args,"--wait","5"]);
+  assert.ok(pending.value.next.command.includes(selector));
+  f.approve();
+  const ready=await new Promise<{value:any;code:number|null}>((resolve,reject)=>{
+   const child=spawn('/bin/sh',['-c',pending.value.next.command],{cwd:root,env:f.env});let output='';child.stdout.on('data',v=>output+=v);child.on('error',reject);child.on('close',code=>{try{resolve({code,value:JSON.parse(output.split(/\n(?=\{)/).at(-1)!)})}catch(e){reject(e)}});
+  });
   assert.equal(ready.value.status,"connected");assert.match(ready.value.instruction,/当前账号/);
   assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
+ }finally{await f.close()}
+});
+
+test("unified credential preparation continuation retains the same API profile",async()=>{
+ const f=await deviceFixture();try{
+  const {selector}=await f.setup();f.approve();f.holdExchange();
+  const args=["--agent-type","muse","api","--profile",selector,"connect"];
+  const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");assert.ok(pending.value.result.handle);assert.ok(pending.value.next.command.includes(selector));
+  f.releaseExchange();const result=await f.cli([...args,"--wait","5"]);assert.equal(result.value.status,"connected");assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
  }finally{await f.close()}
 });

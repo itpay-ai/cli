@@ -36,3 +36,8 @@ wallet --usage / --transactions 保持六业务命令，复用Hub reader并标�
 首次setup仍不登录；全新auth login/api connect复用现有单页连接并等待，原安装/设备密钥不移动，已存凭据、原句柄与任务不迁移。旧服务器明确404且未受理统一连接时，兼容原Device入口；未知/拒绝不得回退换身份。主项加默认可取消副项由服务端enabled_surfaces批准，凭据按需保存。
 
 api account仅查询当前凭据本人摘要。钱包链接/码标当前账号名字和末6位；余额不足、一次低余额与主动wallet顶层统一两路扫码话术；用户给金额直接wallet --topup，有原request则保留。快捷档不是金额限制，不增加机器资金决策字段。
+
+
+## Connection review fixes (2026-11-09)
+
+Every first-connection API continuation includes the selected absolute profile before common envelope qualification. Services consent metadata is Backend-qualified while device key/registrations remain in the original shared Services directory. Existing root metadata is reused only for its recorded Backend, without migration or identity replacement. Task-driven explicit --reconnect submits the actual task surface, retaining the same connection and task; no implicit additional consent.
