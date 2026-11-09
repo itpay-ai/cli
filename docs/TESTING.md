@@ -90,3 +90,8 @@ PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；st
 ## 2026-11-09 account/connection source checks
 
 Local functional tests cover own-summary masking, credential-derived account selection, six-character references, one-page primary/secondary consent, original credential/request recovery and wallet mismatch blocking. CLI 559 tests and installed-package smoke passed; Web 82, MCP 93, SDK 54 passed. V4 PostgreSQL surface persistence and Hub shared funding/account isolation ran against a dedicated synthetic QA database. Playwright used real templates/routes with synthetic accounts: unchecked secondary remains disabled; wrong browser account cannot reach the funding form; switching retains the original intent; ordinary wallet identifies the browser account. No browser funding POST was made. These are automatic/fixture results, not Charlie's four natural-host acceptance tests or a payment proof. Dev activation is recorded separately.
+
+
+## Connection review regressions (2026-11-09)
+
+Full 560-test suite passed before the final credential-preparation regression was added; final targeted command/state suite passed 11 and device/state suite 34. API pending continuation is actually executed in a new process through the same source CLI, proving original selector recovery; credential-preparation pending also retains profile. Backend metadata isolation, old root reuse, original buyer/connection and shared signing key are checked. Normal commit hook reruns the final full suite. No Owner-host acceptance or npm publication.

@@ -135,3 +135,14 @@ flowchart LR
 ```
 
 One enabled_surfaces field records consent; spending caps and accepted tasks retain their original identity. Credentials are issued on demand. V4 owns the account summary; authenticated Hub OAuth and api_hub Keys read the same masked own-account fields. No new profile scope or public ID. Human account references use the canonical Buyer final six characters everywhere. Wallet links name the current connection; browser wallets name the browser account; signed cards name the frozen credited account. Original-object account mismatches stop before the generic wallet and preserve the local return path. Implementation is not deployment or natural-host acceptance evidence.
+
+
+## Connection review correction (2026-11-09)
+
+```mermaid
+flowchart LR
+ A[Original identity and task] --> B[Validated scoped connection]
+ B --> C[Explicit consent / safe read]
+```
+
+CLI profile continuation --> same absolute profile; Services Backend --> backend-qualified consent metadata --> original shared device key. Explicit re-consent stays on the original connection and task. Existing root metadata is only reused for its recorded Backend.
