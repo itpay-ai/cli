@@ -151,8 +151,10 @@ Admit复核expected_publication_id、max_charge和当前grant；变价时，原�
 
 `api show` 缓存 Hub 的可选 `shown_event_id`，新 call 将该引用与原 publication/输入/最高费用一起保存并发送；一个 show 可关联多个不同原 request。该元数据不进入幂等摘要，不改固定 SDK、权限、扣费或续接算法。继续和 status 保持原 request，服务端从原事件恢复充值 parent；没有报价引用的旧记录仍可读，不补造 show。事件与只读查询合同以 Hub DEVELOPMENT 的 N62 表为准。
 
-## N6.3 按需入口（第一批）
+## 当前首次连接
 
-`agent --surface api|services --task @私有文件 --json` 保存原任务并按实际宿主/Backend隔离profile，旧连接不搬迁。明确运行时信号或Agent自己的--agent-type决定类型，不从旧device猜。Hub复用原Device协议；Services复用原设备签名/登录，仅请求当前任务需要的路径。输出链接后同次等待，缓冲宿主使用--buffered并立即执行返回next；进程退出0或pending不表示就绪。再次agent无task参数恢复本地原意；已绑定API request只读status；显式新意图--new-task保留旧任务收据。拒绝/取消不自动重开。CLI保存用户原意交给宿主，不执行自然语言业务或扩大权限。
+agent 保存原任务后使用现有统一确认页，主项与默认可取消副项；setup 准备安装并给出同一连接入口，auth login/api connect 原地等待。旧凭据和 accepted/unknown 原单保持原恢复动作；托管 MCP 各自正常 OAuth，不能把共享浏览器登录等同共享权限。当前交付仅见 README/DEPLOYMENT。
 
-开发发现唯一入口https://dev.itpay.ai/agent，npm/固定下载/生产官网不随代码合并变更。第二批同页双签发仍未实施，不把两个独立凭据合并称已上线。
+## 合并前 Codex 审查
+
+最后待合并 revision 必须取得 Codex 的明确审查结论；沿现有 GitHub Codex Review 渠道（需要时在 PR 请求 `@codex review`）。先处理全部可操作意见并提供回归证据，再对最终 revision 取得结论后正常合并。新提交使旧结论失效；仅解决线程、没有评论、审查仍在运行、不可用或配额耗尽都不算通过。遇到渠道不可用/配额限制，告知 Planning，保留 PR 不合并，不绕过保护，不新建 Actions 或审批服务。

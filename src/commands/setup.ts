@@ -41,10 +41,10 @@ export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus"
     device_status: "ready", account_status: account.status, skill_path: skillPath, skill_version: CLI_VERSION,
     ...(account.status === "login_required" ? { account_action: {
       optional: true, condition: "仅当用户要求登录或当前功能需要账号时使用；免费查询不强制绑定。",
-      command: "itpay auth login --json", reason: "由本人完成官方账号授权，不自动登录",
+      command: "itpay auth login --json", reason: "打开统一确认页，展示原链接后自行等待；保留原任务",
     } } : {}),
   }, instruction: (account.status === "authenticated"
     ? "设备已准备好，Services 账号已授权；本次未核验 Hub API 授权。"
-    : "设备已准备好；Services 需要账号的功能再请本人授权，本次未核验 Hub API 授权。") + " 按交付物选择同包 Skill：API/结构化数据读 itpay skill show itpay-api --json，再 api categories；办理、交付和售后读 itpay skill show itpay --json。skill_path 是 Services 原路径，不要求 API 先读铁路说明。保留原 launcher、真实宿主和状态目录，新会话不创建新身份；正常任务不重复 setup。新任务仅在宿主获准且能执行 CLI 时优先 CLI，否则使用对应托管 MCP；不要求云宿主试装。已受理、待付款或未知结果只沿原身份、入口和业务引用恢复，不换路重发。",
+    : "设备已准备好；需要账号时 auth login 打开统一确认页并等待，主项与默认可取消副项由本人选择；本次未核验 Hub API 授权。") + " 按交付物选择同包 Skill：API/结构化数据读 itpay skill show itpay-api --json，再 api categories；办理、交付和售后读 itpay skill show itpay --json。skill_path 是 Services 原路径，不要求 API 先读铁路说明。保留原 launcher、真实宿主和状态目录，新会话不创建新身份；正常任务不重复 setup。新任务仅在宿主获准且能执行 CLI 时优先 CLI，否则使用对应托管 MCP；不要求云宿主试装。已受理、待付款或未知结果只沿原身份、入口和业务引用恢复，不换路重发。",
   next: null, recovery: [] }, { ...options, ...(config.agentType ? { agentType: config.agentType } : {}) });
 }

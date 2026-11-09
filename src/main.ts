@@ -359,7 +359,7 @@ function docsErrorFallback(jsonOutput: boolean): {
 
 program
   .command("readyz")
-  .description("Probe the V3 backend readiness endpoint")
+  .description("Probe the selected Backend readiness endpoint")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
     const config = loadConfig();
@@ -381,7 +381,8 @@ program
   });
 
 program.command("setup")
-  .description("Prepare this actual Agent and report device/account readiness without starting login")
+  .description("Prepare this Agent; its first connection uses one unified confirmation page")
+  .addHelpText("after","\nExample: itpay setup --api-prefix /absolute/host/profile --json\nsetup_ready/api_setup_ready means prepared, not connected. Follow its original unified-connection next action.\n")
   .option("--api-prefix <directory>", "prepare the API installation in an absolute host directory")
   .option("--json", "output JSON instead of terminal text")
   .action(async (options) => {
@@ -389,7 +390,7 @@ program.command("setup")
       if (options.apiPrefix) {
         const installation = prepareHubInstallation(String(options.apiPrefix));
         writeCommandEnvelope({ status: "api_setup_ready", result: installation,
-          instruction: "使用此安装的 API 启动器连接账号。", next: { command: `${shellQuote(installation.launcher)} api connect${options.json ? " --json" : ""}`, reason: "在此安装内建立账号连接" }, recovery: [] }, { jsonOutput: Boolean(options.json) });
+          instruction: "使用此安装的 API 启动器进入统一确认页；主项加默认可取消副项。展示链接后按原 next 等待，无需本人回复“好了”。", next: { command: `${shellQuote(installation.launcher)} api connect${options.json ? " --json" : ""}`, reason: "在原安装打开统一确认页并等待" }, recovery: [] }, { jsonOutput: Boolean(options.json) });
         return;
       }
       const config = loadConfig();
@@ -403,7 +404,7 @@ program.command("setup")
 
 const authCmd = program.command("auth").description("Log in and bind this enrolled Agent to your ItPay account");
 for (const action of ["login", "status"] as const) {
-  authCmd.command(action).option("--json", "output JSON").action(async (options) => {
+  authCmd.command(action).addHelpText("after",action==="login"?"\nExample: itpay auth login --json\nPending: show the original unified link and run next automatically. Authenticated: continue the original task. No human done reply is required.\n":"\nExample: itpay auth status --json\nRead the original authorization and its exact task recovery.\n").description(action==="login"?"Connect on the unified confirmation page and wait; keep the original task":"Read the original account authorization and recovery").option("--json", "output JSON").action(async (options) => {
     const config = loadConfig();
     try {
       if(action==="login"&&await firstConnection("services",Boolean(options.json)))return;

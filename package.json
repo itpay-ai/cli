@@ -147,5 +147,9 @@
   "itpayCommands": [
     "services",
     "api"
-  ]
+  ],
+  "itpayDevDelivery": {
+    "candidate": "account-connection-review-20261109",
+    "revision": "pretest-cleanup-20261109"
+  }
 }

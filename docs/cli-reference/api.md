@@ -14,7 +14,7 @@ Use the same installation launcher and absolute --profile selector for every cal
 |api wallet --usage|Current Key/Consumer gross/net/refunded/held usage; runs include failures.|
 |api wallet --transactions|Scoped charge/refund rows with limit/truncation; owner_billing_url opens full account history.|
 
-All support --json. Installation uses setup --api-prefix. Connection uses api connect, connect continue, connect status and connect restart. Explicit rejection of refresh returns the original profile's connect --request command. Immediately follow the emitted waiting command. Successful reconnection returns status of the same original request, which can then return call --pending.
+All support --json. setup --api-prefix prepares the installation and points to api connect. A fresh connection uses one unified confirmation page (primary plus default checked, cancellable other item), then waits and resumes. connect continue/status/restart remain supported for the original existing Device recovery only; keep its exact returned action and profile. Explicit rejection of refresh returns the original profile's connect --request command. Immediately follow the emitted waiting command. Successful reconnection returns status of the same original request, which can then return call --pending.
 
 Show purpose, price and TTL before obtaining consent. A publication change requires reading the original receipt and showing the new price. A network-unknown write permits only original status reads. A failed call is called free of charge only when captured and held are both confirmed zero. Source result expiry does not remove fee facts.
 
@@ -32,3 +32,6 @@ Check `wallet` identity.account_hint and credential_kind; matching hints identif
 ### 本人钱包定额充值
 
 `itpay api wallet --topup 30 --json` 准备本人钱包的人民币充值，按分报价，最低 ¥10。若为已有挂起请求充值，加 `--request <原 request_id>`；付款后按返回 next 读取原充值并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原充值。OAuth/API Hub Key 准备充值不要求消费 grant；充值不会增加调用额度、商户收款或退款权限。
+
+可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。
+四档只是快捷项；每个钱包/码链接标“当前账号：名字 · 末6位”。
