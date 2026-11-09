@@ -5,7 +5,7 @@ import { connectHubDevice, hubDeviceStatus, restartHubDevice } from "../state/hu
 import { hasHubInstallation, selectHubInstallation } from "../state/hub_installation.js";
 import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
 import {runAdminCommand} from "./admin.js";
-import {runHubAccount,HubTaskRequestError,runHubCredentialsImport,runHubDoctor,runHubWallet} from "./hub.js";
+import {TOPUP_INSTRUCTION,runHubAccount,HubTaskRequestError,runHubCredentialsImport,runHubDoctor,runHubWallet} from "./hub.js";
 import { Command } from "commander";
 import { HttpError } from "../client/http.js";
 import {hubErrorDetails} from "../client/hub.js";
@@ -50,9 +50,10 @@ hubCmd.command("admin <action>").description("Admin imports, credentials and saf
 hubCmd.command("account").description("Read this connection's own masked account information").option("--json","output JSON").action(async options=>{try{await runHubAccount(Boolean(options.json))}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"account_unavailable",instruction:"保留原连接；当前账号信息暂不可读取。",recovery:[]})}});
 hubCmd
   .command("connect [action] [handle]")
-  .description("Connect this CLI to your ItPay account")
+  .description("New connections use one unified confirmation page; existing requests keep original recovery")
+  .addHelpText("after","\nExample: itpay api --profile /absolute/host/api-profile.json connect --json\nA fresh connection shows one unified page and waits. Pending keeps the same profile/next; connected resumes the original task. Existing request recovery uses its returned --request/continue action.\n")
   .option("--request <id>", "continue the original local API request after authorization")
-  .option("--wait <seconds>", "wait for this Device authorization, up to 120 seconds", "120")
+  .option("--wait <seconds>", "wait for the same authorization, up to 120 seconds", "120")
   .option("--json", "output JSON")
   .action(async (action: string | undefined, handle: string | undefined, options) => {
     try {
@@ -121,7 +122,8 @@ hubCmd
 
 hubCmd
   .command("wallet")
-  .description("Read wallet or prepare an explicit own-wallet top-up")
+  .description("Read this account wallet; an explicit amount prepares the same-order QR and checkout")
+  .addHelpText("after",`\n${TOPUP_INSTRUCTION}\nExamples (keep this installation's profile):\n  itpay api wallet --json\n  itpay api wallet --topup 15 --json\n  itpay api wallet --topup 15 --request <original_request_id> --json\nQuick amounts are shortcuts, not limits. Links identify 当前账号：名字 · 末6位.\n`)
   .option("--topup <amount>","prepare a custom CNY amount; scan or click the same order; minimum 10 CNY")
   .option("--topup-status <topup_id>","read the original top-up")
   .option("--request <request_id>","retain your original pending API request")

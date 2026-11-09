@@ -43,44 +43,6 @@ After each release, record workflow run, trusted main workflow SHA, actual sourc
 
 An OIDC verify run exchanges GitHub identity for a temporary npm token and sends an actual same-value tag PUT; npm dist-tag add alone skips unchanged tags and cannot prove write permission. This proves tag permission only. `npm publish --dry-run` does not prove live publish authorization. The next authorized new-version release must confirm actual publish and provenance. Preserve the old unused NPM_TOKEN secret until OIDC publication has been verified; remove it afterward with account authorization. Do not add it back as a hidden fallback.
 
-## 本地候选与最终配套
+## 开发交付
 
-`npm run test:package`实际构建并在私有临时前缀安装验证，忽略安装脚本；源码版本/API身份、Skill/Buyer JSON/reference/许可与编译产物必须一起检查。记录npm pack tarball的绝对路径、SHA-256、integrity、源SHA；从同包读version/help，不把package.json版本当实际安装证据。
-
-本地候选已接通两份Skill和API参考页入包与读取，实包检查须核对原文/名称/摘要、Services覆盖兼容、API覆盖隔离、缺失/篡改拒绝、读取无网络及身份无变更。先提交源码并核工作树干净，再从该SHA构建获准版本的未发布候选，记录SHA-256/integrity并由消费者显式更新固定来源；不覆盖先前交付包，不向npm同版本重复发布。历史cddf包不含新增API文档，其旧证据不能套到新包。
-
-正常发布使用已审定的单一路径；OIDC/网页登录/账户准入以实际工作流及npm结果为准，不猜当前授权、不在聊天索取凭据。主版本合并不会自动发布；latest生产默认与next预览分开，默认宿主渠道跟随获准的生产latest，dev只走testing-setup/明确候选。同步下游是另一个明确批准批次，不借npm权限代替跨仓权限。没有变化不重复创建推送或发布。
-
-发布后核registry渠道、原包hash/gitHead/integrity、全新临时安装的版本/编译/Skill/文档与配套Backend/publication；latest是否变化单列。没有真实宿主自然测试就写未观察；未通过不宣传稳定可用。2026-10-28真实子路径及剩余购买/履约/宿主验收见[测试](TESTING.md)和[待办](BACKLOG.md)，不因源码合并销账。
-
-本轮Block V（2026-10-28）无发布：固定2.1.56下载包source3245354保持，a261e99只用于同原state的一次generic请求恢复。源码/文档HEAD、未发布dist与已分发包必须分列；推送PR不重新打同版本包，不移动candidate/next/latest。完整旅程未验完，见TESTING/BACKLOG。
-
-Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
-
-## N6.3 开发本地包（2026-11-07，非npm发布）
-
-PR154 main `e9131fb998231e324ebc906a4cfce596247e5147` 构建版本2.1.65的独立开发包 `itpay-cli-2.1.65-n63-e9131fb.tgz`，由 https://dev.itpay.ai/agent 的脚本固定下载。同版本npm包不是该制品。552项标准hook与main的test:package通过，公开包已在实际Codex终端独立前缀安装；正常Device同意后原等待connected，再次使用不新发链接。此为工程连接观察，不代签自然宿主或T07业务恢复。npm、candidate/next/latest与固定下载均未变；文档维护HEAD不冒称包source。服务组合/四项阶段观察归V4正式TESTING/DEPLOYMENT。
-
-N6.3 第二批仅开发入口使用本地 main `407908f6` 构建2.1.65：`itpay-cli-2.1.65-n63-unified-407908f.tgz`，317932 bytes，SHA256 `2c91cdf7e65c73e7b69d47631a7d20ddcfc3981e831aa019494a8fbd358a236e`。npm/固定下载/next/latest 未变化，Actions未运行；旧开发包保留，不能只凭2.1.65版本号判定实际安装来源。
-
-## N6.4 正式开发版本准备（2026-11-08）
-
-2.1.66承载已合并N6.4，目标candidate-dev和next，latest/candidate-prod保持2.1.41。Charlie已明确允许仅既有发布流程内部保留自动检查；不新增或另做制品核对。stage及promote仍按既有保护流程，实际结果发布后回填。旧npm2.1.65直接discover已实际成功但没有升级提示，旧二进制不会自动更新；dev启动器负责实际版本检查及同prefix安装正式版本，保留账号/profile/原请求。
-
-N6.4正式版本stage 42460852408：main f0a951d构建/完整检查和prepare通过，npm接受2.1.66；publish后即时标签可见性未收敛导致run失败，未重发。按既有release流程将该次工作流产出的dev来源记录写入原policy，待registry可见后以promote提升next；prod来源/标签不动，不另行计算或比对制品。最终标签与dev安装读数见同批Owner亲测包。
-
-N6.4最终发行：promote [42461459054](https://github.com/itpay-ai/cli/actions/runs/42461459054)成功，candidate-dev=next=2.1.66；latest=candidate-prod=2.1.41。正式包source为main f0a951d；同一次既有stage已被npm接受，未重复发布。dev /agent与install.sh精确安装官方npm2.1.66，隔离旧npm2.1.65同prefix重跑公开安装脚本实际升级并--version读回2.1.66；随包API Skill、两钱包模式help和dev目录读取通过。旧二进制直接discover实际成功但没有升级提示，直接旧路径不会自动升级；Owner原安装/身份/profile/原请求未修改。生产及固定下载未改，下游sync未运行。
-
-
-## 2026-11-08 定额充值 2.1.67 已发布 next
-
-功能 PR163，计时测试修复 PR164，固定 dev 来源 PR165 已正常合并。原 stage 42480277914 在 prepare 被既有超时测试拦截，未发布；改为从 enrollment 请求开始计时，保留原网络上限及无迟发业务断言。stage 42481174293 的 prepare 完整通过，npm 接受原包并签 provenance；即时标签可见性未收敛导致 publish job 失败，未重发。随后 candidate-dev 实读为2.1.67；promote 42481914109 在既有内部检查后成功把 next 提升到同一原包。
-
-原包 source/workflow `d3e88d44ef74e7f8d762f04fb5105731c77b69cb`，既有 stage manifest 的 tar SHA256 `e4b63efbce213e2c53f6766c4d4e3881e4a2b74601efa5383bc3801b0d79303b`。promote 的可信 workflow revision `08fe53633b6340a4b2ff6acf8e34c976900b6769`。只记录既有流程产物，无额外制品核对。最终 candidate-dev=next=2.1.67，latest=candidate-prod=2.1.41。生产未变、下游 sync 未运行。
-
-dev /agent、install.sh 和固定下载同步官方2.1.67。公开安装脚本在隔离旧安装中原位升级到2.1.67，保留原 profile 与 unknown 请求文件；没有登录、setup 或业务调用。真实宿主由 Charlie 亲测。
-
-
-## Account/connection dev candidate (2026-11-09)
-
-This batch delivers an unpublished source-tagged main build based on package version 2.1.67 through /dev-packages/itpay-cli-account-connection-20261109.tgz and the dev /agent installer. It is distinct from the npm 2.1.67 package: api account is present and the installer records the dated candidate. No npm tag or fixed /downloads/itpay-cli.tgz replacement. Existing prefixes, device keys, profiles and original tasks are preserved. Actual deployment sources and readback are recorded in compose-v4 docs/DEPLOYMENT.md after activation; source merge alone is not deployment.
+开发候选的唯一当前安装/部署说明见 [DEPLOYMENT](DEPLOYMENT.md)。正式 npm 流程与 dev 本地候选各按批准范围执行，不互相替代。

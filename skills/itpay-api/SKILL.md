@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-Development acceptance uses the official @itpay/cli@2.1.66 release. Check the actual launcher with --version before testing; if older, read https://dev.itpay.ai/agent and rerun its installer in the same tool prefix, preserving the original profile, account and requests. Direct old binaries do not automatically update. Production latest remains separate.
+Development uses account-connection-review-20261109 from https://dev.itpay.ai/agent (base 2.1.67). Install/upgrade with that current public script in the original permitted prefix; it checks the delivery revision, not just --version. Keep the original profile, account, device key and requests. Production follows its separately approved channel.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
@@ -37,11 +37,11 @@ If refresh is explicitly rejected, follow the returned connect --request command
 
 wallet reads available and held atoms and provides the official proactive top-up URL. For “what have I used”, use wallet --usage or wallet --transactions: these report only the current Consumer/Key scope, with truncation where applicable. Known requests still use status. Full account funding, holds and cash refunds use owner_billing_url in the normal owner browser; do not use Computer Use to expand machine scope. Wallet balance is shared account money, not this consumer's authorization cap. Insufficient balance uses the original intent's official top-up page and original call --pending wait command. Funding never increases an explicit spending cap.
 
-Only open a top-up when the user authorized funding. N6.2 acceptance uses fakepass-platform-2, simulated, CNY and the advertised minimum ¥10 SKU. A page or callback does not prove wallet credit. Read the original server request and final charge. Do not create another payment or replacement intent.
+Only prepare a top-up when the user explicitly gives a funding amount. Quick amounts are shortcuts, not allowed-amount limits; the server quotes the amount under its existing minimum and currency contract. A test channel must remain visibly marked as simulated. A page or callback does not prove wallet credit. Read the original server request and final charge. Do not create another payment or replacement intent.
 
 Present only returned official links and branded cards or their official rendered images. Never reconstruct, crop or encode a payment QR, request credentials in chat, or expose tokens or private request bodies.
 
-New task-driven installations use one official Agent connection page. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.
+New task-driven installations, setup’s first connection action, auth login and api connect use the same official Agent connection page with a primary item and default checked, cancellable other item. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.
 
 ## API Key access
 

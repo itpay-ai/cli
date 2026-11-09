@@ -5,7 +5,7 @@ description: Find or buy ItPay services, plan or book railway travel, read purch
 
 # ItPay
 
-Development acceptance uses the official @itpay/cli@2.1.66 release. Check the actual launcher with --version before testing; if older, read https://dev.itpay.ai/agent and rerun its installer in the same tool prefix, preserving the original profile, account and requests. Direct old binaries do not automatically update. Production latest remains separate.
+Development uses account-connection-review-20261109 from https://dev.itpay.ai/agent (base 2.1.67). Install/upgrade with that current public script in the original permitted prefix; it checks the delivery revision, not just --version. Keep the original profile, account, device key and requests. Production follows its separately approved channel.
 
 展示本人登录、办理或付款入口时，只使用工具返回的官方 HTML 卡、由同一 HTML 截图的官方图片和原官方链接。图片失败或宿主不能展示图片时，给出原链接、用途、当前状态、本人需做的动作及原任务 next；不得自行编码、重画、裁剪二维码，也不得换单或重建授权。
 
@@ -23,7 +23,7 @@ Use real `dot` or `muse` in those hosts; never impersonate codex-desktop. A new 
 
 Start with the user's requested task, not a separate setup conversation. For a new installation read https://dev.itpay.ai/agent; execute the official `agent --task @<private-task-file> --surface services --json` entry. The Agent supplies its own actual runtime type if detection needs it; the user never chooses a technical identity. A distinct host gets a distinct profile without overwriting old connections. Existing accepted workflows keep their original state directory and returned commands.
 
-The entry saves the task before authorization, presents the official link and waits in the same call. If output is buffered, use `--buffered`, show the link and immediately execute its next wait command. The user need not say "done". A later arbitrary reply resumes `agent` without `--task`; read original pending work before creating anything. Only authenticated/connected means ready, never an exit code or pending. First-batch Hub and Services permissions remain separate and requested only by the task; do not claim a combined authorization has shipped.
+The entry saves the task before authorization, presents the official link and waits in the same call. If output is buffered, use `--buffered`, show the link and immediately execute its next wait command. The user need not say "done". A later arbitrary reply resumes `agent` without `--task`; read original pending work before creating anything. Only authenticated/connected means ready, never an exit code or pending. New CLI connections use one unified confirmation page: the requested surface is primary, the other is checked by default and can be cancelled. Only selected items are enabled; credentials are prepared on demand. setup prepares the installation and points to this same first connection, as do auth login and api connect. Hosted Services/Hub MCP each use their normal host OAuth; they do not share tokens or grants.
 
 ## One current flow
 
@@ -55,4 +55,8 @@ Payment unknown/pending, human attention and terminal facts stop automatic actio
 
 Tell the human useful route, amount, limits, official entry and next human action in ordinary language. Keep internal commands/IDs out of routine replies and never expose credentials, tokens, codes or traveler data. Optional safe feedback follows delivery and never delays it.
 
-New task-driven installations use one official Agent connection page. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.
+New task-driven installations, setup’s first connection action, auth login and api connect use the same official Agent connection page with a primary item and default checked, cancellable other item. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.
+
+## API 钱包与账号
+
+API 钱包用同包 itpay-api Skill；主动充值或余额不足时告知：可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。用户给金额直接按原安装 wallet --topup；原请求保留 --request。四档只是快捷项，所有钱包/码链接带“当前账号：名字 · 末6位”。网页当前账号与同单卡到账账号按可信返回分别核对，不推测身份或重画二维码。

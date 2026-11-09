@@ -68,28 +68,6 @@ flowchart LR
 
 新普通Agent无默认周期限额，旧显式和APIKey预算保持；CLI/MCP独立授权。profile与可信连接分开；同页双owner同意、稳定consumer代次和原请求接续见[开发合同](DEVELOPMENT.md#agent-connection-target)。CLI loopback删除，MCP HTTPS callback/PKCE及Services链保持。
 
-## N6.3：当前断点与本阶段第一批
-
-```mermaid
-flowchart TD
- Task[用户直接给任务] --> Entry[dev.itpay.ai/agent：官方包与启动命令]
- Entry --> Local[CLI agent：按实际宿主独立profile，保存任务]
- Local --> Route{按任务选择原owner}
- Route --> API[Hub已有Device连接，缺连接立即给链接]
- Route --> Services[Services已有设备与账号链，按需登录]
- API --> Wait[先输出官方链接，再同次等；缓冲宿主分两次调用]
- Services --> Wait
- Wait --> Resume[任意下次回复：读已存任务和原等待句柄]
- Resume --> Ready[只以connected/authenticated为就绪；返回原任务和下一步]
- Ready --> Business[原命令执行，受理后原request恢复]
- Business --> Expiry[T07：owner typed过期拒绝，HTTP投影固定合同与原query]
- Expiry --> Guard{Lifecycle原安全结论}
- Guard -->|安全且无购买| Fresh[完整原条件获取当前事实，不续旧票据]
- Guard -->|已有购买或unknown| Original[只读原购买，不新建]
-```
-
-原断点：首次expiry的HTTP裸错误丢恢复信息、launcher拒绝重复profile、setup需人工拼装。本阶段已实现CLI/Skill接入和T07安全投影，Hub和Services仍独立授权，保留两套权限owner、预算、旧profile和原请求。CLI不执行自然语言任务，持久保存原意交还宿主；不将安装/链接/进程退出0称为授权或业务成功。第二批统一同意页/按需双签发尚未实施。
-
 ## N6.3 第二批：一次同意、按需凭据（开发服已实现）
 
 ```mermaid

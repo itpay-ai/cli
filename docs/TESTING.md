@@ -86,12 +86,6 @@ PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；st
 
 2.1.67 完整本地 check（558 tests、coverage、packed smoke）通过；修复旧超时测试后，stage42481174293 prepare 的完整 check 通过。定额充值返回本人账号、同单官方 HTML/PNG/收银台，link-only 不要求图片。dev 邮箱账号从0充值30，原 req_06985cf697ed4f77ab04ad80703a551f 经正常原 intent 授权重绑后续接一次扣0.01；支付宝既定账号在独立 dev 工程连接从0充值30，原 req_dc4a09f9fbdd478087239cc36de49505 续接一次扣0.01。两者均实际读回29.99、冻结0；邮箱随后原模拟充值退款29.97，最终0.02、冻结0，支付宝保留29.99。账务只读确认各一次入账、一次capture，不重放旧unknown请求。仅开发模拟资金，非自然宿主验收；真实账号 session 操作使用现有浏览器，页面付款用 Node+Playwright。dev 运行组合与完整账务引用归 V4 TESTING/DEPLOYMENT。
 
+## 当前连接与交付验收
 
-## 2026-11-09 account/connection source checks
-
-Local functional tests cover own-summary masking, credential-derived account selection, six-character references, one-page primary/secondary consent, original credential/request recovery and wallet mismatch blocking. CLI 559 tests and installed-package smoke passed; Web 82, MCP 93, SDK 54 passed. V4 PostgreSQL surface persistence and Hub shared funding/account isolation ran against a dedicated synthetic QA database. Playwright used real templates/routes with synthetic accounts: unchecked secondary remains disabled; wrong browser account cannot reach the funding form; switching retains the original intent; ordinary wallet identifies the browser account. No browser funding POST was made. These are automatic/fixture results, not Charlie's four natural-host acceptance tests or a payment proof. Dev activation is recorded separately.
-
-
-## Connection review regressions (2026-11-09)
-
-Full 560-test suite passed before the final credential-preparation regression was added; final targeted command/state suite passed 11 and device/state suite 34. API pending continuation is actually executed in a new process through the same source CLI, proving original selector recovery; credential-preparation pending also retains profile. Backend metadata isolation, old root reuse, original buyer/connection and shared signing key are checked. Normal commit hook reruns the final full suite. No Owner-host acceptance or npm publication.
+使用已有合成单测、隔离数据库拒绝断言与 Node+Playwright，保护本人身份、原请求及 unknown。实际包从公开 /agent 安装后读 Skill/help，再对 dev MCP 做已授权只读核对；不以源码通过代替安装后/公网验收。四项真实宿主由 Owner 验收。本批唯一结果在 `~/.codex/artifacts/account-connection-review-20261109/RESULT.json`，不在仓库追加日期报告、日志或第二份证据。

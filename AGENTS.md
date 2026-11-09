@@ -26,3 +26,7 @@
 Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
 
 授权/连接变更先更新[当前与目标图](docs/ARCHITECTURE.md#agent-connection-architecture)再改代码；图须与实际实现/版本同步，按图逐屏验收。详细范围、节点owner与版本门槛见[开发目标](docs/DEVELOPMENT.md#agent-connection-target)，未实现目标不得写成正式setup能力。
+
+## 合并前 Codex 审查
+
+最后待合并 revision 必须取得 Codex 的明确审查结论；沿现有 GitHub Codex Review 渠道（需要时在 PR 请求 `@codex review`）。先处理全部可操作意见并提供回归证据，再对最终 revision 取得结论后正常合并。新提交使旧结论失效；仅解决线程、没有评论、审查仍在运行、不可用或配额耗尽都不算通过。遇到渠道不可用/配额限制，告知 Planning，保留 PR 不合并，不绕过保护，不新建 Actions 或审批服务。
