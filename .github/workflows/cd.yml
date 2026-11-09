@@ -9,9 +9,9 @@ on:
         required: true
         type: string
       action:
-        description: Stage a checked artifact, promote after Backend validation, or verify OIDC
+        description: Publish checked main to next, stage, promote, or verify OIDC
         type: choice
-        options: [stage, promote, verify]
+        options: [publish, stage, promote, verify]
         default: stage
       source:
         description: Main or an exact internal source approved in npm-release-sources.json
@@ -19,7 +19,7 @@ on:
         options: [main, dev, prod]
         default: main
       tag:
-        description: Final channel for promote/verify only
+        description: next for publish; final channel for promote/verify
         type: choice
         options: [next, latest]
         default: next
@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   prepare:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.action == 'stage')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (inputs.action == 'stage' || inputs.action == 'publish'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -59,6 +59,8 @@ jobs:
         run: node scripts/npm-release-source.mjs select
         env:
           RELEASE_SOURCE: ${{ inputs.source || 'main' }}
+          RELEASE_ACTION: ${{ inputs.action || 'stage' }}
+          RELEASE_TAG: ${{ inputs.tag }}
       - name: Checkout candidate without publish permission
         uses: actions/checkout@v7
         with:
@@ -74,6 +76,8 @@ jobs:
         run: node scripts/npm-release-source.mjs pack
         env:
           RELEASE_SOURCE: ${{ inputs.source || 'main' }}
+          RELEASE_ACTION: ${{ inputs.action || 'stage' }}
+          RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_CHECKOUT: candidate
       - name: Preserve exact artifact for protected publication
         uses: actions/upload-artifact@v4
@@ -106,7 +110,7 @@ jobs:
       - name: Pin npm with OIDC support
         run: npm install --global npm@11.21.0
       - name: Download checked artifact
-        if: github.event_name == 'push' || inputs.action == 'stage'
+        if: github.event_name == 'push' || (inputs.action == 'stage' || inputs.action == 'publish')
         uses: actions/download-artifact@v4
         with:
           name: cli-release

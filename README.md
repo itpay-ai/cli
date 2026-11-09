@@ -2,7 +2,7 @@
 
 本仓维护同一安装的 Services 与 API 命令和两份随包 Skill；服务端身份、账务与授权仍由各自 owner 管理。
 
-开发安装和升级唯一入口：[dev.itpay.ai/agent](https://dev.itpay.ai/agent)。当前候选 **account-connection-review-20261109**（基础版本 2.1.67，独立 dev 包）。新 CLI 连接使用一张统一确认页：主项与默认勾选、可取消的副项，Agent 展示链接后自行等待并继续原任务。已有凭据和已受理/unknown 请求保留原身份与恢复动作。
+开发安装和升级唯一入口：[dev.itpay.ai/agent](https://dev.itpay.ai/agent)。开发版为正式 npm 包 **@itpay/cli@2.1.68**（next）；该入口安装同一正式版本，不再供应独立候选包。新 CLI 连接使用一张统一确认页：主项与默认勾选、可取消的副项，Agent 展示链接后自行等待并继续原任务。已有凭据和已受理/unknown 请求保留原身份与恢复动作。
 
 可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。
 

@@ -4,8 +4,12 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export function releaseSource({ source, mainSha, approvals }) {
+export function releaseSource({ source, mainSha, approvals, action = 'stage', tag }) {
   if (!/^[a-f0-9]{40}$/.test(mainSha)) throw new Error('An exact trusted workflow revision is required');
+  if (action === 'publish') {
+    if (source !== 'main' || tag !== 'next') throw new Error('Direct publication requires main to next');
+    return { sha: mainSha, channel: 'next' };
+  }
   if (source === 'main') return { sha: mainSha, channel: 'candidate-dev' };
   if (!['dev', 'prod'].includes(source)) throw new Error('Choose an approved internal source');
   const approved = approvals[source];
@@ -30,7 +34,8 @@ export function checkPackage(pkg, config, source) {
 function main() {
   const mode = process.argv[2];
   const source = releaseSource({ source: process.env.RELEASE_SOURCE || 'main', mainSha: process.env.GITHUB_SHA,
-    approvals: JSON.parse(readFileSync(new URL('./npm-release-sources.json', import.meta.url), 'utf8')) });
+    approvals: JSON.parse(readFileSync(new URL('./npm-release-sources.json', import.meta.url), 'utf8')),
+    action: process.env.RELEASE_ACTION || 'stage', tag: process.env.RELEASE_TAG });
   if (mode === 'select') {
     appendFileSync(process.env.GITHUB_OUTPUT, `sha=${source.sha}\nchannel=${source.channel}\n`);
     return;

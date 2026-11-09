@@ -30,14 +30,14 @@ test('protected publisher rejects changed artifacts; promotion reads the approve
     mkdirSync(join(root, 'release-artifact'));
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@itpay/cli', version }));
     const file = `itpay-cli-${version}.tgz`, tarball = join(root, 'release-artifact', file);
-    const run = (gitHead, compiledApi, checksum) => {
+    const run = (gitHead, compiledApi, checksum, action = 'stage') => {
       writeFileSync(join(root, 'package/package.json'), JSON.stringify({ name: '@itpay/cli', version, gitHead }));
       writeFileSync(join(root, 'package/dist/src/state/config.js'), `export const API_CONTRACT_REVISION = "${compiledApi}";`);
       execFileSync('tar', ['-czf', tarball, '-C', root, 'package']);
       const sha256 = checksum || createHash('sha256').update(readFileSync(tarball)).digest('hex');
-      writeFileSync(join(root, 'release-artifact/manifest.json'), JSON.stringify({source: sha, workflow: sha, version, api, file, sha256, channel:'candidate-dev'}));
+      writeFileSync(join(root, 'release-artifact/manifest.json'), JSON.stringify({source: sha, workflow: sha, version, api, file, sha256, channel:action==='publish'?'next':'candidate-dev'}));
       return spawnSync(process.execPath, [fileURLToPath(new URL('./npm-release.mjs', import.meta.url))], {
-        cwd: root, encoding:'utf8', env: { PATH:process.env.PATH, GITHUB_SHA:sha, RELEASE_ACTION:'stage', RELEASE_SOURCE:'main' }, timeout:3000,
+        cwd: root, encoding:'utf8', env: { PATH:process.env.PATH, GITHUB_SHA:sha, RELEASE_ACTION:action, RELEASE_SOURCE:'main', RELEASE_TAG:'next' }, timeout:3000,
       });
     };
     for (const [args, reason] of [
@@ -45,9 +45,11 @@ test('protected publisher rejects changed artifacts; promotion reads the approve
       [['b'.repeat(40), api], 'Packed source identity mismatch'],
       [[sha, `sha256:${'d'.repeat(64)}`], 'Packed API does not match recorded artifact'],
     ]) {
-      const result = run(...args);
-      assert.equal(result.status, 1);
-      assert.match(result.stderr, new RegExp(reason));
+      for (const action of ['stage','publish']) {
+        const result = run(args[0], args[1], args[2], action);
+        assert.equal(result.status, 1);
+        assert.match(result.stderr, new RegExp(reason));
+      }
     }
     writeFileSync(join(root, 'package/dist/src/state/config.js'), `export const API_CONTRACT_REVISION = "${api}";`);
     execFileSync('tar', ['-czf', tarball, '-C', root, 'package']);
@@ -65,4 +67,14 @@ test('protected publisher rejects changed artifacts; promotion reads the approve
     await assert.rejects(verifyPublishedArtifact({...existing, dist:{...existing.dist, tarball:'https://external.example/pkg'}}, approved,
       async () => { assert.fail('External artifact must not be requested'); }), /origin/);
   } finally { rmSync(root, { recursive:true, force:true }); }
+});
+
+
+test('direct checked publication is main to next only; staging keeps its existing channel', () => {
+  const mainSha = 'a'.repeat(40), approvals = {};
+  assert.deepEqual(releaseSource({source:'main',mainSha,approvals,action:'publish',tag:'next'}), {sha:mainSha,channel:'next'});
+  assert.deepEqual(releaseSource({source:'main',mainSha,approvals}), {sha:mainSha,channel:'candidate-dev'});
+  for (const [source,tag] of [['dev','next'],['prod','next'],['main','latest'],['main','candidate-dev'],['main',undefined]]) {
+    assert.throws(() => releaseSource({source,tag,mainSha,approvals,action:'publish'}), /main to next/);
+  }
 });
