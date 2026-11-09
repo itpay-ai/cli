@@ -5,7 +5,7 @@ description: Find or buy ItPay services, plan or book railway travel, read purch
 
 # ItPay
 
-Development uses account-connection-review-20261109 from https://dev.itpay.ai/agent (base 2.1.67). Install/upgrade with that current public script in the original permitted prefix; it checks the delivery revision, not just --version. Keep the original profile, account, device key and requests. Production follows its separately approved channel.
+Development uses the official @itpay/cli 2.1.68 release on npm next, also installed by https://dev.itpay.ai/agent. Install/upgrade in the original permitted prefix. Keep the original profile, account, device key and requests. Production follows its separately approved latest channel.
 
 展示本人登录、办理或付款入口时，只使用工具返回的官方 HTML 卡、由同一 HTML 截图的官方图片和原官方链接。图片失败或宿主不能展示图片时，给出原链接、用途、当前状态、本人需做的动作及原任务 next；不得自行编码、重画、裁剪二维码，也不得换单或重建授权。
 

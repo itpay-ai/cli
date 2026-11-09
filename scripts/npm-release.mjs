@@ -83,8 +83,8 @@ async function main() {
   let artifact;
   let publishFile;
   const approvals = JSON.parse(readFileSync(new URL('./npm-release-sources.json', import.meta.url), 'utf8'));
-  if (action === 'stage') {
-    const source = releaseSource({ source: process.env.RELEASE_SOURCE || 'main', mainSha: process.env.GITHUB_SHA, approvals });
+  if (action === 'stage' || action === 'publish') {
+    const source = releaseSource({ source: process.env.RELEASE_SOURCE || 'main', mainSha: process.env.GITHUB_SHA, approvals, action, tag: process.env.RELEASE_TAG });
     artifact = JSON.parse(readFileSync('release-artifact/manifest.json', 'utf8'));
     if (!/^2\.\d+\.\d+$/.test(artifact.version) || !/^sha256:[a-f0-9]{64}$/.test(artifact.api)
       || artifact.source !== source.sha || artifact.workflow !== process.env.GITHUB_SHA || artifact.channel !== source.channel

@@ -23,6 +23,7 @@ The package repository URL must be `https://github.com/itpay-ai/cli`. The workfl
 
 | Intent | Procedure |
 | --- | --- |
+| Publish a new main version only to next | After the approved version PR and final Codex review are merged, dispatch action `publish`, source `main`, tag `next`. The existing prepare/checked artifact/OIDC publisher is reused; candidate-dev, candidate-prod and latest are untouched. Other source/tag combinations fail closed. |
 | Stage a new main version | Version bump + checks + normal main merge do not publish. After approval, manually dispatch stage/source=main to `candidate-dev`; `next/latest` remain unchanged. |
 | Stage a maintenance candidate | First review the internal commit and artifact. Approve its exact SHA/version/API/tarball SHA-256 in `scripts/npm-release-sources.json` on main. Dispatch action `stage`, source `dev` or `prod`; null entries fail closed. |
 | Activate dev channel | Verify matching Backend/runtime/publication; approve exact dev source in policy. Dispatch `promote`, tag `next`, exact version. |

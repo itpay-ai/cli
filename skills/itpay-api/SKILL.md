@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-Development uses account-connection-review-20261109 from https://dev.itpay.ai/agent (base 2.1.67). Install/upgrade with that current public script in the original permitted prefix; it checks the delivery revision, not just --version. Keep the original profile, account, device key and requests. Production follows its separately approved channel.
+Development uses the official @itpay/cli 2.1.68 release on npm next, also installed by https://dev.itpay.ai/agent. Install/upgrade in the original permitted prefix. Keep the original profile, account, device key and requests. Production follows its separately approved latest channel.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
