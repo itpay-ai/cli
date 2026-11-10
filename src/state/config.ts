@@ -7,7 +7,7 @@ export { CLI_VERSION, API_CONTRACT_REVISION } from "./release_identity.js";
 
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { HttpClient } from "../client/http.js";
@@ -89,8 +89,15 @@ function stateFilename(filename: string, baseURL: string): string {
   return dot < 0 ? `${filename}.${suffix}` : `${filename.slice(0, dot)}.${suffix}${filename.slice(dot)}`;
 }
 
+export function agentRoot(type:string,env:NodeJS.ProcessEnv=process.env):string {
+  const endpoint=createHash("sha256").update(resolveBackendURL(env)).digest("hex").slice(0,16);
+  return resolve(env.ITPAY_AGENT_HOME??resolve(env.HOME||homedir(),".local/share/itpay/agents"),endpoint,type);
+}
+
 export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ITPAY_STATE_DIR ? resolve(env.ITPAY_STATE_DIR) : resolve(env.HOME || homedir(), CART_SESSION_DEFAULT_DIR);
+  if(env.ITPAY_STATE_DIR)return resolve(env.ITPAY_STATE_DIR);
+  const legacy=resolve(env.HOME||homedir(),CART_SESSION_DEFAULT_DIR),type=declaredAgentType(env);
+  return type&&(env.ITPAY_AGENT_HOME||!existsSync(legacy)||readdirSync(legacy).every(name=>name==="shown"))?resolve(agentRoot(type,env),"services"):legacy;
 }
 
 export function cartSessionPath(env: NodeJS.ProcessEnv = process.env): string {

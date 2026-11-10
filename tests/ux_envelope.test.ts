@@ -4,7 +4,7 @@ import { authStatePath } from '../src/state/auth_storage.js';
 // resume, the deterministic presentation resolver, secure browser URL
 // admission, and relay gating.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { shellArgument, plainValueLines } from "../src/commands/guidance.js";
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -218,6 +218,21 @@ test("AUTH04: a successful bind resumes the exact journaled task — no placehol
   assert.equal(envelope.status, "authenticated");
   assert.equal(envelope.next?.command, "itpay services run itpay-rail-smart --execution se_paused_login --json");
   assert.doesNotMatch(envelope.next?.command ?? "", /</);
+  const childEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),...env,ITPAY_STATE_DIR:home,ITPAY_AGENT_TYPE:"muse",ITPAY_BACKEND_URL:mock.url,ITPAY_CLI_DEV:"1"};
+  const login=()=>new Promise<any>((resolve,reject)=>{
+    const child=spawn(process.execPath,["--import","tsx","src/main.ts","auth","login","--json"],{cwd:process.cwd(),env:childEnv});
+    let out="",err="";child.stdout.on("data",part=>out+=part);child.stderr.on("data",part=>err+=part);child.on("error",reject);
+    child.on("close",code=>{try{assert.equal(code,0,err+out);resolve(JSON.parse(out.split(/\n(?=\{)/).at(-1)!));}catch(error){reject(error);}});
+  });
+  const resumed=await login();
+  assert.equal(resumed.status,"authenticated");
+  assert.match(resumed.next.command,/services run itpay-rail-smart --execution se_paused_login --json$/);
+  assert.doesNotMatch(resumed.next.command,/ next --json/);
+  journal.record({service_execution_id:"se_other_login",stage:"login_required",resume_command:"itpay services next se_other_login --json"});
+  const multiple=await login();
+  assert.equal(multiple.next,null,"multiple paused tasks must not select an unrelated cart");
+  assert.equal(multiple.result.authorization.result.paused_executions.length,2);
+
 });
 
 test("AUTH04: without a journaled task the envelope says so instead of emitting a placeholder", async () => {
@@ -456,7 +471,7 @@ test('all auth and original-task continuations keep host Backend and custom priv
 test('auth command reports a local missing declaration before account probe and never creates identity',async()=>{
  const {spawnSync}=await import('node:child_process');
  const root=mkdtempSync(join(tmpdir(),'itpay-auth-input-'));
- const childEnv:NodeJS.ProcessEnv={...process.env,ITPAY_STATE_DIR:root,ITPAY_BACKEND_URL:'https://dev.itpay.ai'};
+ const childEnv:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!['CODEX_THREAD_ID','CLAUDECODE','MUSE_SESSION_ID','DOT_SESSION_ID','WORKBUDDY_SESSION_ID'].includes(key))),ITPAY_STATE_DIR:root,ITPAY_BACKEND_URL:'http://127.0.0.1:1',ITPAY_CLI_DEV:'1'};
  delete childEnv.ITPAY_AGENT_TYPE;
  const result=spawnSync(process.execPath,['--import','tsx','src/main.ts','auth','login','--json'],{cwd:process.cwd(),env:childEnv,encoding:'utf8',timeout:20000});
  assert.equal(result.status,1);const out=JSON.parse(result.stdout);assert.equal(out.error.code,'agent_type_required');assert.equal(out.result.failure_stage,'local_agent_declaration');assert.equal(out.result.request_sent,false);assert.equal(out.result.input_template.executable,false);assert.equal(out.next,null);assert.equal(existsSync(join(root,'identity.json')),false);

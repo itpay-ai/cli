@@ -29,7 +29,7 @@ test('api and hub are one registration object, with original Services entry inta
 // Exercise the actual registered API boundary, not a second CLI implementation.
 // Every endpoint is loopback and all payment/identity facts are synthetic.
 
-async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true) {
+async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true, approvalRequired=false, apiKey?:string) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
  let exchangeReady=true;
@@ -45,11 +45,11 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
    const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
    assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
-   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",buyer_id:ready?"fixture-buyer":"",status:denied?"denied":ready?"active":"pending",...((ready||denied)?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
+   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",enabled_surfaces:ready?["services","api"]:["api"],buyer_id:ready?"fixture-buyer":"",status:denied?"denied":ready?"active":"pending",...((ready||denied)?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
   }
   if(req.url==="/v1/agent-connections/acn_fixture/hub"){
    starts++;assert.ok(ready);binding.buyer_id=resource+"|fixture-buyer";
-   res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",verification_uri_complete:resource+"/verify",expires_in:120,interval:1}));return;
+   res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",verification_uri_complete:resource+"/verify",expires_in:120,interval:1,...(approvalRequired?{approval_required:true}:{})}));return;
   }
   if(req.url?.startsWith("/v1/agent-device")||req.url?.startsWith("/v1/agent-connections/acn_fixture/services"))throw new Error("API path touched Services");
   if(req.url==="/v1/oauth/device/start") {
@@ -60,7 +60,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    assert.equal(body.resource,resource);
    originalConsumer=body.original_consumer_id;
    res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",
-    verification_uri_complete:resource+"/verify",expires_in:120,interval:1}));
+    verification_uri_complete:resource+"/verify",expires_in:120,interval:1,...(approvalRequired?{approval_required:true}:{})}));
    return;
   }
   if(req.url===`/v1/oauth/device/${handle}/status`) {
@@ -85,7 +85,8 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   }
   if(req.url==="/v1/me") {
    probes++;
-   assert.equal(req.headers.authorization,"Bearer synthetic-device-access");
+   if(apiKey)assert.equal(req.headers["x-itpay-key"],apiKey);
+   else assert.equal(req.headers.authorization,"Bearer synthetic-device-access");
    assert.equal(req.headers["x-itpay-oauth-resource"],resource);
    res.writeHead(identityStatus);
    res.end(JSON.stringify(identityStatus===200?binding:{}));
@@ -98,7 +99,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  assert.ok(address&&typeof address!=="string");
  resource="http://127.0.0.1:"+address.port;
  const env:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_")&&!["CODEX_THREAD_ID","CLAUDECODE","MUSE_SESSION_ID","DOT_SESSION_ID","WORKBUDDY_SESSION_ID"].includes(key))),
-  HOME:home,ITPAY_AGENT_TYPE:"muse",ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
+  HOME:home,NODE_OPTIONS:"--import "+join(root,"node_modules/tsx/dist/loader.mjs"),ITPAY_AGENT_TYPE:"muse",ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
  writeFileSync(join(home,'itpay'),'#!/bin/sh\nexec '+shellArgument(process.execPath)+' --import tsx '+shellArgument(join(root,'src/main.ts'))+' "$@"\n',{mode:0o700});
  env.PATH=home+':'+(process.env.PATH??'');
  function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {
@@ -238,6 +239,33 @@ test("task-driven entry emits a link first, reuses pending across turns and conn
 });
 
 
+test("task resume selects its original saved API Key before choosing OAuth",async()=>{
+ const key="itk_synthetic_original_key",f=await deviceFixture(200,undefined,undefined,true,false,key);
+ try{
+  const setup=spawnSync(process.execPath,["--import","tsx","--input-type=module","-e",`
+   import {agentRoot} from './src/state/config.ts';
+   import {prepareHubInstallation,selectHubInstallation} from './src/state/hub_installation.ts';
+   import {saveAgentTask} from './src/state/agent_task.ts';
+   import {importHubKey} from './src/state/hub_credentials.ts';
+   import {join} from 'node:path';
+   const root=agentRoot('muse');
+   saveAgentTask(root,'resume original API request','api','req_original');
+   const installation=prepareHubInstallation(join(root,'api'),process.cwd()+'/src/main.ts',null);
+   selectHubInstallation(installation.selector);
+   importHubKey('itk_synthetic_original_key',process.env.ITPAY_HUB_URL);
+  `],{cwd:root,env:f.env,encoding:"utf8"});
+  assert.equal(setup.status,0,setup.stderr);
+  for(const args of [["agent"],["agent","--request","req_original"]]){
+   const result=await f.cli(args);
+   assert.equal(result.code,0,result.output);assert.equal(result.value.status,"connected",result.output);
+   assert.equal(result.value.result.task.request_id,"req_original");
+   assert.match(result.value.next.command,/status req_original/);
+   assert.equal(f.calls().starts,0);assert.equal(f.calls().commonStarts,0);
+   assert.doesNotMatch(result.output,/itk_synthetic_original_key/);
+  }
+ }finally{await f.close();}
+});
+
 test("denied unified API connection remains terminal across turns without starting OAuth",async()=>{
  const f=await deviceFixture();
  try{
@@ -274,4 +302,54 @@ test("unified credential preparation continuation retains the same API profile",
   const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");assert.ok(pending.value.result.handle);assert.ok(pending.value.next.command.includes(selector));
   f.releaseExchange();const result=await f.cli([...args,"--wait","5"]);assert.equal(result.value.status,"connected");assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
  }finally{await f.close()}
+});
+
+
+test("existing canonical task survives an explicit legacy Services state directory",async()=>{
+ const f=await deviceFixture();
+ try{
+  const {agentRoot}=await import("../src/commands/agent.js");
+  const {prepareAgentConnection}=await import("../src/state/agent_connection.js");
+  const {saveAgentTask}=await import("../src/state/agent_task.js");
+  const canonical=agentRoot("muse",f.env);
+  prepareAgentConnection(canonical,f.resource,"muse",{prepared:true});
+  const task=saveAgentTask(canonical,"original canonical API task","api",undefined);
+  const key=readFileSync(join(canonical,"services/device/device-private.pem"));
+  const resumed=await f.cli(["agent","--wait","0"]);
+  assert.equal(resumed.value.status,"pending",resumed.output);
+  assert.equal(resumed.value.result.task.id,task.id);
+  assert.deepEqual(readFileSync(join(canonical,"services/device/device-private.pem")),key);
+  assert.equal(existsSync(join(f.env.ITPAY_STATE_DIR!,"connections")),false);
+ }finally{await f.close();}
+});
+
+test("legacy API consent keeps its approval URL and requirement in buffered progress",async()=>{
+ const f=await deviceFixture(200,"synthetic-handle-001",undefined,false,true);
+ try{
+  const {agentRoot}=await import("../src/commands/agent.js");
+  const {saveAgentTask}=await import("../src/state/agent_task.js");
+  const canonical=agentRoot("muse",f.env);
+  const setup=await f.cli(["setup","--api-prefix",join(canonical,"api")]);
+  const profile=JSON.parse(readFileSync(setup.value.result.selector,"utf8"));
+  rmSync(hubCredentialsPath({...f.env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)})+".agent-connection.json");
+  saveAgentTask(canonical,"original legacy API task","api",undefined);
+  const pending=await f.cli(["agent","--buffered"]);
+  assert.equal(pending.value.status,"pending",pending.output);
+  assert.equal(pending.value.result.url,f.resource+"/verify");
+  assert.equal(pending.value.result.approval_required,true);
+  assert.equal(f.calls().commonStarts,0);
+ }finally{await f.close();}
+});
+
+test("approved connection still shows an explicitly required Device approval",async()=>{
+ const f=await deviceFixture(200,"synthetic-handle-001",undefined,true,true);
+ try{
+  f.approve();
+  const pending=await f.cli(["agent","--surface","api","--task","continue original consent-bound API task","--buffered"]);
+  assert.equal(pending.value.status,"pending",pending.output);
+  assert.equal(pending.value.result.url,f.resource+"/verify");
+  assert.equal(pending.value.result.approval_required,true);
+  assert.equal(f.calls().exchanges,0);
+  assert.equal(pending.value.result.task.text,"continue original consent-bound API task");
+ }finally{await f.close();}
 });

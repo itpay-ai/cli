@@ -1,4 +1,7 @@
-import { randomUUID } from "node:crypto";
+import {prepareAgentConnection,servicesConnectionRoot,saveAgentConnection,type AgentConnectionState} from './agent_connection.js';
+import {stateDir,resolveBackendURL} from './config.js';
+import {declaredAgentType} from './agent_type.js';
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { hubOAuthConfig } from "./hub_oauth.js";
@@ -82,26 +85,35 @@ function newInstallation(root: string): HubInstallation {
   };
 }
 
-export function prepareHubInstallation(prefix: string, executable = process.argv[1]): { selector: string; launcher: string; profile_id: string } {
+export function prepareHubInstallation(prefix: string, executable = process.argv[1], connection?:{root:string;state:AgentConnectionState}|null): { selector: string; launcher: string; profile_id: string } {
   const root = absolute(prefix);
   if (!executable) throw new Error("API launcher requires an installed CLI entry point");
   const selector = join(root, "api-profile.json");
   const launcher = join(root, "bin", "itpay");
   return withFileLock(selector + ".lock", () => {
     const legacy = `#!/bin/sh\ncase "$1" in api|hub) shift ;; esac\nfor arg do\n  case "$arg" in --profile|--profile=*) exit 2 ;; esac\ndone\nexec ${shellQuote(process.execPath)} ${shellQuote(absolute(executable))} api --profile ${shellQuote(selector)} "$@"\n`;
-    const forward = `const {spawnSync}=require('node:child_process');const [exe,selector,...input]=process.argv.slice(1);if(['api','hub'].includes(input[0]))input.shift();const args=[];for(let i=0;i<input.length;i++){let v;if(input[i]==='--profile')v=input[++i];else if(input[i].startsWith('--profile='))v=input[i].slice(10);else {args.push(input[i]);continue;}if(v!==selector){process.stderr.write('profile_mismatch: this launcher belongs to '+selector+'\\n');process.exit(2);}}const r=spawnSync(process.execPath,[exe,'api','--profile',selector,...args],{stdio:'inherit'});if(r.error){process.stderr.write(r.error.message+'\\n');process.exit(1);}process.exit(r.status??1);`;
+    const forward = `const {spawnSync}=require('node:child_process');const [exe,selector,...input]=process.argv.slice(1);const global=[];while(input[0]?.startsWith('--agent-type')){const v=input.shift();global.push(v);if(v==='--agent-type')global.push(input.shift());}if(['api','hub'].includes(input[0]))input.shift();const args=[];for(let i=0;i<input.length;i++){let v;if(input[i]==='--profile')v=input[++i];else if(input[i].startsWith('--profile='))v=input[i].slice(10);else {args.push(input[i]);continue;}if(v!==selector){process.stderr.write('profile_mismatch: this launcher belongs to '+selector+'\\n');process.exit(2);}}const r=spawnSync(process.execPath,[exe,...global,'api','--profile',selector,...args],{stdio:'inherit'});if(r.error){process.stderr.write(r.error.message+'\\n');process.exit(1);}process.exit(r.status??1);`;
+    const previousForward = `const {spawnSync}=require('node:child_process');const [exe,selector,...input]=process.argv.slice(1);if(['api','hub'].includes(input[0]))input.shift();const args=[];for(let i=0;i<input.length;i++){let v;if(input[i]==='--profile')v=input[++i];else if(input[i].startsWith('--profile='))v=input[i].slice(10);else {args.push(input[i]);continue;}if(v!==selector){process.stderr.write('profile_mismatch: this launcher belongs to '+selector+'\\n');process.exit(2);}}const r=spawnSync(process.execPath,[exe,'api','--profile',selector,...args],{stdio:'inherit'});if(r.error){process.stderr.write(r.error.message+'\\n');process.exit(1);}process.exit(r.status??1);`;
+    const previousCommand = `#!/bin/sh\nexec ${shellQuote(process.execPath)} -e ${shellQuote(previousForward)} ${shellQuote(absolute(executable))} ${shellQuote(selector)} "$@"\n`;
     const command = `#!/bin/sh\nexec ${shellQuote(process.execPath)} -e ${shellQuote(forward)} ${shellQuote(absolute(executable))} ${shellQuote(selector)} "$@"\n`;
     let upgrade = false;
     if (existsSync(launcher)) {
       if (!lstatSync(launcher).isFile()) throw new Error("API installation already has a different launcher");
       const prior = readFileSync(launcher, "utf8");
-      if (prior !== command && prior !== legacy) throw new Error("API installation already has a different launcher");
-      upgrade = prior === legacy;
+      if (prior !== command && prior !== legacy && prior !== previousCommand) throw new Error("API installation already has a different launcher");
+      upgrade = prior === legacy || prior === previousCommand;
     }
-    const profile = existsSync(selector) ? readProfile(selector) : newInstallation(root);
+    const fresh=!existsSync(selector);
+    const profile = fresh ? newInstallation(root) : readProfile(selector);
     mkdirSync(dirname(launcher), { recursive: true, mode: 0o700 });
     if (!existsSync(selector)) atomicWrite(selector, JSON.stringify(profile, null, 2) + "\n", 0o600);
     if (!existsSync(launcher) || upgrade) atomicWrite(launcher, command, 0o700);
+    const type=declaredAgentType();
+    if(fresh&&type&&connection!==null&&!process.env.ITPAY_HUB_KEY&&!process.env.ITPAY_HUB_TOKEN){
+      const original=stateDir(),backend=resolveBackendURL(),connectionRoot=connection?.root??servicesConnectionRoot(original,backend,type);
+      const state=connection?.state??prepareAgentConnection(connectionRoot,backend,type,{surface:"api",services_directory:original});
+      if(state)saveAgentConnection(join(profile.state_root,"hub-profiles",profile.profile_id,`hub-credentials.${createHash("sha256").update(profile.hub).digest("hex").slice(0,12)}.json.agent-connection.json`),{root:connectionRoot,state});
+    }
     return { selector, launcher, profile_id: profile.profile_id };
   });
 }

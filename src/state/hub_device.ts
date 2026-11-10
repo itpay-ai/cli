@@ -1,4 +1,4 @@
-import {agentConnectionRequest, type AgentConnectionState} from "./agent_connection.js";
+import {agentConnectionRequest,readConnectionBroker} from "./agent_connection.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -115,11 +115,10 @@ async function start(cfg: HubOAuthConfig, path: string, state?: Pending, request
   }
   const issuer = new URL(cfg.tokenURL).origin;
   const brokerPath=hubCredentialsPath()+".agent-connection.json";
-  const broker=existsSync(brokerPath)?JSON.parse(readFileSync(brokerPath,"utf8")) as {root:string;state:AgentConnectionState}:undefined;
-  if(broker && (!broker.state.buyer_id || !broker.state.connection_id))throw new Error("original Agent account unavailable");
+  const broker=readConnectionBroker(brokerPath);
   // An original intent needing renewed spending consent keeps the existing
   // explicit Device consent path and original consumer; never expand its cap.
-  const useBroker=broker&&!state.intent_id;
+  const useBroker=broker?.state.buyer_id&&broker.state.connection_id&&!state.intent_id;
   const response = useBroker ? await agentConnectionRequest(broker.root,broker.state,`/v1/agent-connections/${broker.state.connection_id}/hub`,{start_key:state.start_key}) : await fetch(issuer + "/v1/oauth/device/start", {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(8_000),
     headers: { "Content-Type": "application/json" },
@@ -268,8 +267,8 @@ export async function connectHubDevice(handle: string | undefined, waitSeconds: 
       }
       if (state.exchange_started) return { result: { phase: "exchange_unknown" } };
       const brokerPath=hubCredentialsPath()+".agent-connection.json";
-      if(existsSync(brokerPath)){
-        const broker=JSON.parse(readFileSync(brokerPath,"utf8")) as {state:AgentConnectionState};
+      if(readConnectionBroker(brokerPath)?.state.buyer_id){
+        const broker=readConnectionBroker(brokerPath)!;
         if(status.buyer_id!==new URL(cfg.tokenURL).origin+"|"+broker.state.buyer_id)throw new Error("original Agent API account changed");
       }
       const binding: Binding = { buyer_id: status.buyer_id, consumer_id: status.consumer_id };

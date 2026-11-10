@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {chmodSync,existsSync,lstatSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {withFileLock} from './file_lock.js';
-type SavedTask = { id: string; text: string; surface: "api" | "services"; request_id?: string; authorization_terminal?: "denied" | "cancelled" };
+export type SavedTask = { id: string; text: string; surface: "api" | "services"; request_id?: string; authorization_terminal?: "denied" | "cancelled" };
 
 export function saveAgentTask(root: string, text: string | undefined, surface: string | undefined, request: string | undefined, newTask = false): SavedTask {
  const path = join(root, "task.json");
