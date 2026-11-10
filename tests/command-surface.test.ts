@@ -29,7 +29,7 @@ test('api and hub are one registration object, with original Services entry inta
 // Exercise the actual registered API boundary, not a second CLI implementation.
 // Every endpoint is loopback and all payment/identity facts are synthetic.
 
-async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true, approvalRequired=false) {
+async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true, approvalRequired=false, apiKey?:string) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
  let exchangeReady=true;
@@ -85,7 +85,8 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   }
   if(req.url==="/v1/me") {
    probes++;
-   assert.equal(req.headers.authorization,"Bearer synthetic-device-access");
+   if(apiKey)assert.equal(req.headers["x-itpay-key"],apiKey);
+   else assert.equal(req.headers.authorization,"Bearer synthetic-device-access");
    assert.equal(req.headers["x-itpay-oauth-resource"],resource);
    res.writeHead(identityStatus);
    res.end(JSON.stringify(identityStatus===200?binding:{}));
@@ -237,6 +238,33 @@ test("task-driven entry emits a link first, reuses pending across turns and conn
  }finally{await f.close();}
 });
 
+
+test("task resume selects its original saved API Key before choosing OAuth",async()=>{
+ const key="itk_synthetic_original_key",f=await deviceFixture(200,undefined,undefined,true,false,key);
+ try{
+  const setup=spawnSync(process.execPath,["--import","tsx","--input-type=module","-e",`
+   import {agentRoot} from './src/state/config.ts';
+   import {prepareHubInstallation,selectHubInstallation} from './src/state/hub_installation.ts';
+   import {saveAgentTask} from './src/state/agent_task.ts';
+   import {importHubKey} from './src/state/hub_credentials.ts';
+   import {join} from 'node:path';
+   const root=agentRoot('muse');
+   saveAgentTask(root,'resume original API request','api','req_original');
+   const installation=prepareHubInstallation(join(root,'api'),process.cwd()+'/src/main.ts',null);
+   selectHubInstallation(installation.selector);
+   importHubKey('itk_synthetic_original_key',process.env.ITPAY_HUB_URL);
+  `],{cwd:root,env:f.env,encoding:"utf8"});
+  assert.equal(setup.status,0,setup.stderr);
+  for(const args of [["agent"],["agent","--request","req_original"]]){
+   const result=await f.cli(args);
+   assert.equal(result.code,0,result.output);assert.equal(result.value.status,"connected",result.output);
+   assert.equal(result.value.result.task.request_id,"req_original");
+   assert.match(result.value.next.command,/status req_original/);
+   assert.equal(f.calls().starts,0);assert.equal(f.calls().commonStarts,0);
+   assert.doesNotMatch(result.output,/itk_synthetic_original_key/);
+  }
+ }finally{await f.close();}
+});
 
 test("denied unified API connection remains terminal across turns without starting OAuth",async()=>{
  const f=await deviceFixture();

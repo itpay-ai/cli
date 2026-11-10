@@ -43,10 +43,10 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   const installation=surface==="api"?(selectedHubInstallationPath()?{selector:selectedHubInstallationPath()!}:prepareHubInstallation(join(root,"api"),undefined,common?{root,state:common}:null)):undefined;
   if(installation)selectHubInstallation(installation.selector);
   const apiNext=installation?`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} api --profile ${shellQuote(installation.selector)} ${task?.request_id?'status '+task.request_id:'list'} --json`:null;
-  if(selected?.apiKey){
+  if(surface==="api"&&(selected?.apiKey||loadHubConfig().apiKey)){
    const installed=loadHubConfig();
-   if(selected.baseURL!==installed.baseURL||task?.request_id&&installed.apiKey!==selected.apiKey)throw new Error("credential_conflict: keep the original request credential");
-   if(!process.env.ITPAY_HUB_KEY)importHubKey(selected.apiKey,installed.baseURL);
+   if(selected?.apiKey&&(selected.baseURL!==installed.baseURL||task?.request_id&&installed.apiKey!==selected.apiKey))throw new Error("credential_conflict: keep the original request credential");
+   if(!process.env.ITPAY_HUB_KEY)importHubKey(selected?.apiKey??installed.apiKey!,installed.baseURL);
    const me=await new HubClient(loadHubConfig()).me();
    emit("connected",{selector:installation!.selector,identity:describeHubIdentity(me,"api_key")},describeAccount(me)+"\n使用所选 API Key；继续原任务。",apiNext);return;
   }
