@@ -40,7 +40,7 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   if(task?.authorization_terminal&&!options.reconnect){emit(task.authorization_terminal,{},"本人已拒绝或取消；只有明确重连才重新发起。");return;}
   const selected=surface==="api"?loadHubConfig():undefined;
   const common=selected?.apiKey?undefined:prepareAgentConnection(root,resolveBackendURL(),type,{surface,...(options.prepared?{prepared:true}:{}),...(options.servicesDirectory?{services_directory:options.servicesDirectory}:{})});
-  const installation=surface==="api"?(selectedHubInstallationPath()?{selector:selectedHubInstallationPath()!}:prepareHubInstallation(join(root,"api"))):undefined;
+  const installation=surface==="api"?(selectedHubInstallationPath()?{selector:selectedHubInstallationPath()!}:prepareHubInstallation(join(root,"api"),undefined,common?{root,state:common}:undefined)):undefined;
   if(installation)selectHubInstallation(installation.selector);
   const apiNext=installation?`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} api --profile ${shellQuote(installation.selector)} ${task?.request_id?'status '+task.request_id:'list'} --json`:null;
   if(selected?.apiKey){
@@ -81,7 +81,7 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    if(result.phase!=="connected"){
     result=await connectHubDevice(undefined,0,task?.request_id);
     if(result.phase==="pending"){
-     emit("pending",{phase:result.phase,handle:result.handle,selector:installation!.selector},"连接正在准备；按原 next 继续。",again);
+     emit("pending",{...result,...(common&&!result.approval_required?{url:undefined}:{}),selector:installation!.selector},!common||result.approval_required?"展示原官方链接并等待确认。":"连接正在准备；按原 next 继续。",again);
      if(options.buffered||wait===0)return;
      result=await connectHubDevice(result.handle as string,wait);
     }
@@ -89,13 +89,13 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    if((result.phase==="denied"||result.phase==="cancelled")&&task)recordAgentAuthorization(root,result.phase);
    emit(String(result.phase),{...result,selector:installation!.selector,...(common?{connection_id:common.connection_id,surfaces:summary}:{})},result.phase==="connected"?(await currentAccountLabel())+"\n"+(common?message:"账号已连接；继续原任务。"):"保留原连接和任务。",result.phase==="connected"?apiNext:result.phase==="pending"?again:null);return;
   }
-  process.env.ITPAY_STATE_DIR=common?.services_directory??options.servicesDirectory??join(root,"services");
+  process.env.ITPAY_STATE_DIR=common?(common.services_directory??join(root,"services")):(options.servicesDirectory??join(root,"services"));
   const backend=newBackendClient(loadConfig());
   if(common)await bindAgentServices(root,common);
   let result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;
   if(["login_required","auth_pending","auth_expired","auth_session_missing"].includes(String(result.status)))result=await agentAuth("login",resolveBackendURL(),backend) as Record<string,unknown>;
   const deadline=Date.now()+wait*1000;
-  while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
+  while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{authorization:result},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
   const next=`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`;
   emit(result.status==="authenticated"?(task?"connected":"authenticated"):String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{})},result.status==="authenticated"?(common?message:String(result.instruction??"账号已连接；继续原任务。")):"保留原登录与任务。",result.status==="authenticated"?next:result.status==="auth_pending"?again:null);
  }catch(error){
@@ -118,7 +118,7 @@ export function registerAgentCommand(program:Command):void{
   try{
    const type=actualAgentType();process.env.ITPAY_AGENT_TYPE=type;
    const original=stateDir(),canonical=agentRoot(type);
-   const root=existsSync(join(canonical,"connection.json"))&&!process.env.ITPAY_STATE_DIR?canonical:servicesConnectionRoot(original,resolveBackendURL(),type);
+   const root=(existsSync(join(canonical,"connection.json"))||existsSync(join(canonical,"task.json")))?canonical:servicesConnectionRoot(original,resolveBackendURL(),type);
    const wait=Number(options.wait);if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("wait must be 0..120");
    const text=options.task?.startsWith("@")?readFileSync(options.task.slice(1),"utf8"):options.task;
    const task=saveAgentTask(root,text,options.surface,options.request,Boolean(options.newTask));

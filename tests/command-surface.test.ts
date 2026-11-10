@@ -29,7 +29,7 @@ test('api and hub are one registration object, with original Services entry inta
 // Exercise the actual registered API boundary, not a second CLI implementation.
 // Every endpoint is loopback and all payment/identity facts are synthetic.
 
-async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true) {
+async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-001", refreshStatus?: number, unified=true, approvalRequired=false) {
  const home=mkdtempSync(join(tmpdir(),"itpay-device-contract-"));
  const binding={buyer_id:"fixture-buyer",consumer_id:"oauth:fixture-public-cli:original",device_approval_id:"approval",authorization_id:"generation"};
  let exchangeReady=true;
@@ -49,7 +49,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
   }
   if(req.url==="/v1/agent-connections/acn_fixture/hub"){
    starts++;assert.ok(ready);binding.buyer_id=resource+"|fixture-buyer";
-   res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",verification_uri_complete:resource+"/verify",expires_in:120,interval:1}));return;
+   res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",verification_uri_complete:resource+"/verify",expires_in:120,interval:1,...(approvalRequired?{approval_required:true}:{})}));return;
   }
   if(req.url?.startsWith("/v1/agent-device")||req.url?.startsWith("/v1/agent-connections/acn_fixture/services"))throw new Error("API path touched Services");
   if(req.url==="/v1/oauth/device/start") {
@@ -60,7 +60,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    assert.equal(body.resource,resource);
    originalConsumer=body.original_consumer_id;
    res.end(JSON.stringify({handle,device_code:"synthetic-device-code",poll_proof:"synthetic-poll-proof",
-    verification_uri_complete:resource+"/verify",expires_in:120,interval:1}));
+    verification_uri_complete:resource+"/verify",expires_in:120,interval:1,...(approvalRequired?{approval_required:true}:{})}));
    return;
   }
   if(req.url===`/v1/oauth/device/${handle}/status`) {
@@ -274,4 +274,54 @@ test("unified credential preparation continuation retains the same API profile",
   const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");assert.ok(pending.value.result.handle);assert.ok(pending.value.next.command.includes(selector));
   f.releaseExchange();const result=await f.cli([...args,"--wait","5"]);assert.equal(result.value.status,"connected");assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
  }finally{await f.close()}
+});
+
+
+test("existing canonical task survives an explicit legacy Services state directory",async()=>{
+ const f=await deviceFixture();
+ try{
+  const {agentRoot}=await import("../src/commands/agent.js");
+  const {prepareAgentConnection}=await import("../src/state/agent_connection.js");
+  const {saveAgentTask}=await import("../src/state/agent_task.js");
+  const canonical=agentRoot("muse",f.env);
+  prepareAgentConnection(canonical,f.resource,"muse",{prepared:true});
+  const task=saveAgentTask(canonical,"original canonical API task","api",undefined);
+  const key=readFileSync(join(canonical,"services/device/device-private.pem"));
+  const resumed=await f.cli(["agent","--wait","0"]);
+  assert.equal(resumed.value.status,"pending",resumed.output);
+  assert.equal(resumed.value.result.task.id,task.id);
+  assert.deepEqual(readFileSync(join(canonical,"services/device/device-private.pem")),key);
+  assert.equal(existsSync(join(f.env.ITPAY_STATE_DIR!,"connections")),false);
+ }finally{await f.close();}
+});
+
+test("legacy API consent keeps its approval URL and requirement in buffered progress",async()=>{
+ const f=await deviceFixture(200,"synthetic-handle-001",undefined,false,true);
+ try{
+  const {agentRoot}=await import("../src/commands/agent.js");
+  const {saveAgentTask}=await import("../src/state/agent_task.js");
+  const canonical=agentRoot("muse",f.env);
+  const setup=await f.cli(["setup","--api-prefix",join(canonical,"api")]);
+  const profile=JSON.parse(readFileSync(setup.value.result.selector,"utf8"));
+  rmSync(hubCredentialsPath({...f.env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)})+".agent-connection.json");
+  saveAgentTask(canonical,"original legacy API task","api",undefined);
+  const pending=await f.cli(["agent","--buffered"]);
+  assert.equal(pending.value.status,"pending",pending.output);
+  assert.equal(pending.value.result.url,f.resource+"/verify");
+  assert.equal(pending.value.result.approval_required,true);
+  assert.equal(f.calls().commonStarts,0);
+ }finally{await f.close();}
+});
+
+test("approved connection still shows an explicitly required Device approval",async()=>{
+ const f=await deviceFixture(200,"synthetic-handle-001",undefined,true,true);
+ try{
+  f.approve();
+  const pending=await f.cli(["agent","--surface","api","--task","continue original consent-bound API task","--buffered"]);
+  assert.equal(pending.value.status,"pending",pending.output);
+  assert.equal(pending.value.result.url,f.resource+"/verify");
+  assert.equal(pending.value.result.approval_required,true);
+  assert.equal(f.calls().exchanges,0);
+  assert.equal(pending.value.result.task.text,"continue original consent-bound API task");
+ }finally{await f.close();}
 });

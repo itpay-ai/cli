@@ -92,7 +92,7 @@ test("legacy accepted task without a key cannot create a substitute connection",
 
 // Installed-package acceptance against the isolated matching Backend fixture.
 // Without that explicit fixture, the normal unit suite makes no network calls.
-for(const scenario of ["services-default","services-unchecked","api-first"]){
+for(const scenario of ["services-default","services-unchecked","api-first","legacy-services","old-canonical-services"]){
  test("installed Muse native consent: "+scenario,{skip:!process.env.ITPAY_MUSE_FIXTURE_URL},async()=>{
   const {spawn}=await import("node:child_process");
   const {createPublicKey}=await import("node:crypto");
@@ -104,7 +104,7 @@ for(const scenario of ["services-default","services-unchecked","api-first"]){
   const browser=await chromium.launch({executablePath:process.env.ITPAY_BROWSER_EXECUTABLE??"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",headless:true});
   const page=await browser.newPage();
   await page.context().addCookies([{name:"itpay_buyer_session",value:"synthetic-only",url:base}]);
-  const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith("ITPAY_")&&!["HOME","NODE_OPTIONS","CODEX_THREAD_ID","CLAUDECODE","MUSE_SESSION_ID","DOT_SESSION_ID","WORKBUDDY_SESSION_ID"].includes(k))),
+  const env:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith("ITPAY_")&&!["HOME","NODE_OPTIONS","CODEX_THREAD_ID","CLAUDECODE","MUSE_SESSION_ID","DOT_SESSION_ID","WORKBUDDY_SESSION_ID"].includes(k))),
    HOME:home,ITPAY_AGENT_TYPE:"muse",ITPAY_CLI_DEV:"1",ITPAY_BACKEND_URL:base,ITPAY_HUB_URL:base,ITPAY_HUB_OAUTH_ISSUER:base,ITPAY_HUB_OAUTH_CLIENT:"itpay-cli"};
   const executable=process.env.ITPAY_MUSE_CLI_EXECUTABLE!;
   const frames=(raw:string)=>raw.split(/\n(?=\{)/).flatMap(part=>{try{return [JSON.parse(part)]}catch{return []}});
@@ -135,10 +135,36 @@ for(const scenario of ["services-default","services-unchecked","api-first"]){
    const value=frames(raw).at(-1);
    assert.equal(code,expected,errors+" "+raw);
    steps.push({args,status:value.status,surfaces:value.result?.surfaces,next:value.next?.command});
-   return value;
+   return {...value,_progress:frames(raw)};
   };
   try{
    await fetch(base+"/_fixture/clear",{method:"POST"});
+   if(scenario==="old-canonical-services"){
+    const {agentRoot}=await import("../src/state/config.js");
+    const canonical=agentRoot("muse",env);
+    env.ITPAY_STATE_DIR=join(home,"different-legacy-state");
+    prepareAgentConnection(canonical,base,"muse",{surface:"services",prepared:true});
+    const task=saveAgentTask(canonical,"original canonical Services task","services",undefined);
+    const key=readFileSync(join(canonical,"services/device/device-private.pem"));
+    const connected=await cli(["agent","--wait","120","--json"],true);
+    assert.equal(connected.status,"connected");
+    assert.equal(connected.result.task.id,task.id);
+    assert.deepEqual(readFileSync(join(canonical,"services/device/device-private.pem")),key);
+    assert.equal(existsSync(join(env.ITPAY_STATE_DIR,"device")),false);
+    assert.equal((await trace()).connections.length,1);
+    return;
+   }
+   if(scenario==="legacy-services"){
+    const {createDeviceKey}=await import("../src/state/device_key.js");
+    env.ITPAY_STATE_DIR=join(home,"legacy-state");
+    createDeviceKey(join(env.ITPAY_STATE_DIR,"device/device-private.pem"),false);
+    await cli(["setup","--json"]);
+    const pending=await cli(["agent","--surface","services","--task","original legacy Services task","--wait","3","--json"]);
+    assert.equal(pending.status,"auth_pending");
+    assert.ok(pending._progress.some((frame:any)=>frame.result?.authorization?.handoff?.url===base+"/auth?start_token=synthetic"));
+    assert.equal((await trace()).connections.length,0);
+    return;
+   }
    let selector:string,serviceRoot:string,originalTask:any,originalKey:string;
    if(scenario==="api-first"){
     const setup=await cli(["setup","--api-prefix",join(home,"custom-api"),"--json"]);selector=setup.result.selector;

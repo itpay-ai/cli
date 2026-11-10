@@ -1,4 +1,4 @@
-import {prepareAgentConnection,servicesConnectionRoot,saveAgentConnection} from './agent_connection.js';
+import {prepareAgentConnection,servicesConnectionRoot,saveAgentConnection,type AgentConnectionState} from './agent_connection.js';
 import {stateDir,resolveBackendURL} from './config.js';
 import {declaredAgentType} from './agent_type.js';
 import { createHash, randomUUID } from "node:crypto";
@@ -85,7 +85,7 @@ function newInstallation(root: string): HubInstallation {
   };
 }
 
-export function prepareHubInstallation(prefix: string, executable = process.argv[1]): { selector: string; launcher: string; profile_id: string } {
+export function prepareHubInstallation(prefix: string, executable = process.argv[1], connection?:{root:string;state:AgentConnectionState}): { selector: string; launcher: string; profile_id: string } {
   const root = absolute(prefix);
   if (!executable) throw new Error("API launcher requires an installed CLI entry point");
   const selector = join(root, "api-profile.json");
@@ -110,8 +110,8 @@ export function prepareHubInstallation(prefix: string, executable = process.argv
     if (!existsSync(launcher) || upgrade) atomicWrite(launcher, command, 0o700);
     const type=declaredAgentType();
     if(fresh&&type&&!process.env.ITPAY_HUB_KEY&&!process.env.ITPAY_HUB_TOKEN){
-      const original=stateDir(),backend=resolveBackendURL(),connectionRoot=servicesConnectionRoot(original,backend,type);
-      const state=prepareAgentConnection(connectionRoot,backend,type,{surface:"api",services_directory:original});
+      const original=stateDir(),backend=resolveBackendURL(),connectionRoot=connection?.root??servicesConnectionRoot(original,backend,type);
+      const state=connection?.state??prepareAgentConnection(connectionRoot,backend,type,{surface:"api",services_directory:original});
       if(state)saveAgentConnection(join(profile.state_root,"hub-profiles",profile.profile_id,`hub-credentials.${createHash("sha256").update(profile.hub).digest("hex").slice(0,12)}.json.agent-connection.json`),{root:connectionRoot,state});
     }
     return { selector, launcher, profile_id: profile.profile_id };
