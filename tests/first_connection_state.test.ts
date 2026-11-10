@@ -156,12 +156,29 @@ for(const scenario of ["services-default","services-unchecked","api-first","lega
    }
    if(scenario==="legacy-services"){
     const {createDeviceKey}=await import("../src/state/device_key.js");
-    env.ITPAY_STATE_DIR=join(home,"legacy-state");
-    createDeviceKey(join(env.ITPAY_STATE_DIR,"device/device-private.pem"),false);
-    await cli(["setup","--json"]);
-    const pending=await cli(["agent","--surface","services","--task","original legacy Services task","--wait","3","--json"]);
+    const {agentRoot}=await import("../src/state/config.js");
+    const canonical=agentRoot("muse",env),directory=join(canonical,"services");
+    env.ITPAY_STATE_DIR=join(home,"different-legacy-state");
+    createDeviceKey(join(directory,"device/device-private.pem"),false);
+    const key=readFileSync(join(directory,"device/device-private.pem"));
+    const task=saveAgentTask(canonical,"original legacy Services task","services",undefined);
+    const pending=await cli(["agent","--wait","3","--json"]);
     assert.equal(pending.status,"auth_pending");
+    assert.equal(pending.result.task.id,task.id);
     assert.ok(pending._progress.some((frame:any)=>frame.result?.authorization?.handoff?.url===base+"/auth?start_token=synthetic"));
+    assert.equal(existsSync(join(canonical,"connection.json")),false);
+    assert.equal(existsSync(join(env.ITPAY_STATE_DIR,"device")),false);
+    await fetch(base+"/_fixture/deny-legacy",{method:"POST"});
+    const denied=await cli(["agent","--wait","0","--json"]);
+    assert.equal(denied.status,"auth_denied");
+    const stopped=await cli(["agent","--wait","0","--json"]);
+    assert.equal(stopped.status,"denied");
+    assert.equal((await trace()).legacy_starts,1);
+    const reconnect=await cli(["agent","--reconnect","--wait","0","--json"]);
+    assert.equal(reconnect.status,"auth_pending");
+    assert.equal(JSON.parse(readFileSync(join(canonical,"task.json"),"utf8")).authorization_terminal,undefined);
+    assert.deepEqual(readFileSync(join(directory,"device/device-private.pem")),key);
+    assert.equal((await trace()).legacy_starts,2);
     assert.equal((await trace()).connections.length,0);
     return;
    }

@@ -9,7 +9,7 @@ import type {Command} from "commander";
 import {canonicalAgentType,declaredAgentType,AgentTypeRequiredError} from "../state/agent_type.js";
 import {prepareHubInstallation,selectHubInstallation,shellQuote,selectedHubInstallationPath} from "../state/hub_installation.js";
 import {connectHubDevice,hubDeviceStatus} from "../state/hub_device.js";
-import {saveAgentTask,recordAgentAuthorization} from "../state/agent_task.js";
+import {saveAgentTask,recordAgentAuthorization,type SavedTask} from "../state/agent_task.js";
 import {hubOAuthConfig} from "../state/hub_oauth.js";
 import {agentRoot,stateDir,loadConfig,newBackendClient,resolveBackendURL} from "../state/config.js";
 import {agentAuth} from "../state/account_auth.js";
@@ -28,8 +28,7 @@ export function actualAgentType(env: NodeJS.ProcessEnv = process.env): string {
  throw Object.assign(new AgentTypeRequiredError(),{message:"host_context_required: Agent must supply its own actual --agent-type; do not ask the user to choose an identity"});
 }
 
-type Task=ReturnType<typeof saveAgentTask>;
-type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:Task|undefined;command?:string;prepared?:boolean;servicesDirectory?:string|undefined};
+type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;servicesDirectory?:string|undefined};
 export async function runConnection(options:ConnectionOptions):Promise<void>{
  const {root,type,surface,wait,task}=options;
  const executable=resolve(process.argv[1]!);process.env.ITPAY_AGENT_EXECUTABLE=executable;
@@ -38,9 +37,10 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
  const emit=(status:string,result:Record<string,unknown>,instruction:string,next:string|null=null)=>writeCommandEnvelope({status,result:{...result,...(task?{task}:{}),agent_type:type},instruction,next:next?{command:next,reason:status==="pending"?"立即等待原连接，无需用户回复":"继续原任务"}:null,recovery:[]},{jsonOutput:options.json});
  try{
   if(task?.authorization_terminal&&!options.reconnect){emit(task.authorization_terminal,{},"本人已拒绝或取消；只有明确重连才重新发起。");return;}
+  if(options.reconnect&&task)recordAgentAuthorization(root,undefined);
   const selected=surface==="api"?loadHubConfig():undefined;
   const common=selected?.apiKey?undefined:prepareAgentConnection(root,resolveBackendURL(),type,{surface,...(options.prepared?{prepared:true}:{}),...(options.servicesDirectory?{services_directory:options.servicesDirectory}:{})});
-  const installation=surface==="api"?(selectedHubInstallationPath()?{selector:selectedHubInstallationPath()!}:prepareHubInstallation(join(root,"api"),undefined,common?{root,state:common}:undefined)):undefined;
+  const installation=surface==="api"?(selectedHubInstallationPath()?{selector:selectedHubInstallationPath()!}:prepareHubInstallation(join(root,"api"),undefined,common?{root,state:common}:null)):undefined;
   if(installation)selectHubInstallation(installation.selector);
   const apiNext=installation?`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} api --profile ${shellQuote(installation.selector)} ${task?.request_id?'status '+task.request_id:'list'} --json`:null;
   if(selected?.apiKey){
@@ -53,7 +53,6 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   let summary:Record<string,string>={},initial=false;
   if(common){
    let view=await connectAgent(root,common,Boolean(options.reconnect),surface);
-   if(options.reconnect&&task)recordAgentAuthorization(root,undefined);
    if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface);
    const deadline=Date.now()+wait*1000;
    while(view.status==="pending"){
@@ -96,6 +95,7 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   if(["login_required","auth_pending","auth_expired","auth_session_missing"].includes(String(result.status)))result=await agentAuth("login",resolveBackendURL(),backend) as Record<string,unknown>;
   const deadline=Date.now()+wait*1000;
   while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{authorization:result},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
+  if((result.status==="auth_denied"||result.status==="auth_cancelled")&&task)recordAgentAuthorization(root,result.status==="auth_denied"?"denied":"cancelled");
   const next=`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`;
   emit(result.status==="authenticated"?(task?"connected":"authenticated"):String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{})},result.status==="authenticated"?(common?message:String(result.instruction??"账号已连接；继续原任务。")):"保留原登录与任务。",result.status==="authenticated"?next:result.status==="auth_pending"?again:null);
  }catch(error){
@@ -122,7 +122,7 @@ export function registerAgentCommand(program:Command):void{
    const wait=Number(options.wait);if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("wait must be 0..120");
    const text=options.task?.startsWith("@")?readFileSync(options.task.slice(1),"utf8"):options.task;
    const task=saveAgentTask(root,text,options.surface,options.request,Boolean(options.newTask));
-   await runConnection({root,type,surface:task.surface,task,wait,json:Boolean(options.json),buffered:options.buffered,reconnect:options.reconnect,servicesDirectory:original});
+   await runConnection({root,type,surface:task.surface,task,wait,json:Boolean(options.json),buffered:options.buffered,reconnect:options.reconnect,servicesDirectory:root===canonical?join(root,"services"):original});
   }catch(error){writeCommandEnvelope({status:"error",error:{code:"agent_prepare_failed",message:error instanceof Error?error.message:"Agent preparation failed"},instruction:"保留原任务、凭据与连接，不换身份或重发业务。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});process.exitCode=1;}
  });
 }

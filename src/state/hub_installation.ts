@@ -85,7 +85,7 @@ function newInstallation(root: string): HubInstallation {
   };
 }
 
-export function prepareHubInstallation(prefix: string, executable = process.argv[1], connection?:{root:string;state:AgentConnectionState}): { selector: string; launcher: string; profile_id: string } {
+export function prepareHubInstallation(prefix: string, executable = process.argv[1], connection?:{root:string;state:AgentConnectionState}|null): { selector: string; launcher: string; profile_id: string } {
   const root = absolute(prefix);
   if (!executable) throw new Error("API launcher requires an installed CLI entry point");
   const selector = join(root, "api-profile.json");
@@ -109,7 +109,7 @@ export function prepareHubInstallation(prefix: string, executable = process.argv
     if (!existsSync(selector)) atomicWrite(selector, JSON.stringify(profile, null, 2) + "\n", 0o600);
     if (!existsSync(launcher) || upgrade) atomicWrite(launcher, command, 0o700);
     const type=declaredAgentType();
-    if(fresh&&type&&!process.env.ITPAY_HUB_KEY&&!process.env.ITPAY_HUB_TOKEN){
+    if(fresh&&type&&connection!==null&&!process.env.ITPAY_HUB_KEY&&!process.env.ITPAY_HUB_TOKEN){
       const original=stateDir(),backend=resolveBackendURL(),connectionRoot=connection?.root??servicesConnectionRoot(original,backend,type);
       const state=connection?.state??prepareAgentConnection(connectionRoot,backend,type,{surface:"api",services_directory:original});
       if(state)saveAgentConnection(join(profile.state_root,"hub-profiles",profile.profile_id,`hub-credentials.${createHash("sha256").update(profile.hub).digest("hex").slice(0,12)}.json.agent-connection.json`),{root:connectionRoot,state});
