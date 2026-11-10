@@ -45,7 +45,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
    const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
    assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
-   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",buyer_id:ready?"fixture-buyer":"",status:denied?"denied":ready?"active":"pending",...((ready||denied)?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
+   res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",enabled_surfaces:ready?["services","api"]:["api"],buyer_id:ready?"fixture-buyer":"",status:denied?"denied":ready?"active":"pending",...((ready||denied)?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
   }
   if(req.url==="/v1/agent-connections/acn_fixture/hub"){
    starts++;assert.ok(ready);binding.buyer_id=resource+"|fixture-buyer";
@@ -98,7 +98,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  assert.ok(address&&typeof address!=="string");
  resource="http://127.0.0.1:"+address.port;
  const env:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_")&&!["CODEX_THREAD_ID","CLAUDECODE","MUSE_SESSION_ID","DOT_SESSION_ID","WORKBUDDY_SESSION_ID"].includes(key))),
-  HOME:home,ITPAY_AGENT_TYPE:"muse",ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
+  HOME:home,NODE_OPTIONS:"--import "+join(root,"node_modules/tsx/dist/loader.mjs"),ITPAY_AGENT_TYPE:"muse",ITPAY_CLI_DEV:"1",ITPAY_STATE_DIR:home,ITPAY_BACKEND_URL:resource,ITPAY_HUB_URL:resource,ITPAY_HUB_OAUTH_ISSUER:resource,ITPAY_HUB_OAUTH_CLIENT:"fixture-public-cli"};
  writeFileSync(join(home,'itpay'),'#!/bin/sh\nexec '+shellArgument(process.execPath)+' --import tsx '+shellArgument(join(root,'src/main.ts'))+' "$@"\n',{mode:0o700});
  env.PATH=home+':'+(process.env.PATH??'');
  function cli(args:string[]):Promise<{code:number|null;value:any;output:string}> {

@@ -1,3 +1,4 @@
+import {prepareAgentConnection,servicesConnectionRoot} from "./state/agent_connection.js";
 import {firstConnection} from './commands/first_connection.js';
 import { registerAgentCommand } from "./commands/agent.js";
 import { prepareHubInstallation, shellQuote } from "./state/hub_installation.js";
@@ -13,7 +14,7 @@ import { runServicesRun } from "./commands/services.js";
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { stateDir, BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
@@ -395,6 +396,7 @@ program.command("setup")
       }
       const config = loadConfig();
       const skillPath = validateSetup(config.agentType);
+      prepareAgentConnection(servicesConnectionRoot(stateDir(),config.baseURL,config.agentType),config.baseURL,config.agentType!,{surface:"services",services_directory:stateDir()});
       await runSetup(newBackendClient(config), config, skillPath, { jsonOutput: Boolean(options.json) });
     } catch (error) {
       reportCLIError(error, { jsonOutput: Boolean(options.json), code: "setup_failed", initialization: true,

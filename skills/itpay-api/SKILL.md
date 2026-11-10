@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-Development uses the official @itpay/cli 2.1.68 release on npm next, also installed by https://dev.itpay.ai/agent. Install/upgrade in the original permitted prefix. Keep the original profile, account, device key and requests. Production follows its separately approved latest channel.
+Development npm next uses the official @itpay/cli 2.1.69 release; check the installed version when using a pinned installer. Install/upgrade in the original permitted prefix. Keep the original profile, account, device key and requests. Production follows its separately approved latest channel.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
@@ -41,7 +41,7 @@ Only prepare a top-up when the user explicitly gives a funding amount. Quick amo
 
 Present only returned official links and branded cards or their official rendered images. Never reconstruct, crop or encode a payment QR, request credentials in chat, or expose tokens or private request bodies.
 
-New task-driven installations, setup’s first connection action, auth login and api connect use the same official Agent connection page with a primary item and default checked, cancellable other item. Each business credential is prepared only when needed; API access does not require Services setup. Existing profiles keep their original authorization path. A denied or revoked connection stops; only an explicit user request permits `agent --reconnect` for the same Agent/account. Account connection never increases a transaction price, spending cap or budget.
+Read result.surfaces: enabled or consent_required. Pending is not approval. Follow the original next.command and launcher/profile; continue permitted work. Obtain missing consent on the same connection only when needed. Preserve original requests.
 
 ## API Key access
 

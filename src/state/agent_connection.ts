@@ -5,6 +5,8 @@ import {createDeviceKey} from './device_key.js';
 import {withFileLock} from './file_lock.js';
 import {canonicalAgentType} from './agent_type.js';
 import {CLI_VERSION,API_CONTRACT_REVISION} from './release_identity.js';
+import {agentRoot,taskJournalPath} from './config.js';
+import {readAuthState} from './auth_storage.js';
 import {DeviceAuthority} from './device_authority.js';
 
 export type AgentConnectionState={backend:string;agent_type:string;start_key:string;connection_id?:string;buyer_id?:string;surface?:"api"|"services";services_directory?:string};
@@ -18,7 +20,8 @@ export function saveAgentConnection(path:string,value:unknown):void {
  mkdirSync(dirname(path),{recursive:true,mode:0o700});const temp=path+'.'+randomUUID();writeFileSync(temp,JSON.stringify(value)+'\n',{mode:0o600,flag:'wx'});renameSync(temp,path);
 }
 // Metadata is Backend-scoped; the signing key remains in the shared Services directory.
-export function servicesConnectionRoot(original:string,backend:string):string {
+export function servicesConnectionRoot(original:string,backend:string,type?:string):string {
+ if(type&&original===join(agentRoot(type),'services'))return agentRoot(type);
  const legacy=readPrivate<AgentConnectionState>(join(original,'connection.json'));
  if(legacy?.backend===backend)return original;
  return join(original,'connections',createHash('sha256').update(backend).digest('hex').slice(0,16));
@@ -30,11 +33,18 @@ export function prepareAgentConnection(root:string,backend:string,type:string,op
  return withFileLock(path+'.lock',()=>{
   const current=readPrivate<AgentConnectionState>(path);
   if(current){createDeviceKey(join(current.services_directory??join(root,'services'),'device','device-private.pem'),true);if(current.backend!==backend||current.agent_type!==canonicalAgentType(type))throw new Error('original Agent connection endpoint/type changed');return current;}
-  if(!options.prepared&&(existsSync(join(root,'api','api-profile.json'))||existsSync(join(root,'services','device','identity.json'))||existsSync(join(root,'services','device','sessions'))))return;
   const services=options.services_directory??join(root,'services');
+  if(!options.prepared&&(readAuthState(backend,{...process.env,ITPAY_STATE_DIR:services,ITPAY_BACKEND_URL:backend},'agent-login')||existsSync(taskJournalPath({...process.env,ITPAY_STATE_DIR:services,ITPAY_BACKEND_URL:backend}))||existsSync(taskJournalPath({...process.env,ITPAY_STATE_DIR:services,ITPAY_BACKEND_URL:backend})+'.d')))return;
+  if(!options.prepared&&(existsSync(join(services,'device','device-private.pem'))||existsSync(join(services,'device','sessions'))||existsSync(join(root,'api','api-profile.json'))||existsSync(join(root,'services','device','identity.json'))||existsSync(join(root,'services','device','sessions'))))return;
   createDeviceKey(join(services,'device','device-private.pem'),existsSync(join(services,'device','identity.json')));
   const value={backend,agent_type:canonicalAgentType(type)!,start_key:randomUUID(),...(options.surface?{surface:options.surface}:{}),...(options.services_directory?{services_directory:options.services_directory}:{})};saveAgentConnection(path,value);return value;
  });
+}
+export function readConnectionBroker(path:string):{root:string;state:AgentConnectionState}|undefined {
+ const broker=readPrivate<{root:string;state:AgentConnectionState}>(path);if(!broker)return;
+ const state=readPrivate<AgentConnectionState>(join(broker.root,'connection.json'));
+ if(!state||['backend','agent_type','connection_id','buyer_id'].some(key=>{const field=key as keyof AgentConnectionState;return broker.state[field]!==undefined&&broker.state[field]!==state[field];}))throw new Error('original Agent broker identity changed');
+ return {root:broker.root,state};
 }
 export async function agentConnectionRequest(root:string,state:AgentConnectionState,path:string,body?:Record<string,unknown>,extra:Record<string,string>={}):Promise<Response> {
  const key=createDeviceKey(join(state.services_directory??join(root,'services'),'device','device-private.pem'),true);
@@ -53,7 +63,12 @@ export async function connectAgent(root:string,state:AgentConnectionState,restar
  if(state.buyer_id&&view.buyer_id!==state.buyer_id)throw new Error('original Agent account changed');
  if(view.url){const url=new URL(view.url);if(url.origin!==new URL(state.backend).origin||url.pathname!==`/agent/connect/${view.connection_id}`||url.username||url.password||url.hash)throw new Error('Agent connection link mismatch');}
  state.connection_id=view.connection_id;if(view.buyer_id)state.buyer_id=view.buyer_id;
- saveAgentConnection(join(root,'connection.json'),state);return view;
+ withFileLock(join(root,'connection.json.lock'),()=>{
+  const current=readPrivate<AgentConnectionState>(join(root,'connection.json'))!;
+  if(current.connection_id&&current.connection_id!==view.connection_id||current.buyer_id&&view.buyer_id&&current.buyer_id!==view.buyer_id)throw new Error('original Agent connection changed');
+  Object.assign(state,current,{connection_id:view.connection_id},view.buyer_id?{buyer_id:view.buyer_id}:{});
+  saveAgentConnection(join(root,'connection.json'),state);
+ });return view;
 }
 export async function bindAgentServices(root:string,state:AgentConnectionState):Promise<void> {
  if(!state.connection_id||!state.buyer_id)throw new Error('original Agent approval is required');

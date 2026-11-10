@@ -456,7 +456,7 @@ test('all auth and original-task continuations keep host Backend and custom priv
 test('auth command reports a local missing declaration before account probe and never creates identity',async()=>{
  const {spawnSync}=await import('node:child_process');
  const root=mkdtempSync(join(tmpdir(),'itpay-auth-input-'));
- const childEnv:NodeJS.ProcessEnv={...process.env,ITPAY_STATE_DIR:root,ITPAY_BACKEND_URL:'https://dev.itpay.ai'};
+ const childEnv:NodeJS.ProcessEnv={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!['CODEX_THREAD_ID','CLAUDECODE','MUSE_SESSION_ID','DOT_SESSION_ID','WORKBUDDY_SESSION_ID'].includes(key))),ITPAY_STATE_DIR:root,ITPAY_BACKEND_URL:'http://127.0.0.1:1',ITPAY_CLI_DEV:'1'};
  delete childEnv.ITPAY_AGENT_TYPE;
  const result=spawnSync(process.execPath,['--import','tsx','src/main.ts','auth','login','--json'],{cwd:process.cwd(),env:childEnv,encoding:'utf8',timeout:20000});
  assert.equal(result.status,1);const out=JSON.parse(result.stdout);assert.equal(out.error.code,'agent_type_required');assert.equal(out.result.failure_stage,'local_agent_declaration');assert.equal(out.result.request_sent,false);assert.equal(out.result.input_template.executable,false);assert.equal(out.next,null);assert.equal(existsSync(join(root,'identity.json')),false);
