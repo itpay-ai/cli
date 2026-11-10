@@ -96,7 +96,7 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   const deadline=Date.now()+wait*1000;
   while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{authorization:result},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
   if((result.status==="auth_denied"||result.status==="auth_cancelled")&&task)recordAgentAuthorization(root,result.status==="auth_denied"?"denied":"cancelled");
-  const next=`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`;
+  const next=common?`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`:(result.next as {command?:string}|null)?.command??null;
   emit(result.status==="authenticated"?(task?"connected":"authenticated"):String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{})},result.status==="authenticated"?(common?message:String(result.instruction??"账号已连接；继续原任务。")):"保留原登录与任务。",result.status==="authenticated"?next:result.status==="auth_pending"?again:null);
  }catch(error){
   if((error as {code?:string}).code==="agent_connection_pending"){emit("pending",{},"原连接仍在准备；按原 next 继续。",again);return;}
