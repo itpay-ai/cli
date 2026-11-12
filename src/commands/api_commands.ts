@@ -36,7 +36,8 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
 }
 
 export function registerAPICommands(program: Command): void {
-const hubCmd = program.command("api").alias("hub").description("ItPay API Hub: metered API catalog, prepaid runs, wallet")
+const hubCmd = program.command("api").alias("hub").description("ItPay API Hub: API prices, balances and charges in credit")
+ .addHelpText("after", "\nCredit: 1 credit = CNY 1 equivalent. Quote users in credit; optionally add approximately CNY X. Other payment currencies convert at the frozen purchase-time FX rate. The payment page shows fiat paid; receipts show credit received. Insufficient credit: buy credit on the ItPay website, keeping the original request. Wire currency/atoms and grants remain unchanged.\n")
  .option("--profile <file>","absolute API installation selector")
  .option("--host <host>","payment presentation host")
  .option("--target <target>","trusted host destination for payment presentation");
@@ -98,12 +99,12 @@ hubCmd.command("categories").description("List market categories, including empt
 hubCmd.command("list").description("List products from the shared market").option("--category <category>","category ID, slug or label")
  .option("--query <query>","search products").option("--limit <limit>","page size 1..100","20").option("--cursor <cursor>","opaque next page cursor").option("--json","output JSON")
  .action(async options=>{try{await shelfList(options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"list_failed",instruction:"核对分类并重试。",recovery:[]});}});
-hubCmd.command("show <operation_id>").description("Show purpose, price, example and result retention").option("--json","output JSON")
+hubCmd.command("show <operation_id>").description("Show purpose, credit price, example and result retention").option("--json","output JSON")
  .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfShow(id,Boolean(options.json));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"show_failed",instruction:"使用 list 返回的商品编号。",recovery:[]});}});
 hubCmd.command("call [operation_id]").description("Call a shown product or continue the original pending request")
  .option("--input <input>","JSON object, @file or - for stdin").option("--pending <request_id>","continue this installation's original request").option("--json","output JSON")
  .action(async(id:string|undefined,options)=>{try{if(id&&!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfCall(id,options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"call_failed",instruction:"保留原请求。先 show 查看用途和价格。",recovery:[]});}});
-hubCmd.command("status <request_id>").description("Read only the original request, result and charge").option("--json","output JSON")
+hubCmd.command("status <request_id>").description("Read only the original request, result and credit charge").option("--json","output JSON")
  .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("invalid_input: invalid request ID");await shelfStatus(id,Boolean(options.json));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"status_failed",instruction:"保留原请求与安装身份，稍后读取。",recovery:[]});}});
 hubCmd.command("credentials").description("Developer credential management")
  .command("import").description("Import a scoped key from stdin").option("--json","output JSON")
@@ -122,9 +123,9 @@ hubCmd
 
 hubCmd
   .command("wallet")
-  .description("Read this account wallet; an explicit amount prepares the same-order QR and checkout")
+  .description("Read this account credit balance; an explicit amount prepares its original credit purchase")
   .addHelpText("after",`\n${TOPUP_INSTRUCTION}\nExamples (keep this installation's profile):\n  itpay api wallet --json\n  itpay api wallet --topup 15 --json\n  itpay api wallet --topup 15 --request <original_request_id> --json\nQuick amounts are shortcuts, not limits. Links identify 当前账号：名字 · 末6位.\n`)
-  .option("--topup <amount>","prepare a custom CNY amount; scan or click the same order; minimum 10 CNY")
+  .option("--topup <amount>","purchase credit with a custom CNY payment; minimum CNY 10; same-order QR or checkout")
   .option("--topup-status <topup_id>","read the original credit purchase")
   .option("--request <request_id>","retain your original pending API request")
   .option("--no-open","this host does not open a browser; retain the same payment links")

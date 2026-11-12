@@ -65,3 +65,9 @@ When browser capability is available, immediately open the returned official pag
 Report low_balance once per notification_id with available_atoms, compared_price_atoms and the official wallet link. Key authorization/budget failures use the exact server-issued Key settings link, never a credit purchase to bypass a grant. Funding never enables API spending or merchant payment/refund permission.
 
 Credit is the user-facing pricing unit: 1 credit = CNY 1. Preserve wire currency CNY, scale 6 and all amount_atoms fields exactly. USD payments use the frozen server exchange quote. Always distinguish fiat paid from credit received; never compute a replacement quote.
+
+## Credit amounts and reporting
+
+Balances, API quotes, holds and charges are in credit: **1 credit = ¥1 equivalent**. Quote users in credit first; when useful add “approximately ¥X”. Do not call an API balance cash or tell users to add money. With USD or another supported purchase currency, the server converts the actual fiat payment into credit using the frozen exchange rate at purchase time. Show fiat paid on the payment page and credit received on the receipt; never calculate a substitute FX quote.
+
+When credit is insufficient, guide the user to purchase credit on the ItPay website using the returned original wallet/intent link. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.

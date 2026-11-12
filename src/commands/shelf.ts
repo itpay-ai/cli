@@ -4,7 +4,7 @@ import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPrice
 import {HttpError} from "../client/http.js";
 import {HubTaskStore,type HubTask} from "../state/hub_tasks.js";
 import {loadShown,saveShown,type ShelfDescriptor} from "../state/hub_show_cache.js";
-import {HubTaskRequestError,readRunInput,TOPUP_INSTRUCTION,currentAccountLabel} from "./hub.js";
+import {HubTaskRequestError,readRunInput,TOPUP_INSTRUCTION,CREDIT_GUIDANCE,currentAccountLabel} from "./hub.js";
 import {writeCommandEnvelope,type CommandAction} from "./hub_guidance.js";
 
 type Facts=RunReceipt&{held_atoms?:string;captured_atoms?:string;result_expires_at?:string};
@@ -49,7 +49,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
    result:{request_id:task.request_id,run_id:run.run_id,execution_state:run.execution_state,
     settlement_state:run.settlement_state,delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
     held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
-   instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:run.execution_state==="failed"&&zero?"本次没扣钱。":snapshot.terminal?"按原结果与费用回执回答。":"结果待核对，继续读取原请求。",
+   instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:run.execution_state==="failed"&&zero?"本次未扣 credit。":snapshot.terminal?"按原结果与 credit 费用回执回答。captured_atoms/held_atoms 保留原字段，按 scale=6 读取为 credit；未知数值不可当零。":"结果待核对，继续读取原请求。",
    next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
   return;
  }
@@ -63,7 +63,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
  writeCommandEnvelope({status:changed?"price_changed":reason,
   result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
-  instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0、冻结0，本次没扣钱。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
+  instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
    reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
    changed?statusAction(task.request_id,json):snapshot.terminal?null:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
@@ -86,7 +86,7 @@ export async function shelfShow(id:string,json:boolean):Promise<void>{
  saveShown(d);
  writeCommandEnvelope({status:"shown",result:{id:d.operation_id,purpose:d.summary,price:priceLabel(d.price_card),
   ttl_days:d.result_retention_days,example_input:d.example_input},
-  instruction:"先说明用途、价格与结果保留时间，取得用户同意后 call。UTC时间查询请按当前UTC替换示例起止时间。",
+  instruction:"先说明用途、credit 报价与结果保留时间，取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
   next:null,recovery:[]},{jsonOutput:json});
 }
 export async function shelfStatus(id:string,json:boolean):Promise<void>{

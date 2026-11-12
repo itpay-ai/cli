@@ -49,7 +49,8 @@ export class HubTaskRequestError extends Error {
  }
 }
 
-export const TOPUP_INSTRUCTION = "可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。";
+export const CREDIT_GUIDANCE = "余额、报价和扣费以 credit 为单位，1 credit = ¥1 等值；美元等其他币种购买按购买时的服务器冻结汇率换算，付款页显示实际法币金额，到账显示 credit。向用户报价先说 credit，需要时补充“约合 ¥X”。credit 余额不足时引导用户到 ItPay 官网购买 credit；购买不扩大授权或预算。";
+export const TOPUP_INSTRUCTION = "可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。credit 余额不足时，请通过返回的 ItPay 官网钱包链接购买 credit，保留原请求；购买不增加消费授权。";
 export function describeAccount(me: Awaited<ReturnType<HubClient["me"]>>) {
  const value=me as typeof me & {account_information_unavailable?:boolean;account_hint?:string;account_information?:{display_name?:string;account_hint?:string}};
  const info=value.account_information;
@@ -82,7 +83,7 @@ export async function runHubWallet(options: { jsonOutput?: boolean; usage?: bool
    truncated:data.has_more??(scope!=="owner"&&data.items.length>=100),limit:data.limit??(scope==="owner"?50:100)};
  }else result={available_atoms:bal.available.amount_atoms,held_atoms:bal.held.amount_atoms,currency:bal.available.currency,scale:bal.available.scale,period_limit_atoms:null,topup_url:bal.topup_url??null,scope:"account_balance",identity};
  result.owner_billing_url=bal.owner_billing_url??bal.topup_url??null;
- writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。全账号购买 credit、冻结及原款退款请本人打开账单入口。":describeAccount(me)+"\n"+TOPUP_INSTRUCTION,next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
+ writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。余额与消费字段按其 scale 读取为 credit；仅当前凭据范围。全账号购买 credit、冻结及原款退款请本人打开账单入口。":describeAccount(me)+"\n"+TOPUP_INSTRUCTION+" "+CREDIT_GUIDANCE,next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
 }
 
 export async function runHubDoctor(options: { jsonOutput?: boolean | undefined }): Promise<void> {

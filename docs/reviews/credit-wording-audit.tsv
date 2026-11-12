@@ -43,10 +43,10 @@ docs/TESTING.md	74	保留	wallet,充值	保留历史证据、架构/运行合同
 docs/TESTING.md	82	保留	wallet	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
 docs/TESTING.md	85	保留	充值	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
 docs/TESTING.md	87	保留	充值	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
-docs/TESTING.md	97	保留	CNY,Top up,¥	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
-docs/TESTING.md	99	保留	CNY	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
-docs/TESTING.md	101	保留	¥	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
-docs/TESTING.md	103	保留	¥,充值	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
+docs/TESTING.md	101	保留	CNY,Top up,¥	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
+docs/TESTING.md	103	保留	CNY	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
+docs/TESTING.md	105	保留	¥	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
+docs/TESTING.md	107	保留	¥,充值	保留历史证据、架构/运行合同和维护操作中的原法币、路径与协议；不冒充已部署新文案
 docs/agent/buyer/identity-and-sessions.json	27	保留	wallet	保留实际服务/商户/渠道付款、退款或身份钱包的法币/术语，以及相关接口标识；非API credit单价
 docs/agent/buyer/orders-refunds.json	11	保留	money	保留实际服务/商户/渠道付款、退款或身份钱包的法币/术语，以及相关接口标识；非API credit单价
 docs/agent/buyer/orders-refunds.json	38	保留	money	保留实际服务/商户/渠道付款、退款或身份钱包的法币/术语，以及相关接口标识；非API credit单价
@@ -57,6 +57,8 @@ docs/cli-reference/api.md	15	保留	wallet	保留wallet/money/balance模块名�
 docs/cli-reference/api.md	23	保留	CNY	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 docs/cli-reference/api.md	29	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 docs/cli-reference/api.md	34	已改/保留	wallet,¥	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+docs/cli-reference/api.md	41	已改/保留	Balance,balance,money,¥	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+docs/cli-reference/api.md	43	已改/保留	CNY,wallet	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 docs/cli-reference/commands/aftercare.md	13	保留	money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 docs/cli-reference/commands/aftercare.md	15	保留	money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 docs/cli-reference/commands/orders.md	32	保留	CNY	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
@@ -92,8 +94,12 @@ skills/itpay-api/SKILL.md	59	已改/保留	balance,wallet	展示/说明已使用
 skills/itpay-api/SKILL.md	61	已改/保留	CNY,balance,wallet,¥	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 skills/itpay-api/SKILL.md	65	已改/保留	balance,wallet	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 skills/itpay-api/SKILL.md	67	已改/保留	CNY	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+skills/itpay-api/SKILL.md	71	已改/保留	Balance,balance,money,¥	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+skills/itpay-api/SKILL.md	73	已改/保留	CNY,wallet	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 skills/itpay/SKILL.md	54	保留	money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 skills/itpay/SKILL.md	61	已改/保留	wallet,余额	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+skills/itpay/SKILL.md	65	已改/保留	Balance,balance,money,¥	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+skills/itpay/SKILL.md	67	已改/保留	CNY,wallet	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 src/client/hub.ts	21	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/client/hub.ts	22	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/client/hub.ts	44	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
@@ -111,14 +117,15 @@ src/client/types.ts	6	保留	Money	保留wallet/money/balance模块名、变量�
 src/client/types.ts	145	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/api_commands.ts	2	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/api_commands.ts	8	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	39	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	124	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/api_commands.ts	39	已改/保留	balance	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+src/commands/api_commands.ts	40	已改/保留	CNY	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 src/commands/api_commands.ts	125	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	126	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	127	保留	CNY	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	136	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	137	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/api_commands.ts	139	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/api_commands.ts	126	已改/保留	balance	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+src/commands/api_commands.ts	127	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/api_commands.ts	128	已改/保留	CNY	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+src/commands/api_commands.ts	137	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/api_commands.ts	138	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/api_commands.ts	140	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/buy.ts	26	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/buy.ts	298	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/cart.ts	9	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
@@ -134,14 +141,17 @@ src/commands/catalog.ts	72	保留	Money	保留wallet/money/balance模块名、�
 src/commands/catalog.ts	103	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/checkout.ts	234	保留	Money	保留实际服务/商户/渠道付款、退款或身份钱包的法币/术语，以及相关接口标识；非API credit单价
 src/commands/checkout.ts	340	保留	Money	保留实际服务/商户/渠道付款、退款或身份钱包的法币/术语，以及相关接口标识；非API credit单价
-src/commands/hub.ts	70	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/hub.ts	75	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/hub.ts	79	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/hub.ts	83	保留	balance	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/hub.ts	113	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	52	已改/保留	¥,余额,元	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+src/commands/hub.ts	53	已改/保留	余额	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
+src/commands/hub.ts	71	保留	Wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	76	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	80	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	84	保留	balance	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	86	已改/保留	余额	展示/说明已使用 credit；同行币种/字段/原支付金额保持原协议
 src/commands/hub.ts	114	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/hub.ts	116	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
-src/commands/hub.ts	150	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	115	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	117	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
+src/commands/hub.ts	151	保留	wallet	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/order.ts	6	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/order.ts	79	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
 src/commands/orders.ts	5	保留	Money	保留wallet/money/balance模块名、变量、字段、路径、币种和钱包概念；不是将API credit展示为法币
