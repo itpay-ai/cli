@@ -6,6 +6,8 @@ Agent Type 表示真实宿主类型；执行位置（本机/云端/unknown）单
 |---|---|
 | dot | plain-chat |
 | muse | plain-chat |
+| grok | plain-chat |
+| grok-bot | plain-chat |
 | codex-desktop | codex |
 | codex-cli | terminal |
 | claude-code-desktop | claude-code |
@@ -35,3 +37,7 @@ Hermes 使用真实 `hermes`，默认以 plain-chat 如实交付；不冒充其�
 ## Entry selection
 
 For a new task, prefer the official pinned ItPay CLI when execution is permitted and available in the current host. Install only through the host-permitted official installation path when authorized. Services tasks use the Services Skill; API tasks use the independent API Skill and `itpay api`. CLI calls HTTP APIs directly, never MCP transport. Without permitted CLI capability, use the corresponding ItPay-hosted user Services MCP or Hub MCP and only its actually available tools; ordinary users do not self-host another MCP. Platform-required workflows and explicit connection tests follow the actual available capability. Entry selection never authorizes a permission bypass: preserve the original identity, entry, request/run and current grant after acceptance or an unknown result. Continue across entries only when the owner explicitly supports recovery under the same actual authority; CLI errors never license a substitute transaction or raw HTTP workaround.
+
+Grok与Grok Bot分别显式传真实 `grok` / `grok-bot`，不互设别名、不新增猜测型宿主检测；只在实际宿主允许CLI时使用。此源码支持尚未npm发布，不替代原托管MCP授权连接。
+
+`grok`/`grok-bot`本批仅合CLI main、不发布npm。Services Backend设备登记类型白名单仍需在将来CLI发布前同批配对；当前不代表这两种CLI类型已能完成端到端连接。Grok Bot托管MCP使用独立OAuth，不依赖CLI类型登记。

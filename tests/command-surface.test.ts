@@ -353,3 +353,22 @@ test("approved connection still shows an explicitly required Device approval",as
   assert.equal(pending.value.result.task.text,"continue original consent-bound API task");
  }finally{await f.close();}
 });
+
+
+test("install and top-level help expose Muse and distinct Grok runtime types",async()=>{
+ const f=await deviceFixture();
+ try {
+  const help=spawnSync(process.execPath,["--import","tsx","src/main.ts","--help"],{cwd:root,env:f.env,encoding:"utf8"});
+  assert.equal(help.status,0);
+  for(const type of ["muse","grok","grok-bot"]) {
+   assert.match(help.stdout,new RegExp(type));
+   const installed=await f.cli(["install",type]);
+   assert.equal(installed.code,0,installed.output);
+   assert.equal(installed.value.result.agent_type,type);
+   assert.equal(installed.value.result.default_host,"plain-chat");
+   assert.match(installed.value.next.command,new RegExp(`--agent-type ${type} setup`));
+  }
+  assert.equal(f.calls().starts,0);
+  assert.equal(f.calls().commonStarts,0);
+ } finally {await f.close();}
+});

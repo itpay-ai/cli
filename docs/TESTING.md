@@ -89,3 +89,7 @@ PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；st
 ## 当前连接与交付验收
 
 使用已有合成单测、隔离数据库拒绝断言与 Node+Playwright，保护本人身份、原请求及 unknown。实际包从公开 /agent 安装后读 Skill/help，再对 dev MCP 做已授权只读核对；不以源码通过代替安装后/公网验收。四项真实宿主由 Owner 验收。本批唯一结果在 `~/.codex/artifacts/account-connection-review-20261109/RESULT.json`，不在仓库追加日期报告、日志或第二份证据。
+
+## 2026-11-12 Muse核对与Grok类型入口（未发布）
+
+基于GitHub main f5fba07核实Muse已有install/setup/agent/defaultHost，修正install文档漏列。grok、grok-bot为两个独立真实type，加入统一install/setup校验表、plain-chat展示及root help，保留显式声明而不猜宿主环境变量。入口/状态隔离、install/help和setup原测试35项通过，0失败0跳过；类型检查与构建、test:package（实包安装/合成OAuth/API smoke）通过。仅合main，不改2.1.69或npm渠道；Services Backend设备登记白名单仍需将来发布前配对，本批不部署Backend、不声称端到端Grok CLI已支持。真实Grok Bot MCP授权及免费调用另由原连接器验收。

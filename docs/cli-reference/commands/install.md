@@ -21,7 +21,7 @@ itpay install [target] [--json]
 | `target` | 否 | 九种正式 Agent Type 之一；省略或传 `list` 时列出全部。Host 名称不是合法 target。 |
 | `--json` | 否 | 返回标准命令 envelope；推荐 Agent 使用。 |
 
-正式 target：`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`zcode`、`doubao-work`、`kimi-code`、`openclaw`。
+正式 target：`dot`、`muse`、`grok`、`grok-bot`、`hermes`、`codex-desktop`、`codex-cli`、`claude-code-desktop`、`claude-code-cli`、`workbuddy`、`zcode`、`doubao-work`、`kimi-code`、`openclaw`。
 
 ## 指定 Agent Type 输出
 
@@ -84,6 +84,11 @@ OpenClaw 额外明确没有默认入口：
   "status": "install_targets",
   "result": {
     "agent_types": [
+      { "agent_type": "dot", "default_host": "plain-chat" },
+      { "agent_type": "muse", "default_host": "plain-chat" },
+      { "agent_type": "grok", "default_host": "plain-chat" },
+      { "agent_type": "grok-bot", "default_host": "plain-chat" },
+      { "agent_type": "hermes", "default_host": "plain-chat" },
       { "agent_type": "codex-desktop", "default_host": "codex" },
       { "agent_type": "codex-cli", "default_host": "terminal" },
       { "agent_type": "claude-code-desktop", "default_host": "claude-code" },
