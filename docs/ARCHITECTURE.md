@@ -124,3 +124,5 @@ flowchart LR
 ```
 
 CLI profile continuation --> same absolute profile; Services Backend --> backend-qualified consent metadata --> original shared device key. Explicit re-consent stays on the original connection and task. Existing root metadata is only reused for its recorded Backend.
+
+本批宿主入口：Muse已有正式install/setup/agent与默认plain-chat支持；新增grok、grok-bot保持各自真实类型和独立状态，显式声明，不猜测环境变量。仅源码能力，未发布npm；MCP连接与CLI身份继续独立。

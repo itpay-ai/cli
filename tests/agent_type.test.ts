@@ -28,10 +28,10 @@ test("loadConfig passes only the canonical Codex agent type to device and HTTP c
   assert.equal(config.agentType, "codex-desktop");
 });
 
-test("Personal Agent uses real Dot/Muse identities and a chat presentation", async () => {
+test("Personal Agent preserves real Dot/Muse/Grok identities and a chat presentation", async () => {
  const {isInstallAgentType}=await import("../src/commands/install.js");
  const {defaultHostForAgentType}=await import("../src/state/client_context.js");
- for(const type of ["dot","muse"]) {
+ for(const type of ["dot","muse","grok","grok-bot"]) {
   assert.equal(canonicalAgentType(type),type);
   assert.equal(isInstallAgentType(type),true);
   assert.equal(defaultHostForAgentType(type),"plain-chat");

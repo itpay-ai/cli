@@ -69,7 +69,7 @@ const program = new Command();
 program
   .name("itpay")
   .description("ItPay CLI — Services, API Hub, orders, and human-authorized content")
-  .option("--agent-type <type>", "agent runtime type used for device enrollment and client-specific guidance")
+  .option("--agent-type <type>", `agent runtime type used for device enrollment and client-specific guidance (${INSTALL_AGENT_TYPES.join(", ")})`)
   .version(CLI_VERSION)
   .addHelpText("after", `
 Agent quick start:
