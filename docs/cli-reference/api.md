@@ -10,7 +10,7 @@ Use the same installation launcher and absolute --profile selector for every cal
 |api call <operation_id> --input <JSON/@file/->|After consent, submit using the shown price and publication.|
 |api call --pending <request_id>|Read and, when eligible, continue this installation's original request. Each wait round is at most 120 seconds.|
 |api status <request_id>|Read-only original receipt, result and charge.|
-|api wallet|Account available/held money, selected credential kind/masked account and official proactive top-up URL.|
+|api wallet|Account available/held credit, selected credential kind/masked account and official proactive credit purchase URL.|
 |api wallet --usage|Current Key/Consumer gross/net/refunded/held usage; runs include failures.|
 |api wallet --transactions|Scoped charge/refund rows with limit/truncation; owner_billing_url opens full account history.|
 
@@ -29,9 +29,15 @@ Use a secret manager to inject ITPAY_HUB_KEY or pipe a private secret source to 
 Check `wallet` identity.account_hint and credential_kind; matching hints identify the same wallet, not the same consumer. Invalid/revoked Key or insufficient Key scope points to the official /me/keys page, without OAuth fallback. Hub MCP accepts Key only through its existing X-ItPay-Key protocol header; normal ChatGPT MCP uses OAuth. Do not paste a Key into chat or put it in a Bearer field. Services identity is independent.
 
 
-### 本人钱包定额充值
+### 本人钱包定额购买 credit
 
-`itpay api wallet --topup 30 --json` 准备本人钱包的人民币充值，按分报价，最低 ¥10。若为已有挂起请求充值，加 `--request <原 request_id>`；付款后按返回 next 读取原充值并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原充值。OAuth/API Hub Key 准备充值不要求消费 grant；充值不会增加调用额度、商户收款或退款权限。
+`itpay api wallet --topup 30 --json` 准备本人钱包的人民币购买 credit，按分报价，最低 ¥10。若为已有挂起请求购买 credit，加 `--request <原 request_id>`；付款后按返回 next 读取原购买 credit 并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原购买 credit。OAuth/API Hub Key 准备购买 credit 不要求消费 grant；购买 credit 不会增加调用额度、商户收款或退款权限。
 
-可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。
+可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。
 四档只是快捷项；每个钱包/码链接标“当前账号：名字 · 末6位”。
+
+## Credit amounts and reporting
+
+Balances, API quotes, holds and charges are in credit: **1 credit = ¥1 equivalent**. Quote users in credit first; when useful add “approximately ¥X”. Do not call an API balance cash or tell users to add money. With USD or another supported purchase currency, the server converts the actual fiat payment into credit using the frozen exchange rate at purchase time. Show fiat paid on the payment page and credit received on the receipt; never calculate a substitute FX quote.
+
+When credit is insufficient, guide the user to purchase credit on the ItPay website using the returned original wallet/intent link. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.

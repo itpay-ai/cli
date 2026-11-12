@@ -93,3 +93,15 @@ PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；st
 ## 2026-11-12 Muse核对与Grok类型入口（未发布）
 
 基于GitHub main f5fba07核实Muse已有install/setup/agent/defaultHost，修正install文档漏列。grok、grok-bot为两个独立真实type，加入统一install/setup校验表、plain-chat展示及root help，保留显式声明而不猜宿主环境变量。入口/状态隔离、install/help和setup原测试35项通过，0失败0跳过；类型检查与构建、test:package（实包安装/合成OAuth/API smoke）通过。仅合main，不改2.1.69或npm渠道；Services Backend设备登记白名单仍需将来发布前配对，本批不部署Backend、不声称端到端Grok CLI已支持。真实Grok Bot MCP授权及免费调用另由原连接器验收。
+
+## Credit 文案候选验证（2026-11-12）
+
+npm build/typecheck通过；npm test为568pass/5skip/0fail；test:package/packed smoke通过；本次再构建并在私有独立prefix安装未发布候选，沿原profile对dev执行前述呈现/回执验收。无版本/渠道修改。
+
+第一轮台账见 [逐行复核](reviews/credit-wording-audit.tsv)：每个命中均记录文件、行号、命中词、已改/保留和原因。固定制品、机器字段、币种、schema、历史证据、实际渠道付款及身份钱包语义保留；当前平台 credit 展示另按呈现字符串复核。动态 SKU 已从 dev 公开 `/v1/topup-skus` 核到四档原 `¥` 标签及 `Top up … CNY` 描述；候选只由原 credit_atoms 的精确展示格式器生成 credit 标签，不改数据库、SKU、版本、金额、汇率与原单。
+
+本批获准 dev 模拟验收后，正常官方CLI 2.1.69安装、本人网页登录和原profile完成连接；模拟付款只确认一次，使用 fakepass-platform-2/simulated/CNY/test 的原10-credit单。原topup credited，增加10000000atoms；CLI USGS真实查询/原status为0扣/0冻结，独立Frankfurter报价0.01credit、保留7天，执行及原status captured10000/held0；钱包净变化+10credit−0.01credit，未发生真实法币付款。先前不同operation误用已绑定的任务被本地task_conflict在dispatch前拒绝；保留原USGS回执后按正式agent --new-task建立本批第二项独立验收，未改旧state或原请求。
+
+官方旧包与本地安装的未发布文字候选沿同一profile只读同一topup：旧包“到账¥10.00”，候选“到账10.00credit”；候选Frankfurter报价“0.01credit/次”。托管dev Hub MCP经其自身正常授权确认同账号，读取当前付费报价，并独立免费USGS执行/原run_status回读为succeeded/free/captured0/held0；未复制CLI token，未接管CLI原请求。实际收款成功页中英文390/1440px四组合只读、法币¥10.00、无横向溢出/零写入通过并留截图。
+
+边界：dev运行中的Web/Hub和正式npm仍显示旧“充值/¥”文案，候选未部署/发布。上述真实账号/模拟链证明当前运行的原资金与权限路径及候选CLI呈现，不签署“部署后全流程无旧词”。登录→钱包→购买→付费调用→完整账号流水/回执的候选最终中英文手机/桌面旅程仍须工程交付后复验；不将签名收银台截图充作完整浏览器session旅程。原Grok Bot、长期地址、发布人确认仅影响最终申请。未运行Actions、迁移、部署、npm发布或平台申请提交。

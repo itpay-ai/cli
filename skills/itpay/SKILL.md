@@ -58,4 +58,10 @@ Tell the human useful route, amount, limits, official entry and next human actio
 
 ## API 钱包与账号
 
-API 钱包用同包 itpay-api Skill；主动充值或余额不足时告知：可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。用户给金额直接按原安装 wallet --topup；原请求保留 --request。四档只是快捷项，所有钱包/码链接带“当前账号：名字 · 末6位”。网页当前账号与同单卡到账账号按可信返回分别核对，不推测身份或重画二维码。
+API 钱包用同包 itpay-api Skill；主动购买 credit 或 credit 余额不足时告知：可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。用户给金额直接按原安装 wallet --topup；原请求保留 --request。四档只是快捷项，所有钱包/码链接带“当前账号：名字 · 末6位”。网页当前账号与同单卡到账账号按可信返回分别核对，不推测身份或重画二维码。
+
+## Credit amounts and reporting
+
+Balances, API quotes, holds and charges are in credit: **1 credit = ¥1 equivalent**. Quote users in credit first; when useful add “approximately ¥X”. Do not call an API balance cash or tell users to add money. With USD or another supported purchase currency, the server converts the actual fiat payment into credit using the frozen exchange rate at purchase time. Show fiat paid on the payment page and credit received on the receipt; never calculate a substitute FX quote.
+
+When credit is insufficient, guide the user to purchase credit on the ItPay website using the returned original wallet/intent link. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.

@@ -31,12 +31,13 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
  const recover=taskID?{command:qualifyItPayCommand(`itpay api status ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"只读核对同一原请求"}:null;
- writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references?{result:references}:{}),instruction:code==="connection_recovery_conflict"?"已有其他active连接；保留原连接、任务与私有候选，交owner裁决，不替换或撤销其他连接。":code==="connection_recovery_denied"?"原连接恢复未通过；保留原profile、任务及私有恢复材料，不新建connect、不重发业务。":code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth&&original?(installed?"原连接失效，请按原安装重新授权并核对原请求。":"原连接失效；按原配置 connect 核对原授权。"):auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或充值。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${installed&&taskID?` --request ${taskID}`:""}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
+ writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references?{result:references}:{}),instruction:code==="connection_recovery_conflict"?"已有其他active连接；保留原连接、任务与私有候选，交owner裁决，不替换或撤销其他连接。":code==="connection_recovery_denied"?"原连接恢复未通过；保留原profile、任务及私有恢复材料，不新建connect、不重发业务。":code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth&&original?(installed?"原连接失效，请按原安装重新授权并核对原请求。":"原连接失效；按原配置 connect 核对原授权。"):auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或购买 credit。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${installed&&taskID?` --request ${taskID}`:""}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
  process.exitCode=1;
 }
 
 export function registerAPICommands(program: Command): void {
-const hubCmd = program.command("api").alias("hub").description("ItPay API Hub: metered API catalog, prepaid runs, wallet")
+const hubCmd = program.command("api").alias("hub").description("ItPay API Hub: API prices, balances and charges in credit")
+ .addHelpText("after", "\nCredit: 1 credit = CNY 1 equivalent. Quote users in credit; optionally add approximately CNY X. Other payment currencies convert at the frozen purchase-time FX rate. The payment page shows fiat paid; receipts show credit received. Insufficient credit: buy credit on the ItPay website, keeping the original request. Wire currency/atoms and grants remain unchanged.\n")
  .option("--profile <file>","absolute API installation selector")
  .option("--host <host>","payment presentation host")
  .option("--target <target>","trusted host destination for payment presentation");
@@ -98,12 +99,12 @@ hubCmd.command("categories").description("List market categories, including empt
 hubCmd.command("list").description("List products from the shared market").option("--category <category>","category ID, slug or label")
  .option("--query <query>","search products").option("--limit <limit>","page size 1..100","20").option("--cursor <cursor>","opaque next page cursor").option("--json","output JSON")
  .action(async options=>{try{await shelfList(options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"list_failed",instruction:"核对分类并重试。",recovery:[]});}});
-hubCmd.command("show <operation_id>").description("Show purpose, price, example and result retention").option("--json","output JSON")
+hubCmd.command("show <operation_id>").description("Show purpose, credit price, example and result retention").option("--json","output JSON")
  .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfShow(id,Boolean(options.json));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"show_failed",instruction:"使用 list 返回的商品编号。",recovery:[]});}});
 hubCmd.command("call [operation_id]").description("Call a shown product or continue the original pending request")
  .option("--input <input>","JSON object, @file or - for stdin").option("--pending <request_id>","continue this installation's original request").option("--json","output JSON")
  .action(async(id:string|undefined,options)=>{try{if(id&&!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfCall(id,options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"call_failed",instruction:"保留原请求。先 show 查看用途和价格。",recovery:[]});}});
-hubCmd.command("status <request_id>").description("Read only the original request, result and charge").option("--json","output JSON")
+hubCmd.command("status <request_id>").description("Read only the original request, result and credit charge").option("--json","output JSON")
  .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("invalid_input: invalid request ID");await shelfStatus(id,Boolean(options.json));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"status_failed",instruction:"保留原请求与安装身份，稍后读取。",recovery:[]});}});
 hubCmd.command("credentials").description("Developer credential management")
  .command("import").description("Import a scoped key from stdin").option("--json","output JSON")
@@ -122,10 +123,10 @@ hubCmd
 
 hubCmd
   .command("wallet")
-  .description("Read this account wallet; an explicit amount prepares the same-order QR and checkout")
+  .description("Read this account credit balance; an explicit amount prepares its original credit purchase")
   .addHelpText("after",`\n${TOPUP_INSTRUCTION}\nExamples (keep this installation's profile):\n  itpay api wallet --json\n  itpay api wallet --topup 15 --json\n  itpay api wallet --topup 15 --request <original_request_id> --json\nQuick amounts are shortcuts, not limits. Links identify 当前账号：名字 · 末6位.\n`)
-  .option("--topup <amount>","prepare a custom CNY amount; scan or click the same order; minimum 10 CNY")
-  .option("--topup-status <topup_id>","read the original top-up")
+  .option("--topup <amount>","purchase credit with a custom CNY payment; minimum CNY 10; same-order QR or checkout")
+  .option("--topup-status <topup_id>","read the original credit purchase")
   .option("--request <request_id>","retain your original pending API request")
   .option("--no-open","this host does not open a browser; retain the same payment links")
   .option("--usage", "read current Key/Consumer usage; not account-wide")

@@ -33,15 +33,15 @@ test("original request recovery never dispatches unknown or foreign receipts and
   await shelfCall(undefined,{pending:task.request_id,json:true});
   assert.equal(posts,0);assert.equal(reads,1);assert.equal(JSON.parse(raw).result.captured_atoms,null);
   raw="";mode="failed";await shelfStatus(task.request_id,true);
-  const failed=JSON.parse(raw);assert.equal(failed.result.first_error.code,"upstream_failed");assert.match(failed.instruction,/没扣钱/);
+  const failed=JSON.parse(raw);assert.equal(failed.result.first_error.code,"upstream_failed");assert.match(failed.instruction,/未扣 credit/);
   mode="foreign";await assert.rejects(shelfStatus(task.request_id,true),/binding changed/);
   mode="unavailable";await assert.rejects(shelfStatus(task.request_id,true));
   mode="absent";await assert.rejects(shelfCall(undefined,{pending:task.request_id,json:true}));
   const priced=store.getOrCreate({operation_id:"op-original",publication_id:"pub-original",input:{q:"price"},max_charge_atoms:"10000"}).task;
   key=store.idempotencyKey(priced.request_id);mode="changed";raw="";await shelfStatus(priced.request_id,true);
-  const receipt=JSON.parse(raw);assert.equal(receipt.handoff,undefined);assert.equal(receipt.result.current_price.currency,"CNY");assert.equal(receipt.result.current_price.amount_atoms,"20000");assert.equal(receipt.result.captured_atoms,"0");assert.match(receipt.instruction,/CNY ¥0.02/);
+  const receipt=JSON.parse(raw);assert.equal(receipt.handoff,undefined);assert.equal(receipt.result.current_price.currency,"CNY");assert.equal(receipt.result.current_price.amount_atoms,"20000");assert.equal(receipt.result.captured_atoms,"0");assert.match(receipt.instruction,/0.02 credit/);
   mode="changed-unverified";raw="";await shelfStatus(priced.request_id,true);
-  assert.equal(JSON.parse(raw).result.captured_atoms,null);assert.doesNotMatch(JSON.parse(raw).instruction,/本次没扣钱/);
+  assert.equal(JSON.parse(raw).result.captured_atoms,null);assert.doesNotMatch(JSON.parse(raw).instruction,/本次未扣 credit/);
   assert.equal(posts,0,"unknown and unavailable receipts must never cause a new admission");
   const saved=store.get(task.request_id)!;
   assert.deepEqual(saved.input,{q:"frozen"});assert.equal(saved.publication_id,"pub-original");
