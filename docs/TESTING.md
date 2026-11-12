@@ -93,3 +93,9 @@ PR160修复后本地557/557通过，函数覆盖90%（既有门槛不变）；st
 ## 2026-11-12 Muse核对与Grok类型入口（未发布）
 
 基于GitHub main f5fba07核实Muse已有install/setup/agent/defaultHost，修正install文档漏列。grok、grok-bot为两个独立真实type，加入统一install/setup校验表、plain-chat展示及root help，保留显式声明而不猜宿主环境变量。入口/状态隔离、install/help和setup原测试35项通过，0失败0跳过；类型检查与构建、test:package（实包安装/合成OAuth/API smoke）通过。仅合main，不改2.1.69或npm渠道；Services Backend设备登记白名单仍需将来发布前配对，本批不部署Backend、不声称端到端Grok CLI已支持。真实Grok Bot MCP授权及免费调用另由原连接器验收。
+
+## Credit 文案候选验证（2026-11-12）
+
+npm run build / typecheck；npm test：568 pass，5 skip，0 fail（573 tests）；npm run test:package 与 packed smoke 通过。仅合成账户/API/原单 fixture，不是真实宿主付款验收。 用户提示、API 报价/回执、两 Skill、README/帮助使用 credit。购买提示区分实际 CNY 支付与获得的 credit；命令名、字段、币种、计算、版本不变。原 build 生成 Skill 完整性摘要。
+
+本轮只准备源码文字 PR；未运行 Actions、部署、迁移、npm 发布或真实交易。完整真实登录/购买/付费调用/流水旅程和 CLI/MCP 原宿主报价回执未验收。全仓检索索引仍有待逐条人工复核项；动态数据库 SKU display/description 未写库修改，固定消费者制品/历史证据保留。申请材料独立 private itpay-connectors，仅准备不提交。

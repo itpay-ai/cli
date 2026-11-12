@@ -49,7 +49,7 @@ export class HubTaskRequestError extends Error {
  }
 }
 
-export const TOPUP_INSTRUCTION = "可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。";
+export const TOPUP_INSTRUCTION = "可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。";
 export function describeAccount(me: Awaited<ReturnType<HubClient["me"]>>) {
  const value=me as typeof me & {account_information_unavailable?:boolean;account_hint?:string;account_information?:{display_name?:string;account_hint?:string}};
  const info=value.account_information;
@@ -82,7 +82,7 @@ export async function runHubWallet(options: { jsonOutput?: boolean; usage?: bool
    truncated:data.has_more??(scope!=="owner"&&data.items.length>=100),limit:data.limit??(scope==="owner"?50:100)};
  }else result={available_atoms:bal.available.amount_atoms,held_atoms:bal.held.amount_atoms,currency:bal.available.currency,scale:bal.available.scale,period_limit_atoms:null,topup_url:bal.topup_url??null,scope:"account_balance",identity};
  result.owner_billing_url=bal.owner_billing_url??bal.topup_url??null;
- writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。全账号充值、冻结及原款退款请本人打开账单入口。":describeAccount(me)+"\n"+TOPUP_INSTRUCTION,next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
+ writeCommandEnvelope({status:"ready",result,instruction:options.usage||options.transactions?"仅当前凭据范围；runs 包含失败，不是成功交付数。机器流水只含本凭据消费/消费退款，截断不能当全量。全账号购买 credit、冻结及原款退款请本人打开账单入口。":describeAccount(me)+"\n"+TOPUP_INSTRUCTION,next:null,recovery:[]},{jsonOutput:Boolean(options.jsonOutput)});
 }
 
 export async function runHubDoctor(options: { jsonOutput?: boolean | undefined }): Promise<void> {

@@ -14,7 +14,7 @@ export function priceLabel(price:{mode:string;amount_atoms?:string}):string{
  if(price.mode==="free")return "免费";
  const atoms=BigInt(price.amount_atoms??"0");
  const fraction=(atoms%1000000n).toString().padStart(6,"0").replace(/0+$/,"");
- return "¥"+atoms/1000000n+(fraction?"."+fraction:"")+"/次";
+ return ""+atoms/1000000n+(fraction?"."+fraction:"")+" credit/次";
 }
 function statusAction(id:string,json:boolean):CommandAction{
  return {command:`itpay api status ${id}${json?" --json":""}`,reason:"只读核对原请求"};
@@ -59,7 +59,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
  const changed=snapshot.terminal && reason==="publication_changed";
  const price=safePriceChange(snapshot.price_change);
  const zero=changed && price?.captured_atoms==="0" && price.held_atoms==="0";
- const label=price?.current_price?"CNY "+priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
+ const label=price?.current_price?priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
  writeCommandEnvelope({status:changed?"price_changed":reason,
   result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
