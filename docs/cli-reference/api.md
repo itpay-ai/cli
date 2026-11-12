@@ -10,7 +10,7 @@ Use the same installation launcher and absolute --profile selector for every cal
 |api call <operation_id> --input <JSON/@file/->|After consent, submit using the shown price and publication.|
 |api call --pending <request_id>|Read and, when eligible, continue this installation's original request. Each wait round is at most 120 seconds.|
 |api status <request_id>|Read-only original receipt, result and charge.|
-|api wallet|Account available/held money, selected credential kind/masked account and official proactive credit purchase URL.|
+|api wallet|Account available/held credit, selected credential kind/masked account and official proactive credit purchase URL.|
 |api wallet --usage|Current Key/Consumer gross/net/refunded/held usage; runs include failures.|
 |api wallet --transactions|Scoped charge/refund rows with limit/truncation; owner_billing_url opens full account history.|
 
