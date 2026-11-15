@@ -31,7 +31,7 @@ Check `wallet` identity.account_hint and credential_kind; matching hints identif
 
 ### 本人钱包定额购买 credit
 
-`itpay api wallet --topup 30 --json` 准备本人钱包的人民币购买 credit，按分报价，最低 ¥10。若为已有挂起请求购买 credit，加 `--request <原 request_id>`；付款后按返回 next 读取原购买 credit 并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原购买 credit。OAuth/API Hub Key 准备购买 credit 不要求消费 grant；购买 credit 不会增加调用额度、商户收款或退款权限。
+`itpay api wallet --topup 30 --json` 准备本人钱包的人民币购买 credit，按实际环境的服务端报价，正式最低 ¥10、已批准 dev 最低 ¥1。保持用户原始正金额输入，低于最低时照读返回的 minimum_applied/notice、实际支付与 credit 金额，不在客户端硬编码调额。若为已有挂起请求购买 credit，加 `--request <原 request_id>`；付款后按返回 next 读取原购买 credit 并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原购买 credit。OAuth/API Hub Key 准备购买 credit 不要求消费 grant；购买 credit 不会增加调用额度、商户收款或退款权限。
 
 可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。
 四档只是快捷项；每个钱包/码链接标“当前账号：名字 · 末6位”。
