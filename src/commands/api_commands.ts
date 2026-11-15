@@ -125,7 +125,7 @@ hubCmd
   .command("wallet")
   .description("Read this account credit balance; an explicit amount prepares its original credit purchase")
   .addHelpText("after",`\n${TOPUP_INSTRUCTION}\nExamples (keep this installation's profile):\n  itpay api wallet --json\n  itpay api wallet --topup 15 --json\n  itpay api wallet --topup 15 --request <original_request_id> --json\nQuick amounts are shortcuts, not limits. Links identify 当前账号：名字 · 末6位.\n`)
-  .option("--topup <amount>","purchase credit with a custom CNY payment; minimum CNY 10; same-order QR or checkout")
+  .option("--topup <amount>","purchase credit with a custom CNY payment; server-quoted minimum (production CNY 10; approved dev CNY 1); same-order QR or checkout")
   .option("--topup-status <topup_id>","read the original credit purchase")
   .option("--request <request_id>","retain your original pending API request")
   .option("--no-open","this host does not open a browser; retain the same payment links")
