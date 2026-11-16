@@ -40,7 +40,9 @@ export async function walletRefund(options:{latest:boolean;request?:string;statu
    saved={request_id:id,buyer_id:me.buyer_id,topup_id:topupID,sent:true,status:'unconfirmed'};save();
    try{result=await api.walletRefundIntent(id,topupID)}catch(error){
     const changed=error instanceof HttpError&&error.status===409&&error.code==='refund_preview_changed';
-    if(error instanceof HttpError&&error.status>=400&&error.status<500&&![408,425].includes(error.status)&&!changed){
+    // SDK contract mismatch can be raised after a successful POST response.
+    // That client-side409 is not proof of server rejection.
+    if(error instanceof HttpError&&error.status>=400&&error.status<500&&![408,425].includes(error.status)&&error.code!=='contract_mismatch'&&!changed){
      saved.status='submission_rejected';saved.rejection={status:error.status,code:error.code,message:error.message};save();
      throw error;
     }
