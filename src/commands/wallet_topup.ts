@@ -8,11 +8,11 @@ import {openInSystemBrowser} from '../render/browser.js';
 import {describeAccount} from './hub.js';
 import {writeCommandEnvelope} from './hub_guidance.js';
 
-type FundingTask={key:string;amount:string;buyer_id:string;topup_id?:string;status?:string;payment_status?:string;request_id?:string};
+type FundingTask={key:string;amount:string;buyer_id:string;topup_id?:string;status?:string;payment_status?:string;request_id?:string;renewal_of?:string};
 type FundingView={topup_id:string;status:string;payment_status?:string;amount?:string;account_hint?:string;page_url?:string;checkout_url?:string;image?:string;collection_action?:unknown;presentation_hint?:string;notice?:string;expires_at?:string;minimum_applied?:boolean};
 const refundStates=new Set(['refunded','partially_refunded','refund_requested','refund_pending','refund_unknown','refund_failed','refund_rejected']);
 const paymentStatus=(value:{status?:string;payment_status?:string})=>value.payment_status??(refundStates.has(value.status??'')?'credited':value.status??'');
-const purchaseEnded=(value:FundingTask)=>['credited','failed','closed_unpaid','refunded','partially_refunded'].includes(paymentStatus(value));
+const purchaseEnded=(value:FundingTask)=>['credited','closed_unpaid','refunded','partially_refunded'].includes(paymentStatus(value));
 export async function walletTopup(options:{topup?:string;topupStatus?:string;request?:string;noOpen?:boolean;jsonOutput:boolean}){
  const cfg=loadHubConfig(),api=new HubClient(cfg),me=await api.me();
  const root=join(hubTasksDir(),'.funding');mkdirSync(root,{recursive:true,mode:0o700});
@@ -30,8 +30,15 @@ export async function walletTopup(options:{topup?:string;topupStatus?:string;req
    if(original.topup_id!==saved.topup_id)throw Error('original_topup_mismatch: preserve the original purchase and query it again');
    saved.status=original.status;saved.payment_status=paymentStatus(original);
   }
-  if(!options.topupStatus&&saved?.topup_id&&purchaseEnded(saved)){writeFileSync(join(root,'receipt-'+encodeURIComponent(saved.topup_id)+'.json'),JSON.stringify(saved),{mode:0o600})}
-  if(!options.topupStatus&&(!saved||purchaseEnded(saved)))saved={key:'cli-wallet-'+randomUUID(),amount:options.topup!,buyer_id:me.buyer_id,...options.request?{request_id:options.request}:{}};
+  // A fresh explicit purchase may ask the server to reconcile/fence an
+  // expired original. Persist its new key once, retaining the original ID for
+  // reads until the POST is confirmed. Unknown/restart must reuse this key.
+  if(!options.topupStatus&&saved?.topup_id&&paymentStatus(saved)==='expired'&&!saved.renewal_of){
+   writeFileSync(join(root,'receipt-'+encodeURIComponent(saved.topup_id)+'.json'),JSON.stringify(saved),{mode:0o600});
+   saved={...saved,key:'cli-wallet-'+randomUUID(),renewal_of:saved.topup_id};
+  }
+  if(!options.topupStatus&&saved?.topup_id&&purchaseEnded(saved)&&!saved.renewal_of){writeFileSync(join(root,'receipt-'+encodeURIComponent(saved.topup_id)+'.json'),JSON.stringify(saved),{mode:0o600})}
+  if(!options.topupStatus&&(!saved||purchaseEnded(saved)&&!saved.renewal_of))saved={key:'cli-wallet-'+randomUUID(),amount:options.topup!,buyer_id:me.buyer_id,...options.request?{request_id:options.request}:{}};
   if(!saved)throw Error('not_found: original credit purchase is unavailable');
   if(options.request)saved.request_id=options.request;
   const task=saved.request_id?new HubTaskStore().get(saved.request_id):undefined;
@@ -40,6 +47,7 @@ export async function walletTopup(options:{topup?:string;topupStatus?:string;req
   save(); // The original funding identity exists before any POST.
   const data=(options.topupStatus?await api.topupStatus(options.topupStatus):await api.createTopup({amount_cny:saved.amount,payer_currency:'CNY',...(task?.intent_id?{continuation_id:task.intent_id}:{})},saved.key)) as unknown as FundingView;
   data.account_hint="…"+me.buyer_id.split("|").pop()!.slice(-6);
+  if(!options.topupStatus)delete saved.renewal_of;
   saved.topup_id=data.topup_id;saved.status=data.status;saved.payment_status=paymentStatus(data);save();
   const refund=refundStates.has(data.status),credited=data.status==='credited'&&paymentStatus(data)==='credited';
   const payable=['created','payment_pending'].includes(data.status)&&['created','payment_pending'].includes(paymentStatus(data))&&(!data.expires_at||Date.parse(data.expires_at)>Date.now());
