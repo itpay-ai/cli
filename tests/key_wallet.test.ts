@@ -82,3 +82,59 @@ test('link-only host prepares and reuses one amount top-up and completes its sam
  try{const first=await cli(['--topup','30','--no-open']);assert.equal(first.result.browser.status,'unavailable');assert.equal(first.result.checkout_url,origin+'/checkout');const repeat=await cli(['--topup','30','--no-open']);assert.equal(repeat.result.topup_id,first.result.topup_id);assert.equal(keys.size,1);const page=await fetch(first.result.checkout_url);assert.match(await page.text(),/Confirm simulated/);await fetch(origin+'/confirm',{method:'POST'});const done=await cli(['--topup-status','top_same','--no-open']);assert.equal(done.status,'credited');assert.match(done.instruction,/已到账/);assert.equal(done.next,null)}
  finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
+
+async function walletRefundRecovery(previewRace:boolean){
+ const state=mkdtempSync(join(tmpdir(),'wallet-refund-'));let latest='top-a',lost=true,writes=0;
+ const refunds=new Map<string,{top:string,id:string}>();let fixtureEnv:NodeJS.ProcessEnv={};
+ const server=createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'issuer|buyer_AAAAAA',consumer_id:'oauth:fixture:original'}));return;}
+  const u=new URL(req.url!,'http://fixture');
+  if(u.pathname==='/v1/me/wallet/refund'&&req.method==='GET'){
+   const key=u.searchParams.get('request_key'),original=key?refunds.get(key):undefined;
+   res.end(JSON.stringify({status:key?(original?'unknown':'unconfirmed'):'eligible',topup_id:original?.top||latest,refund_id:original?.id||'',amount_minor_text:'100',currency:'CNY',credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:'0',account_hint:'…AAAAAA',payment_account_hint:'',payment_provider:'fakepass',wallet_url:'http://fixture/me/usage',next_step:'read_original_request'}));return;
+  }
+  if(u.pathname==='/v1/me/wallet/refund'&&req.method==='POST'){
+   writes++;const key=String(req.headers['idempotency-key']);let body='';for await(const part of req)body+=part;
+   const input=JSON.parse(body);assert.deepEqual(Object.keys(input).sort(),["confirmed","expected_topup_id"]);assert.equal(input.confirmed,true);
+   const {readFileSync}=await import('node:fs');const {hubTasksDir}=await import('../src/state/hub_tasks.js');
+   const saved=JSON.parse(readFileSync(join(hubTasksDir(fixtureEnv),'.refunds',key+'.json'),'utf8'));
+   assert.equal(saved.sent,true,'request must be durable before network');assert.equal(input.expected_topup_id,saved.topup_id);
+   if(input.expected_topup_id!==latest){res.writeHead(409);res.end(JSON.stringify({error:{code:'refund_preview_changed',message:'original changed'}}));return;}
+   const original={top:latest,id:'refund-'+latest};refunds.set(key,original);
+   if(lost){lost=false;req.socket.destroy();return;}
+   res.end(JSON.stringify({status:'pending',topup_id:original.top,refund_id:original.id,credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:'1000000',account_hint:'…AAAAAA',wallet_url:'http://fixture/me/usage'}));return;
+  }
+  res.writeHead(404);res.end('{}');
+ });
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const a=server.address();assert.ok(a&&typeof a!=='string');
+ const base='http://127.0.0.1:'+a.port;
+ fixtureEnv={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_HUB_URL:base,ITPAY_STATE_DIR:state,ITPAY_HUB_OAUTH_CLIENT:'fixture'};
+ storeHubSession('synthetic-oauth-refund',undefined,3600,'issuer|buyer_AAAAAA',base,fixtureEnv,'oauth:fixture:original');
+ const cli=async(args:string[],overrides:Record<string,string>={})=>new Promise<any>((resolve,reject)=>{
+  const p=spawn(process.execPath,process.env.ITPAY_REFUND_TEST_CLI?[process.env.ITPAY_REFUND_TEST_CLI,'api','wallet',...args,'--json']:['--import','tsx','src/main.ts','api','wallet',...args,'--json'],{cwd:root,env:{...fixtureEnv,...overrides}});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',()=>{try{assert.ok(!out.includes('synthetic-oauth-refund'));resolve(JSON.parse(out))}catch(e){reject(Error(String(e)+' '+out+' '+err))}});
+ });
+ try{
+  const preview=await cli(['--refund-latest']);assert.equal(writes,0);assert.equal(preview.status,'eligible');const key=preview.result.request_id;assert.match(key,/^cli-refund-/);
+  const confirmed=['--refund-latest','--refund-request',key,'--confirm'];
+  if(previewRace){
+   latest='top-b';
+   const stale=await cli(confirmed);assert.equal(stale.status,'preview_changed');assert.equal(writes,1);assert.equal(refunds.size,0);
+   const repeated=await cli(confirmed);assert.equal(repeated.status,'preview_changed');assert.equal(writes,1);assert.equal(refunds.size,0);
+   const freshPreview=await cli(['--refund-latest']);assert.equal(freshPreview.result.topup_id,'top-b');lost=false;
+   const fresh=await cli(['--refund-latest','--refund-request',freshPreview.result.request_id,'--confirm']);assert.equal(fresh.status,'pending');assert.equal(fresh.result.topup_id,'top-b');assert.equal(writes,2);assert.equal(refunds.size,1);return;
+  }
+  const first=await cli(confirmed);assert.equal(first.status,'unconfirmed');assert.equal(writes,1);
+  latest='top-b';
+  const retry=await cli(confirmed);assert.equal(writes,1);assert.equal(retry.result.topup_id,'top-a');assert.equal(retry.result.refund_id,'refund-top-a');
+  const status=await cli(['--refund-status',key]);assert.equal(status.result.refund_id,'refund-top-a');assert.equal(writes,1);
+  await cli(['--refund-latest','--refund-request','explicit-new-b']);assert.equal(writes,1);
+  const fresh=await cli(['--refund-latest','--refund-request','explicit-new-b','--confirm']);assert.equal(writes,2);assert.equal(fresh.result.topup_id,'top-b');
+  await cli(['--refund-latest','--confirm']);assert.equal(writes,2);
+  const denied=await cli(['--refund-latest'],{ITPAY_HUB_KEY:'itk_refund_denied'});assert.equal(denied.status,'error');assert.equal(writes,2);
+  await cli(['--refund-status',key],{ITPAY_HUB_OAUTH_CLIENT:'other-profile'});assert.equal(writes,2);
+  const foreign=await cli(confirmed,{ITPAY_HUB_OAUTH_CLIENT:'other-profile'});assert.equal(foreign.status,'error');assert.equal(writes,2);
+ }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+}
+test('wallet refund persists before POST and repeated confirmation after newer credit only reads the original',()=>walletRefundRecovery(false));
+test('wallet refund rejects stale preview before first acceptance and requires fresh explicit confirmation',()=>walletRefundRecovery(true));

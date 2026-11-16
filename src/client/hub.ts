@@ -19,6 +19,8 @@ import {
   type TopUpSKU,
   type Usage,
   type Wallet,
+  type WalletRefund,
+  type WalletRefundQuery,
   type WalletTransaction,
 } from "@itpay/hub-client";
 import { HttpError } from "./http.js";
@@ -42,6 +44,7 @@ export type {
   TopUpOrder,
   TopUpSKU,
   Wallet,
+  WalletRefund,
   WalletTransaction,
 };
 
@@ -133,6 +136,13 @@ export class HubClient {
   }
   usage(): Promise<Usage> {
     return this.wrap(() => this.sdk.usage());
+  }
+  walletRefundStatus(query: WalletRefundQuery = {}): Promise<WalletRefund> {
+    return this.wrap(() => this.sdk.walletRefundStatus(query));
+  }
+  walletRefundIntent(key: string, topupID: string): Promise<WalletRefund> {
+    const body={confirmed:true as const,expected_topup_id:topupID};
+    return this.wrap(() => this.sdk.walletRefundIntent(body, key));
   }
   wallet(): Promise<Wallet> {
     return this.wrap(() => this.sdk.wallet());
