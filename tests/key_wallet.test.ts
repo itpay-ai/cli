@@ -140,16 +140,17 @@ test('wallet refund persists before POST and repeated confirmation after newer c
 test('wallet refund rejects stale preview before first acceptance and requires fresh explicit confirmation',()=>walletRefundRecovery(true));
 
 test('wallet refund preserves definitive rejection and nonzero exit without resubmitting; uncertain HTTP remains original-key read only',async()=>{
- const state=mkdtempSync(join(tmpdir(),'wallet-refund-errors-'));let writes=0,reads=0,code=403;
+ const state=mkdtempSync(join(tmpdir(),'wallet-refund-errors-'));let writes=0,reads=0,code=403;let contractMismatch=false;const accepted=new Set<string>();
  const server=createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');
   if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'issuer|buyer_AAAAAA',consumer_id:'oauth:fixture:original'}));return;}
   const u=new URL(req.url!,'http://fixture');
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='GET'){
-   reads++;res.end(JSON.stringify(u.searchParams.has('request_key')?{status:'unconfirmed',request_recorded:false}:{status:'eligible',topup_id:'top-original',account_hint:'…AAAAAA'}));return;
+   reads++;const key=u.searchParams.get('request_key');res.end(JSON.stringify(key?accepted.has(key)?{status:'pending',topup_id:'top-original',refund_id:'original-refund'}:{status:'unconfirmed',request_recorded:false}:{status:'eligible',topup_id:'top-original',account_hint:'…AAAAAA'}));return;
   }
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='POST'){
    writes++;for await(const _part of req){/* consume synthetic request */}
+   if(contractMismatch){accepted.add(String(req.headers['idempotency-key']));res.setHeader('X-ItPay-Hub-Contract','synthetic-different-revision');res.end(JSON.stringify({status:'pending',topup_id:'top-original',refund_id:'original-refund'}));return;}
    res.writeHead(code);res.end(JSON.stringify({error:{code:code===403?'original_connection_required':code===400?'invalid_input':'temporarily_unavailable',message:code===403?'recheck the original connection; no replacement refund':'original request cannot be confirmed'}}));return;
   }
   res.writeHead(404);res.end('{}');
@@ -161,15 +162,15 @@ test('wallet refund preserves definitive rejection and nonzero exit without resu
   const p=spawn(process.execPath,process.env.ITPAY_REFUND_TEST_CLI?[process.env.ITPAY_REFUND_TEST_CLI,'api','wallet',...args,'--json']:['--import','tsx','src/main.ts','api','wallet',...args,'--json'],{cwd:root,env});let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);p.on('close',exit=>{try{assert.ok(!stdout.includes('synthetic-refund-rejection'));resolve({exit,value:JSON.parse(stdout)})}catch(e){reject(Error(String(e)+' '+stdout+' '+stderr))}});
  });
  try{
-  for(const status of [403,400,500,408]){
-   code=status;const preview=await cli(['--refund-latest']),key=preview.value.result.request_id;const confirm=['--refund-latest','--refund-request',key,'--confirm'];const before=writes;
+  for(const status of [403,400,500,408,'contract-mismatch'] as const){
+   contractMismatch=status==='contract-mismatch';code=typeof status==='number'?status:200;const preview=await cli(['--refund-latest']),key=preview.value.result.request_id;const confirm=['--refund-latest','--refund-request',key,'--confirm'];const before=writes;
    const first=await cli(confirm);assert.equal(writes,before+1);
    if(status===403||status===400){
     assert.notEqual(first.exit,0);assert.equal(first.value.status,'error');assert.match(JSON.stringify(first.value),new RegExp(status===403?'original_connection_required':'invalid_input'));
     const repeat=await cli(confirm);assert.notEqual(repeat.exit,0);assert.equal(writes,before+1);
     const oldReads=reads;const observed=await cli(['--refund-status',key]);assert.notEqual(observed.exit,0);assert.equal(reads,oldReads+1);assert.equal(writes,before+1);assert.match(JSON.stringify(observed.value),new RegExp(status===403?'original_connection_required':'invalid_input'));
    }else{
-    assert.equal(first.exit,0);assert.equal(first.value.status,'unconfirmed');const repeated=await cli(confirm);assert.equal(repeated.value.status,'unconfirmed');assert.equal(writes,before+1);
+    assert.equal(first.exit,0);assert.equal(first.value.status,'unconfirmed');const repeated=await cli(confirm);assert.equal(repeated.value.status,contractMismatch?'pending':'unconfirmed');if(contractMismatch)assert.equal(repeated.value.result.refund_id,'original-refund');assert.equal(writes,before+1);
    }
   }
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
