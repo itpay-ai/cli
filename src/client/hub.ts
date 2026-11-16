@@ -140,8 +140,9 @@ export class HubClient {
   walletRefundStatus(query: WalletRefundQuery = {}): Promise<WalletRefund> {
     return this.wrap(() => this.sdk.walletRefundStatus(query));
   }
-  walletRefundIntent(key: string): Promise<WalletRefund> {
-    return this.wrap(() => this.sdk.walletRefundIntent({confirmed:true}, key));
+  walletRefundIntent(key: string, topupID: string): Promise<WalletRefund> {
+    const body={confirmed:true as const,expected_topup_id:topupID};
+    return this.wrap(() => this.sdk.walletRefundIntent(body, key));
   }
   wallet(): Promise<Wallet> {
     return this.wrap(() => this.sdk.wallet());

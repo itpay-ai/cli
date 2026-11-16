@@ -83,7 +83,7 @@ test('link-only host prepares and reuses one amount top-up and completes its sam
  finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
 
-test('wallet refund persists before POST and repeated confirmation after newer credit only reads the original',async()=>{
+async function walletRefundRecovery(previewRace:boolean){
  const state=mkdtempSync(join(tmpdir(),'wallet-refund-'));let latest='top-a',lost=true,writes=0;
  const refunds=new Map<string,{top:string,id:string}>();let fixtureEnv:NodeJS.ProcessEnv={};
  const server=createServer(async(req,res)=>{
@@ -96,10 +96,11 @@ test('wallet refund persists before POST and repeated confirmation after newer c
   }
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='POST'){
    writes++;const key=String(req.headers['idempotency-key']);let body='';for await(const part of req)body+=part;
-   assert.deepEqual(JSON.parse(body),{confirmed:true});
+   const input=JSON.parse(body);assert.deepEqual(Object.keys(input).sort(),["confirmed","expected_topup_id"]);assert.equal(input.confirmed,true);
    const {readFileSync}=await import('node:fs');const {hubTasksDir}=await import('../src/state/hub_tasks.js');
    const saved=JSON.parse(readFileSync(join(hubTasksDir(fixtureEnv),'.refunds',key+'.json'),'utf8'));
-   assert.equal(saved.sent,true,'request must be durable before network');
+   assert.equal(saved.sent,true,'request must be durable before network');assert.equal(input.expected_topup_id,saved.topup_id);
+   if(input.expected_topup_id!==latest){res.writeHead(409);res.end(JSON.stringify({error:{code:'refund_preview_changed',message:'original changed'}}));return;}
    const original={top:latest,id:'refund-'+latest};refunds.set(key,original);
    if(lost){lost=false;req.socket.destroy();return;}
    res.end(JSON.stringify({status:'pending',topup_id:original.top,refund_id:original.id,credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:'1000000',account_hint:'…AAAAAA',wallet_url:'http://fixture/me/usage'}));return;
@@ -116,6 +117,13 @@ test('wallet refund persists before POST and repeated confirmation after newer c
  try{
   const preview=await cli(['--refund-latest']);assert.equal(writes,0);assert.equal(preview.status,'eligible');const key=preview.result.request_id;assert.match(key,/^cli-refund-/);
   const confirmed=['--refund-latest','--refund-request',key,'--confirm'];
+  if(previewRace){
+   latest='top-b';
+   const stale=await cli(confirmed);assert.equal(stale.status,'preview_changed');assert.equal(writes,1);assert.equal(refunds.size,0);
+   const repeated=await cli(confirmed);assert.equal(repeated.status,'preview_changed');assert.equal(writes,1);assert.equal(refunds.size,0);
+   const freshPreview=await cli(['--refund-latest']);assert.equal(freshPreview.result.topup_id,'top-b');lost=false;
+   const fresh=await cli(['--refund-latest','--refund-request',freshPreview.result.request_id,'--confirm']);assert.equal(fresh.status,'pending');assert.equal(fresh.result.topup_id,'top-b');assert.equal(writes,2);assert.equal(refunds.size,1);return;
+  }
   const first=await cli(confirmed);assert.equal(first.status,'unconfirmed');assert.equal(writes,1);
   latest='top-b';
   const retry=await cli(confirmed);assert.equal(writes,1);assert.equal(retry.result.topup_id,'top-a');assert.equal(retry.result.refund_id,'refund-top-a');
@@ -127,4 +135,6 @@ test('wallet refund persists before POST and repeated confirmation after newer c
   await cli(['--refund-status',key],{ITPAY_HUB_OAUTH_CLIENT:'other-profile'});assert.equal(writes,2);
   const foreign=await cli(confirmed,{ITPAY_HUB_OAUTH_CLIENT:'other-profile'});assert.equal(foreign.status,'error');assert.equal(writes,2);
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
-});
+}
+test('wallet refund persists before POST and repeated confirmation after newer credit only reads the original',()=>walletRefundRecovery(false));
+test('wallet refund rejects stale preview before first acceptance and requires fresh explicit confirmation',()=>walletRefundRecovery(true));
