@@ -252,3 +252,37 @@ test('explicit expired purchase persists one renewal key across unknown, restart
   assert.equal((await cli(['--topup','1'])).value.result.topup_id,'top-new');assert.equal(keys[4],keys[1]);
  }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
+
+
+test('USD credit purchase preserves currency and one key after lost response, shows frozen cash, and retains CNY originals',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'wallet-usd-'));let origin='',lost=true,posts=0,reads=0;
+ const keys=new Map<string,string>();const orders=new Map<string,any>();
+ const server=createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'fixture-walletA',key_id:'key-a'}));return;}
+  if(req.url==='/v1/me/topups'&&req.method==='POST'){
+   posts++;let raw='';for await(const part of req)raw+=part;const body=JSON.parse(raw),key=String(req.headers['idempotency-key']);
+   assert.equal(body.amount_cny,'10');let id=keys.get(key);
+   if(!id){id='top-'+orders.size;keys.set(key,id);orders.set(id,{topup_id:id,status:'payment_pending',amount:'10.00',payer_currency:body.payer_currency,payer_minor_amount:body.payer_currency==='USD'?'139':'1000',environment:'test',expires_at:'2099-01-01T00:00:00Z',page_url:origin+'/cashier'});}
+   assert.equal(orders.get(id).payer_currency,body.payer_currency);
+   if(body.payer_currency==='USD'&&lost){lost=false;res.destroy();return;}
+   res.end(JSON.stringify(orders.get(id)));return;
+  }
+  if(req.url?.startsWith('/v1/me/topups/')){reads++;res.end(JSON.stringify(orders.get(req.url.split('/').at(-1)!)));return;}
+  res.writeHead(404);res.end('{}');
+ });
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const a=server.address();assert.ok(a&&typeof a!=='string');origin='http://127.0.0.1:'+a.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_STATE_DIR:state,ITPAY_HUB_URL:origin,ITPAY_HUB_KEY:'itk_synthetic_usd'};
+ const cli=(args:string[])=>new Promise<{exit:number|null;value:any}>((resolve,reject)=>{
+  const p=spawn(process.execPath,['--import','tsx','src/main.ts','api','wallet',...args,'--json','--no-open'],{cwd:root,env});let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);p.on('close',exit=>{try{resolve({exit,value:JSON.parse(stdout)})}catch(e){reject(Error(String(e)+' '+stdout+' '+stderr))}});
+ });
+ try{
+  const cny=await cli(['--topup','10']);assert.equal(cny.exit,0);assert.match(cny.value.instruction,/CNY 10.00/);
+  const usd=['--topup','10','--payer-currency','USD'];assert.notEqual((await cli(usd)).exit,0);
+  const retry=await cli(usd);assert.equal(retry.exit,0);assert.equal(keys.size,2);assert.match(retry.value.instruction,/10.00 credit（实际支付 USD 1.39；测试模式）/);assert.doesNotMatch(retry.value.instruction,/实际支付 CNY/);
+  assert.equal((await cli(usd)).value.result.topup_id,retry.value.result.topup_id);assert.equal(keys.size,2);
+  const before=posts;assert.equal((await cli(['--topup-status',cny.value.result.topup_id])).value.result.payer_currency,'CNY');assert.equal(posts,before);assert.ok(reads>0);
+  for(const args of [['--payer-currency','USD'],['--topup','10','--payer-currency','EUR'],['--topup-status',retry.value.result.topup_id,'--payer-currency','USD'],['--refund-latest','--payer-currency','USD']])assert.notEqual((await cli(args)).exit,0);
+  assert.equal(posts,before);
+ }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+});

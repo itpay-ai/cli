@@ -57,3 +57,7 @@ The SDK may raise a client-side409 `contract_mismatch` after the original POST h
 ## Explicit expired credit purchase renewal
 
 After an authoritative original GET reports expired, a new explicit `api wallet --topup <amount>` persists one new purchase key and an internal renewal reference before POST. The original receipt/key stays readable, including after restart; status remains GET-only and cannot clear the pending renewal identity. Unknown POST retries retain the new key even if the old order subsequently becomes closed. The existing server purchase POST alone reconciles/closes the original and admits a new order after a confirmed Collection fence; expiry/failed alone is not a terminal payment guarantee. No new command, public request field, SDK version or npm publication.
+
+## Requested payment currency (local candidate)
+
+`wallet --topup` accepts optional --payer-currency CNY|USD; the amount is credit quantity, and server admission/FX freezes actual cash. Existing CNY task filenames and missing legacy currency default remain valid; USD tasks use a separate filename and persist currency with their stable key before POST. Unknown/restart retries preserve that requested currency; original status reads and refund commands reject currency overrides. Payment instructions use only server payer_currency/payer_minor_amount, never the credit quantity as assumed cash. No OAuth/resource/grant or release version change.
