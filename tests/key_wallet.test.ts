@@ -216,3 +216,39 @@ test('wallet top-up uses original payment status after refunds, creates a distin
   failOriginalRead=true;const beforeFailure=posts;const unavailable=await buy();assert.notEqual(unavailable.exit,0);assert.equal(posts,beforeFailure);assert.equal(keys.size,4,'an unknown original read must not replace the purchase');
  }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
+
+
+test('explicit expired purchase persists one renewal key across unknown, restart and read-only old status',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'wallet-expired-renewal-'));let origin='',posts=0,unknown=true,originalStatus='expired';
+ const keys:string[]=[];
+ const view=(id:string,status:string)=>({topup_id:id,status,payment_status:status,amount:'1.00',expires_at:status==='payment_pending'?'2099-01-01T00:00:00Z':'2000-01-01T00:00:00Z',page_url:origin+'/cashier'});
+ const server=createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'fixture-walletA',key_id:'key-a'}));return;}
+  if(req.method==='POST'){
+   posts++;for await(const _chunk of req){} keys.push(String(req.headers['idempotency-key']));
+   if(posts===1){res.end(JSON.stringify(view('top-old','payment_pending')));return;}
+   if(unknown){res.writeHead(503);res.end('{"error":{"code":"original_payment_unconfirmed","message":"keep original"}}');return;}
+   originalStatus='closed_unpaid';res.end(JSON.stringify(view('top-new','payment_pending')));return;
+  }
+  if(req.url==='/v1/me/topups/top-old'){res.end(JSON.stringify(view('top-old',originalStatus)));return;}
+  if(req.url==='/v1/me/topups/top-new'){res.end(JSON.stringify(view('top-new','payment_pending')));return;}
+  res.writeHead(404);res.end('{}');
+ });
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();assert.ok(address&&typeof address!=='string');origin='http://127.0.0.1:'+address.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_STATE_DIR:state,ITPAY_HUB_URL:origin,ITPAY_HUB_KEY:'itk_synthetic_expired'};
+ const cli=(args:string[])=>new Promise<{exit:number|null;value:any}>((resolve,reject)=>{
+  const p=spawn(process.execPath,['--import','tsx','src/main.ts','api','wallet',...args,'--no-open','--json'],{cwd:root,env});let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);p.on('close',exit=>{try{resolve({exit,value:JSON.parse(stdout)})}catch(e){reject(Error(String(e)+' '+stdout+' '+stderr))}});
+ });
+ try{
+  assert.equal((await cli(['--topup','1'])).value.result.topup_id,'top-old');
+  assert.notEqual((await cli(['--topup','1'])).exit,0);assert.notEqual(keys[0],keys[1]);
+  const before=posts;assert.equal((await cli(['--topup-status','top-old'])).value.status,'expired');assert.equal(posts,before);
+  assert.notEqual((await cli(['--topup','1'])).exit,0);assert.equal(keys[2],keys[1]);
+  // A lost new-purchase response may leave the original already fenced.
+  originalStatus='closed_unpaid';unknown=false;
+  assert.equal((await cli(['--topup','1'])).value.result.topup_id,'top-new');assert.equal(keys[3],keys[1]);
+  const after=posts;assert.equal((await cli(['--topup-status','top-old'])).value.status,'closed_unpaid');assert.equal(posts,after);
+  assert.equal((await cli(['--topup','1'])).value.result.topup_id,'top-new');assert.equal(keys[4],keys[1]);
+ }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+});
