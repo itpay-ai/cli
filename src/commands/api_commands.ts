@@ -125,12 +125,13 @@ hubCmd
 hubCmd
   .command("wallet")
   .description("Read this account credit balance; an explicit amount prepares its original credit purchase")
-  .addHelpText("after",`\n${TOPUP_INSTRUCTION}\nExamples (keep this installation's profile):\n  itpay api wallet --json\n  itpay api wallet --topup 15 --json\n  itpay api wallet --refund-latest --json\n  itpay api wallet --refund-latest --refund-request <saved_id> --confirm --json\n  itpay api wallet --refund-status <saved_id> --json\n  itpay api wallet --topup 15 --request <original_request_id> --json\nQuick amounts are shortcuts, not limits. Links identify 当前账号：名字 · 末6位.\n`)
+  .addHelpText("after",`\n${TOPUP_INSTRUCTION}\nExamples (keep this installation's profile):\n  itpay api wallet --json\n  itpay api wallet --topup 15 --json\n  itpay api wallet --topup 10 --payer-currency USD --json\n  itpay api wallet --refund-latest --json\n  itpay api wallet --refund-latest --refund-request <saved_id> --confirm --json\n  itpay api wallet --refund-status <saved_id> --json\n  itpay api wallet --topup 15 --request <original_request_id> --json\nQuick amounts are shortcuts, not limits. Links identify 当前账号：名字 · 末6位.\n`)
   .option("--refund-latest","preview the latest original wallet credit; --confirm and a saved --refund-request express explicit refund intent")
   .option("--refund-request <request_id>","saved original refund request ID; repeating it only reads the original")
   .option("--refund-status <request_id>","read this installation original refund without submitting")
   .option("--confirm","explicitly confirm the original refund intent; never supplies amount or destination")
-  .option("--topup <amount>","purchase credit with a custom CNY payment; server-quoted minimum (production CNY 10; approved dev CNY 1); same-order QR or checkout")
+  .option("--topup <amount>","purchase a custom credit quantity; server-quoted credit minimum (production 10; approved dev 1); same-order QR or checkout")
+  .option("--payer-currency <currency>","CNY (default) or USD for --topup; server-scoped admission and frozen quote apply")
   .option("--topup-status <topup_id>","read the original credit purchase")
   .option("--request <request_id>","retain your original pending API request")
   .option("--no-open","this host does not open a browser; retain the same payment links")
@@ -140,10 +141,11 @@ hubCmd
   .action(async (options) => {
     try {
       if(options.refundLatest||options.refundStatus||options.refundRequest||options.confirm){
-        if(options.topup||options.topupStatus||options.request||options.usage||options.transactions)throw Error("invalid_input: refund intent cannot mix with funding, usage or an API task");
+        if(options.topup||options.topupStatus||options.payerCurrency||options.request||options.usage||options.transactions)throw Error("invalid_input: refund intent cannot mix with funding, usage or an API task");
         await walletRefund({latest:Boolean(options.refundLatest),request:options.refundRequest,status:options.refundStatus,confirm:Boolean(options.confirm),jsonOutput:Boolean(options.json)});return;
       }
-      if(options.topup||options.topupStatus){await walletTopup({topup:options.topup,topupStatus:options.topupStatus,request:options.request,noOpen:options.open===false,jsonOutput:Boolean(options.json)});return;}
+      if(options.topup||options.topupStatus){await walletTopup({topup:options.topup,topupStatus:options.topupStatus,request:options.request,payerCurrency:options.payerCurrency,noOpen:options.open===false,jsonOutput:Boolean(options.json)});return;}
+      if(options.payerCurrency)throw Error("invalid_input: --payer-currency requires --topup");
       await runHubWallet({ jsonOutput: Boolean(options.json),usage:Boolean(options.usage),transactions:Boolean(options.transactions) });
     } catch (error) {
       reportCLIError(error, { jsonOutput: Boolean(options.json), code: "hub_wallet_failed", instruction: "确认原安装的连接身份。", recovery: [] });
