@@ -41,3 +41,7 @@ api account仅查询当前凭据本人摘要。钱包链接/码标当前账号�
 ## Connection review fixes (2026-11-09)
 
 Every first-connection API continuation includes the selected absolute profile before common envelope qualification. Services consent metadata is Backend-qualified while device key/registrations remain in the original shared Services directory. Existing root metadata is reused only for its recorded Backend, without migration or identity replacement. Task-driven explicit --reconnect submits the actual task surface, retaining the same connection and task; no implicit additional consent.
+
+### Original-wallet refunds (local candidate; no npm release)
+
+`itpay api wallet --refund-latest --json` reads the server preview and saves a local draft request ID. Only explicit user refund intent permits `--refund-latest --refund-request <saved-id> --confirm`; neither amount nor destination is accepted. A first confirmation saves sent/unknown before POST. Repeating the same ID (even the same confirmation command after a newer credit arrives) only GETs its original binding. `--refund-status <saved-id>` is readonly and must belong to this installation/profile. A distinct explicitly confirmed new ID may select the newer latest original; uncertainty never grants that intent. Normal verified OAuth only; Keys do not switch credentials or borrow browser sessions. Actual source, credit/CNY, used/occupied/reason and unrecorded payer hints come from the shared Hub response; ItPay suffix is not the payment-account suffix. Pending/unknown is not cash receipt.

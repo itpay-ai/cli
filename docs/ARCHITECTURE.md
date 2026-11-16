@@ -126,3 +126,7 @@ flowchart LR
 CLI profile continuation --> same absolute profile; Services Backend --> backend-qualified consent metadata --> original shared device key. Explicit re-consent stays on the original connection and task. Existing root metadata is only reused for its recorded Backend.
 
 本批宿主入口：Muse已有正式install/setup/agent与默认plain-chat支持；新增grok、grok-bot保持各自真实类型和独立状态，显式声明，不猜测环境变量。仅源码能力，未发布npm；MCP连接与CLI身份继续独立。
+
+### Original-wallet refund intent (candidate)
+
+`api wallet` remains the only wallet command. Read a server preview first; an explicit `--refund-latest --refund-request <saved-id> --confirm` expresses full-original intent without amount/destination fields. Save its ID in the existing origin/credential task namespace before POST. Repeating that ID, including after timeout/restart or a newer credit, only GETs its original binding. A distinct explicit new ID may select the new latest original. `--refund-status <saved-id>` never writes. Normal verified OAuth only; Keys do not fall back. The fixed Hub SDK owns the shared contract, and the server owns original selection, eligibility, frozen amount/destination, automatic/manual decisions and actual settlement.
