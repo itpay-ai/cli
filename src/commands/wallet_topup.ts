@@ -8,8 +8,11 @@ import {openInSystemBrowser} from '../render/browser.js';
 import {describeAccount} from './hub.js';
 import {writeCommandEnvelope} from './hub_guidance.js';
 
-type FundingTask={key:string;amount:string;buyer_id:string;topup_id?:string;status?:string;request_id?:string};
-type FundingView={topup_id:string;status:string;amount?:string;account_hint?:string;page_url?:string;checkout_url?:string;image?:string;notice?:string;expires_at?:string;minimum_applied?:boolean};
+type FundingTask={key:string;amount:string;buyer_id:string;topup_id?:string;status?:string;payment_status?:string;request_id?:string};
+type FundingView={topup_id:string;status:string;payment_status?:string;amount?:string;account_hint?:string;page_url?:string;checkout_url?:string;image?:string;collection_action?:unknown;presentation_hint?:string;notice?:string;expires_at?:string;minimum_applied?:boolean};
+const refundStates=new Set(['refunded','partially_refunded','refund_requested','refund_pending','refund_unknown','refund_failed','refund_rejected']);
+const paymentStatus=(value:{status?:string;payment_status?:string})=>value.payment_status??(refundStates.has(value.status??'')?'credited':value.status??'');
+const purchaseEnded=(value:FundingTask)=>['credited','failed','closed_unpaid','refunded','partially_refunded'].includes(paymentStatus(value));
 export async function walletTopup(options:{topup?:string;topupStatus?:string;request?:string;noOpen?:boolean;jsonOutput:boolean}){
  const cfg=loadHubConfig(),api=new HubClient(cfg),me=await api.me();
  const root=join(hubTasksDir(),'.funding');mkdirSync(root,{recursive:true,mode:0o700});
@@ -19,8 +22,16 @@ export async function walletTopup(options:{topup?:string;topupStatus?:string;req
  await withAsyncFileLock(path+'.lock',async()=>{
   let saved:FundingTask|undefined=existsSync(path)?JSON.parse(readFileSync(path,'utf8')) as FundingTask:undefined;
   if(saved&&saved.buyer_id!==me.buyer_id)throw Error('authorization_required: original credit purchase account changed');
-  if(!options.topupStatus&&saved?.topup_id&&['credited','failed','closed_unpaid'].includes(saved.status??'')){writeFileSync(join(root,'receipt-'+encodeURIComponent(saved.topup_id)+'.json'),JSON.stringify(saved),{mode:0o600})}
-  if(!options.topupStatus&&(!saved||saved.status==='credited'||saved.status==='failed'||saved.status==='closed_unpaid'))saved={key:'cli-wallet-'+randomUUID(),amount:options.topup!,buyer_id:me.buyer_id,...options.request?{request_id:options.request}:{}};
+  // A new explicit purchase first observes its known original. Refund progress
+  // is a public projection, not a return to an unpaid purchase. If this read is
+  // uncertain, keep the original task/key; do not replace it with a new POST.
+  if(!options.topupStatus&&saved?.topup_id){
+   const original=await api.topupStatus(saved.topup_id) as unknown as FundingView;
+   if(original.topup_id!==saved.topup_id)throw Error('original_topup_mismatch: preserve the original purchase and query it again');
+   saved.status=original.status;saved.payment_status=paymentStatus(original);
+  }
+  if(!options.topupStatus&&saved?.topup_id&&purchaseEnded(saved)){writeFileSync(join(root,'receipt-'+encodeURIComponent(saved.topup_id)+'.json'),JSON.stringify(saved),{mode:0o600})}
+  if(!options.topupStatus&&(!saved||purchaseEnded(saved)))saved={key:'cli-wallet-'+randomUUID(),amount:options.topup!,buyer_id:me.buyer_id,...options.request?{request_id:options.request}:{}};
   if(!saved)throw Error('not_found: original credit purchase is unavailable');
   if(options.request)saved.request_id=options.request;
   const task=saved.request_id?new HubTaskStore().get(saved.request_id):undefined;
@@ -29,9 +40,19 @@ export async function walletTopup(options:{topup?:string;topupStatus?:string;req
   save(); // The original funding identity exists before any POST.
   const data=(options.topupStatus?await api.topupStatus(options.topupStatus):await api.createTopup({amount_cny:saved.amount,payer_currency:'CNY',...(task?.intent_id?{continuation_id:task.intent_id}:{})},saved.key)) as unknown as FundingView;
   data.account_hint="…"+me.buyer_id.split("|").pop()!.slice(-6);
-  saved.topup_id=data.topup_id;saved.status=data.status;save();
-  const browser=data.page_url&&!options.topupStatus&&!options.noOpen?await openInSystemBrowser(data.page_url,cfg.baseURL):{status:'unavailable',reason:'host link presentation'};
-  const next=data.status==='credited'?saved.request_id?{command:`itpay api call --pending ${saved.request_id}${options.jsonOutput?' --json':''}`,reason:'到账后继续自己的原请求'}:null:{command:`itpay api wallet --topup-status ${data.topup_id}${options.jsonOutput?' --json':''}`,reason:'只读核对原购买 credit；本人付款后继续'};
-  writeCommandEnvelope({status:data.status,result:{...data,browser,...saved.request_id?{request_id:saved.request_id}:{}},instruction:describeAccount(me)+"\n"+(data.status==='credited'?`账号 ${data.account_hint??''} 已到账 ${data.amount??saved.amount} credit。不要重复付款；如有原请求，继续返回的原 call --pending。购买 credit 不增加消费授权。`:`${data.notice?data.notice+'。':''}为账号 ${data.account_hint??''} 购买 ${data.amount??saved.amount} credit（实际支付 CNY ${data.amount??saved.amount}）。可扫码或打开同单收银台；按宿主能力展示官方图片。${data.expires_at?'有效至 '+data.expires_at+'。':''}展示能力不足时照常使用同单链接办理。购买 credit 不增加消费授权。`),next,recovery:[]},{jsonOutput:options.jsonOutput});
+  saved.topup_id=data.topup_id;saved.status=data.status;saved.payment_status=paymentStatus(data);save();
+  const refund=refundStates.has(data.status),credited=data.status==='credited'&&paymentStatus(data)==='credited';
+  const payable=['created','payment_pending'].includes(data.status)&&['created','payment_pending'].includes(paymentStatus(data))&&(!data.expires_at||Date.parse(data.expires_at)>Date.now());
+  if(!payable){delete data.page_url;delete data.checkout_url;delete data.image;delete data.collection_action;delete data.presentation_hint;}
+  const browser=payable&&data.page_url&&!options.topupStatus&&!options.noOpen?await openInSystemBrowser(data.page_url,cfg.baseURL):{status:'unavailable',reason:payable?'host link presentation':'original purchase is not payable'};
+  const refundPending=['refund_requested','refund_pending','refund_unknown'].includes(data.status);
+  const readNext={command:`itpay api wallet --topup-status ${data.topup_id}${options.jsonOutput?' --json':''}`,reason:refund?'只读核对原退款，不再付款':payable?'只读核对原购买 credit；本人付款后继续':'只读核对原购买结果，不要再次付款'};
+  const next=refund?(refundPending?readNext:null):credited?(saved.request_id?{command:`itpay api call --pending ${saved.request_id}${options.jsonOutput?' --json':''}`,reason:'到账后继续自己的原请求'}:null):purchaseEnded(saved)?null:readNext;
+  const label=({refunded:'已原路退款',partially_refunded:'已部分退款',refund_requested:'等待人工复核',refund_pending:'退款处理中',refund_unknown:'正在核对原退款',refund_failed:'退款未完成',refund_rejected:'退款申请未获通过'} as Record<string,string>)[data.status];
+  const instruction=refund?`原购买 ${data.topup_id}：${label}。不要再次付款；退款进度沿原单只读核对，不替换或重发原退款。`:
+   credited?`账号 ${data.account_hint??''} 已到账 ${data.amount??saved.amount} credit。不要重复付款；如有原请求，继续返回的原 call --pending。购买 credit 不增加消费授权。`:
+   payable?`${data.notice?data.notice+'。':''}为账号 ${data.account_hint??''} 购买 ${data.amount??saved.amount} credit（实际支付 CNY ${data.amount??saved.amount}）。可扫码或打开同单收银台；按宿主能力展示官方图片。${data.expires_at?'有效至 '+data.expires_at+'。':''}展示能力不足时照常使用同单链接办理。购买 credit 不增加消费授权。`:
+   `原购买 ${data.topup_id} 状态：${data.status}。当前没有可付款动作；仅查询原购买结果，不要再次付款。`;
+  writeCommandEnvelope({status:data.status,result:{...data,browser,...saved.request_id?{request_id:saved.request_id}:{}},instruction:describeAccount(me)+"\n"+instruction,next,recovery:[]},{jsonOutput:options.jsonOutput});
  });
 }

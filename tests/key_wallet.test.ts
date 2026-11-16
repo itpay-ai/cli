@@ -174,3 +174,44 @@ test('wallet refund preserves definitive rejection and nonzero exit without resu
   }
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
+
+test('wallet top-up uses original payment status after refunds, creates a distinct explicit purchase and keeps old status read only',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'wallet-topup-refund-'));let origin='',posts=0,failOriginalRead=false;
+ const orders=new Map<string,{id:string;status:string;payment_status?:string}>(),keys=new Map<string,string>();
+ const view=(order:{id:string;status:string;payment_status?:string})=>({topup_id:order.id,status:order.status,...order.payment_status?{payment_status:order.payment_status}:{},amount:'1.00',page_url:origin+'/old-card',checkout_url:origin+'/old-checkout',image:origin+'/old.png',collection_action:{target:origin+'/old-checkout'},presentation_hint:'open the payment checkout',expires_at:'2099-01-01T00:00:00Z'});
+ const server=createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'fixture-walletA',key_id:'key-a'}));return;}
+  if(req.url==='/v1/me/topups'&&req.method==='POST'){
+   posts++;for await(const _chunk of req){/* synthetic body */}
+   const key=String(req.headers['idempotency-key']);let id=keys.get(key);
+   if(!id){id='top-'+(orders.size+1);orders.set(id,{id,status:'payment_pending',payment_status:'payment_pending'});keys.set(key,id);}
+   res.end(JSON.stringify(view(orders.get(id)!)));return;
+  }
+  if(req.url?.startsWith('/v1/me/topups/')){
+   if(failOriginalRead){res.writeHead(503);res.end('{"error":{"code":"read_unavailable","message":"keep original"}}');return;}
+   const id=req.url.split('/').at(-1)!,order=orders.get(id);if(order){res.end(JSON.stringify(view(order)));return;}
+  }
+  res.writeHead(404);res.end('{}');
+ });
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();assert.ok(address&&typeof address!=='string');origin='http://127.0.0.1:'+address.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_STATE_DIR:state,ITPAY_HUB_URL:origin,ITPAY_HUB_KEY:'itk_synthetic_topup_projection'};
+ const cli=(args:string[])=>new Promise<{exit:number|null;value:any}>((resolve,reject)=>{
+  const p=spawn(process.execPath,process.env.ITPAY_REFUND_TEST_CLI?[process.env.ITPAY_REFUND_TEST_CLI,'api','wallet',...args,'--no-open','--json']:['--import','tsx','src/main.ts','api','wallet',...args,'--no-open','--json'],{cwd:root,env});let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);p.on('close',exit=>{try{resolve({exit,value:JSON.parse(stdout)})}catch(e){reject(Error(String(e)+' '+stdout+' '+stderr))}});
+ });
+ const buy=()=>cli(['--topup','1']),read=(id:string)=>cli(['--topup-status',id]);
+ try{
+  const first=await buy();assert.equal(first.exit,0);const a=first.value.result.topup_id;
+  const pending=await buy();assert.equal(pending.value.result.topup_id,a);assert.equal(keys.size,1,'valid unpaid original must be reused');
+  orders.set(a,{id:a,status:'refund_unknown',payment_status:'credited'});
+  const beforeRead=posts;const original=await read(a);assert.equal(posts,beforeRead);assert.equal(original.value.status,'refund_unknown');if(original.value.next)assert.match(original.value.next.command,/--topup-status/);assert.doesNotMatch(original.value.instruction,/可扫码|本人付款后|打开同单收银台/);for(const field of ['page_url','checkout_url','image','collection_action','presentation_hint'])assert.equal(original.value.result[field],undefined);
+  const second=await buy();const b=second.value.result.topup_id;assert.notEqual(b,a);assert.equal(keys.size,2);
+  // The server can have completed/refunded B even while its local receipt is pending.
+  orders.set(b,{id:b,status:'refunded',payment_status:'credited'});
+  const third=await buy();const c=third.value.result.topup_id;assert.notEqual(c,b);assert.equal(keys.size,3);
+  const beforeOldReads=posts;const old=await read(b);assert.equal(old.value.status,'refunded');assert.equal(old.value.next,null);assert.doesNotMatch(old.value.instruction,/可扫码|本人付款后|打开同单收银台/);assert.equal(posts,beforeOldReads);
+  // Legacy projected receipts without payment_status still mean the purchase ended.
+  orders.set(c,{id:c,status:'refunded'});const fourth=await buy();assert.notEqual(fourth.value.result.topup_id,c);assert.equal(keys.size,4);
+  failOriginalRead=true;const beforeFailure=posts;const unavailable=await buy();assert.notEqual(unavailable.exit,0);assert.equal(posts,beforeFailure);assert.equal(keys.size,4,'an unknown original read must not replace the purchase');
+ }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+});
