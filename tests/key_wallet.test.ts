@@ -138,3 +138,39 @@ async function walletRefundRecovery(previewRace:boolean){
 }
 test('wallet refund persists before POST and repeated confirmation after newer credit only reads the original',()=>walletRefundRecovery(false));
 test('wallet refund rejects stale preview before first acceptance and requires fresh explicit confirmation',()=>walletRefundRecovery(true));
+
+test('wallet refund preserves definitive rejection and nonzero exit without resubmitting; uncertain HTTP remains original-key read only',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'wallet-refund-errors-'));let writes=0,reads=0,code=403;
+ const server=createServer(async(req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'issuer|buyer_AAAAAA',consumer_id:'oauth:fixture:original'}));return;}
+  const u=new URL(req.url!,'http://fixture');
+  if(u.pathname==='/v1/me/wallet/refund'&&req.method==='GET'){
+   reads++;res.end(JSON.stringify(u.searchParams.has('request_key')?{status:'unconfirmed',request_recorded:false}:{status:'eligible',topup_id:'top-original',account_hint:'…AAAAAA'}));return;
+  }
+  if(u.pathname==='/v1/me/wallet/refund'&&req.method==='POST'){
+   writes++;for await(const _part of req){/* consume synthetic request */}
+   res.writeHead(code);res.end(JSON.stringify({error:{code:code===403?'original_connection_required':code===400?'invalid_input':'temporarily_unavailable',message:code===403?'recheck the original connection; no replacement refund':'original request cannot be confirmed'}}));return;
+  }
+  res.writeHead(404);res.end('{}');
+ });
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const a=server.address();assert.ok(a&&typeof a!=='string');const base='http://127.0.0.1:'+a.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_HUB_URL:base,ITPAY_STATE_DIR:state,ITPAY_HUB_OAUTH_CLIENT:'fixture'};
+ storeHubSession('synthetic-refund-rejection',undefined,3600,'issuer|buyer_AAAAAA',base,env,'oauth:fixture:original');
+ const cli=(args:string[])=>new Promise<{exit:number|null;value:any}>((resolve,reject)=>{
+  const p=spawn(process.execPath,process.env.ITPAY_REFUND_TEST_CLI?[process.env.ITPAY_REFUND_TEST_CLI,'api','wallet',...args,'--json']:['--import','tsx','src/main.ts','api','wallet',...args,'--json'],{cwd:root,env});let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);p.on('close',exit=>{try{assert.ok(!stdout.includes('synthetic-refund-rejection'));resolve({exit,value:JSON.parse(stdout)})}catch(e){reject(Error(String(e)+' '+stdout+' '+stderr))}});
+ });
+ try{
+  for(const status of [403,400,500,408]){
+   code=status;const preview=await cli(['--refund-latest']),key=preview.value.result.request_id;const confirm=['--refund-latest','--refund-request',key,'--confirm'];const before=writes;
+   const first=await cli(confirm);assert.equal(writes,before+1);
+   if(status===403||status===400){
+    assert.notEqual(first.exit,0);assert.equal(first.value.status,'error');assert.match(JSON.stringify(first.value),new RegExp(status===403?'original_connection_required':'invalid_input'));
+    const repeat=await cli(confirm);assert.notEqual(repeat.exit,0);assert.equal(writes,before+1);
+    const oldReads=reads;const observed=await cli(['--refund-status',key]);assert.notEqual(observed.exit,0);assert.equal(reads,oldReads+1);assert.equal(writes,before+1);assert.match(JSON.stringify(observed.value),new RegExp(status===403?'original_connection_required':'invalid_input'));
+   }else{
+    assert.equal(first.exit,0);assert.equal(first.value.status,'unconfirmed');const repeated=await cli(confirm);assert.equal(repeated.value.status,'unconfirmed');assert.equal(writes,before+1);
+   }
+  }
+ }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+});

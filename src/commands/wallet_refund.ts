@@ -7,7 +7,7 @@ import {hubTasksDir} from '../state/hub_tasks.js';
 import {withAsyncFileLock} from '../state/file_lock.js';
 import {writeCommandEnvelope} from './hub_guidance.js';
 
-type RefundAttempt={request_id:string;buyer_id:string;sent:boolean;topup_id?:string;refund_id?:string;status?:string};
+type RefundAttempt={request_id:string;buyer_id:string;sent:boolean;topup_id?:string;refund_id?:string;status?:string;rejection?:{status:number;code:string;message:string}};
 const displayAtoms=(raw:string)=>{const n=BigInt(raw);return (n/1000000n).toString()+(n%1000000n?'.'+(n%1000000n).toString().padStart(6,'0').replace(/0+$/,''):'')+' credit'};
 const refundReason=(reason:string|undefined)=>({original_credit_used:'原 credit 已消费，不能全额批准',original_credit_occupied:'原 credit 有占用，需核对原任务',outside_24_hours:'已超过自动退款时限，需人工复核',not_latest_credit:'非最近到账，需人工复核',automatic_disabled:'当前采用人工复核',original_payment_disputed:'原付款争议待核对',original_credit_incomplete:'原批次不完整，不能全额批准'} as Record<string,string>)[reason??''];
 const validID=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
@@ -27,16 +27,23 @@ export async function walletRefund(options:{latest:boolean;request?:string;statu
   if((options.status||options.confirm)&&!saved)throw Error('not_found: preview/save this original refund request in this installation/profile before confirmation or recovery');
   const save=()=>{const tmp=file+'.tmp';writeFileSync(tmp,JSON.stringify(saved),{mode:0o600});renameSync(tmp,file)};
   let result:WalletRefund;
-  if(saved?.status==='preview_changed'){
+  if(saved?.status==='submission_rejected'&&saved.rejection&&!options.status){
+   throw new HttpError(saved.rejection.status,{code:saved.rejection.code,message:saved.rejection.message},'Original refund submission was rejected; keep its request key.');
+  }else if(saved?.status==='preview_changed'){
    result={status:'preview_changed',request_key:id,reason:'original_changed',next_step:'review_latest_original',account_hint:'…'+me.buyer_id.split('|').pop()!.slice(-6),wallet_url:cfg.baseURL+'/me/usage'};
   }else if(saved?.sent||options.status){
    // Even a repeated confirmation after B arrives only reads A's saved key.
    result=await api.walletRefundStatus({request_key:id});
+   if(saved?.rejection&&result.request_recorded===false)throw new HttpError(saved.rejection.status,{code:saved.rejection.code,message:saved.rejection.message},'Original refund submission was rejected; keep its request key.');
   }else if(options.confirm){
    const topupID=saved?.topup_id;if(!topupID)throw Error('refund_preview_required: obtain and save the original server preview before confirming');
    saved={request_id:id,buyer_id:me.buyer_id,topup_id:topupID,sent:true,status:'unconfirmed'};save();
    try{result=await api.walletRefundIntent(id,topupID)}catch(error){
     const changed=error instanceof HttpError&&error.status===409&&error.code==='refund_preview_changed';
+    if(error instanceof HttpError&&error.status>=400&&error.status<500&&![408,425].includes(error.status)&&!changed){
+     saved.status='submission_rejected';saved.rejection={status:error.status,code:error.code,message:error.message};save();
+     throw error;
+    }
     // POST uncertainty is durable. Never automatically POST again, even if
     // readback is absent; the original worker/owner must reconcile it.
     result={status:changed?'preview_changed':'unconfirmed',request_key:id,...changed?{reason:'original_changed'}:{},next_step:changed?'review_latest_original':'read_original_request',account_hint:'…'+me.buyer_id.split('|').pop()!.slice(-6),wallet_url:cfg.baseURL+'/me/usage'};
