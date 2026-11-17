@@ -84,7 +84,7 @@ test('link-only host prepares and reuses one amount top-up and completes its sam
 });
 
 async function walletRefundRecovery(previewRace:boolean){
- const state=mkdtempSync(join(tmpdir(),'wallet-refund-'));let latest='top-a',lost=true,writes=0;
+ let previewOccupied=false;const state=mkdtempSync(join(tmpdir(),'wallet-refund-'));let latest='top-a',lost=true,writes=0;
  const refunds=new Map<string,{top:string,id:string}>();let fixtureEnv:NodeJS.ProcessEnv={};
  const server=createServer(async(req,res)=>{
   res.setHeader('Content-Type','application/json');
@@ -92,7 +92,7 @@ async function walletRefundRecovery(previewRace:boolean){
   const u=new URL(req.url!,'http://fixture');
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='GET'){
    const key=u.searchParams.get('request_key'),original=key?refunds.get(key):undefined;
-   res.end(JSON.stringify({status:key?(original?'unknown':'unconfirmed'):'eligible',topup_id:original?.top||latest,refund_id:original?.id||'',amount_minor_text:'100',currency:'CNY',credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:'0',account_hint:'…AAAAAA',payment_account_hint:'',payment_provider:'fakepass',wallet_url:'http://fixture/me/usage',next_step:'read_original_request'}));return;
+   res.end(JSON.stringify({status:key?(original?'unknown':'unconfirmed'):'eligible',topup_id:original?.top||latest,refund_id:original?.id||'',amount_minor_text:'100',currency:'CNY',credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:original||previewOccupied?'1000000':'0',reason:original||previewOccupied?'original_credit_occupied':'',account_hint:'…AAAAAA',payment_account_hint:'',payment_provider:'fakepass',wallet_url:'http://fixture/me/usage',next_step:'read_original_request'}));return;
   }
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='POST'){
    writes++;const key=String(req.headers['idempotency-key']);let body='';for await(const part of req)body+=part;
@@ -103,7 +103,7 @@ async function walletRefundRecovery(previewRace:boolean){
    if(input.expected_topup_id!==latest){res.writeHead(409);res.end(JSON.stringify({error:{code:'refund_preview_changed',message:'original changed'}}));return;}
    const original={top:latest,id:'refund-'+latest};refunds.set(key,original);
    if(lost){lost=false;req.socket.destroy();return;}
-   res.end(JSON.stringify({status:'pending',topup_id:original.top,refund_id:original.id,credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:'1000000',account_hint:'…AAAAAA',wallet_url:'http://fixture/me/usage'}));return;
+   res.end(JSON.stringify({status:'pending',topup_id:original.top,refund_id:original.id,credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:'1000000',reason:'original_credit_occupied',account_hint:'…AAAAAA',wallet_url:'http://fixture/me/usage'}));return;
   }
   res.writeHead(404);res.end('{}');
  });
@@ -115,6 +115,7 @@ async function walletRefundRecovery(previewRace:boolean){
   const p=spawn(process.execPath,process.env.ITPAY_REFUND_TEST_CLI?[process.env.ITPAY_REFUND_TEST_CLI,'api','wallet',...args,'--json']:['--import','tsx','src/main.ts','api','wallet',...args,'--json'],{cwd:root,env:{...fixtureEnv,...overrides}});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',()=>{try{assert.ok(!out.includes('synthetic-oauth-refund'));resolve(JSON.parse(out))}catch(e){reject(Error(String(e)+' '+out+' '+err))}});
  });
  try{
+  previewOccupied=true;const occupiedPreview=await cli(['--refund-latest']);assert.match(occupiedPreview.instruction,/原任务/);previewOccupied=false;
   const preview=await cli(['--refund-latest']);assert.equal(writes,0);assert.equal(preview.status,'eligible');const key=preview.result.request_id;assert.match(key,/^cli-refund-/);
   const confirmed=['--refund-latest','--refund-request',key,'--confirm'];
   if(previewRace){
@@ -122,11 +123,11 @@ async function walletRefundRecovery(previewRace:boolean){
    const stale=await cli(confirmed);assert.equal(stale.status,'preview_changed');assert.equal(writes,1);assert.equal(refunds.size,0);
    const repeated=await cli(confirmed);assert.equal(repeated.status,'preview_changed');assert.equal(writes,1);assert.equal(refunds.size,0);
    const freshPreview=await cli(['--refund-latest']);assert.equal(freshPreview.result.topup_id,'top-b');lost=false;
-   const fresh=await cli(['--refund-latest','--refund-request',freshPreview.result.request_id,'--confirm']);assert.equal(fresh.status,'pending');assert.equal(fresh.result.topup_id,'top-b');assert.equal(writes,2);assert.equal(refunds.size,1);return;
+   const fresh=await cli(['--refund-latest','--refund-request',freshPreview.result.request_id,'--confirm']);assert.equal(fresh.status,'pending');assert.doesNotMatch(fresh.instruction,/核对原任务/);assert.match(fresh.instruction,/退款冻结/);assert.equal(fresh.result.topup_id,'top-b');assert.equal(writes,2);assert.equal(refunds.size,1);return;
   }
   const first=await cli(confirmed);assert.equal(first.status,'unconfirmed');assert.equal(writes,1);
   latest='top-b';
-  const retry=await cli(confirmed);assert.equal(writes,1);assert.equal(retry.result.topup_id,'top-a');assert.equal(retry.result.refund_id,'refund-top-a');
+  const retry=await cli(confirmed);assert.equal(writes,1);assert.equal(retry.result.topup_id,'top-a');assert.equal(retry.result.refund_id,'refund-top-a');assert.doesNotMatch(retry.instruction,/核对原任务/);assert.match(retry.instruction,/退款冻结/);
   const status=await cli(['--refund-status',key]);assert.equal(status.result.refund_id,'refund-top-a');assert.equal(writes,1);
   await cli(['--refund-latest','--refund-request','explicit-new-b']);assert.equal(writes,1);
   const fresh=await cli(['--refund-latest','--refund-request','explicit-new-b','--confirm']);assert.equal(writes,2);assert.equal(fresh.result.topup_id,'top-b');
