@@ -1,6 +1,16 @@
 # API Hub CLI
 
-Use the same installation launcher and absolute --profile selector for every call.
+Use the same installation launcher and absolute --profile selector for every call. `itpay` below means that installation's exact launcher, not a second global installation.
+
+## Quick start: published installation
+
+Install through [the official dev entry](https://dev.itpay.ai/agent), read its installation instructions, and use the packaged `itpay-api` Skill. New setup returns one unified authorization page: the requested item is primary, the other item is checked by default and cancellable. Display the link immediately and run the returned wait command in the same profile. Only connected/authenticated is success; a browser callback alone is insufficient.
+
+The public installer and npm next currently supply the immutable **2.1.69** package. Current main also says 2.1.69 but has unpublished changes. Public 2.1.69 does **not** support `--payer-currency`, `--refund-latest`, `--refund-request`, `--refund-status` or `--confirm`. Read installed help rather than assuming source and registry packages match.
+
+For a newly connected installation, begin with `api categories` or `api list`. Select an ID actually returned by discovery, run `api show`, explain purpose, price, result TTL and effects, then obtain the applicable consent before `api call`. The `operation_id`, input and original request ID must come from those responses; examples containing placeholders are not ready-to-run commands. Read the result and charge with `api status`. No new API product example is claimed here while Owner/Frank selection is pending.
+
+## Common tasks and six business commands
 
 |Command|Behavior|
 |---|---|
@@ -8,9 +18,9 @@ Use the same installation launcher and absolute --profile selector for every cal
 |api list [--category <id/slug/label>] [--query <text>] [--limit <1..100>] [--cursor <cursor>]|The website's saleable products, filtered before pagination.|
 |api show <operation_id>|Purpose, price, JSON example and result TTL. Saves this installation's displayed publication.|
 |api call <operation_id> --input <JSON/@file/->|After consent, submit using the shown price and publication.|
-|api call --pending <request_id>|Read and, when eligible, continue this installation's original request. Each wait round is at most 120 seconds.|
+|api call --pending <original_local_handle>|Read and, when eligible, continue this installation's original request. Each wait round is at most 120 seconds.|
 |api status <request_id>|Read-only original receipt, result and charge.|
-|api wallet|Account available/held credit, selected credential kind/masked account and official proactive credit purchase URL.|
+|api wallet|Account available/held credit, selected credential kind/masked account and official wallet URL.|
 |api wallet --usage|Current Key/Consumer gross/net/refunded/held usage; runs include failures.|
 |api wallet --transactions|Scoped charge/refund rows with limit/truncation; owner_billing_url opens full account history.|
 
@@ -29,18 +39,18 @@ Use a secret manager to inject ITPAY_HUB_KEY or pipe a private secret source to 
 Check `wallet` identity.account_hint and credential_kind; matching hints identify the same wallet, not the same consumer. Invalid/revoked Key or insufficient Key scope points to the official /me/keys page, without OAuth fallback. Hub MCP accepts Key only through its existing X-ItPay-Key protocol header; normal ChatGPT MCP uses OAuth. Do not paste a Key into chat or put it in a Bearer field. Services identity is independent.
 
 
-### 本人钱包定额购买 credit
+### 本人钱包购买 credit（公开包：人民币）
 
 `itpay api wallet --topup 30 --json` 准备本人钱包的人民币购买 credit，按实际环境的服务端报价，正式最低 ¥10、已批准 dev 最低 ¥1。保持用户原始正金额输入，低于最低时照读返回的 minimum_applied/notice、实际支付与 credit 金额，不在客户端硬编码调额。若为已有挂起请求购买 credit，加 `--request <原 request_id>`；付款后按返回 next 读取原购买 credit 并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原购买 credit。OAuth/API Hub Key 准备购买 credit 不要求消费 grant；购买 credit 不会增加调用额度、商户收款或退款权限。
 
-可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。
+仅在用户明确请求购买 credit 并指定金额时准备付款；余额不足本身不表示购买授权。ChatGPT 只提供中性的账号状态与原请求下一步，不主动推销购买。
 四档只是快捷项；每个钱包/码链接标“当前账号：名字 · 末6位”。
 
 ## Credit amounts and reporting
 
 Balances, API quotes, holds and charges are in credit: **1 credit = ¥1 equivalent**. Quote users in credit first; when useful add “approximately ¥X”. Do not call an API balance cash or tell users to add money. With USD or another supported purchase currency, the server converts the actual fiat payment into credit using the frozen exchange rate at purchase time. Show fiat paid on the payment page and credit received on the receipt; never calculate a substitute FX quote.
 
-When credit is insufficient, guide the user to purchase credit on the ItPay website using the returned original wallet/intent link. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.
+When credit is insufficient, report the account state and preserve the returned original wallet/intent link and recovery command. Do not create a purchase or suggest an amount without explicit user intent. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.
 
 ### Original-wallet refunds (local candidate; no npm release)
 
@@ -53,3 +63,26 @@ A definitive refund submission rejection (for example403 original_connection_req
 Credit purchase reuse follows original payment_status, with legacy refund-status compatibility. A new explicit same-amount --topup first reads its known original: a completed purchase is archived under its original ID before a new key is created; an uncertain read preserves the original. Effective unpaid originals remain reusable. --topup-status only reads its original, including refund progress, and cannot create a new purchase. Paid/refunding/refunded originals provide no checkout action, payment image or payment instruction; refund progress never resumes an original pending API call as if its returned credit remained available.
 
 `wallet --topup 10 --payer-currency USD --json` requests10 credit with server-quoted USD cash; `--payer-currency CNY` is the default. USD requires an admitted Stripe test buyer/profile and configured FX; unavailable channels fail without fallback. Read actual frozen `payer_currency`/`payer_minor_amount`, never convert credit locally. Currency is persisted before POST; USD retries use their own stable funding key, while existing CNY files and original read-only receipts remain valid. Do not add --payer-currency to --topup-status or refund commands. Buying credit changes no spending grant. This is candidate command support; actual channel availability depends on the paired server and separate sandbox acceptance.
+
+## My API and My Key
+
+Use the normally signed-in website: `/me/apis` imports and prepares a private OpenAPI operation; `/me/credentials` manages its supplier My Key. `/me/keys` instead manages ItPay API keys (`itk_`), which authenticate the caller to ItPay. Neither key belongs in chat, command arguments or logs. My API preparation is not an additional public CLI upload/publish command.
+
+The accepted private BYOK path is owner-only `generic_https_json` GET/HEAD with explicit header API key or bearer authentication. Hub charges 0 credit for this supported own-key path; the supplier may charge separately. Do not infer that every provider, write operation or priced native workflow is free. Missing, rotated or revoked supplier keys do not fall back to platform credentials. Read original receipts without re-executing; another account cannot take over the private operation.
+
+## Error → next action
+
+|Outcome|Next action|
+|---|---|
+|Pending, timeout, cancelled or unknown after submission|Keep the original profile, identity and request; run only its returned status/recovery command. Never submit a replacement to discover whether it succeeded.|
+|Authorization denied or budget exhausted|Use the returned authorization/settings action; funding cannot expand permission or budget. Do not switch to OAuth, another Key or MCP to bypass it.|
+|Price/publication changed before acceptance|Read the original receipt, inspect the current publication and obtain fresh applicable consent before a genuinely new call.|
+|Missing/revoked supplier My Key|Open My Key in the normal account session; preserve original/unknown runs. No platform-key fallback.|
+|Result expired|Report expiry and retain original charge facts; do not silently call again.|
+|Not found/not visible|Check the original account and returned operation; do not guess IDs or expose another account's private API.|
+
+## Verification boundary / release follow-up
+
+Source/help checked against CLI main `eec7253` and Coding's published-package comparison on 2026-11-18. Existing accepted reports cover controlled My API/My Key GET/HEAD with zero Hub credit, Stripe **test-mode** original Checkout/refund, and scoped display repair; they do not prove all providers or Agent hosts. WeChat real Native remains pending merchant confirmation and separately authorized real testing. Stripe live is not accepted. Reviewer simulation is separate from actual Stripe sandbox evidence.
+
+Testing must rerun the six-command discovery→show→consented call→original status flow with the exact public package and a permitted dev account, check authorization recovery and errors, and separately check candidate-only refund/USD examples against source `eec7253` (not the registry package). Do not create new financial transactions merely to refresh examples. On an approved future release, update this availability paragraph, both packaged Skills, README and the official Agent guide together; fixed downloads/pins and publication require their own authorization.

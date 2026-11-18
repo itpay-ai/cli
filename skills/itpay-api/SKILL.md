@@ -35,7 +35,7 @@ If refresh is explicitly rejected, follow the returned connect --request command
 
 ## Wallet and payment
 
-wallet reads available and held atoms and provides the official proactive credit purchase URL. For “what have I used”, use wallet --usage or wallet --transactions: these report only the current Consumer/Key scope, with truncation where applicable. Known requests still use status. Full account funding, holds and cash refunds use owner_billing_url in the normal owner browser; do not use Computer Use to expand machine scope. Wallet credit balance is shared account credit, not this consumer's authorization cap. Insufficient credit balance uses the original intent's official credit purchase page and original call --pending wait command. Funding never increases an explicit spending cap.
+wallet reads available and held atoms and provides the official wallet URL. For “what have I used”, use wallet --usage or wallet --transactions: these report only the current Consumer/Key scope, with truncation where applicable. Known requests still use status. Full account funding, holds and cash refunds use owner_billing_url in the normal owner browser; do not use Computer Use to expand machine scope. Wallet credit balance is shared account credit, not this consumer's authorization cap. Insufficient credit balance uses the original intent's official credit purchase page and original call --pending wait command. Funding never increases an explicit spending cap.
 
 Only prepare a credit purchase when the user explicitly gives a funding amount. Quick amounts are shortcuts, not allowed-amount limits; the server quotes the amount under its existing minimum and currency contract. A test channel must remain visibly marked as simulated. A page or callback does not prove wallet credit. Read the original server request and final charge. Do not create another payment or replacement intent.
 
@@ -52,11 +52,11 @@ For an API task with a selected Key, agent prepares only that API installation a
 
 ## Amount-based own-wallet credit purchase
 
-可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。
+仅在用户明确请求购买 credit 并指定金额时准备付款；余额不足本身不表示购买授权。ChatGPT 只提供中性的账号状态与原请求下一步，不主动推销购买。
 用户已给金额时，直接执行原安装的 wallet --topup 金额；有原待续接请求时带 --request。
 Every wallet link or payment card must identify the current account as 名字 · 末6位 from the authenticated account information. Browser and credited accounts are separate facts. Fixed SKUs are shortcuts, never amount limits.
 
-When the user only asks to buy credit, return wallet.topup_url and say: “可以打开钱包购买 credit，也可以告诉我金额，我直接给你扫码付款。” For insufficient_balance, keep the original request and its continuation link with the same hint. Never turn these two cases into an unsolicited payment order.
+When the user explicitly asks to buy credit without an amount, return the official wallet link without creating a payment or proposing an amount. For insufficient_balance, report the account state and keep the original request and its continuation link with the same hint. Never turn these cases into an unsolicited payment order.
 
 When an amount is explicit, run `itpay api wallet --topup 30 --json` (use the user's amount). If continuing a saved insufficient-balance task, add `--request <original request_id>`. OAuth and valid api_hub Keys can prepare their own wallet credit purchase without a spending grant. The server quotes positive CNY amounts in cents using the actual environment’s policy: production minimum ¥10; approved dev minimum ¥1. Send the user’s original positive amount and relay the returned minimum_applied/notice, actual payment and credit amounts. Do not hardcode or calculate the adjustment; for example, dev input 0.50 may return “最低支付 ¥1，本单支付 ¥1，获得 1 credit”. The reply and official card must identify the masked credited account, actual amount and expiry.
 
@@ -70,4 +70,14 @@ Credit is the user-facing pricing unit: 1 credit = CNY 1. Preserve wire currency
 
 Balances, API quotes, holds and charges are in credit: **1 credit = ¥1 equivalent**. Quote users in credit first; when useful add “approximately ¥X”. Do not call an API balance cash or tell users to add money. With USD or another supported purchase currency, the server converts the actual fiat payment into credit using the frozen exchange rate at purchase time. Show fiat paid on the payment page and credit received on the receipt; never calculate a substitute FX quote.
 
-When credit is insufficient, guide the user to purchase credit on the ItPay website using the returned original wallet/intent link. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.
+When credit is insufficient, report the account state and preserve the returned original wallet/intent link and recovery command. Do not create a purchase or suggest an amount without explicit user intent. Preserve authorization, budget, request and idempotency identity. Purchasing credit never increases a spending grant. Machine fields `currency`, `scale`, `amount_atoms`, `captured_atoms` and `held_atoms` stay unchanged; CNY/scale 6 wire values represent the same credit equivalent, with 1,000,000 atoms per credit. Services tickets, merchant collections and cash refunds retain their actual fiat currency.
+
+## Published package and candidate boundary
+
+The public installer/npm next package is 2.1.69. Current main retains that version string but includes unpublished changes: refund-latest/refund-request/refund-status/confirm and payer-currency are candidate-only. Do not suggest those flags after installing public next. Use the exact installed help and original launcher/profile. The maintained CLI reference records the future release synchronization list; this Skill edit does not publish a package.
+
+## Private My API / My Key
+
+Manage private OpenAPI preparation at /me/apis and supplier My Key at /me/credentials using the normal signed-in website. This is not an extra public CLI upload command. /me/keys and itk_ are ItPay authentication keys, not supplier credentials. Accepted own-key support is owner-only generic_https_json GET/HEAD with explicit header API key or bearer. Its Hub fee is 0 credit; supplier charges may still apply and native workflow prices are separate. Missing/revoked supplier keys require My Key correction with no platform fallback; original/unknown runs and receipts keep their identity. No unselected third-party supplier or all-host acceptance is implied.
+
+Candidate refund flow requires explicit refund intent, saved original preview/request and normal OAuth: preview does not submit, confirmation uses that exact saved ID, and pending/unknown only reads its original status. Never invent refund amount/destination or replace an uncertain request. Public 2.1.69 cannot run this flow.
