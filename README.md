@@ -15,3 +15,5 @@
 用户购买和消费的计价单位是 credit，1 credit = ¥1。美元付款按订单汇率换算为等值 credit；实际法币付款金额和获得的 credit 以服务器冻结报价为准。购买 credit 不增加调用权限或消费预算。
 
 Users buy and spend credit: 1 credit = CNY 1. USD payments convert to equivalent credit at the order exchange rate. The frozen server quote determines the fiat payment and credit received. Buying credit does not grant API permissions or increase spending budgets.
+
+本次仅调整源码文档与随包 Skill，尚未发布。公开 npm next 2.1.69 不含候选退款与 USD 参数；其随包 Skill、帮助及运行提示仍保留旧文案，已验候选的帮助与运行提示也未随文档改成中性提示。文档合并不等于公开安装包已更新，需在另行批准的发布范围内同步并验证；用户安装说明只适用于公开包已有功能。
