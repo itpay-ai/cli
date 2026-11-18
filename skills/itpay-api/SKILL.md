@@ -52,7 +52,7 @@ For an API task with a selected Key, agent prepares only that API installation a
 
 ## Amount-based own-wallet credit purchase
 
-仅在用户明确请求购买 credit 并指定金额时准备付款；余额不足本身不表示购买授权。ChatGPT 只提供中性的账号状态与原请求下一步，不主动推销购买。
+仅在用户明确请求钱包操作 并指定金额时准备付款；余额不足本身不表示操作授权。ChatGPT 只提供中性的账号状态与原请求下一步，不主动引导钱包操作。
 用户已给金额时，直接执行原安装的 wallet --topup 金额；有原待续接请求时带 --request。
 Every wallet link or payment card must identify the current account as 名字 · 末6位 from the authenticated account information. Browser and credited accounts are separate facts. Fixed SKUs are shortcuts, never amount limits.
 

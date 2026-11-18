@@ -26,7 +26,7 @@ For a newly connected installation, begin with `api categories` or `api list`. S
 
 All support --json. setup --api-prefix prepares the installation and points to api connect. A fresh connection uses one unified confirmation page (primary plus default checked, cancellable other item), then waits and resumes. connect continue/status/restart remain supported for the original existing Device recovery only; keep its exact returned action and profile. Explicit rejection of refresh returns the original profile's connect --request command. Immediately follow the emitted waiting command. Successful reconnection returns status of the same original request, which can then return call --pending.
 
-Show purpose, price and TTL before obtaining consent. A publication change requires reading the original receipt and showing the new price. A network-unknown write permits only original status reads. A failed call is called free of charge only when captured and held are both confirmed zero. Source result expiry does not remove fee facts.
+Show purpose, price and TTL before obtaining consent. A publication change requires reading the original receipt and showing the new price. A network-unknown write permits only original status reads. A failed call is reported as zero charge only when captured and held are both confirmed zero. Source result expiry does not remove fee facts.
 
 The developer credentials import, admin and doctor commands are outside the six business commands. Services/cart/buy/checkout keep their separate authority and entry points.
 
@@ -39,11 +39,11 @@ Use a secret manager to inject ITPAY_HUB_KEY or pipe a private secret source to 
 Check `wallet` identity.account_hint and credential_kind; matching hints identify the same wallet, not the same consumer. Invalid/revoked Key or insufficient Key scope points to the official /me/keys page, without OAuth fallback. Hub MCP accepts Key only through its existing X-ItPay-Key protocol header; normal ChatGPT MCP uses OAuth. Do not paste a Key into chat or put it in a Bearer field. Services identity is independent.
 
 
-### 本人钱包购买 credit（公开包：人民币）
+### 本人钱包与 credit（公开包：人民币）
 
-`itpay api wallet --topup 30 --json` 准备本人钱包的人民币购买 credit，按实际环境的服务端报价，正式最低 ¥10、已批准 dev 最低 ¥1。保持用户原始正金额输入，低于最低时照读返回的 minimum_applied/notice、实际支付与 credit 金额，不在客户端硬编码调额。若为已有挂起请求购买 credit，加 `--request <原 request_id>`；付款后按返回 next 读取原购买 credit 并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原购买 credit。OAuth/API Hub Key 准备购买 credit 不要求消费 grant；购买 credit 不会增加调用额度、商户收款或退款权限。
+`itpay api wallet --topup 30 --json` 准备本人钱包的人民币请求，按实际环境的服务端报价，正式最低 ¥10、已批准 dev 最低 ¥1。保持用户原始正金额输入，低于最低时照读返回的 minimum_applied/notice、实际支付与 credit 金额，不在客户端硬编码调额。若关联已有挂起请求，加 `--request <原 request_id>`；付款后按返回 next 读取原钱包记录 并继续原 call --pending。CLI 在宿主可打开浏览器时主动打开官方 page_url，同时返回 checkout_url 和 image。`--no-open` 用于无浏览器打开能力的宿主。`wallet --topup-status <topup_id>` 只读原钱包记录。OAuth/API Hub Key 准备钱包请求 不要求消费 grant；钱包操作不会增加调用额度、商户收款或退款权限。
 
-仅在用户明确请求购买 credit 并指定金额时准备付款；余额不足本身不表示购买授权。ChatGPT 只提供中性的账号状态与原请求下一步，不主动推销购买。
+仅在用户明确请求钱包操作并指定金额时准备付款；余额不足本身不表示操作授权。ChatGPT 只提供中性的账号状态和原请求下一步。
 四档只是快捷项；每个钱包/码链接标“当前账号：名字 · 末6位”。
 
 ## Credit amounts and reporting
