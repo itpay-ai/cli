@@ -58,7 +58,7 @@ Tell the human useful route, amount, limits, official entry and next human actio
 
 ## API 钱包与账号
 
-API 钱包使用同包 itpay-api Skill。仅在用户明确请求钱包操作并指定金额时，由原安装准备 wallet --topup；已有请求保留 --request。余额不足只报告账号状态与原请求下一步，ChatGPT 不主动引导钱包操作。四档只是快捷项，官方钱包/码链接带可信返回的账号名称与末6位。网页当前账号与同单到账账号分别核对，不推测身份或重画二维码。
+API 钱包使用同包 itpay-api Skill。仅在用户明确要求为本人钱包增加 credit 并指定金额时，才准备对应官方付款。由原安装按该意图准备 wallet --topup；已有请求保留 --request。余额不足只报告账号状态与原请求下一步，ChatGPT 不主动引导钱包操作。四档只是快捷项，官方钱包/码链接带可信返回的账号名称与末6位。网页当前账号与同单到账账号分别核对，不推测身份或重画二维码。
 
 ## Credit amounts and reporting
 

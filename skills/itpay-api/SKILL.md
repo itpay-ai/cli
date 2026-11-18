@@ -52,13 +52,13 @@ For an API task with a selected Key, agent prepares only that API installation a
 
 ## Amount-based own-wallet credit purchase
 
-仅在用户明确请求钱包操作 并指定金额时准备付款；余额不足本身不表示操作授权。ChatGPT 只提供中性的账号状态与原请求下一步，不主动引导钱包操作。
-用户已给金额时，直接执行原安装的 wallet --topup 金额；有原待续接请求时带 --request。
+仅在用户明确要求为本人钱包增加 credit 并指定金额时，才准备对应官方付款。ChatGPT 只提供中性的账号状态和原请求下一步。
+用户明确要求为本人钱包增加 credit 并指定金额时，才执行原安装的 wallet --topup 金额；有原待续接请求时带 --request。
 Every wallet link or payment card must identify the current account as 名字 · 末6位 from the authenticated account information. Browser and credited accounts are separate facts. Fixed SKUs are shortcuts, never amount limits.
 
 When the user explicitly asks to buy credit without an amount, return the official wallet link without creating a payment or proposing an amount. For insufficient_balance, report the account state and keep the original request and its continuation link with the same hint. Never turn these cases into an unsolicited payment order.
 
-When an amount is explicit, run `itpay api wallet --topup 30 --json` (use the user's amount). If continuing a saved insufficient-balance task, add `--request <original request_id>`. OAuth and valid api_hub Keys can prepare their own wallet credit purchase without a spending grant. The server quotes positive CNY amounts in cents using the actual environment’s policy: production minimum ¥10; approved dev minimum ¥1. Send the user’s original positive amount and relay the returned minimum_applied/notice, actual payment and credit amounts. Do not hardcode or calculate the adjustment; for example, dev input 0.50 may return “最低支付 ¥1，本单支付 ¥1，获得 1 credit”. The reply and official card must identify the masked credited account, actual amount and expiry.
+Only when the user explicitly requests an increase in their own wallet credit and specifies the amount, run `itpay api wallet --topup 30 --json` (use the user's amount). If continuing a saved insufficient-balance task, add `--request <original request_id>`. OAuth and valid api_hub Keys can prepare their own wallet credit purchase without a spending grant. The server quotes positive CNY amounts in cents using the actual environment’s policy: production minimum ¥10; approved dev minimum ¥1. Send the user’s original positive amount and relay the returned minimum_applied/notice, actual payment and credit amounts. Do not hardcode or calculate the adjustment; for example, dev input 0.50 may return “最低支付 ¥1，本单支付 ¥1，获得 1 credit”. The reply and official card must identify the masked credited account, actual amount and expiry.
 
 When browser capability is available, immediately open the returned official page_url. Provide the same checkout_url and, where supported, the returned official image. Scan and click are user choices. Limited display capability does not stop payment; a link-only host can use the same checkout. Do not draw or reconstruct QR codes. `--no-open` expresses a host without browser opening. Poll the returned original credit purchase status; when credited follow the returned original call --pending, never create another business request. A shared funding card does not transfer another connection's task.
 
