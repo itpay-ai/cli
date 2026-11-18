@@ -137,3 +137,15 @@ The consumer explicitly upgrades to SDK0.1.0-integration.eeca7df57174 from revie
 The actual Stripe test refund completed correctly, but its first pending response reused the current eligibility reason original_credit_occupied, making CLI instructions suggest checking an original API task for the hold created by this refund itself. A presentation-only guard recognizes pending/unknown with an original refund ID, zero used credit and the entire positive original credit occupied; it labels that amount as refund-held and omits that inapplicable eligibility sentence. Structured reason/amounts, confirmation, original key and GET-only recovery remain unchanged. A genuine pre-existing occupied preview still tells the user to check the original task.
 
 Both pending and lost-response/unknown fixture regressions reproduced the old instruction, then nine wallet tests and typecheck passed after the fix. npm run test:package passed build/whitelist/isolated offline installation and synthetic smoke. Required pre-commit lint/full-suite output is in /Users/tzz/.codex/artifacts/prelaunch-polish-20261116/stripe-refund-copy-commit.log; targeted evidence is stripe-refund-copy-{before-fix,after-fix}.log and stripe-refund-copy-package.log in the same directory. No actual shared-dev payment/refund, SDK/schema, version, npm or global-install change. Final exact-head review and package read-only acceptance remain separate.
+
+## P3 documentation draft · 2026-11-18
+
+Locked npm ci, build/typecheck and test:package passed with synthetic network trapping and packaged Skill integrity checks. The final Skill prose was regenerated through the existing builder; no package/version/registry artifacts were published.
+
+Published npm next2.1.69 and same-version unpublished main are separate capabilities. Testing handoff: rerun copyable public commands with the exact public binary; check candidate-only refund/USD prose only against the explicitly identified candidate, using original reads instead of new financial transactions. Existing My API/My Key and Stripe test-mode reports are bounded prior evidence, not a new all-provider/all-host signoff. WeChat real Native and Stripe live remain outside acceptance. No Actions, release or deployment ran.
+
+### P3 Testing closeout · 2026-11-19
+
+Testing报告 `p3-docs-acceptance-20261119/REPORT.md` 已核验确切公开包与候选的帮助、只读原账号及必要隔离示例，未签收新自然宿主全旅程。按其 DOC-01/02/04 修正开发者页两处 ItPay Key 认证头为 X-ItPay-Key、API 调用认证措辞及机器流水 charge/charge_refund 本连接范围；全账号流水仅按返回 owner_billing_url 在本人网页读取。DOC-03 的源码/随包 Skill 尚未发布、公开包及候选运行提示仍旧的限制已写入当前交付说明；未改运行时。原 topup GET 超时 OBS-01 仍是未解决运行观察，不算文档语法错例、不推断未付款，也未新建支付样本。此修订只复核上述改动，最终 Codex review 待对应新 head。
+
+本次只补源码/公开包旧提示与发布生效状态，随包Skill原文、命令与运行时未再修改；git diff --check通过，不重做资金或供应商样本。
