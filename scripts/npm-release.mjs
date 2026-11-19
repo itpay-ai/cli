@@ -20,6 +20,19 @@ async function metadata(spec) {
   return response.json();
 }
 
+// npm may accept a publish before processing makes its version/tag readable.
+export async function readPublished(target, source, lookup = metadata, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const actual = await lookup(target.channel);
+    if (actual?.version === target.version) {
+      if (actual.gitHead !== source) throw new Error('Registry source differs; inspect before retrying');
+      return actual;
+    }
+    if (attempt < 59) await pause(5000);
+  }
+  throw new Error('Published package is not visible yet; inspect the original publication before retrying');
+}
+
 export async function verifyPublishedArtifact(existing, approved, request = fetch) {
   if (existing.gitHead !== approved.sha || existing.version !== approved.version) throw new Error('Promotion does not match approved source');
   const url = new URL(existing.dist?.tarball || 'https://invalid.example');
@@ -102,7 +115,7 @@ async function main() {
       npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
     }
   }
-  const actual = await metadata(target.channel);
+  const actual = action === 'publish' ? await readPublished(target, artifact.source) : await metadata(target.channel);
   if (actual?.version !== target.version || (artifact && actual.gitHead !== artifact.source)) throw new Error('Registry readback differs; inspect before retrying');
   const message = `${action}: @itpay/cli@${actual.version} → ${target.channel}; registry verified.`;
   console.log(message);
