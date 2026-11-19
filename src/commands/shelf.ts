@@ -1,4 +1,5 @@
 import { attachAgentRequest } from "../state/agent_task.js";
+import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
 import { selectedHubInstallationPath } from "../state/hub_installation.js";
 import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPriceChange,type RunReceipt,type RequestStatus} from "../client/hub.js";
 import {HttpError} from "../client/http.js";
@@ -38,6 +39,15 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  }
  throw new Error("invalid_state: original request has no receipt");
 }
+function absentDeviceConsent(error:unknown,task:HubTask,requestKey:string):boolean{
+ if(!(error instanceof HttpError)||error.status!==404||task.run_id||task.intent_id||task.terminal||task.credential_mode!=="platform"||hubCredentialKind()==="api_key")return false;
+ const detail=hubErrorDetails(error),profile=storedHubProfile();
+ if(detail?.request_admission!=="not_admitted"||detail.request_id!==requestKey||!profile?.device_approval_id||detail.device_approval_id!==profile.device_approval_id||typeof detail.device_consent_limit_atoms!=="string"||!/^\d+$/.test(detail.device_consent_limit_atoms)||!task.max_charge_atoms||!/^\d+$/.test(task.max_charge_atoms))return false;
+ return BigInt(task.max_charge_atoms)>BigInt(detail.device_consent_limit_atoms);
+}
+function deviceConsentPending(snapshot:Snapshot):boolean{
+ return !snapshot.run&&!snapshot.terminal&&["authorization_denied","authorization_revoked","budget_exceeded"].includes(snapshot.intent?.blocking_reason??"")&&hubCredentialKind()!=="api_key"&&Boolean(storedHubProfile()?.device_approval_id);
+}
 async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>{
  const run=snapshot.run as Facts|undefined;
  if(run){
@@ -50,10 +60,11 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
     settlement_state:run.settlement_state,delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
     held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
    instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:run.execution_state==="failed"&&zero?"本次未扣 credit。":snapshot.terminal?"按原结果与 credit 费用回执回答。captured_atoms/held_atoms 保留原字段，按 scale=6 读取为 credit；未知数值不可当零。":"结果待核对，继续读取原请求。",
-   next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+   next:snapshot.terminal?null:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
   return;
  }
  const reason=snapshot.intent?.blocking_reason??"unknown";
+ const deviceConsent=deviceConsentPending(snapshot);
  const uncharged=["insufficient_balance","authorization_denied","authorization_revoked","budget_exceeded"].includes(reason);
  const target=snapshot.required_action?.web_action?.target??snapshot.required_action?.target;
  const changed=snapshot.terminal && reason==="publication_changed";
@@ -62,11 +73,11 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
  const label=price?.current_price?priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
  writeCommandEnvelope({status:changed?"price_changed":reason,
   result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
-  ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
+  ...(target&&!changed&&!deviceConsent?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
   instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
-   reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
+   deviceConsent?"请在原安装为同一请求确认消费额度；保留原账号、输入与价格，不只修改钱包或网页预算。":reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
-   changed?statusAction(task.request_id,json):snapshot.terminal?null:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+   changed?statusAction(task.request_id,json):snapshot.terminal?null:deviceConsent?{command:`itpay api connect --request ${task.request_id}${json?" --json":""}`,reason:"为原请求确认设备消费额度"}:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
 export async function shelfCategories(json:boolean):Promise<void>{
  const result=await client().shelfGet<{items:unknown[]}>("/v1/catalog/categories");
@@ -111,6 +122,9 @@ export async function shelfStatus(id:string,json:boolean,wait=0):Promise<void>{
   const {task:updated,snapshot}=await waitForRequest(api,store,remember(store,task,first),first,wait);
   await render(updated,snapshot,json);
  }catch(error){
+  if(absentDeviceConsent(error,task,store.idempotencyKey(id))){
+   writeCommandEnvelope({status:"not_admitted",result:{request_id:id,captured_atoms:"0",held_atoms:"0"},instruction:"原连接的权威记录确认这笔请求尚未受理，且原设备额度小于冻结报价。按原保存请求准备同意，不换身份或参数。",next:pendingAction(id,json),recovery:[]},{jsonOutput:json});return;
+  }
   if(error instanceof HttpError && error.status===404 && !task.intent_id && !task.run_id &&
     ["publication_changed","authorization_required"].includes(task.blocking_reason??"")){
    const changed=task.blocking_reason==="publication_changed";
@@ -149,18 +163,18 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   let snapshot:Snapshot;
   try { snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot; }
   catch(error) {
-   if(!(options.pending && error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required"))throw error;
+   if(!(options.pending && (absentDeviceConsent(error,task,store.idempotencyKey(task.request_id)) || error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required")))throw error;
    await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
     max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   }
   task=remember(store,store.get(task.request_id)!,snapshot);
-  if(options.pending && !snapshot.run && snapshot.intent?.status==="open" && !snapshot.terminal){
+  if(options.pending && !snapshot.run && snapshot.intent?.status==="open" && !snapshot.terminal && !deviceConsentPending(snapshot)){
    await api.continueIntent(snapshot.intent.intent_id,"cli-continue-"+task.request_id);
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
    task=remember(store,task,snapshot);
   }
-  if(snapshot.run || options.pending)({task,snapshot}=await waitForRequest(api,store,task,snapshot,120));
+  if((snapshot.run || options.pending) && !deviceConsentPending(snapshot))({task,snapshot}=await waitForRequest(api,store,task,snapshot,120));
   await render(task,snapshot,json);
  }catch(error){
   if(error instanceof HttpError && error.code==="publication_changed"){

@@ -68,8 +68,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.equal(called.value.status,"succeeded");
   assert.equal(called.value.result.captured_atoms,"10000");
   const id=called.value.result.request_id;
-  assert.ok(called.value.next.command.includes(selector));
-  assert.match(called.value.next.command,new RegExp("status "+id));
+  assert.equal(called.value.next,null,"terminal success has no redundant next step");
   await cli([...prefix,"status",id]);await cli([...prefix,"status",id]);
   await cli([...prefix,"call","--pending",id]);
   const beforeReads=statusReads;
@@ -79,7 +78,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   unknownNext=true;
   const beforeUnknown=statusReads,started=Date.now();
   const uncertain=await cli([...prefix,"status",id,"--wait","120"]);
-  assert.equal(uncertain.value.status,"pending");assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
+  assert.equal(uncertain.value.status,"pending");assert.ok(uncertain.value.next.command.includes(selector));assert.match(uncertain.value.next.command,new RegExp("status "+id));assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
   for(const value of ["-1","121","1.5","invalid"]){
    const beforeInvalid=statusReads;
    const invalid=await cli([...prefix,"status",id,"--wait",value]);
