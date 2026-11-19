@@ -31,7 +31,7 @@ README → AGENTS → 本表对应正文；用户Agent按任务只读一个Skill
 
 CLI不经MCP。用户MCP与Hub MCP各有自己的工具/卡片及client/resource/grant；共同Buyer不合并设备、OAuth或网页session。已受理/unknown仅沿原任务恢复，不能用换入口绕权限。
 
-Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
+Ready CLI next publication has standing Owner approval, without per-version reapproval; only 0.2.x before 1.0. Production, migrations, latest, deprecate and other Actions require separate explicit approval.
 
 
 <a id="agent-connection-target"></a>
