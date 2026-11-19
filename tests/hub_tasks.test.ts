@@ -157,3 +157,13 @@ test("credential selections persist and extend only credential-bearing request d
  assert.notEqual(task.input_digest,digestTask("op","pub",seed.input,undefined,{source_credentials:{api:{credential_id:"uck_stored",expected_version:"cred_changed"}}}));
  assert.equal(digestTask("op","pub",seed.input),digestTask("op","pub",seed.input,undefined,{}));
 });
+
+test("explicit platform mode persists, changes the digest and cannot mutate on resume",()=>{
+ const dir=join(tmpState(),"tasks"),store=new HubTaskStore(dir);
+ const seed={operation_id:"op",publication_id:"pub",input:{q:"fixed"}};
+ const {task}=store.getOrCreate({...seed,credential_mode:"platform"});
+ assert.equal(new HubTaskStore(dir).get(task.request_id)?.credential_mode,"platform");
+ assert.equal(task.input_digest,digestTask("op","pub",seed.input,undefined,{credential_mode:"platform"}));
+ assert.notEqual(task.input_digest,digestTask("op","pub",seed.input));
+ assert.throws(()=>store.update(task.request_id,JSON.parse('{"credential_mode":null}')),/original credential mode/);
+});

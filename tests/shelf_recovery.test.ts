@@ -18,6 +18,7 @@ test("original request recovery never dispatches unknown or foreign receipts and
   reads++;
   if(mode==="unavailable"){res.writeHead(503);res.end(JSON.stringify({error:{code:"unavailable",message:"fixture outage"}}));return;}
   if(mode==="absent"){res.writeHead(404);res.end(JSON.stringify({error:{code:"not_found",message:"no receipt"}}));return;}
+  if(mode==="key-choice"){res.end(JSON.stringify({request_id:key,terminal:false,intent:{intent_id:"intent-key",kind:"metered_api",status:"open",blocking_reason:"credential_unavailable"},required_action:{type:"credential_choice",web_action:{target:"https://official.invalid/me/intents/intent-key/key"}}}));return;}
   if(mode.startsWith("changed")){res.end(JSON.stringify({request_id:key,terminal:true,intent:{intent_id:"intent-price",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:{current_price:{currency:"CNY",scale:6,amount_atoms:"20000"},...(mode==="changed"?{captured_atoms:"0",held_atoms:"0"}:{})}}));return;}
   res.end(JSON.stringify({request_id:key,terminal:mode==="failed",run:{run_id:"run-original",operation_id:mode==="foreign"?"op-other":"op-original",publication_id:"pub-original",execution_state:mode==="failed"?"failed":"unknown",settlement_state:mode==="failed"?"released":"reconciling",delivery_state:"none",...(mode==="failed"?{held_atoms:"0",captured_atoms:"0",first_error:{code:"upstream_failed",message:"original failure"}}:{})}}));
  });
@@ -43,6 +44,11 @@ test("original request recovery never dispatches unknown or foreign receipts and
   mode="changed-unverified";raw="";await shelfStatus(priced.request_id,true);
   assert.equal(JSON.parse(raw).result.captured_atoms,null);assert.doesNotMatch(JSON.parse(raw).instruction,/本次未扣 credit/);
   assert.equal(posts,0,"unknown and unavailable receipts must never cause a new admission");
+  const choice=store.getOrCreate({operation_id:"op-original",publication_id:"pub-original",input:{q:"key"}}).task;
+  key=store.idempotencyKey(choice.request_id);mode="key-choice";raw="";
+  await shelfStatus(choice.request_id,true,0);
+  const waiting=JSON.parse(raw);assert.equal(waiting.status,"credential_unavailable");assert.match(waiting.instruction,/等待原选择完成/);
+  assert.equal(waiting.handoff.url,"https://official.invalid/me/intents/intent-key/key");assert.equal(waiting.result.captured_atoms,null);assert.equal(posts,0);
   const saved=store.get(task.request_id)!;
   assert.deepEqual(saved.input,{q:"frozen"});assert.equal(saved.publication_id,"pub-original");
   assert.equal(saved.credential_id,"credential-original");assert.equal(saved.source_credentials?.source?.expected_version,"v-original");

@@ -61,8 +61,8 @@ for (const status of ["authenticated", "login_required", "unknown", "unbound", "
 
 test("compatibility minimum, exact blocks and optional capabilities are independent of recommendation",async()=>{
  const {requirePlatformCompatibility,compatibilityRecommendation}=await import('../src/commands/compatibility.js');
- const base={minimum_cli:'0.2.70',recommended_cli:'0.2.71',capabilities:[],blocked_versions:[],platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture',api_contract_revision:'changed'};
- assert.match(compatibilityRecommendation(await requirePlatformCompatibility({compatibility:async()=>base})),/0.2.71/);
+ const base={minimum_cli:'0.2.70',recommended_cli:'0.3.0',capabilities:[],blocked_versions:[],platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture',api_contract_revision:'changed'};
+ assert.match(compatibilityRecommendation(await requirePlatformCompatibility({compatibility:async()=>base})),/0.3.0/);
  await assert.rejects(requirePlatformCompatibility({compatibility:async()=>({...base,minimum_cli:'0.3.0'})}),e=>e instanceof CommandContractError&&e.code==='client_upgrade_required');
  await assert.rejects(requirePlatformCompatibility({compatibility:async()=>({...base,blocked_versions:[CLI_VERSION]})}),e=>e instanceof CommandContractError&&e.code==='client_upgrade_required');
  await assert.rejects(requirePlatformCompatibility({compatibility:async()=>base},'new.optional.operation'),e=>e instanceof CommandContractError&&e.code==='capability_unavailable');

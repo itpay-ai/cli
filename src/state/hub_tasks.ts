@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { withFileLock } from "./file_lock.js";
 import { storedHubKeyPrefix, storedHubProfile, hubCredentialKind } from "./hub_credentials.js";
 
-export type HubCredentialSelection = { credential_id?: string; source_credentials?: Record<string, { credential_id: string; expected_version: string }> };
+export type HubCredentialSelection = { credential_mode?: "platform"; credential_id?: string; source_credentials?: Record<string, { credential_id: string; expected_version: string }> };
 
 export interface HubTask extends HubCredentialSelection {
   request_id: string;
@@ -127,7 +127,7 @@ export function digestTask(operationID: string, publicationID: string, input: un
   h.update(publicationID); h.update("\0");
   h.update(canonicalInput(input)); h.update("\0");
   if (maxCharge) h.update(maxCharge);
-  if (selections?.credential_id || selections?.source_credentials) {
+  if (selections?.credential_mode || selections?.credential_id || selections?.source_credentials) {
     h.update("\0credentials/v1\0"); h.update(canonicalInput(selections));
   }
   return h.digest("hex");
@@ -175,8 +175,9 @@ export class HubTaskStore {
         request_id: requestID,
         operation_id: seed.operation_id, publication_id: seed.publication_id, input: seed.input,
         ...(seed.shown_event_id?{shown_event_id:seed.shown_event_id}:{}),
-        input_digest: digestTask(seed.operation_id, seed.publication_id, seed.input, seed.max_charge_atoms, { ...(seed.credential_id ? { credential_id: seed.credential_id } : {}), ...(seed.source_credentials ? { source_credentials: seed.source_credentials } : {}) }),
+        input_digest: digestTask(seed.operation_id, seed.publication_id, seed.input, seed.max_charge_atoms, { ...(seed.credential_mode ? {credential_mode: seed.credential_mode} : {}), ...(seed.credential_id ? { credential_id: seed.credential_id } : {}), ...(seed.source_credentials ? { source_credentials: seed.source_credentials } : {}) }),
         ...(seed.max_charge_atoms ? { max_charge_atoms: seed.max_charge_atoms } : {}),
+        ...(seed.credential_mode ? {credential_mode: seed.credential_mode} : {}),
         ...(seed.credential_id ? { credential_id: seed.credential_id } : {}),
         ...(seed.source_credentials ? { source_credentials: seed.source_credentials } : {}),
         ...this.scopeFields,
@@ -206,6 +207,9 @@ export class HubTaskStore {
       const existing = this.readTask(file);
       if (existing.run_id && patch.run_id && existing.run_id !== patch.run_id || existing.intent_id && patch.intent_id && existing.intent_id !== patch.intent_id) {
         throw new Error("invalid_state: authoritative receipt changed the original task binding");
+      }
+      if ("credential_mode" in patch && patch.credential_mode !== existing.credential_mode) {
+        throw new Error("invalid_state: original credential mode cannot change");
       }
       const terminal = STATUS_RANK[existing.status] >= STATUS_RANK.succeeded;
       // Refresh metadata may advance on a terminal record, but a racing stale

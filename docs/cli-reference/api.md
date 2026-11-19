@@ -6,7 +6,7 @@ Use the same installation launcher and absolute --profile selector for every cal
 
 Install through [the official dev entry](https://dev.itpay.ai/agent), read its installation instructions, and use the packaged `itpay-api` Skill. New setup returns one unified authorization page: the requested item is primary, the other item is checked by default and cancellable. Display the link immediately and run the returned wait command in the same profile. Only connected/authenticated is success; a browser callback alone is insufficient.
 
-This release is immutable **0.2.70** and includes `--payer-currency`, `--refund-latest`, `--refund-request`, `--refund-status` and `--confirm` as documented by its installed help. Keep the original launcher/profile. Direct npm installs retain app.itpay.ai as the package default; the official dev entry persists dev configuration. Publication and installed version must be checked separately from source.
+This release is immutable **0.2.71** and includes `--payer-currency`, `--refund-latest`, `--refund-request`, `--refund-status` and `--confirm` as documented by its installed help. Keep the original launcher/profile. Direct npm installs retain app.itpay.ai as the package default; the official dev entry persists dev configuration. Publication and installed version must be checked separately from source.
 
 For a newly connected installation, begin with `api categories` or `api list`. Select an ID actually returned by discovery, run `api show`, explain purpose, price, result TTL and effects, then obtain the applicable consent before `api call`. The `operation_id`, input and original request ID must come from those responses; examples containing placeholders are not ready-to-run commands. Read the result and charge with `api status`. Supplier definitions and dev Beta availability follow their actual acceptance; a prepared definition alone is not a successful call.
 
@@ -19,7 +19,7 @@ For a newly connected installation, begin with `api categories` or `api list`. S
 |api show <operation_id>|Purpose, price, JSON example and result TTL. Saves this installation's displayed publication.|
 |api call <operation_id> --input <JSON/@file/->|After consent, submit using the shown price and publication.|
 |api call --pending <original_local_handle>|Read and, when eligible, continue this installation's original request. Each wait round is at most 120 seconds.|
-|api status <request_id>|Read-only original receipt, result and charge.|
+|api status <request_id> [--wait 0..120]|Read-only original receipt, result and charge; default0, unknown/reconciling returns immediately.|
 |api wallet|Account available/held credit, selected credential kind/masked account and official wallet URL.|
 |api wallet --usage|Current Key/Consumer gross/net/refunded/held usage; runs include failures.|
 |api wallet --transactions|Scoped charge/refund rows with limit/truncation; owner_billing_url opens full account history.|
@@ -86,3 +86,5 @@ The accepted private BYOK path is owner-only `generic_https_json` GET/HEAD with 
 Source/help checked against CLI main `eec7253` and Coding's published-package comparison on 2026-11-18. Existing accepted reports cover controlled My API/My Key GET/HEAD with zero Hub credit, Stripe **test-mode** original Checkout/refund, and scoped display repair; they do not prove all providers or Agent hosts. WeChat real Native remains pending merchant confirmation and separately authorized real testing. Stripe live is not accepted. Reviewer simulation is separate from actual Stripe sandbox evidence.
 
 Testing must rerun the six-command discovery→show→consented call→original status flow with the exact public package and a permitted dev account, check authorization recovery and errors, and separately check candidate-only refund/USD examples against source `eec7253` (not the registry package). Do not create new financial transactions merely to refresh examples. On an approved future release, update this availability paragraph, both packaged Skills, README and the official Agent guide together; fixed downloads/pins and publication require their own authorization.
+
+New calls may explicitly select `--credential-mode platform`; omitted mode uses the applicable account Key under the Hub contract. Never change the mode through `--pending`. A Key choice opens the original official account page; `api status <original_request_id> --wait 120` waits read-only while the browser records and resumes the choice. The CLI does not automatically choose credit or require a user reply after a browser decision. Publication and exact installed 0.2.71 remain separate checks; source changes alone do not prove public availability.

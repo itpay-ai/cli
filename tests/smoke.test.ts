@@ -2459,7 +2459,7 @@ test("changed hash and recommended release do not block catalog; local next need
  const server=http.createServer((request,response)=>{
   requests.push(request.url??"");response.setHeader("Content-Type","application/json");
   response.end(JSON.stringify(request.url==="/v1/platform/compatibility"
-   ? {minimum_cli:"0.2.70",recommended_cli:"0.2.71",capabilities:[],blocked_versions:[],api_contract_revision:"changed-diagnostic"}
+   ? {minimum_cli:"0.2.70",recommended_cli:"0.3.0",capabilities:[],blocked_versions:[],api_contract_revision:"changed-diagnostic"}
    : {version:"fixture",manifest:{items:[]}}));
  });
  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));const address=server.address() as AddressInfo;
@@ -2468,7 +2468,7 @@ test("changed hash and recommended release do not block catalog; local next need
    requests.length=0;const home=mkdtempSync(join(tmpdir(),"itpay-compat-"));
    try {
     const output=await runCLI(args,{HOME:home,ITPAY_STATE_DIR:join(home,"state"),ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`});const envelope=JSON.parse(output.stdout);
-    if(args[0]==="catalog"){assert.equal(envelope.status,"catalog_empty");assert.match(envelope.instruction,/0.2.71/);assert.deepEqual(requests,["/v1/platform/compatibility","/v1/catalog/manifest"]);}
+    if(args[0]==="catalog"){assert.equal(envelope.status,"catalog_empty");assert.match(envelope.instruction,/0.3.0/);assert.deepEqual(requests,["/v1/platform/compatibility","/v1/catalog/manifest"]);}
     else {assert.equal(envelope.status,"nothing_to_resume");assert.deepEqual(requests,[]);}
    } finally {rmSync(home,{recursive:true,force:true});}
   }
