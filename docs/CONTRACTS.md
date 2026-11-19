@@ -63,3 +63,9 @@ After an authoritative original GET reports expired, a new explicit `api wallet 
 `wallet --topup` accepts optional --payer-currency CNY|USD; the amount is credit quantity, and server admission/FX freezes actual cash. Existing CNY task filenames and missing legacy currency default remain valid; USD tasks use a separate filename and persist currency with their stable key before POST. Unknown/restart retries preserve that requested currency; original status reads and refund commands reject currency overrides. Payment instructions use only server payer_currency/payer_minor_amount, never the credit quantity as assumed cash. No OAuth/resource/grant or release version change.
 
 Accepted refund pending/unknown copy distinguishes an identified full refund hold (original refund ID, zero used amount and full positive credit occupied) from pre-existing task occupation. This affects instructions only: the server reason and all wire amounts stay intact, while a genuine occupied preview retains its original task guidance. Repeated confirmation and status still recover the same original request without another refund submission.
+
+## CLI版本与环境
+
+Services沿现有compatibility入口读取minimum_cli、recommended_cli、capabilities、blocked_versions。低于minimum或精确blocked才要求升级；recommended仅说明，缺能力只影响请求该能力的新操作。API hash/schema/bootstrap仅诊断，不逐次全等，不设major或协议世代门槛。旧环境无新最低字段时明确给dev入口，保留原请求，不自动切换。
+
+CLI默认始终app.itpay.ai；dev入口复用原profile/launcher配置Services、Hub和issuer。next/latest选同一不可变包，不改变默认地址或现有连接。API命令仍直接用固定Hub SDK，不增加Services健康预检，不拿SDK包号或MCP版本冒充CLI版本。

@@ -23,10 +23,14 @@
 
 按[任务阅读与修改导航](docs/DEVELOPMENT.md#按任务开工)选择唯一owner、文件和必要验证；部署先读本仓部署/发布正文及目标workflow。Services、用户UI、两个MCP与各自卡片、OAuth、跨仓合同分别定位，不创造第三套UI MCP。新任务宿主允许且可执行CLI时优先官方固定CLI，否则按业务选择对应托管MCP；已受理/unknown保留原身份/入口/请求与授权，失败不得换入口绕权限。
 
-Charlie已长期批准CLI next发布workflow：在已批准候选/版本范围内无需逐次申请Actions权限；不扩到新版本号、latest、V4部署或其他CI。本次文档任务不运行Actions或发布。
+Charlie已常设批准就绪CLI next发布workflow，无需逐版重新批准；正式1.0前只发0.2.x。latest、deprecate、生产部署/数据迁移及其他Actions仍须各自明确批准；每次按当前任务范围执行。
 
 授权/连接变更先更新[当前与目标图](docs/ARCHITECTURE.md#agent-connection-architecture)再改代码；图须与实际实现/版本同步，按图逐屏验收。详细范围、节点owner与版本门槛见[开发目标](docs/DEVELOPMENT.md#agent-connection-target)，未实现目标不得写成正式setup能力。
 
 ## 合并前 Codex 审查
 
 最后待合并 revision 必须取得 Codex 的明确审查结论；沿现有 GitHub Codex Review 渠道（需要时在 PR 请求 `@codex review`）。先处理全部可操作意见并提供回归证据，再对最终 revision 取得结论后正常合并。新提交使旧结论失效；仅解决线程、没有评论、审查仍在运行、不可用或配额耗尽都不算通过。遇到渠道不可用/配额限制，告知 Planning，保留 PR 不合并，不绕过保护，不新建 Actions 或审批服务。
+
+## 严格精简原则
+
+任何新机制先问“能不能不做”。能复用现有profile、接口、页面组件、intent就不新建；新增字段、配置、服务和门槛必须说明真实用户场景，不为假想情况加层。交付以净删代码为目标；某仓净增时逐段说明不可省的用途，并报告实际新增/删除/净行数。资金、身份、数据库schema与原请求状态正确性保护继续保留。

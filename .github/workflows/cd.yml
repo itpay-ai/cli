@@ -1,6 +1,6 @@
 name: CD — Publish to npm
 
-# Manual only: explain the need and obtain user approval before each Actions run.
+# Manual only. Ready next releases have standing Owner approval; latest needs separate approval.
 on:
   workflow_dispatch:
     inputs:
@@ -9,15 +9,10 @@ on:
         required: true
         type: string
       action:
-        description: Publish checked main to next, stage, promote, or verify OIDC
+        description: Publish checked main to next, promote the same package, or verify OIDC
         type: choice
-        options: [publish, stage, promote, verify]
-        default: stage
-      source:
-        description: Main or an exact internal source approved in npm-release-sources.json
-        type: choice
-        options: [main, dev, prod]
-        default: main
+        options: [publish, promote, verify]
+        default: publish
       tag:
         description: next for publish; final channel for promote/verify
         type: choice
@@ -37,7 +32,7 @@ permissions:
 
 jobs:
   prepare:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (inputs.action == 'stage' || inputs.action == 'publish'))
+    if: github.ref == 'refs/heads/main' && inputs.action == 'publish'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -54,17 +49,10 @@ jobs:
         run: npm install --global npm@11.21.0
       - name: Verify routing and approved source
         run: node --test scripts/npm-release.test.mjs scripts/npm-release-source.test.mjs
-      - name: Select fixed internal source
-        id: source
-        run: node scripts/npm-release-source.mjs select
-        env:
-          RELEASE_SOURCE: ${{ inputs.source || 'main' }}
-          RELEASE_ACTION: ${{ inputs.action || 'stage' }}
-          RELEASE_TAG: ${{ inputs.tag }}
       - name: Checkout candidate without publish permission
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.source.outputs.sha }}
+          ref: ${{ github.sha }}
           path: candidate
           persist-credentials: false
       - name: Install and check candidate
@@ -75,8 +63,7 @@ jobs:
       - name: Pack checked candidate and record actual source
         run: node scripts/npm-release-source.mjs pack
         env:
-          RELEASE_SOURCE: ${{ inputs.source || 'main' }}
-          RELEASE_ACTION: ${{ inputs.action || 'stage' }}
+          RELEASE_ACTION: ${{ inputs.action || 'publish' }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_CHECKOUT: candidate
       - name: Preserve exact artifact for protected publication
@@ -110,7 +97,7 @@ jobs:
       - name: Pin npm with OIDC support
         run: npm install --global npm@11.21.0
       - name: Download checked artifact
-        if: github.event_name == 'push' || (inputs.action == 'stage' || inputs.action == 'publish')
+        if: inputs.action == 'publish'
         uses: actions/download-artifact@v4
         with:
           name: cli-release
@@ -120,7 +107,6 @@ jobs:
       - name: Publish exact artifact or promote approved version
         run: node scripts/npm-release.mjs
         env:
-          RELEASE_ACTION: ${{ inputs.action || 'stage' }}
-          RELEASE_SOURCE: ${{ inputs.source || 'main' }}
+          RELEASE_ACTION: ${{ inputs.action || 'publish' }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_VERSION: ${{ inputs.version }}

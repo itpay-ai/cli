@@ -257,8 +257,8 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
         schema_revision: "sha256:mock",
         bootstrap_revision: "mock",
         api_contract_revision: API_CONTRACT_REVISION,
-        minimum_cli_version: CLI_VERSION,
-        maximum_cli_major: 2,
+        minimum_cli: CLI_VERSION,
+        recommended_cli: CLI_VERSION, capabilities: [], blocked_versions: [],
       });
       return;
     }

@@ -16,7 +16,7 @@ export async function verifyNativeSetup(tarball,scratch,previousTarball) {
  const server=createServer((req,res)=>{
   const path=new URL(req.url,'http://fixture').pathname;paths.push(path);
   let body;
-  if(path==='/v1/platform/compatibility')body={api_contract_revision:activeAPI,minimum_cli_version:'2.1.40',maximum_cli_major:2,platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture'};
+  if(path==='/v1/platform/compatibility')body={api_contract_revision:activeAPI,minimum_cli:'0.2.70',recommended_cli:'0.2.70',capabilities:[],blocked_versions:[],platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture'};
   else if(path==='/v1/agent-device-enrollments')body={agent_device_enrollment_id:'enr_fixture',challenge:'fixture'};
   else if(path==='/v1/agent-device-enrollments/enr_fixture/verify')body={agent_device_id:'adev_fixture',agent_device_key_id:'akey_fixture',quota_lineage_id:'qln_fixture',agent_instance_id:'ain_fixture',agent_type:'workbuddy'};
   else if(path==='/v1/agent-device-session-challenges')body={agent_device_session_challenge_id:'ses_fixture',challenge:'fixture'};

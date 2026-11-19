@@ -18,7 +18,7 @@ export async function verifyPackedDeviceUpgrade(packageRoot,scratch) {
  let protectedCall=false;
  globalThis.fetch=async(input,init)=>{
   const path=new URL(String(input)).pathname;
-  if(path==='/v1/platform/compatibility')return Response.json({api_contract_revision:${JSON.stringify((await import('../dist/src/state/config.js')).API_CONTRACT_REVISION)},minimum_cli_version:'2.1.40',maximum_cli_major:2});
+  if(path==='/v1/platform/compatibility')return Response.json({api_contract_revision:${JSON.stringify((await import('../dist/src/state/config.js')).API_CONTRACT_REVISION)},minimum_cli:'0.2.70',recommended_cli:'0.2.70',capabilities:[],blocked_versions:[]});
   if(path==='/v1/agent-device-enrollments')return Response.json({agent_device_enrollment_id:'enr_fixture',challenge:'fixture'});
   if(path==='/v1/agent-device-enrollments/enr_fixture/verify')return Response.json(${JSON.stringify({agent_device_id:registration.deviceID,agent_device_key_id:registration.deviceKeyID,quota_lineage_id:registration.quotaLineageID,agent_instance_id:'ain_fixture',agent_type:'codex-cli'})});
   if(path==='/v1/agent-device-session-challenges')return Response.json({agent_device_session_challenge_id:'ses_fixture',challenge:'fixture'});

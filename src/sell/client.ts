@@ -1,7 +1,7 @@
 import { HttpClient } from '../client/http.js';
 import { BackendClient } from '../client/backend.js';
 import { DeviceAuthority } from '../state/device_authority.js';
-import { CLI_VERSION, API_CONTRACT_REVISION, type CLIConfig } from '../state/config.js';
+import { CLI_VERSION, type CLIConfig } from '../state/config.js';
 import { sellerSessionToken } from './auth.js';
 export class SellerClient extends BackendClient {
  constructor(private readonly sellerHTTP:HttpClient){super(sellerHTTP);}
@@ -18,14 +18,12 @@ export function newSellerClient(config:CLIConfig):SellerClient {
     ...(config.agentType ? { requestedAgentType: config.agentType } : {}),
     compatibilityHeaders: {
       "X-ItPay-CLI-Version": CLI_VERSION,
-      "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
   });
   const http = new HttpClient({
     baseURL: config.baseURL,
     defaultHeaders: {
       "X-ItPay-CLI-Version": CLI_VERSION,
-      "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
     requestAuthorizer: (input) => {
       if (/^\/v1\/(seller\/organizations(?:\/|\?|$)|library\/)/.test(input.path)) {

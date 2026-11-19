@@ -1,4 +1,4 @@
-import { requirePlatformCompatibility } from "./compatibility.js";
+import { requirePlatformCompatibility, compatibilityRecommendation } from "./compatibility.js";
 import type { BackendClient } from "../client/backend.js";
 import { agentAuth } from "../state/account_auth.js";
 import { CLI_VERSION, stateDir, type CLIConfig } from "../state/config.js";
@@ -24,7 +24,7 @@ export function validateSetup(agentType: string | undefined): string {
 
 export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus" | "bindAgentAccount" | "compatibility">, config: CLIConfig, skillPath: string,
   options: { jsonOutput?: boolean; output?: OutputSink } = {}): Promise<void> {
-  await requirePlatformCompatibility(backend);
+  const compatibility = await requirePlatformCompatibility(backend);
   const account = await agentAuth("status", config.baseURL, backend, undefined, undefined, { readOnlyStatus: true });
   if (!account || typeof account !== "object" || !("status" in account)
     || (account.status !== "authenticated" && account.status !== "login_required")) {
@@ -36,7 +36,7 @@ export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus"
       { failure_stage: "account_status", ...detail });
   }
   writeCommandEnvelope({ status: "setup_ready", result: {
-    cli_version: CLI_VERSION, backend_url: config.baseURL, agent_type: config.agentType,
+    cli_version: CLI_VERSION, capabilities: compatibility.capabilities, backend_url: config.baseURL, agent_type: config.agentType,
     state_directory: stateDir(), state_persistence: "unverified_across_sessions", skill_readable: true, skill_written: "unknown", skill_discoverable: "unknown", execution_position: "unknown", presentation_surface: "unknown",
     device_status: "ready", account_status: account.status, skill_path: skillPath, skill_version: CLI_VERSION,
     ...(account.status === "login_required" ? { account_action: {
@@ -45,6 +45,6 @@ export async function runSetup(backend: Pick<BackendClient, "agentAccountStatus"
     } } : {}),
   }, instruction: (account.status === "authenticated"
     ? "设备已准备好，Services 账号已授权；本次未核验 Hub API 授权。"
-    : "设备已准备好；需要账号时 auth login 打开统一确认页并等待，主项与默认可取消副项由本人选择；本次未核验 Hub API 授权。") + " 按交付物选择同包 Skill：API/结构化数据读 itpay skill show itpay-api --json，再 api categories；办理、交付和售后读 itpay skill show itpay --json。skill_path 是 Services 原路径，不要求 API 先读铁路说明。保留原 launcher、真实宿主和状态目录，新会话不创建新身份；正常任务不重复 setup。新任务仅在宿主获准且能执行 CLI 时优先 CLI，否则使用对应托管 MCP；不要求云宿主试装。已受理、待付款或未知结果只沿原身份、入口和业务引用恢复，不换路重发。",
+    : "设备已准备好；需要账号时 auth login 打开统一确认页并等待，主项与默认可取消副项由本人选择；本次未核验 Hub API 授权。") + " 按交付物选择同包 Skill：API/结构化数据读 itpay skill show itpay-api --json，再 api categories；办理、交付和售后读 itpay skill show itpay --json。skill_path 是 Services 原路径，不要求 API 先读铁路说明。保留原 launcher、真实宿主和状态目录，新会话不创建新身份；正常任务不重复 setup。新任务仅在宿主获准且能执行 CLI 时优先 CLI，否则使用对应托管 MCP；不要求云宿主试装。已受理、待付款或未知结果只沿原身份、入口和业务引用恢复，不换路重发。" + compatibilityRecommendation(compatibility),
   next: null, recovery: [] }, { ...options, ...(config.agentType ? { agentType: config.agentType } : {}) });
 }

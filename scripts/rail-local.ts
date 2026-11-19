@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { BackendClient } from "../src/client/backend.js";
 import { HttpClient } from "../src/client/http.js";
 import { DeviceAuthority } from "../src/state/device_authority.js";
-import { CLI_VERSION, API_CONTRACT_REVISION, loadConfig } from "../src/state/config.js";
+import { CLI_VERSION, loadConfig } from "../src/state/config.js";
 import { runServicesStart, runServicesInvoke, runServicesAction, runServicesQuote, runServicesCheckout } from "../src/commands/services.js";
 
 const [mode, json] = process.argv.slice(2);
@@ -17,7 +17,7 @@ const root = resolve(process.env.ITPAY_RAIL_LOCAL_STATE_DIR);
 mkdirSync(root, { recursive: true, mode: 0o700 });
 const fingerprint = createHash('sha256').update(JSON.stringify([mode, input])).digest('hex');
 const config = loadConfig({ ITPAY_AGENT_TYPE: 'codex-cli', ITPAY_IDEMPOTENCY_KEY: createHash('sha256').update(root + fingerprint).digest('hex') });
-const headers = { 'X-ItPay-CLI-Version': CLI_VERSION, 'X-ItPay-Contract-Revision': API_CONTRACT_REVISION };
+const headers = { 'X-ItPay-CLI-Version': CLI_VERSION,  };
 const transport: typeof fetch = (url, options) => {
   const source = new URL(String(url));
   if (source.origin !== config.baseURL) throw new Error('Unexpected backend origin');

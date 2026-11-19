@@ -1,4 +1,4 @@
-import { CLI_VERSION, API_CONTRACT_REVISION } from "./release_identity.js";
+import { CLI_VERSION } from "./release_identity.js";
 export { CLI_VERSION, API_CONTRACT_REVISION } from "./release_identity.js";
 // CLI configuration loader. Production defaults to app.itpay.ai; supported public overrides
 // are the official sandbox and dev Backends. Checkout
@@ -34,9 +34,9 @@ export interface CLIConfig {
   ideImageDirOverride?: string;
 }
 
-export const DEFAULT_BASE_URL = "https://app.itpay.ai";
+export const PRODUCTION_ORIGIN = "https://app.itpay.ai";
+export const DEFAULT_BASE_URL = PRODUCTION_ORIGIN;
 export const DEV_BASE_URL = "https://dev.itpay.ai";
-export const V4_DEV_BASE_URL = DEV_BASE_URL;
 export const SANDBOX_BASE_URL = "https://sandbox.itpay.ai";
 export const TEST_BASE_URL = "https://app-test.itpay.ai";
 export const OFFICIAL_BACKEND_URLS = [DEFAULT_BASE_URL, SANDBOX_BASE_URL, DEV_BASE_URL, TEST_BASE_URL] as const;
@@ -77,13 +77,13 @@ export function qualifyBackendCommand(command: string, env: NodeJS.ProcessEnv = 
   const requested = env.ITPAY_BACKEND_URL?.trim();
   if (!requested) return command;
   const target = resolveBackendURL(env);
-  if (target === DEFAULT_BASE_URL) return command;
+  if (target === PRODUCTION_ORIGIN) return command;
   if (!command.startsWith("itpay ") || command.startsWith(`ITPAY_BACKEND_URL=${target} `)) return command;
   return `ITPAY_BACKEND_URL=${target} ${command}`;
 }
 
 function stateFilename(filename: string, baseURL: string): string {
-  if (baseURL === DEFAULT_BASE_URL) return filename;
+  if (baseURL === PRODUCTION_ORIGIN) return filename;
   const suffix = baseURL === SANDBOX_BASE_URL ? "sandbox" : baseURL === DEV_BASE_URL ? "dev" : `local-${createHash("sha256").update(baseURL).digest("hex").slice(0, 16)}`;
   const dot = filename.lastIndexOf(".");
   return dot < 0 ? `${filename}.${suffix}` : `${filename.slice(0, dot)}.${suffix}${filename.slice(dot)}`;
@@ -130,7 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CLIConfig {
   const ideImageDirOverride = env.ITPAY_IDE_IMAGE_DIR_OVERRIDE;
   return {
     baseURL,
-    environment: baseURL === DEFAULT_BASE_URL ? "production" : "development",
+    environment: baseURL === PRODUCTION_ORIGIN ? "production" : "development",
     ...(agentType ? { agentType } : {}),
     checkoutCurrency,
     idempotencyKey,
@@ -152,14 +152,12 @@ export function newBackendClient(config: CLIConfig): BackendClient {
     ...(config.agentType ? { requestedAgentType: config.agentType } : {}),
     compatibilityHeaders: {
       "X-ItPay-CLI-Version": CLI_VERSION,
-      "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
   });
   const http = new HttpClient({
     baseURL: config.baseURL,
     defaultHeaders: {
       "X-ItPay-CLI-Version": CLI_VERSION,
-      "X-ItPay-Contract-Revision": API_CONTRACT_REVISION,
     },
     requestAuthorizer: (input) => {
       return authority.authorizationHeaders(input);
