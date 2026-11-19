@@ -64,9 +64,9 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
   result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
   instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
-   reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:"保留原请求，按官方操作完成授权或核对。",
+   reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
-   changed?statusAction(task.request_id,json):snapshot.terminal?null:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+   changed?statusAction(task.request_id,json):snapshot.terminal?null:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
 export async function shelfCategories(json:boolean):Promise<void>{
  const result=await client().shelfGet<{items:unknown[]}>("/v1/catalog/categories");
@@ -89,13 +89,27 @@ export async function shelfShow(id:string,json:boolean):Promise<void>{
   instruction:"先说明用途、credit 报价与结果保留时间，取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
   next:null,recovery:[]},{jsonOutput:json});
 }
-export async function shelfStatus(id:string,json:boolean):Promise<void>{
+// Waiting only reads the original request. Unknown outcomes stop polling and
+// retain their original identity; neither status nor this loop submits work.
+async function waitForRequest(api:HubClient,store:HubTaskStore,task:HubTask,snapshot:Snapshot,seconds:number):Promise<{task:HubTask;snapshot:Snapshot}>{
+ const deadline=Date.now()+seconds*1000;
+ while(!snapshot.terminal && snapshot.run?.execution_state!=="unknown" && snapshot.run?.settlement_state!=="reconciling" && Date.now()<deadline){
+  await new Promise(resolve=>setTimeout(resolve,Math.min(2000,deadline-Date.now())));
+  snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
+  task=remember(store,task,snapshot);
+ }
+ return {task,snapshot};
+}
+export async function shelfStatus(id:string,json:boolean,wait=0):Promise<void>{
+ if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("invalid_input: wait must be between 0 and 120 seconds");
  const store=new HubTaskStore();
  const task=store.get(id);
  if(!task)throw new Error("not_found: original request is not in this installation");
  try{
-  const snapshot=await client().getRequest(store.idempotencyKey(id)) as Snapshot;
-  await render(remember(store,task,snapshot),snapshot,json);
+  const api=client();
+  const first=await api.getRequest(store.idempotencyKey(id)) as Snapshot;
+  const {task:updated,snapshot}=await waitForRequest(api,store,remember(store,task,first),first,wait);
+  await render(updated,snapshot,json);
  }catch(error){
   if(error instanceof HttpError && error.status===404 && !task.intent_id && !task.run_id &&
     ["publication_changed","authorization_required"].includes(task.blocking_reason??"")){
@@ -108,11 +122,12 @@ export async function shelfStatus(id:string,json:boolean):Promise<void>{
   throw new HubTaskRequestError(error,store.get(id)??task)
  }
 }
-export async function shelfCall(operation:string|undefined,options:{input?:string;pending?:string;json?:boolean}):Promise<void>{
+export async function shelfCall(operation:string|undefined,options:{input?:string;pending?:string;credentialMode?:string;json?:boolean}):Promise<void>{
+ if(options.credentialMode!==undefined&&options.credentialMode!=="platform")throw new Error("invalid_input: credential mode must be platform");
  const json=Boolean(options.json), store=new HubTaskStore(), api=client();
  let task:HubTask;
  if(options.pending){
-  if(operation||options.input!==undefined)throw new Error("invalid_input: --pending preserves the original input and operation");
+  if(operation||options.input!==undefined||options.credentialMode!==undefined)throw new Error("invalid_input: --pending preserves the original input and operation");
   const original=store.get(options.pending);
   if(!original)throw new Error("not_found: original request is not in this installation");
   task=original;
@@ -121,13 +136,13 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   const shown=loadShown(operation);
   const input=await readRunInput(options.input);
   task=store.getOrCreate({operation_id:operation,publication_id:shown.current_publication_id,input,
-   max_charge_atoms:shown.price_card.amount_atoms,...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
+   max_charge_atoms:shown.price_card.amount_atoms,...(options.credentialMode==="platform"?{credential_mode:"platform" as const}:{}),...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
  }
  attachAgentRequest(selectedHubInstallationPath(),task.request_id);
  try{
   if(!options.pending){
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
-    input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
+    input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
    if("run_id" in admission)store.update(task.request_id,{run_id:admission.run_id,status:"dispatched"});
    else if("intent_id" in admission)store.update(task.request_id,{intent_id:admission.intent_id,status:"blocked",blocking_reason:admission.blocking_reason});
   }
@@ -135,7 +150,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   try { snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot; }
   catch(error) {
    if(!(options.pending && error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required"))throw error;
-   await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
+   await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
     max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   }
@@ -145,12 +160,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
    task=remember(store,task,snapshot);
   }
-  const deadline=Date.now()+120_000;
-  while(!snapshot.terminal && snapshot.run?.execution_state!=="unknown" && snapshot.run?.settlement_state!=="reconciling" && (snapshot.run || options.pending) && Date.now()<deadline){
-   await new Promise(resolve=>setTimeout(resolve,Math.min(2000,deadline-Date.now())));
-   snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
-   task=remember(store,task,snapshot);
-  }
+  if(snapshot.run || options.pending)({task,snapshot}=await waitForRequest(api,store,task,snapshot,120));
   await render(task,snapshot,json);
  }catch(error){
   if(error instanceof HttpError && error.code==="publication_changed"){

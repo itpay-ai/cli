@@ -13,7 +13,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
  const home=mkdtempSync(join(tmpdir(),"itpay-shelf-"));
  const sentinel=join(home,"services-identity");writeFileSync(sentinel,"unchanged");
  const posts:Array<{path:string;key:string;body:any}>=[];
- let shows=0,requestKey="";
+ let shows=0,requestKey="",waitingReads=0,statusReads=0,unknownNext=false;
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
   current_publication_id:"pub-shown",shown_event_id:"123",price_card:{mode:"per_call",amount_atoms:"10000",unit:"call"},
@@ -32,7 +32,12 @@ test("six command shelf freezes shown facts and status never redispatches",async
    posts.push({path,key:requestKey,body:JSON.parse(raw)});
    res.end(JSON.stringify(run));return;
   }
-  if(path.startsWith("/v1/requests/")){res.end(JSON.stringify({request_id:requestKey,run,terminal:true,pending_stage:null,next:null}));return;}
+  if(path.startsWith("/v1/requests/")){
+   statusReads++;
+   const unknown=unknownNext;unknownNext=false;
+   const pending=waitingReads-->0;
+   res.end(JSON.stringify({request_id:requestKey,run:unknown?{...run,execution_state:"unknown",settlement_state:"reconciling"}:pending?{...run,execution_state:"in_flight",settlement_state:"held"}:run,terminal:!unknown&&!pending,pending_stage:null,next:null}));return;
+  }
   if(path==="/v1/me"){res.end(JSON.stringify({buyer_id:"fixture",key_id:"key-fixture",consumer_id:""}));return;}
   if(path==="/v1/me/wallet"){res.end(JSON.stringify({available:{currency:"CNY",scale:6,amount_atoms:"990000"},held:{currency:"CNY",scale:6,amount_atoms:"0"},topup_url:"https://official.invalid/me/wallet"}));return;}
   res.writeHead(404);res.end(JSON.stringify({error:{code:"not_found",message:"unexpected route"}}));
@@ -67,11 +72,30 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.match(called.value.next.command,new RegExp("status "+id));
   await cli([...prefix,"status",id]);await cli([...prefix,"status",id]);
   await cli([...prefix,"call","--pending",id]);
+  const beforeReads=statusReads;
+  waitingReads=1;
+  const waited=await cli([...prefix,"status",id,"--wait","1"]);
+  assert.equal(waited.value.status,"succeeded");assert.equal(statusReads,beforeReads+2);
+  unknownNext=true;
+  const beforeUnknown=statusReads,started=Date.now();
+  const uncertain=await cli([...prefix,"status",id,"--wait","120"]);
+  assert.equal(uncertain.value.status,"pending");assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
+  for(const value of ["-1","121","1.5","invalid"]){
+   const beforeInvalid=statusReads;
+   const invalid=await cli([...prefix,"status",id,"--wait",value]);
+   assert.notEqual(invalid.code,0);assert.equal(statusReads,beforeInvalid);
+  }
   assert.equal(posts.length,1);assert.equal(shows,1);
   assert.deepEqual(posts[0]!.body,{expected_publication_id:"pub-shown",shown_event_id:"123",input:{q:"actual"},max_charge:{currency:"CNY",scale:6,amount_atoms:"10000"}});
   const again=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
   assert.notEqual(again.value.result.request_id,id);assert.equal(posts.length,2);assert.equal(shows,1);
   assert.equal(posts[1]!.body.shown_event_id,"123");assert.notEqual(posts[1]!.key,posts[0]!.key);
+  const platform=await cli([...prefix,"call","op-fixture","--input",'{"q":"platform"}',"--credential-mode","platform"]);
+  assert.equal(platform.value.status,"succeeded");assert.equal(posts.length,3);assert.equal(posts[2]!.body.credential_mode,"platform");
+  const changedMode=await cli([...prefix,"call","--pending",platform.value.result.request_id,"--credential-mode","platform"]);
+  assert.notEqual(changedMode.code,0);assert.equal(posts.length,3);
+  const invalidMode=await cli([...prefix,"call","op-fixture","--input","{}","--credential-mode","invalid"]);
+  assert.notEqual(invalidMode.code,0);assert.equal(posts.length,3);
   assert.equal((await cli([...prefix,"wallet"])).value.result.topup_url,"https://official.invalid/me/wallet");
   assert.equal(readFileSync(sentinel,"utf8"),"unchanged");
   for(const old of ["discover","inspect","run","resume","tasks","continue","run-status","original-receipt","usage","transactions","topups","topup","topup-status","recover-connection"]){

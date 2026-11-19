@@ -69,3 +69,5 @@ Accepted refund pending/unknown copy distinguishes an identified full refund hol
 Services沿现有compatibility入口读取minimum_cli、recommended_cli、capabilities、blocked_versions。低于minimum或精确blocked才要求升级；recommended仅说明，缺能力只影响请求该能力的新操作。API hash/schema/bootstrap仅诊断，不逐次全等，不设major或协议世代门槛。旧环境无新最低字段时明确给dev入口，保留原请求，不自动切换。
 
 CLI默认始终app.itpay.ai；dev入口复用原profile/launcher配置Services、Hub和issuer。next/latest选同一不可变包，不改变默认地址或现有连接。API命令仍直接用固定Hub SDK，不增加Services健康预检，不拿SDK包号或MCP版本冒充CLI版本。
+
+`api status <原请求> --wait 0..120` 只读轮询原请求，默认0；unknown/reconciling立即返回，绝不提交或接续。Key失效选择页由原账号正常会话决定，浏览器使用既有队列续接；CLI等待不需要用户回话，不替用户选择credit。新call可显式 `--credential-mode platform`，该模式进入本地摘要并随原任务持久化；`--pending` 不接受更改模式、操作或输入。省略模式沿Hub默认Key规则，不自动收费。

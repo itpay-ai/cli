@@ -61,7 +61,7 @@ flowchart LR
  T --> H[Hub资源及代次校验]
  H --> R[CLI普通读及call身份 / 3秒缓存]
  R --> S[show缓存原publication及展示价]
- S --> K[call原请求 / status只读 / call --pending接续原intent]
+ S --> K[call原请求 / status --wait 120只读等待 / call --pending接续原intent]
  H --> W[Hub当次执行门禁 / grant余额预算 / 原单ACL]
  M[MCP独立OAuth] --> H
 ```
