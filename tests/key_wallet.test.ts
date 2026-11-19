@@ -83,7 +83,7 @@ test('link-only host prepares and reuses one amount top-up and completes its sam
  finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 });
 
-async function walletRefundRecovery(previewRace:boolean){
+async function walletRefundRecovery(previewRace:boolean,usd=false){
  let previewOccupied=false;const state=mkdtempSync(join(tmpdir(),'wallet-refund-'));let latest='top-a',lost=true,writes=0;
  const refunds=new Map<string,{top:string,id:string}>();let fixtureEnv:NodeJS.ProcessEnv={};
  const server=createServer(async(req,res)=>{
@@ -92,7 +92,7 @@ async function walletRefundRecovery(previewRace:boolean){
   const u=new URL(req.url!,'http://fixture');
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='GET'){
    const key=u.searchParams.get('request_key'),original=key?refunds.get(key):undefined;
-   res.end(JSON.stringify({status:key?(original?'unknown':'unconfirmed'):'eligible',topup_id:original?.top||latest,refund_id:original?.id||'',amount_minor_text:'100',currency:'CNY',credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:original||previewOccupied?'1000000':'0',reason:original||previewOccupied?'original_credit_occupied':'',account_hint:'…AAAAAA',payment_account_hint:'',payment_provider:'fakepass',wallet_url:'http://fixture/me/usage',next_step:'read_original_request'}));return;
+   res.end(JSON.stringify({status:key?(original?'unknown':'unconfirmed'):'eligible',topup_id:original?.top||latest,refund_id:original?.id||'',amount_minor_text:usd?'150':'100',currency:usd?'USD':'CNY',credit_atoms:'1000000',cny_equivalent:'1.000000',used_atoms:'0',occupied_atoms:original||previewOccupied?'1000000':'0',reason:original||previewOccupied?'original_credit_occupied':'',account_hint:'…AAAAAA',payment_account_hint:'',payment_provider:'fakepass',wallet_url:'http://fixture/me/usage',next_step:'read_original_request'}));return;
   }
   if(u.pathname==='/v1/me/wallet/refund'&&req.method==='POST'){
    writes++;const key=String(req.headers['idempotency-key']);let body='';for await(const part of req)body+=part;
@@ -116,7 +116,7 @@ async function walletRefundRecovery(previewRace:boolean){
  });
  try{
   previewOccupied=true;const occupiedPreview=await cli(['--refund-latest']);assert.match(occupiedPreview.instruction,/原任务/);previewOccupied=false;
-  const preview=await cli(['--refund-latest']);assert.equal(writes,0);assert.equal(preview.status,'eligible');const key=preview.result.request_id;assert.match(key,/^cli-refund-/);
+  const preview=await cli(['--refund-latest']);assert.equal(writes,0);assert.equal(preview.status,'eligible');assert.match(preview.instruction,usd?/原款 USD 1.50/:/原款 CNY 1.00/);const key=preview.result.request_id;assert.match(key,/^cli-refund-/);
   const confirmed=['--refund-latest','--refund-request',key,'--confirm'];
   if(previewRace){
    latest='top-b';
@@ -138,6 +138,7 @@ async function walletRefundRecovery(previewRace:boolean){
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
 }
 test('wallet refund persists before POST and repeated confirmation after newer credit only reads the original',()=>walletRefundRecovery(false));
+test('wallet refund USD preview states frozen original cash without converting credit',()=>walletRefundRecovery(false,true));
 test('wallet refund rejects stale preview before first acceptance and requires fresh explicit confirmation',()=>walletRefundRecovery(true));
 
 test('wallet refund preserves definitive rejection and nonzero exit without resubmitting; uncertain HTTP remains original-key read only',async()=>{
