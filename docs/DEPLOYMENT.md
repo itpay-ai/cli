@@ -9,4 +9,12 @@ CLI 0.2.70 is delivered through the official https://dev.itpay.ai/agent guide an
 充值原句：可以打开钱包充值，也可以告诉我金额，我直接给你扫码付款。
 用户报金额直接用 wallet --topup 金额，原请求用 --request 保留；快捷项不限制金额，最低金额由现行服务端合同确定。链接/码同时标当前账号名字·末6位，官方同单码与收银台不重建。
 
-公开验收从 /agent 全新隔离安装，读实包 Skill/help/输出例并核 dev MCP，只读、不代 Owner 宿主测试。本批唯一结果：`~/.codex/artifacts/account-connection-review-20261109/RESULT.json`。正式 npm 发布规则仍在 [RELEASE](RELEASE.md)，不由 dev 交付授权。
+公开验收从 /agent 全新隔离安装，读实包 Skill/help/输出例，只读、不代 Owner 宿主测试。历史统一确认验收见 `~/.codex/artifacts/account-connection-review-20261109/RESULT.json`；当前0.2.70交付见下节。正式 npm 发布规则仍在 [RELEASE](RELEASE.md)，不由 dev 交付授权。
+
+## 2026-11-19 · 0.2.70 next 实际交付
+
+Owner常设批准和Planning接受独立阶段4后，main30496c893da18406fcf9ee18ad38035c976539fe经[run44505362838](https://github.com/itpay-ai/cli/actions/runs/44505362838)检查、打包并OIDC发布0.2.70。npm返回成功并提示处理中；紧接的单次registry读回尚旧导致run最终failure。没有重复发布或重跑；随后只读确认next0.2.70、gitHead同源，latest2.1.41未动。不能将原run标成成功。
+
+dev入口release为cli0270-entry-20261119T103149Z，仅edge/web既有指南、启动器、下载跳转和llms挂载更新；三库备份可读、27非目标容器及有效环境/私有路由保持，无迁移。下载返回302/no-store并指向官方精确0.2.70。
+
+公开registry和公开dev脚本分别全新隔离实装，实际版本、两Skill、help、包来源均正确；裸包Services默认app由完全截获的fetch fixture观察，未访问prod。dev启动器在后续进程保存Services/Hub/issuer，API准备不开始登录或任务。原prefix回退69再恢复70保留合成unknown状态。证据：`~/.codex/artifacts/cli-versioning-20261119/stage-5/` 的registry-processing-readback.json、entry-activation.json和public-install-result.json。真实原单/资金、原生MCP、自然盲测及裸npx冷环境仍未签收。生产/latest/deprecate未执行。

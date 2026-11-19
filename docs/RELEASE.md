@@ -16,6 +16,8 @@ CLI内置默认始终app.itpay.ai，tag不选环境。dev官方入口通过已�
 
 只使用workflow_dispatch，不自动push/PR发布。按当前`.github/workflows/cd.yml`与[费用政策](../.github/ACTIONS_POLICY.md)执行；next常设授权不扩到其他workflow。未知发布结果先只读查原版本、来源与tag，不能重复publish；一个版本一次发行。回退是精确已验包/tag，安装者不会自动跟随回退，不清状态。
 
+npm可能先接受publish再异步处理。发布后仅对原tag最多等待约5分钟读取同一版本和来源，不再publish或改tag；403/限流等读取错误立即停止，来源不同立即停止。超时保留原run并只读核对原发布，不能根据暂未可见就重复发行。
+
 ## 制品与权限
 
 GitHub Actions OIDC发布，仓库`itpay-ai/cli`、workflow `cd.yml`、environment `npm-publish`；npm侧Trusted publishing须已允许publish和dist-tag。没有NPM_TOKEN。Runner固定Node24/npm11.21.0；npm环境只在受保护发布job使用。仓库environment仍仅main。

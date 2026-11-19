@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { releaseTarget, verifyOidcTag } from './npm-release.mjs';
+import { releaseTarget, verifyOidcTag, readPublished } from './npm-release.mjs';
 
 test('manual next publish and same-version promotion reject retired routes and version lines', () => {
   assert.equal(releaseTarget({event:'workflow_dispatch',tag:'next',version:'0.2.70'}).channel,'next');
@@ -33,4 +33,19 @@ test('OIDC verification requires exchange and a real same-value write, failing c
     const failed = await run(responses);
     await assert.rejects(failed.promise);
   }
+});
+
+test('accepted publication waits only for visibility and never retries a refused lookup', async () => {
+  const target = {channel:'next',version:'0.2.70'}, source = 'reviewed-main';
+  const values = [null, {version:'2.1.69'}, {version:'0.2.70',gitHead:source}];
+  let reads = 0, pauses = 0;
+  const actual = await readPublished(target, source, async tag => {assert.equal(tag,'next'); reads++; return values.shift();}, async ms => {assert.equal(ms,5000); pauses++;});
+  assert.equal(actual.gitHead,source); assert.equal(reads,3); assert.equal(pauses,2);
+  await assert.rejects(readPublished(target, source, async () => ({version:'0.2.70',gitHead:'other'}), async () => assert.fail('must stop')), /source differs/);
+  let refused = 0;
+  await assert.rejects(readPublished(target, source, async () => {refused++; throw Error('HTTP 403');}, async () => assert.fail('must stop')), /HTTP 403/);
+  assert.equal(refused,1);
+  let bounded = 0;
+  await assert.rejects(readPublished(target, source, async () => {bounded++; return null;}, async () => {}), /inspect the original publication/);
+  assert.equal(bounded,60);
 });
