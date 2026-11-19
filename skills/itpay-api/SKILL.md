@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-Development npm next uses the official @itpay/cli 2.1.69 release; check the installed version when using a pinned installer. Install/upgrade in the original permitted prefix. Keep the original profile, account, device key and requests. Production follows its separately approved latest channel.
+This package is official CLI 0.2.70. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
@@ -74,10 +74,10 @@ When credit is insufficient, report the account state and preserve the returned 
 
 ## Published package and candidate boundary
 
-The public installer/npm next package is 2.1.69. Current main retains that version string but includes unpublished changes: refund-latest/refund-request/refund-status/confirm and payer-currency are candidate-only. Do not suggest those flags after installing public next. Use the exact installed help and original launcher/profile. The maintained CLI reference records the future release synchronization list; this Skill edit does not publish a package.
+Release 0.2.70 includes the documented original-wallet refund and payer-currency flags. Read this installed package help and retain its original launcher/profile. minimum_cli and exact blocked_versions require an update; recommended_cli only advises. Missing capabilities affect only the requested new operation. Hash/revision differences alone do not block use. If an old environment has not been upgraded, use the official dev entry for new tasks, without moving an accepted or unknown request.
 
 ## Private My API / My Key
 
 Manage private OpenAPI preparation at /me/apis and supplier My Key at /me/credentials using the normal signed-in website. This is not an extra public CLI upload command. /me/keys and itk_ are ItPay authentication keys, not supplier credentials. Accepted own-key support is owner-only generic_https_json GET/HEAD with explicit header API key or bearer. Its Hub fee is 0 credit; supplier charges may still apply and native workflow prices are separate. Missing/revoked supplier keys require My Key correction with no platform fallback; original/unknown runs and receipts keep their identity. No unselected third-party supplier or all-host acceptance is implied.
 
-Candidate refund flow requires explicit refund intent, saved original preview/request and normal OAuth: preview does not submit, confirmation uses that exact saved ID, and pending/unknown only reads its original status. Never invent refund amount/destination or replace an uncertain request. Public 2.1.69 cannot run this flow.
+Original-wallet refund flow requires explicit refund intent, saved original preview/request and normal OAuth: preview does not submit, confirmation uses that exact saved ID, and pending/unknown only reads its original status. Never invent refund amount/destination or replace an uncertain request. Read installed help for the exact supported interface.

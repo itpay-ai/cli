@@ -1,6 +1,6 @@
 # 当前 CLI 开发交付
 
-开发安装/升级唯一入口：[dev.itpay.ai/agent](https://dev.itpay.ai/agent)，脚本 `/agent/install.sh`；也可在获准的独立 prefix 安装 `npm i @itpay/cli@next`。本次 npm next 版本为2.1.69；公开脚本仍固定安装2.1.68，不再从独立候选包供货。next更新按当前明确批准；latest及其他渠道不由dev更新授权。
+CLI 0.2.70 is delivered through the official https://dev.itpay.ai/agent guide and /agent/install.sh. The installer persists the existing dev environment in its launcher; raw npm installs keep app.itpay.ai as default. Ready next publication has standing approval, while production/latest/deprecate require separate approval. Public guide, exact download and installer are activated after the immutable package is verified, not merely after a source merge.
 
 最终待合并 revision 取得明确 Codex 审查结论、处理意见后正常合并，再沿 [RELEASE](RELEASE.md) 的受检制品/OIDC流程发布。V4 按 [当前部署流程](https://github.com/itpay-ai/compose-v4/blob/main/docs/DEPLOYMENT.md) 更新guide/installer与正式npm回退入口，不重建Backend/Hub。安装后从原launcher读取实际版本、两Skill与help；不要只根据版本文件宣称已交付。
 

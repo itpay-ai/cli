@@ -6216,13 +6216,14 @@ test('run final reporter retains known execution context with ID-free special HT
   {status:401,code:'agent_device_session_required',instruction:/CLI 已自动续期并重试同一请求一次/},
   {status:403,code:'agent_access_denied',instruction:/没有恢复动作时停止/},
   {status:426,code:'client_upgrade_required',instruction:/不要猜版本/},
+  {status:426,code:'client_compatibility_headers_required',instruction:/https:\/\/dev\.itpay\.ai\/agent/},
   {status:503,code:'provider_temporarily_unavailable',instruction:/数据服务暂时不可用/},
  ])for(const jsonOutput of [true,false]){
   status=item.status;code=item.code;
   await assert.rejects(runCLI(['--agent-type','codex-cli','services','run','itpay-rail','--operation','query_smart',...(phase==='resume_execution'?['--execution',execution.service_execution_id]:['--input-json',file]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
    assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);
    assert.match(output,new RegExp(execution.service_execution_id));assert.match(output,/execution_created/);assert.match(output,new RegExp(phase));assert.match(output,/query_smart/);assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
-   if(jsonOutput){const envelope=JSON.parse(output);assert.equal(envelope.result.service_execution_id,execution.service_execution_id);assert.equal(envelope.result.execution_created,true);assert.equal(envelope.result.operation_id,'query_smart');assert.equal(envelope.result.failure_stage,phase);assert.equal(envelope.error.code,status===426?'backend_contract_incompatible':code);assert.equal(envelope.next,null);if(status===401){assert.equal(envelope.recovery.length,1);assert.match(envelope.recovery[0].command,/skill show itpay/);}else assert.deepEqual(envelope.recovery,[]);if(status===426)assert.equal(envelope.result.minimum_cli,'9.0.0');}
+   if(jsonOutput){const envelope=JSON.parse(output);assert.equal(envelope.result.service_execution_id,execution.service_execution_id);assert.equal(envelope.result.execution_created,true);assert.equal(envelope.result.operation_id,'query_smart');assert.equal(envelope.result.failure_stage,phase);assert.equal(envelope.error.code,code==='client_compatibility_headers_required'?'environment_upgrade_pending':status===426?'backend_contract_incompatible':code);assert.equal(envelope.next,null);if(status===401){assert.equal(envelope.recovery.length,1);assert.match(envelope.recovery[0].command,/skill show itpay/);}else assert.deepEqual(envelope.recovery,[]);if(code==='client_upgrade_required')assert.equal(envelope.result.minimum_cli,'9.0.0');}
    outputs.push({phase,status,jsonOutput,output});return true;
   });
  }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'special-http-final-reporter.json'),JSON.stringify(outputs,null,2));}finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
@@ -6252,12 +6253,13 @@ test('purchase final reporter preserves classified HTTP errors at every purchase
   {status:401,code:'agent_device_session_required',instruction:/CLI 已自动续期并重试同一请求一次/},
   {status:403,code:'agent_access_denied',instruction:/原购买当前不能安全继续/},
   {status:426,code:'client_upgrade_required',instruction:/不要猜版本/},
+  {status:426,code:'client_compatibility_headers_required',instruction:/https:\/\/dev\.itpay\.ai\/agent/},
   {status:503,code:'provider_temporarily_unavailable',instruction:/数据服务暂时不可用/},
  ])for(const jsonOutput of [true,false]){
   status=item.status;code=item.code;
   await assert.rejects(runCLI(['--agent-type','codex-cli','services','purchase','se_fixture',...(phase==='confirm_purchase'?['--input-json',file]:phase==='resume_purchase'?['--resume']:[]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
    assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);assert.match(output,/se_fixture/);assert.match(output,new RegExp(phase));assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
-   if(jsonOutput){const v=JSON.parse(output);assert.equal(v.error.code,status===426?'backend_contract_incompatible':code);assert.equal(v.result.service_execution_id,'se_fixture');assert.equal(v.result.execution_created,true);assert.equal(v.result.failure_stage,phase);assert.equal(v.result.provider_called,undefined);assert.equal(v.next,null);if(status===401){assert.equal(v.recovery.length,1);assert.match(v.recovery[0].command,/skill show itpay/);}else assert.deepEqual(v.recovery,[]);if(status===426)assert.equal(v.result.minimum_cli,'9.0.0');}
+   if(jsonOutput){const v=JSON.parse(output);assert.equal(v.error.code,code==='client_compatibility_headers_required'?'environment_upgrade_pending':status===426?'backend_contract_incompatible':code);assert.equal(v.result.service_execution_id,'se_fixture');assert.equal(v.result.execution_created,true);assert.equal(v.result.failure_stage,phase);assert.equal(v.result.provider_called,undefined);assert.equal(v.next,null);if(status===401){assert.equal(v.recovery.length,1);assert.match(v.recovery[0].command,/skill show itpay/);}else assert.deepEqual(v.recovery,[]);if(code==='client_upgrade_required')assert.equal(v.result.minimum_cli,'9.0.0');}
    outputs.push({phase,status,jsonOutput,output});return true;
   });
  }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'purchase-special-http-final-reporter.json'),JSON.stringify(outputs,null,2));
