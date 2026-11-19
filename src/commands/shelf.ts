@@ -63,7 +63,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
    next:snapshot.terminal?null:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
   return;
  }
- const reason=snapshot.intent?.blocking_reason??"unknown";
+ const reason=snapshot.intent?.blocking_reason??(readyToContinue(snapshot)?"pending":"unknown");
  const deviceConsent=deviceConsentPending(snapshot);
  const uncharged=["insufficient_balance","authorization_denied","authorization_revoked","budget_exceeded"].includes(reason);
  const target=snapshot.required_action?.web_action?.target??snapshot.required_action?.target;
@@ -75,7 +75,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
   result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed&&!deviceConsent?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
   instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
-   deviceConsent?"请在原安装为同一请求确认消费额度；保留原账号、输入与价格，不只修改钱包或网页预算。":reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
+   readyToContinue(snapshot)?"原请求已可接续，按返回操作继续；尚未执行。":deviceConsent?"请在原安装为同一请求确认消费额度；保留原账号、输入与价格，不只修改钱包或网页预算。":reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
    changed?statusAction(task.request_id,json):snapshot.terminal?null:deviceConsent?{command:`itpay api connect --request ${task.request_id}${json?" --json":""}`,reason:"为原请求确认设备消费额度"}:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
@@ -102,9 +102,12 @@ export async function shelfShow(id:string,json:boolean):Promise<void>{
 }
 // Waiting only reads the original request. Unknown outcomes stop polling and
 // retain their original identity; neither status nor this loop submits work.
+function readyToContinue(snapshot:Snapshot):boolean{
+ return !snapshot.run && snapshot.intent?.status==="open" && !snapshot.intent.blocking_reason && !snapshot.required_action;
+}
 async function waitForRequest(api:HubClient,store:HubTaskStore,task:HubTask,snapshot:Snapshot,seconds:number):Promise<{task:HubTask;snapshot:Snapshot}>{
  const deadline=Date.now()+seconds*1000;
- while(!snapshot.terminal && snapshot.run?.execution_state!=="unknown" && snapshot.run?.settlement_state!=="reconciling" && Date.now()<deadline){
+ while(!snapshot.terminal && !readyToContinue(snapshot) && snapshot.run?.execution_state!=="unknown" && snapshot.run?.settlement_state!=="reconciling" && Date.now()<deadline){
   await new Promise(resolve=>setTimeout(resolve,Math.min(2000,deadline-Date.now())));
   snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   task=remember(store,task,snapshot);
