@@ -4,7 +4,7 @@ import {join,dirname} from 'node:path';
 import {createDeviceKey} from './device_key.js';
 import {withFileLock} from './file_lock.js';
 import {canonicalAgentType} from './agent_type.js';
-import {CLI_VERSION,API_CONTRACT_REVISION} from './release_identity.js';
+import {CLI_VERSION} from './release_identity.js';
 import {agentRoot,taskJournalPath} from './config.js';
 import {readAuthState} from './auth_storage.js';
 import {DeviceAuthority} from './device_authority.js';
@@ -51,7 +51,7 @@ export async function agentConnectionRequest(root:string,state:AgentConnectionSt
  const raw=body===undefined?'':JSON.stringify(body),method=body===undefined?'GET':'POST';
  const timestamp=String(Math.floor(Date.now()/1000)),nonce=randomUUID();
  const message=['itpay-agent-connection/v1',method,path,createHash('sha256').update(raw).digest('hex'),timestamp,nonce].join('\n');
- return fetch(state.backend+path,{method,redirect:'error',signal:AbortSignal.timeout(30_000),headers:{'X-ItPay-CLI-Version':CLI_VERSION,'X-ItPay-Contract-Revision':API_CONTRACT_REVISION,...extra,'Content-Type':'application/json','X-ItPay-Connection-Time':timestamp,'X-ItPay-Connection-Nonce':nonce,'X-ItPay-Connection-Proof':sign(null,Buffer.from(message),key).toString('base64url')},...(body===undefined?{}:{body:raw})});
+ return fetch(state.backend+path,{method,redirect:'error',signal:AbortSignal.timeout(30_000),headers:{'X-ItPay-CLI-Version':CLI_VERSION,...extra,'Content-Type':'application/json','X-ItPay-Connection-Time':timestamp,'X-ItPay-Connection-Nonce':nonce,'X-ItPay-Connection-Proof':sign(null,Buffer.from(message),key).toString('base64url')},...(body===undefined?{}:{body:raw})});
 }
 export async function connectAgent(root:string,state:AgentConnectionState,restart=false,surface=state.surface):Promise<AgentConnectionView> {
  const key=createDeviceKey(join(state.services_directory??join(root,'services'),'device','device-private.pem'),true);
@@ -73,7 +73,7 @@ export async function connectAgent(root:string,state:AgentConnectionState,restar
 export async function bindAgentServices(root:string,state:AgentConnectionState):Promise<void> {
  if(!state.connection_id||!state.buyer_id)throw new Error('original Agent approval is required');
  const path=`/v1/agent-connections/${state.connection_id}/services`;
- const authority=new DeviceAuthority({baseURL:state.backend,requestedAgentType:state.agent_type,compatibilityHeaders:{'X-ItPay-CLI-Version':CLI_VERSION,'X-ItPay-Contract-Revision':API_CONTRACT_REVISION},statePath:join(state.services_directory??join(root,'services'),'device','identity.json'),privateKeyPath:join(state.services_directory??join(root,'services'),'device','device-private.pem')});
+ const authority=new DeviceAuthority({baseURL:state.backend,requestedAgentType:state.agent_type,compatibilityHeaders:{'X-ItPay-CLI-Version':CLI_VERSION},statePath:join(state.services_directory??join(root,'services'),'device','identity.json'),privateKeyPath:join(state.services_directory??join(root,'services'),'device','device-private.pem')});
  for(let attempt=0;attempt<2;attempt++){
   const headers=await authority.authorizationHeaders({method:'POST',path,body:'{}'});
   const response=await agentConnectionRequest(root,state,path,{},headers);

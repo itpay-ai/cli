@@ -172,7 +172,7 @@ test('wallet refund preserves definitive rejection and nonzero exit without resu
     const repeat=await cli(confirm);assert.notEqual(repeat.exit,0);assert.equal(writes,before+1);
     const oldReads=reads;const observed=await cli(['--refund-status',key]);assert.notEqual(observed.exit,0);assert.equal(reads,oldReads+1);assert.equal(writes,before+1);assert.match(JSON.stringify(observed.value),new RegExp(status===403?'original_connection_required':'invalid_input'));
    }else{
-    assert.equal(first.exit,0);assert.equal(first.value.status,'unconfirmed');const repeated=await cli(confirm);assert.equal(repeated.value.status,contractMismatch?'pending':'unconfirmed');if(contractMismatch)assert.equal(repeated.value.result.refund_id,'original-refund');assert.equal(writes,before+1);
+    assert.equal(first.exit,0);assert.equal(first.value.status,contractMismatch?'pending':'unconfirmed');const repeated=await cli(confirm);assert.equal(repeated.value.status,contractMismatch?'pending':'unconfirmed');if(contractMismatch)assert.equal(repeated.value.result.refund_id,'original-refund');assert.equal(writes,before+1);
    }
   }
  }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}

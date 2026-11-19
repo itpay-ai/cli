@@ -23,7 +23,7 @@ for (const status of ["authenticated", "login_required", "unknown", "unbound", "
   const old = process.env.ITPAY_STATE_DIR; process.env.ITPAY_STATE_DIR = root;
   let calls = 0; const lines: string[] = [];
   const backend = {
-   async compatibility() { return { api_contract_revision: API_CONTRACT_REVISION, minimum_cli_version: "2.1.40", maximum_cli_major: 2, platform_revision: "fixture", schema_revision: "fixture", bootstrap_revision: "fixture" }; },
+   async compatibility() { return { api_contract_revision: API_CONTRACT_REVISION, minimum_cli: "0.2.70", recommended_cli: "0.2.70", capabilities: [], blocked_versions: [], platform_revision: "fixture", schema_revision: "fixture", bootstrap_revision: "fixture" }; },
    async agentAccountStatus() { calls++; if (/^\d+$/.test(status)) throw new HttpError(Number(status), {code: "fixture_failure", message: "fixture failure"}, "fixture failure"); return { status }; },
    async bindAgentAccount(): Promise<{status: string}> { throw new Error("setup must not bind or log in"); },
   };
@@ -51,9 +51,21 @@ for (const status of ["authenticated", "login_required", "unknown", "unbound", "
  test("setup incompatible API fails before device/account work", async () => {
   const config=loadConfig({ITPAY_AGENT_TYPE:"workbuddy",ITPAY_IDEMPOTENCY_KEY:"fixture"});
   const backend={
-   async compatibility(){return {api_contract_revision:"other",minimum_cli_version:"2.1.40",maximum_cli_major:2,platform_revision:"fixture",schema_revision:"fixture",bootstrap_revision:"fixture"};},
+   async compatibility(){return {api_contract_revision:"other",minimum_cli:"0.3.0",recommended_cli:"0.3.0",capabilities:[],blocked_versions:[],platform_revision:"fixture",schema_revision:"fixture",bootstrap_revision:"fixture"};},
    async agentAccountStatus(): Promise<{status:string}>{throw Error("must not read account on incompatible Backend");},
    async bindAgentAccount(): Promise<{status:string}>{throw Error("must not bind");},
   };
-  await assert.rejects(()=>runSetup(backend,config,validateSetup("workbuddy")),e=>e instanceof HttpError&&e.status===426);
+  await assert.rejects(()=>runSetup(backend,config,validateSetup("workbuddy")),e=>e instanceof CommandContractError&&e.code==="client_upgrade_required");
  });
+
+
+test("compatibility minimum, exact blocks and optional capabilities are independent of recommendation",async()=>{
+ const {requirePlatformCompatibility,compatibilityRecommendation}=await import('../src/commands/compatibility.js');
+ const base={minimum_cli:'0.2.70',recommended_cli:'0.2.71',capabilities:[],blocked_versions:[],platform_revision:'fixture',schema_revision:'fixture',bootstrap_revision:'fixture',api_contract_revision:'changed'};
+ assert.match(compatibilityRecommendation(await requirePlatformCompatibility({compatibility:async()=>base})),/0.2.71/);
+ await assert.rejects(requirePlatformCompatibility({compatibility:async()=>({...base,minimum_cli:'0.3.0'})}),e=>e instanceof CommandContractError&&e.code==='client_upgrade_required');
+ await assert.rejects(requirePlatformCompatibility({compatibility:async()=>({...base,blocked_versions:[CLI_VERSION]})}),e=>e instanceof CommandContractError&&e.code==='client_upgrade_required');
+ await assert.rejects(requirePlatformCompatibility({compatibility:async()=>base},'new.optional.operation'),e=>e instanceof CommandContractError&&e.code==='capability_unavailable');
+ await requirePlatformCompatibility({compatibility:async()=>({...base,recommended_cli:'invalid'})});
+ await assert.rejects(requirePlatformCompatibility({compatibility:async()=>null as unknown as typeof base}),e=>e instanceof CommandContractError&&e.code==='environment_upgrade_pending');
+});

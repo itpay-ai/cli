@@ -1,49 +1,27 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。版本和next/latest按当前任务明确批准的候选/渠道管理，不将某次2.1.56候选或旧整理阶段限制固化为未来禁令，也不把历史批准延续为无限授权。构建、PR合并、部署、Actions与npm操作各自核对授权；编码或合并批准不自动批准发布。
+独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.70；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
 
-源码修改后，先读目标 `.github/workflows/cd.yml`、源策略与[Actions政策](../.github/ACTIONS_POLICY.md)，明确workflow/ref/完整source SHA/渠道/包hash及下游费用，核对CLI next既有专项批准范围；范围外再取得该次或明确批次授权。以当前工作流为准，以下是其已有入口，不是执行批准。
+## 唯一发行路径
 
-## Current publication contract
+受保护main构建一次，发布该不可变包到next。latest获批后指向同一版本，不重建同号包；不再有dev/prod独立源码或candidate制品流程。历史tag暂不改，已发版本不覆盖。
 
-`@itpay/cli` publishes from GitHub-hosted Actions using OIDC, with no `NPM_TOKEN` in the workflow. Read the current `cd.yml` before merging. GitHub environment `npm-publish` allows only `main`; it has no per-run human approval.
+CLI内置默认始终app.itpay.ai，tag不选环境。dev官方入口通过已有profile/launcher显式选dev，原profile、身份和任务保持原环境。未升级的生产环境给明确dev入口说明，不做V3适配；不能据此迁移已受理请求。
 
-One-time npm package Settings → Trusted publishing setup:
-
-- Provider: GitHub Actions
-- Organization/user: `itpay-ai`
-- Repository: `cli`
-- Workflow filename: `cd.yml`
-- Environment: `npm-publish`
-- Enable **Allow npm publish** and **Allow npm dist-tag**. Stage-only permission does not permit unattended direct publication.
-
-The package repository URL must be `https://github.com/itpay-ai/cli`. The workflow pins npm 11.21.0, which supports both OIDC publish and dist-tag. npm-side setup requires an authorized maintainer and may require one-time interactive authentication. Never claim setup complete merely because YAML is merged.
-
-## Choose the channel explicitly
-
-| Intent | Procedure |
+| 意图 | 现有workflow入口 |
 | --- | --- |
-| Publish a new main version only to next | After the approved version PR and final Codex review are merged, dispatch action `publish`, source `main`, tag `next`. The existing prepare/checked artifact/OIDC publisher is reused; candidate-dev, candidate-prod and latest are untouched. Other source/tag combinations fail closed. |
-| Stage a new main version | Version bump + checks + normal main merge do not publish. After approval, manually dispatch stage/source=main to `candidate-dev`; `next/latest` remain unchanged. |
-| Stage a maintenance candidate | First review the internal commit and artifact. Approve its exact SHA/version/API/tarball SHA-256 in `scripts/npm-release-sources.json` on main. Dispatch action `stage`, source `dev` or `prod`; null entries fail closed. |
-| Activate dev channel | Verify matching Backend/runtime/publication; approve exact dev source in policy. Dispatch `promote`, tag `next`, exact version. |
-| Activate stable channel | Validate the precise approved production combination in isolation and deploy its matching Backend. Approve exact prod source, then dispatch `promote`, tag `latest`, exact version. This is not automatic main-to-production promotion. |
-| Verify OIDC without publishing | Dispatch `verify` for the current exact `next/latest` value; reasserts the same tag only. |
+| 发布就绪新版本到next | main合并和独立验收完成后，dispatch `cd.yml`，action=publish，tag=next；填写Owner常设批准引用与本次原因。 |
+| 晋级已发包 | Owner另批后，action=promote，明确next/latest及精确0.2.x版本；核原源码属于main历史，读取同一不可变包。 |
+| 验证OIDC写权限 | 另有授权时action=verify，只能重申当前tag对应精确版本，不移动tag；这仍是真实写操作。 |
 
-The trusted workflow always runs on protected main. Its source selection is an enum, never a caller-supplied ref. Main policy fixes internal maintenance commits and tarball hashes; changing those approvals requires a normal reviewed main PR. Do not swap main's product tree to publish an older API.
+只使用workflow_dispatch，不自动push/PR发布。按当前`.github/workflows/cd.yml`与[费用政策](../.github/ACTIONS_POLICY.md)执行；next常设授权不扩到其他workflow。未知发布结果先只读查原版本、来源与tag，不能重复publish；一个版本一次发行。回退是精确已验包/tag，安装者不会自动跟随回退，不清状态。
 
-`candidate-dev/candidate-prod` are staging labels, not user installation channels. Only `next` serves dev; only `latest` serves production. A workflow-only change with unchanged package version does not publish or move final tags. Existing versions cannot be overwritten. On an uncertain npm result, inspect exact metadata, gitHead, integrity and tags; wait read-only for visibility, do not repeat publish or invent an authentication failure. Never run a second local publisher concurrently.
+## 制品与权限
 
-## Checks and evidence
+GitHub Actions OIDC发布，仓库`itpay-ai/cli`、workflow `cd.yml`、environment `npm-publish`；npm侧Trusted publishing须已允许publish和dist-tag。没有NPM_TOKEN。Runner固定Node24/npm11.21.0；npm环境只在受保护发布job使用。仓库environment仍仅main。
 
-`node --test scripts/npm-release.test.mjs scripts/npm-release-source.test.mjs` checks source and channel routing. The prepare job has read-only repository permissions, no npm environment or OIDC. It checks the exact approved checkout with `npm ci` and `npm run check`, then the trusted packer records source gitHead, compiled API, version and SHA-256. No candidate build script runs in the publish job.
+prepare只读checkout同一main，运行release tests、npm ci和npm run check，再用原packer生成Buyer制品与实际gitHead。publish不执行候选脚本，核原源码、包版本和已有制品完整性，发布下载的原tarball。hash/revision作为运行时诊断，不能再用API hash相等拦业务或重新设审批门槛；来源与供应链完整性、OAuth权限继续保留。
 
-The protected publish job checks out trusted main only, verifies downloaded artifact source/checksum/package metadata/compiled API, and publishes that exact tarball with scripts disabled. The artifact package records the actual source SHA as gitHead; this can differ from GITHUB_SHA (workflow revision). Promotion downloads the registry tarball from registry.npmjs.org, verifies the approved SHA-256 and registry integrity, and reads its actual gitHead/version/compiled API before moving a final tag. Do not bypass checks. No new dependency.
+本地npm演练仅产物目录：根/项目有package.json，每条命令显式--prefix并事前核npm prefix在产物内，隔离HOME/npmrc/cache/registry。403、挑战、限流立即停报，不换UA/路径/身份。开发安装、真实宿主、自然任务和发布安装读回分别记录，不由工程检查代签。
 
-After each release, record workflow run, trusted main workflow SHA, actual source SHA, manifest/tgz SHA-256, action/channel/version, registry gitHead/integrity and dist-tags; verify installation in a temporary prefix, Skill and Buyer docs. For next, check latest did not move. Do not silently replace a user's global CLI or device identity.
-
-An OIDC verify run exchanges GitHub identity for a temporary npm token and sends an actual same-value tag PUT; npm dist-tag add alone skips unchanged tags and cannot prove write permission. This proves tag permission only. `npm publish --dry-run` does not prove live publish authorization. The next authorized new-version release must confirm actual publish and provenance. Preserve the old unused NPM_TOKEN secret until OIDC publication has been verified; remove it afterward with account authorization. Do not add it back as a hidden fallback.
-
-## 开发交付
-
-开发候选的唯一当前安装/部署说明见 [DEPLOYMENT](DEPLOYMENT.md)。正式 npm 流程与 dev 本地候选各按批准范围执行，不互相替代。
+每阶段REPORT给PR、最终revision审查、实际包/环境、实测、实际diff；某仓净增逐段说明用途。Skill正文和参考由本仓维护，MCP/Hub SDK从独立owner固定包消费，不能手改vendor或删除许可。

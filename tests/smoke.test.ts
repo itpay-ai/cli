@@ -10,7 +10,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readdirSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { rmSync, readdirSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -47,7 +47,7 @@ import { runCatalogList } from "../src/commands/catalog.js";
 import { runNext } from "../src/commands/next.js";
 import { runServicesRun, runServicesAction, runServicesCheckout, runServicesEvents, runServicesGet, runServicesInvoke, runServicesList, runServicesNext, runServicesPage, runServicesQuote, runServicesReadResult, runServicesStart } from "../src/commands/services.js";
 import { dispatchInteractionRequest } from "../src/render/interaction.js";
-import { API_CONTRACT_REVISION, CLI_VERSION, SANDBOX_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
+import { CLI_VERSION, SANDBOX_BASE_URL, DEFAULT_BASE_URL, cartSessionPath, loadConfig, operationID, type CLIConfig } from "../src/state/config.js";
 import type { OutputSink } from "../src/render/sink.js";
 import { startMockBackend, type MockBackendHandle } from "./mock_backend.js";
 
@@ -2425,7 +2425,7 @@ test("readyz command supports the documented JSON contract", async () => {
 
 test("commerce entrypoints fail closed when the Backend compatibility contract is unavailable", async () => {
   const server = http.createServer((_request, response) => {
-    response.writeHead(426, { "Content-Type": "application/json" });
+    response.writeHead(503, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ code: "platform_release_unavailable", message: "active platform release is unavailable" }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -2442,11 +2442,10 @@ test("commerce entrypoints fail closed when the Backend compatibility contract i
           next: unknown;
           recovery: unknown[];
         };
-        assert.equal(envelope.error.code, "backend_contract_incompatible");
-        assert.match(envelope.instruction, /不兼容或无法核验/);
-        assert.match(envelope.instruction, /不要猜版本/);
+        assert.equal(envelope.error.code, "platform_release_unavailable");
+        assert.doesNotMatch(envelope.instruction, /npm|删除身份|reset/);
         assert.equal(envelope.next, null);
-        assert.deepEqual(envelope.recovery, []);
+        assert.ok(envelope.recovery.every(action=>/readyz|catalog list/.test(String((action as {command?:string}).command))));
         return true;
       },
     );
@@ -2455,63 +2454,25 @@ test("commerce entrypoints fail closed when the Backend compatibility contract i
   }
 });
 
-test("catalog and top-level next fail before guidance when the contract hash differs", async () => {
-  const requests: string[] = [];
-  const server = http.createServer((request, response) => {
-    requests.push(request.url ?? "");
-    response.setHeader("Content-Type", "application/json");
-    if (request.url === "/v1/platform/compatibility") {
-      response.end(JSON.stringify({
-        platform_revision: "v3.contract-mismatch",
-        schema_revision: "sha256:schema",
-        bootstrap_revision: "seed",
-        api_contract_revision: "sha256:old-contract",
-        minimum_cli_version: "2.0.16",
-        maximum_cli_major: 2,
-      }));
-      return;
-    }
-    response.end(JSON.stringify({ status: "unexpected" }));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as AddressInfo;
-  try {
-    for (const args of [["catalog", "list", "--json"], ["next", "--json"]]) {
-      requests.length = 0;
-      const home = mkdtempSync(join(tmpdir(), "itpay-contract-stop-"));
-      await assert.rejects(
-        runCLI(args, { HOME: home, ITPAY_CLI_TEST_TRANSPORT_URL: `http://127.0.0.1:${address.port}` }),
-        (error: unknown) => {
-          const envelope = JSON.parse(String((error as { stdout?: string; stderr?: string }).stdout || (error as { stderr?: string }).stderr || "")) as {
-            error: { code: string; message: string };
-            result: { current_cli_version: string; minimum_cli_version: string };
-            instruction: string;
-            next: unknown;
-            recovery: Array<{ command: string; reason: string }>;
-          };
-          assert.equal(envelope.error.code, "backend_contract_incompatible");
-          assert.match(envelope.error.message, /sha256:old-contract/);
-          assert.deepEqual(envelope.result, {
-            current_cli_version: CLI_VERSION,
-            current_api_contract_revision: API_CONTRACT_REVISION,
-            platform_api_contract_revision: "sha256:old-contract",
-            minimum_cli_version: "2.0.16",
-            maximum_cli_major: 2,
-          });
-          assert.equal(
-            envelope.instruction,
-            "当前 CLI 与 Backend 合约不兼容或无法核验。minimum_cli_version 仅是协议门槛，不是已验证的推荐安装包。停止本轮，请维护方提供与当前 Backend 配套的制品；不要猜版本、降级、切换 Agent Type 或删除 Device 身份。",
-          );
-          assert.equal(envelope.next, null);
-          assert.deepEqual(envelope.recovery, []);
-          return true;
-        },
-      );
-      assert.deepEqual(requests, ["/v1/platform/compatibility"]);
-    }
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+test("changed hash and recommended release do not block catalog; local next needs no precheck", async () => {
+ const requests:string[]=[];
+ const server=http.createServer((request,response)=>{
+  requests.push(request.url??"");response.setHeader("Content-Type","application/json");
+  response.end(JSON.stringify(request.url==="/v1/platform/compatibility"
+   ? {minimum_cli:"0.2.70",recommended_cli:"0.2.71",capabilities:[],blocked_versions:[],api_contract_revision:"changed-diagnostic"}
+   : {version:"fixture",manifest:{items:[]}}));
+ });
+ await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));const address=server.address() as AddressInfo;
+ try {
+  for(const args of [["catalog","list","--json"],["next","--json"]]) {
+   requests.length=0;const home=mkdtempSync(join(tmpdir(),"itpay-compat-"));
+   try {
+    const output=await runCLI(args,{HOME:home,ITPAY_STATE_DIR:join(home,"state"),ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`});const envelope=JSON.parse(output.stdout);
+    if(args[0]==="catalog"){assert.equal(envelope.status,"catalog_empty");assert.match(envelope.instruction,/0.2.71/);assert.deepEqual(requests,["/v1/platform/compatibility","/v1/catalog/manifest"]);}
+    else {assert.equal(envelope.status,"nothing_to_resume");assert.deepEqual(requests,[]);}
+   } finally {rmSync(home,{recursive:true,force:true});}
   }
+ }finally{await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 });
 
 test("bundle distributions also stop rather than guessing a compatible update", async () => {
@@ -2544,7 +2505,7 @@ test("bundle distributions also stop rather than guessing a compatible update", 
             recovery: Array<{ command: string }>;
           };
           assert.deepEqual(envelope.recovery, []);
-          assert.match(envelope.instruction, /minimum_cli_version/);
+          assert.match(envelope.instruction, /此环境尚未升级/);
           assert.doesNotMatch(JSON.stringify(envelope), /npm install/);
           return true;
         },
@@ -2563,8 +2524,7 @@ test("compatibility-gated CLI never guesses an upgrade version from an invalid c
       schema_revision: "sha256:schema",
       bootstrap_revision: "seed",
       api_contract_revision: "sha256:other-contract",
-      minimum_cli_version: "latest",
-      maximum_cli_major: 2,
+      minimum_cli: "latest", recommended_cli: "0.2.70", capabilities: [], blocked_versions: [],
     }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -2578,8 +2538,8 @@ test("compatibility-gated CLI never guesses an upgrade version from an invalid c
           instruction: string;
           recovery: unknown[];
         };
-        assert.equal((envelope.result as {minimum_cli_version: string}).minimum_cli_version, "latest");
-        assert.match(envelope.instruction, /不兼容或无法核验/);
+        assert.equal((envelope as {error?:{code?:string}}).error?.code,"compatibility_unavailable");
+        assert.match(envelope.instruction, /兼容信息不可用/);
         assert.deepEqual(envelope.recovery, []);
         return true;
       },
@@ -6242,7 +6202,7 @@ test('run final reporter retains known execution context with ID-free special HT
   if(req.url==='/v1/service-executions'&&req.method==='POST'){res.statusCode=201;res.end(JSON.stringify({execution,workflow_entry}));return;}
   if(req.url===`/v1/service-executions/${execution.service_execution_id}`||req.url===`/v1/service-executions/${execution.service_execution_id}/advance`){
    if(phase==='read_initial_state'||req.method==='POST'){
-    res.statusCode=status;res.end(JSON.stringify({code,message:'controlled special HTTP failure',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli_version:'9.0.0'}:{})}));return;
+    res.statusCode=status;res.end(JSON.stringify({code,message:'controlled special HTTP failure',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli:'9.0.0'}:{})}));return;
    }
    res.end(JSON.stringify({...base,execution,workflow_entry,workflow:{status:phase==='resume_execution'?'quota_paused':'input_required',current_step:'input',revision:1,steps:{}}}));return;
   }
@@ -6262,7 +6222,7 @@ test('run final reporter retains known execution context with ID-free special HT
   await assert.rejects(runCLI(['--agent-type','codex-cli','services','run','itpay-rail','--operation','query_smart',...(phase==='resume_execution'?['--execution',execution.service_execution_id]:['--input-json',file]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
    assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);
    assert.match(output,new RegExp(execution.service_execution_id));assert.match(output,/execution_created/);assert.match(output,new RegExp(phase));assert.match(output,/query_smart/);assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
-   if(jsonOutput){const envelope=JSON.parse(output);assert.equal(envelope.result.service_execution_id,execution.service_execution_id);assert.equal(envelope.result.execution_created,true);assert.equal(envelope.result.operation_id,'query_smart');assert.equal(envelope.result.failure_stage,phase);assert.equal(envelope.error.code,status===426?'backend_contract_incompatible':code);assert.equal(envelope.next,null);if(status===401){assert.equal(envelope.recovery.length,1);assert.match(envelope.recovery[0].command,/skill show itpay/);}else assert.deepEqual(envelope.recovery,[]);if(status===426)assert.equal(envelope.result.minimum_cli_version,'9.0.0');}
+   if(jsonOutput){const envelope=JSON.parse(output);assert.equal(envelope.result.service_execution_id,execution.service_execution_id);assert.equal(envelope.result.execution_created,true);assert.equal(envelope.result.operation_id,'query_smart');assert.equal(envelope.result.failure_stage,phase);assert.equal(envelope.error.code,status===426?'backend_contract_incompatible':code);assert.equal(envelope.next,null);if(status===401){assert.equal(envelope.recovery.length,1);assert.match(envelope.recovery[0].command,/skill show itpay/);}else assert.deepEqual(envelope.recovery,[]);if(status===426)assert.equal(envelope.result.minimum_cli,'9.0.0');}
    outputs.push({phase,status,jsonOutput,output});return true;
   });
  }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'special-http-final-reporter.json'),JSON.stringify(outputs,null,2));}finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
@@ -6282,7 +6242,7 @@ test('purchase final reporter preserves classified HTTP errors at every purchase
    if(phase==='read_checkout_presentation'&&req.url==='/v1/service-executions/se_fixture/purchase'){
     res.end(JSON.stringify({status:'checkout_ready',service_execution_id:'se_fixture',completed_stage:'official_page',checkout,effects:{payment_requested:false,charged:false}}));return;
    }
-   res.statusCode=status;res.end(JSON.stringify({code,message:'controlled classified purchase fault',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli_version:'9.0.0'}:{})}));return;
+   res.statusCode=status;res.end(JSON.stringify({code,message:'controlled classified purchase fault',buyer_id:'private_canary_buyer',session_token:'private_canary_token',...(status===426?{minimum_cli:'9.0.0'}:{})}));return;
   }
   const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
   const response=await fetch(mock.url+req.url,{method:req.method??'GET',headers:{'Content-Type':'application/json'},...(chunks.length?{body:Buffer.concat(chunks)}:{})});res.statusCode=response.status;res.end(await response.text());
@@ -6297,7 +6257,7 @@ test('purchase final reporter preserves classified HTTP errors at every purchase
   status=item.status;code=item.code;
   await assert.rejects(runCLI(['--agent-type','codex-cli','services','purchase','se_fixture',...(phase==='confirm_purchase'?['--input-json',file]:phase==='resume_purchase'?['--resume']:[]),...(jsonOutput?['--json']:[])],{HOME:home,ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`}),error=>{
    assert(error&&typeof error==='object'&&'stdout' in error);const output=String(error.stdout);assert.match(output,/se_fixture/);assert.match(output,new RegExp(phase));assert.match(output,item.instruction);assert.doesNotMatch(output,/private_canary/);
-   if(jsonOutput){const v=JSON.parse(output);assert.equal(v.error.code,status===426?'backend_contract_incompatible':code);assert.equal(v.result.service_execution_id,'se_fixture');assert.equal(v.result.execution_created,true);assert.equal(v.result.failure_stage,phase);assert.equal(v.result.provider_called,undefined);assert.equal(v.next,null);if(status===401){assert.equal(v.recovery.length,1);assert.match(v.recovery[0].command,/skill show itpay/);}else assert.deepEqual(v.recovery,[]);if(status===426)assert.equal(v.result.minimum_cli_version,'9.0.0');}
+   if(jsonOutput){const v=JSON.parse(output);assert.equal(v.error.code,status===426?'backend_contract_incompatible':code);assert.equal(v.result.service_execution_id,'se_fixture');assert.equal(v.result.execution_created,true);assert.equal(v.result.failure_stage,phase);assert.equal(v.result.provider_called,undefined);assert.equal(v.next,null);if(status===401){assert.equal(v.recovery.length,1);assert.match(v.recovery[0].command,/skill show itpay/);}else assert.deepEqual(v.recovery,[]);if(status===426)assert.equal(v.result.minimum_cli,'9.0.0');}
    outputs.push({phase,status,jsonOutput,output});return true;
   });
  }if(process.env.ITPAY_EVIDENCE_DIR)writeFileSync(join(process.env.ITPAY_EVIDENCE_DIR,'purchase-special-http-final-reporter.json'),JSON.stringify(outputs,null,2));

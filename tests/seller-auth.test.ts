@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sellerAuth, sellerAuthPath, sellerSessionToken } from '../src/sell/auth.js';
-import { resolveBackendURL, qualifyBackendCommand, cartSessionPath, DEV_BASE_URL, V4_DEV_BASE_URL } from '../src/state/config.js';
+import { resolveBackendURL, qualifyBackendCommand, cartSessionPath, DEV_BASE_URL } from '../src/state/config.js';
 
 test('Seller login uses the standard browser flow and never exposes the claimed token', async () => {
   const home = mkdtempSync(join(tmpdir(), 'itpay-seller-'));
@@ -91,10 +91,10 @@ test('Public CLI supports official dev and isolates its state from production', 
  test('Development uses one exact HTTPS origin and isolates production and sandbox', () => {
   const home = mkdtempSync(join(tmpdir(), 'itpay-v4-dev-'));
   try {
-    const env = { HOME: home, ITPAY_BACKEND_URL: V4_DEV_BASE_URL };
-    assert.equal(resolveBackendURL(env), V4_DEV_BASE_URL);
-    assert.equal(resolveBackendURL({ ...env, ITPAY_BACKEND_URL: V4_DEV_BASE_URL + '/' }), V4_DEV_BASE_URL);
-    assert.equal(qualifyBackendCommand('itpay orders', env), `ITPAY_BACKEND_URL=${V4_DEV_BASE_URL} itpay orders`);
+    const env = { HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL };
+    assert.equal(resolveBackendURL(env), DEV_BASE_URL);
+    assert.equal(resolveBackendURL({ ...env, ITPAY_BACKEND_URL: DEV_BASE_URL + '/' }), DEV_BASE_URL);
+    assert.equal(qualifyBackendCommand('itpay orders', env), `ITPAY_BACKEND_URL=${DEV_BASE_URL} itpay orders`);
     assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home }));
     assert.equal(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: DEV_BASE_URL }));
     assert.notEqual(cartSessionPath(env), cartSessionPath({ HOME: home, ITPAY_BACKEND_URL: "https://sandbox.itpay.ai" }));

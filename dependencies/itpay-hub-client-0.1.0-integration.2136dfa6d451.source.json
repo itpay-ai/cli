@@ -1,0 +1,22 @@
+{
+  "format": "itpay.hub-client.integration.v1",
+  "source_repository": "https://github.com/itpay-ai/itpay-api-hub",
+  "source_commit": "2136dfa6d451046356b459d773cda23bcc084ae3",
+  "source_package_version": "0.1.0",
+  "package_version": "0.1.0-integration.2136dfa6d451",
+  "contract_revision": "hub.v1.2026-10-26.integration1",
+  "contract_bundle_digest": "sha256:26780b15d9152bf397007f4be9c226d0c4b077ef3f4139b027b7d3175017a52a",
+  "license": "UNLICENSED",
+  "tarball": "itpay-hub-client-0.1.0-integration.2136dfa6d451.tgz",
+  "sha256": "6cc7b35531ea54c40915f3625de47c4081e2c37640e03ba75bbee5a4d92dc2dc",
+  "integrity": "sha512-xV3cFUtkI7yYzG4alqsecTB3oKTJdkaRz1U/zRh5pO6be7RZTiTCFhgyXIKibruYKcszulH+IF7WOSssFTCBFg==",
+  "shasum": "12ed148cea4b3784b6e5438298d2cbad57bac8cf",
+  "files": [
+    "LICENSE",
+    "dist/generated/schema.d.ts",
+    "dist/index.d.ts",
+    "dist/index.js",
+    "package.json",
+    "provenance.json"
+  ]
+}

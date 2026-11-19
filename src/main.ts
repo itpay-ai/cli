@@ -14,7 +14,7 @@ import { runServicesRun } from "./commands/services.js";
 // orchestrate; HTTP and rendering live in src/client and src/render.
 
 import { Command } from "commander";
-import { stateDir, BackendOverrideError, API_CONTRACT_REVISION, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
+import { stateDir, BackendOverrideError, CLI_VERSION, loadConfig, cartSessionPath, newBackendClient } from "./state/config.js";
 import { DeviceAuthority, DeviceAuthorizationError, DeviceStateError } from "./state/device_authority.js";
 import { CartSession } from "./state/cart_session.js";
 import { defaultHostForAgentType, normalizeHost, validateContext, type ClientHost } from "./state/client_context.js";
@@ -24,7 +24,7 @@ import { runSetup, validateSetup } from "./commands/setup.js";
 import { runReadyz } from "./commands/readyz.js";
 import { runBuy } from "./commands/buy.js";
 import { runCatalogList } from "./commands/catalog.js";
-import { requirePlatformCompatibility } from "./commands/compatibility.js";
+import { requirePlatformCompatibility, compatibilityRecommendation } from "./commands/compatibility.js";
 import { runCheckoutPresentation } from "./commands/checkout.js";
 import { runPay } from "./commands/pay.js";
 import { runOrder } from "./commands/order.js";
@@ -211,12 +211,7 @@ function reportCLIError(
   }));
   const identityRecovery = error instanceof HttpError &&
     (error.code === "agent_identity_required" || error.code === "agent_device_session_required");
-	const incompatible = error instanceof HttpError && (
-		error.code === "client_upgrade_required" ||
-		error.code === "client_compatibility_headers_required" ||
-		error.code === "platform_release_unavailable" ||
-		(error.status === 404 && error.code === "unknown_error")
-	);
+  const incompatible = error instanceof HttpError && error.code === "client_upgrade_required";
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const providerConnectionUnavailable = error instanceof HttpError && error.code === "provider_connection_unavailable";
   const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
@@ -260,10 +255,8 @@ function reportCLIError(
         result: {
           ...error.executionContext,
           current_cli_version: CLI_VERSION,
-          current_api_contract_revision: API_CONTRACT_REVISION,
-          platform_api_contract_revision: error.payload?.api_contract_revision ?? null,
-          minimum_cli_version: error.payload?.minimum_cli_version ?? null,
-          maximum_cli_major: error.payload?.maximum_cli_major ?? null,
+          minimum_cli: error.payload?.minimum_cli ?? null,
+          recommended_cli: error.payload?.recommended_cli ?? null,
         },
       } : transportError ? {
         result: {
@@ -285,7 +278,7 @@ function reportCLIError(
         },
       } : {}),
       instruction: incompatible
-        ? "当前 CLI 与 Backend 合约不兼容或无法核验。minimum_cli_version 仅是协议门槛，不是已验证的推荐安装包。停止本轮，请维护方提供与当前 Backend 配套的制品；不要猜版本、降级、切换 Agent Type 或删除 Device 身份。"
+        ? "当前 CLI 低于最低版本或被明确封禁；按原安装方式更新官方建议版本，保留原 profile、身份与请求，不要猜版本或重发原请求。"
 		: backendInternal
 			? "告诉用户 ItPay 当前暂时无法完成这项服务并停止。不要转述内部错误、重试、修改身份、创建替代服务或进入任何付费路径。"
 		: providerConnectionUnavailable
@@ -587,7 +580,6 @@ program
   .action(async (options) => {
     const config = loadConfig();
     try {
-      await requirePlatformCompatibility(newBackendClient(config));
       const session = CartSession.loadFromFile(cartSessionPath(), config.checkoutCurrency);
       runNext(session, { jsonOutput: Boolean(options.json) });
     } catch (error) {
@@ -611,8 +603,8 @@ catalogCmd
   .action(async (options) => {
     const backend = newBackendClient(loadConfig());
     try {
-      await requirePlatformCompatibility(backend);
-      await runCatalogList(backend, { jsonOutput: Boolean(options.json) });
+      const compatibility = await requirePlatformCompatibility(backend);
+      await runCatalogList(backend, { jsonOutput: Boolean(options.json), recommendation: compatibilityRecommendation(compatibility) });
     } catch (error) {
       reportCLIError(error, {
         jsonOutput: Boolean(options.json),

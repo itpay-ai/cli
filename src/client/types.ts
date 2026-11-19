@@ -327,8 +327,10 @@ export interface PlatformCompatibility {
   bootstrap_revision: string;
   api_contract_revision: string;
   active_catalog_manifest_version?: string;
-  minimum_cli_version: string;
-  maximum_cli_major: number;
+  minimum_cli: string;
+  recommended_cli: string;
+  capabilities: string[];
+  blocked_versions: string[];
 }
 
 export interface ErrorResponse {
@@ -346,8 +348,8 @@ export interface ErrorResponse {
   execution_created?: boolean;
   code: string;
   message: string;
-  minimum_cli_version?: string;
-  maximum_cli_major?: number;
+  minimum_cli?: string;
+  recommended_cli?: string;
   platform_revision?: string;
   api_contract_revision?: string;
   upgrade_command?: string;
