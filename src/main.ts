@@ -212,6 +212,7 @@ function reportCLIError(
   const identityRecovery = error instanceof HttpError &&
     (error.code === "agent_identity_required" || error.code === "agent_device_session_required");
   const incompatible = error instanceof HttpError && error.code === "client_upgrade_required";
+  const environmentPending = error instanceof HttpError && error.code === "client_compatibility_headers_required";
   const backendInternal = error instanceof HttpError && error.status === 500 && error.code === "internal_error";
   const providerConnectionUnavailable = error instanceof HttpError && error.code === "provider_connection_unavailable";
   const providerTemporary = error instanceof HttpError && error.code === "provider_temporarily_unavailable";
@@ -248,7 +249,7 @@ function reportCLIError(
     writeCommandEnvelope({
       status: "error",
       error: {
-        code: incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
+        code: environmentPending ? "environment_upgrade_pending" : incompatible ? "backend_contract_incompatible" : backendOverrideError?.code ?? commandError?.code ?? (error instanceof HttpError ? error.code : transportError?.code ?? stateError?.code ?? deviceError?.code ?? contract?.code ?? "command_failed"),
         message: error instanceof Error ? error.message : String(error),
       },
       ...(stateError ? { result: { failure_stage: "local_device_state", operation: stateError.operation, cause_code: stateError.causeCode, source: stateError.source, ...(stateError.canonicalKeyPublished !== undefined ? {canonical_key_published: stateError.canonicalKeyPublished} : {}) } } : commandError?.result ? {result: commandError.result} : incompatible && error instanceof HttpError ? {
@@ -277,7 +278,9 @@ function reportCLIError(
           } : {}),
         },
       } : {}),
-      instruction: incompatible
+      instruction: environmentPending
+        ? "此环境尚未升级，请使用 dev 入口：https://dev.itpay.ai/agent。保留原身份与请求；不要自动切换环境或重发原请求。"
+        : incompatible
         ? "当前 CLI 低于最低版本或被明确封禁；按原安装方式更新官方建议版本，保留原 profile、身份与请求，不要猜版本或重发原请求。"
 		: backendInternal
 			? "告诉用户 ItPay 当前暂时无法完成这项服务并停止。不要转述内部错误、重试、修改身份、创建替代服务或进入任何付费路径。"
@@ -304,7 +307,7 @@ function reportCLIError(
 		: commandError?.instruction ?? authorizationInstruction ?? contract?.instruction ?? "检查命令参数后重试。",
       next: null,
     ...(commandError?.interaction ? { interaction: commandError.interaction } : {}),
-      recovery: incompatible || (transportError && contract?.initialization)
+      recovery: environmentPending || incompatible || (transportError && contract?.initialization)
         ? []
         : backendInternal || providerConnectionUnavailable || providerTemporary || providerInputRejected || providerContractMismatch || providerRejected || capabilityInputInvalid
           ? []
