@@ -77,7 +77,7 @@ hubCmd
         command: `itpay api connect continue --wait 120${options.json ? " --json" : ""} -- ${result.handle}`,
         reason: "等待原授权完成",
       } : result.phase === "connected" && result.request_id ? {
-        command: `itpay api status ${result.request_id}${options.json ? " --json" : ""}`,
+        command: `itpay api status ${result.request_id} --wait 120${options.json ? " --json" : ""}`,
         reason: "只读核对同一原请求",
       } : null;
       writeCommandEnvelope({
