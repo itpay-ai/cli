@@ -153,3 +153,7 @@ Testing报告 `p3-docs-acceptance-20261119/REPORT.md` 已核验确切公开包�
 ### Owner中性文案 · 2026-11-19
 
 README与API参考使用“本人钱包与credit”，源Skill钱包意图说明改中性；原build生成Skill身份，test:package通过。公开next2.1.69及候选help/runtime仍旧，未发布。 不更新CLI版本、标签、固定下载或生产；合并与dev实际读回分别记录，不将源码当已上线。
+
+## 2026-11-19 Stripe original-currency refund preview
+
+Refund preview instructions now state the server's original currency and exact minor-unit amount (including USD) before the separate credit equivalent. Integer formatting uses amount_minor_text when available; no FX calculation, refund submission or destination policy changes. Lint and all10 key_wallet tests passed, including a USD preview and existing uncertain/stale-preview recovery checks. The existing nonpayable terminal guard remains. This source candidate does not update public npm2.1.69; publishing remains separately authorized. Evidence: /Users/tzz/.codex/artifacts/stripe-fixes-20261119/.
