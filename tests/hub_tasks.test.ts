@@ -167,3 +167,35 @@ test("explicit platform mode persists, changes the digest and cannot mutate on r
  assert.notEqual(task.input_digest,digestTask("op","pub",seed.input));
  assert.throws(()=>store.update(task.request_id,JSON.parse('{"credential_mode":null}')),/original credential mode/);
 });
+
+test("only verified failed-zero history can advance the original execution binding",()=>{
+ const store=new HubTaskStore(join(tmpState(),"tasks"));
+ const task=store.getOrCreate({operation_id:"op-original",publication_id:"pub-original",input:{q:"original"}}).task;
+ store.update(task.request_id,{run_id:"run-failed",status:"failed",terminal:true});
+ const failed={run_id:"run-failed",operation_id:task.operation_id,publication_id:task.publication_id,execution_state:"failed" as const,settlement_state:"free" as const,delivery_state:"not_ready" as const,captured_atoms:"0",held_atoms:"0"};
+ const snapshot={request_id:store.idempotencyKey(task.request_id),intent_id:"int-original",intent:{intent_id:"int-original",kind:"metered_api",status:"open"},terminal:false,pending_stage:"confirmation" as const,next:null,credential_recovery:{intent_id:"int-original",decision_id:"0",previous_run_ids:[failed.run_id],zero_effect_verified:true as const},previous_runs:[failed]};
+ for(const invalid of [
+  {...snapshot,request_id:"foreign"},
+  {...snapshot,intent_id:"foreign"},
+  {...snapshot,previous_runs:[{...failed,captured_atoms:"1"}]},
+  {...snapshot,previous_runs:[{...failed,held_atoms:"1"}]},
+  {...snapshot,previous_runs:[{...failed,execution_state:"unknown" as const}]},
+  {...snapshot,previous_runs:[{...failed,operation_id:"foreign"}]},
+ ])assert.throws(()=>store.update(task.request_id,{intent_id:"int-original",status:"blocked",terminal:false},invalid),/binding/);
+ assert.equal(store.get(task.request_id)?.run_id,failed.run_id);
+ const pending=store.update(task.request_id,{intent_id:"int-original",status:"blocked",terminal:false},snapshot)!;
+ assert.equal(pending.run_id,undefined);assert.equal(pending.terminal,false);assert.deepEqual(pending.credential_recovery?.previous_run_ids,[failed.run_id]);
+ const stoppedTask=store.getOrCreate({operation_id:task.operation_id,publication_id:task.publication_id,input:{q:"stopped"}}).task;
+ const stopProof={...snapshot,request_id:store.idempotencyKey(stoppedTask.request_id),terminal:true,intent:{...snapshot.intent,status:"cancelled"}};
+ store.update(stoppedTask.request_id,{status:"failed",terminal:true},stopProof);
+ assert.throws(()=>store.update(stoppedTask.request_id,{status:"blocked",terminal:false},{...stopProof,terminal:false}),/binding/);
+ assert.throws(()=>store.update(task.request_id,{run_id:"unproved-child",status:"dispatched"}),/binding/);
+ const succeeded={...failed,run_id:"run-linked",execution_state:"succeeded" as const};
+ const linked={...snapshot,terminal:true,pending_stage:null,run:succeeded,credential_recovery:{...snapshot.credential_recovery,decision_id:"1234567890123456789"}};
+ store.update(task.request_id,{run_id:succeeded.run_id,status:"succeeded",terminal:true},linked);
+ assert.throws(()=>store.update(task.request_id,{status:"blocked",terminal:false},snapshot),/binding|stale/);
+ assert.equal(store.get(task.request_id)?.run_id,succeeded.run_id);
+ const unknown=store.getOrCreate({operation_id:task.operation_id,publication_id:task.publication_id,input:{}}).task;
+ store.update(unknown.request_id,{run_id:failed.run_id,status:"unknown"});
+ assert.throws(()=>store.update(unknown.request_id,{status:"blocked",terminal:false},{...snapshot,request_id:store.idempotencyKey(unknown.request_id)}),/binding/);
+});

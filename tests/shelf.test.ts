@@ -16,7 +16,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
  let shows=0,requestKey="",waitingReads=0,statusReads=0,unknownNext=false;
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
-  current_publication_id:"pub-shown",shown_event_id:"123",price_card:{mode:"per_call",amount_atoms:"10000",unit:"call"},
+  current_publication_id:"pub-shown",shown_event_id:"123",price_card:{mode:"per_call",amount_atoms:"10000",unit:"page"},
   input_schema:{type:"object",properties:{q:{type:"string"}},required:["q"]},example_input:{q:"example"},result_retention_days:7};
  const run={run_id:"run-original",operation_id:"op-fixture",publication_id:"pub-shown",execution_state:"succeeded",
   settlement_state:"captured",delivery_state:"inline",captured_atoms:"10000",held_atoms:"0",result:{value:"original"}};
@@ -24,7 +24,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   res.setHeader("Content-Type","application/json");
   const path=(req.url??"").split("?")[0]!;
   if(path==="/v1/catalog/categories"){res.end(JSON.stringify({items:[{id:"data",slug:"Data",name:"数据",count:1},{id:"empty",slug:"Other",name:"其他",count:0}]}));return;}
-  if(path==="/v1/catalog/operations"){res.end(JSON.stringify({items:[{operation_id:"op-fixture",display_name:"Fixture",summary:"Read a synthetic fixture",unit_price:{mode:"per_call",amount_atoms:"10000"}}],next_cursor:""}));return;}
+  if(path==="/v1/catalog/operations"){res.end(JSON.stringify({items:[{operation_id:"op-fixture",display_name:"Fixture",summary:"Read a synthetic fixture",unit_price:{mode:"per_call",amount_atoms:"10000",unit:"page"}}],next_cursor:""}));return;}
   if(path==="/v1/catalog/operations/op-fixture"){shows++;res.end(JSON.stringify(descriptor));return;}
   if(path==="/v1/operations/op-fixture/runs"){
    let raw="";for await(const part of req)raw+=part;
@@ -60,10 +60,10 @@ test("six command shelf freezes shown facts and status never redispatches",async
   importHubKey("itk_synthetic_shelf",env.ITPAY_HUB_URL,{...env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)});
   const prefix=["api","--profile",selector];
   const categories=await cli([...prefix,"categories"]);assert.equal(categories.value.result.items[1].count,0);
-  const list=await cli([...prefix,"list","--category","Data"]);assert.deepEqual(Object.keys(list.value.result.items[0]).sort(),["id","name","price","purpose"]);
+  const list=await cli([...prefix,"list","--category","Data"]);assert.equal(list.value.result.items[0].price,"0.01 credit/页");assert.deepEqual(Object.keys(list.value.result.items[0]).sort(),["id","name","price","purpose"]);
   const missing=await cli([...prefix,"call","op-fixture","--input",'{"q":"actual"}']);
   assert.equal(missing.value.error.code,"show_required");assert.equal(posts.length,0);
-  assert.equal((await cli([...prefix,"show","op-fixture"])).value.status,"shown");
+  const shown=await cli([...prefix,"show","op-fixture"]);assert.equal(shown.value.status,"shown");assert.equal(shown.value.result.price,"0.01 credit/页");
   const called=await cli([...prefix,"call","op-fixture","--input",'{"q":"actual"}']);
   assert.equal(called.value.status,"succeeded");
   assert.equal(called.value.result.captured_atoms,"10000");

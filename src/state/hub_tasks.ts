@@ -9,6 +9,7 @@
 // to the credential in use, never guessed.
 //
 // Secrets are never stored here — only ids and request facts.
+import type {RequestStatus} from "../client/hub.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync,
@@ -29,6 +30,7 @@ export interface HubTask extends HubCredentialSelection {
   input_digest: string;
   max_charge_atoms?: string;
   run_id?: string;
+  credential_recovery?: NonNullable<RequestStatus["credential_recovery"]>;
   intent_id?: string;
   topup_id?: string;
   low_balance_notified?: boolean;
@@ -198,23 +200,55 @@ export class HubTaskStore {
     return createTask();
   }
 
-  update(requestID: string, patch: Partial<HubTask>): HubTask | undefined {
+  update(requestID: string, patch: Partial<HubTask>, snapshot?: RequestStatus): HubTask | undefined {
     const file = join(this.dir, taskFileName(requestID));
     if (!existsSync(file)) return undefined;
     // Per-task lock: two processes updating the same task serialize here;
     // terminal states (succeeded/failed) cannot regress.
     return withFileLock(`${file}.lock`, () => {
       const existing = this.readTask(file);
-      if (existing.run_id && patch.run_id && existing.run_id !== patch.run_id || existing.intent_id && patch.intent_id && existing.intent_id !== patch.intent_id) {
+      const proof = snapshot?.credential_recovery;
+      if (existing.credential_recovery && !proof && (snapshot || patch.run_id && patch.run_id !== existing.run_id)) {
+        throw new Error("invalid_state: missing credential recovery binding");
+      }
+      if (proof) {
+        const history = snapshot.previous_runs ?? [], old = existing.credential_recovery?.previous_run_ids ?? [];
+        const sameRun = Boolean(existing.run_id && existing.run_id === snapshot.run?.run_id);
+        if (existing.terminal && existing.credential_recovery && (!snapshot.terminal || existing.run_id !== snapshot.run?.run_id) ||
+            patch.run_id !== snapshot.run?.run_id || patch.intent_id && patch.intent_id !== proof.intent_id ||
+            snapshot.request_id !== this.idempotencyKey(requestID) || !snapshot.intent_id ||
+            proof.intent_id !== snapshot.intent_id || snapshot.intent?.intent_id !== proof.intent_id ||
+            existing.intent_id && existing.intent_id !== proof.intent_id || proof.zero_effect_verified !== true ||
+            !history.length || proof.previous_run_ids.length !== history.length || new Set(proof.previous_run_ids).size !== history.length ||
+            history.some((run, index) => !run.run_id || run.run_id !== proof.previous_run_ids[index] ||
+              run.operation_id !== existing.operation_id || run.publication_id !== existing.publication_id ||
+              run.execution_state !== "failed" || !["free", "released"].includes(run.settlement_state) ||
+              run.captured_atoms !== "0" || run.held_atoms !== "0") ||
+            old.some((id, index) => proof.previous_run_ids[index] !== id) ||
+            existing.run_id && !sameRun && !proof.previous_run_ids.includes(existing.run_id) ||
+            ["succeeded", "unknown"].includes(existing.status) && !sameRun ||
+            snapshot.run && (snapshot.run.operation_id !== existing.operation_id || snapshot.run.publication_id !== existing.publication_id || proof.previous_run_ids.includes(snapshot.run.run_id))) {
+          throw new Error("invalid_state: unverified credential recovery binding");
+        }
+        if (old.length === history.length && existing.credential_recovery && BigInt(proof.decision_id) < BigInt(existing.credential_recovery.decision_id)) {
+          throw new Error("invalid_state: stale credential recovery decision");
+        }
+      }
+      if (!proof && existing.run_id && patch.run_id && existing.run_id !== patch.run_id || existing.intent_id && patch.intent_id && existing.intent_id !== patch.intent_id) {
         throw new Error("invalid_state: authoritative receipt changed the original task binding");
       }
       if ("credential_mode" in patch && patch.credential_mode !== existing.credential_mode) {
         throw new Error("invalid_state: original credential mode cannot change");
       }
-      const terminal = STATUS_RANK[existing.status] >= STATUS_RANK.succeeded;
+      const terminal = !proof && STATUS_RANK[existing.status] >= STATUS_RANK.succeeded;
       // Refresh metadata may advance on a terminal record, but a racing stale
       // read can never replace its outcome or original binding.
       const next = { ...existing, ...patch, ...(terminal ? { status: existing.status, terminal: true, pending_stage: null, next: null, blocking_reason: undefined } : {}), request_id: requestID, updated_at: new Date().toISOString() };
+      if (proof) {
+        next.intent_id = proof.intent_id;
+        next.credential_recovery = proof;
+        if (!snapshot.run) delete next.run_id;
+      }
       this.writeTask(file, next);
       return next;
     });
