@@ -11,11 +11,11 @@ import {writeCommandEnvelope,type CommandAction} from "./hub_guidance.js";
 type Facts=RunReceipt&{held_atoms?:string;captured_atoms?:string;result_expires_at?:string};
 type Snapshot=RequestStatus&{price_change?:PublicPriceChange;required_action?:{web_action?:{target?:string};target?:string}};
 const client=()=>new HubClient(loadHubConfig());
-export function priceLabel(price:{mode:string;amount_atoms?:string}):string{
+export function priceLabel(price:{mode:string;amount_atoms?:string;unit?:string}):string{
  if(price.mode==="free")return "免费";
  const atoms=BigInt(price.amount_atoms??"0");
  const fraction=(atoms%1000000n).toString().padStart(6,"0").replace(/0+$/,"");
- return ""+atoms/1000000n+(fraction?"."+fraction:"")+" credit/次";
+ return ""+atoms/1000000n+(fraction?"."+fraction:"")+" credit/"+(price.unit==="page"?"页":price.unit==="call"||!price.unit?"次":price.unit);
 }
 function statusAction(id:string,json:boolean):CommandAction{
  return {command:`itpay api status ${id}${json?" --json":""}`,reason:"只读核对原请求"};
@@ -25,17 +25,19 @@ function pendingAction(id:string,json:boolean):CommandAction{
 }
 function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  if(snapshot.request_id!==store.idempotencyKey(task.request_id))throw new Error("invalid_state: original request binding changed");
+ if(task.credential_recovery&&!snapshot.credential_recovery)throw new Error("invalid_state: missing credential recovery binding");
+ if(task.run_id&&!snapshot.run&&!snapshot.credential_recovery)throw new Error("invalid_state: original execution binding changed");
  if(snapshot.run){
   if(snapshot.run.operation_id!==task.operation_id || snapshot.run.publication_id!==task.publication_id ||
-     task.run_id && task.run_id!==snapshot.run.run_id)throw new Error("invalid_state: original execution binding changed");
+     !snapshot.credential_recovery && task.run_id && task.run_id!==snapshot.run.run_id)throw new Error("invalid_state: original execution binding changed");
   return store.update(task.request_id,{run_id:snapshot.run.run_id,
    status:snapshot.run.execution_state==="succeeded"?"succeeded":snapshot.run.execution_state==="failed"?"failed":"dispatched",
-   terminal:snapshot.terminal,state_source:"hub",state_stale:false})!;
+   terminal:snapshot.terminal,state_source:"hub",state_stale:false},snapshot)!;
  }
  if(snapshot.intent){
   if(task.intent_id && task.intent_id!==snapshot.intent.intent_id)throw new Error("invalid_state: original intent binding changed");
   return store.update(task.request_id,{intent_id:snapshot.intent.intent_id,status:snapshot.terminal?"failed":"blocked",
-   blocking_reason:snapshot.intent.blocking_reason,terminal:snapshot.terminal,state_source:"hub",state_stale:false})!;
+   blocking_reason:snapshot.intent.blocking_reason,terminal:snapshot.terminal,state_source:"hub",state_stale:false},snapshot)!;
  }
  throw new Error("invalid_state: original request has no receipt");
 }
@@ -56,7 +58,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
   const firstNotice=Boolean(balanceNotice&&!task.low_balance_notified);
   if(firstNotice)new HubTaskStore().update(task.request_id,{low_balance_notified:true});
   writeCommandEnvelope({status:run.execution_state==="succeeded"?"succeeded":snapshot.terminal?"failed":"pending",
-   result:{request_id:task.request_id,run_id:run.run_id,execution_state:run.execution_state,
+   result:{request_id:task.request_id,...(snapshot.previous_runs?{previous_runs:snapshot.previous_runs}:{}),run_id:run.run_id,execution_state:run.execution_state,
     settlement_state:run.settlement_state,delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
     held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
    instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:run.execution_state==="failed"&&zero?"本次未扣 credit。":snapshot.terminal?"按原结果与 credit 费用回执回答。captured_atoms/held_atoms 保留原字段，按 scale=6 读取为 credit；未知数值不可当零。":"结果待核对，继续读取原请求。",
@@ -65,16 +67,17 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
  }
  const reason=snapshot.intent?.blocking_reason??(readyToContinue(snapshot)?"pending":"unknown");
  const deviceConsent=deviceConsentPending(snapshot);
- const uncharged=["insufficient_balance","authorization_denied","authorization_revoked","budget_exceeded"].includes(reason);
+ const uncharged=Boolean(snapshot.credential_recovery?.zero_effect_verified)||["insufficient_balance","authorization_denied","authorization_revoked","budget_exceeded"].includes(reason);
+ const stopped=snapshot.terminal&&snapshot.intent?.status==="cancelled"&&reason!=="publication_changed";
  const target=snapshot.required_action?.web_action?.target??snapshot.required_action?.target;
  const changed=snapshot.terminal && reason==="publication_changed";
  const price=safePriceChange(snapshot.price_change);
  const zero=changed && price?.captured_atoms==="0" && price.held_atoms==="0";
  const label=price?.current_price?priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
- writeCommandEnvelope({status:changed?"price_changed":reason,
-  result:{request_id:task.request_id,intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
+ writeCommandEnvelope({status:stopped?"stopped":changed?"price_changed":reason,
+  result:{request_id:task.request_id,...(snapshot.previous_runs?{previous_runs:snapshot.previous_runs}:{}),intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed&&!deviceConsent?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
-  instruction:changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
+  instruction:stopped?(uncharged?"已停止这次请求，未扣 credit。":"已停止这次请求，费用以原回执为准。"):changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
    readyToContinue(snapshot)?"原请求已可接续，按返回操作继续；尚未执行。":deviceConsent?"请在原安装为同一请求确认消费额度；保留原账号、输入与价格，不只修改钱包或网页预算。":reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
    changed?statusAction(task.request_id,json):snapshot.terminal?null:deviceConsent?{command:`itpay api connect --request ${task.request_id}${json?" --json":""}`,reason:"为原请求确认设备消费额度"}:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
@@ -86,9 +89,9 @@ export async function shelfCategories(json:boolean):Promise<void>{
 export async function shelfList(options:{category?:string;query?:string;limit?:string;cursor?:string;json?:boolean}):Promise<void>{
  const q=new URLSearchParams();
  for(const key of ["category","query","limit","cursor"] as const)if(options[key]!==undefined)q.set(key,options[key]!);
- const data=await client().shelfGet<{items:Array<{operation_id:string;display_name:string;summary:string;unit_price?:{mode?:string;amount_atoms?:string}|null}>;next_cursor?:string}>("/v1/catalog/operations?"+q);
+ const data=await client().shelfGet<{items:Array<{operation_id:string;display_name:string;summary:string;unit_price?:{mode?:string;amount_atoms?:string;unit?:string}|null}>;next_cursor?:string}>("/v1/catalog/operations?"+q);
  writeCommandEnvelope({status:"listed",result:{items:data.items.map(item=>({id:item.operation_id,name:item.display_name,
-  purpose:item.summary,price:priceLabel({mode:item.unit_price?.mode??(item.unit_price?"per_call":"free"),amount_atoms:item.unit_price?.amount_atoms??"0"})})),
+  purpose:item.summary,price:priceLabel({mode:item.unit_price?.mode??(item.unit_price?"per_call":"free"),amount_atoms:item.unit_price?.amount_atoms??"0",unit:item.unit_price?.unit??"call"})})),
   page:{next_cursor:data.next_cursor||null}},instruction:"选定商品后 show 查看用途、价格、示例和保留时间。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});
 }
 export async function shelfShow(id:string,json:boolean):Promise<void>{
@@ -161,7 +164,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
     input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
    if("run_id" in admission)store.update(task.request_id,{run_id:admission.run_id,status:"dispatched"});
-   else if("intent_id" in admission)store.update(task.request_id,{intent_id:admission.intent_id,status:"blocked",blocking_reason:admission.blocking_reason});
+   else if("intent_id" in admission && "blocking_reason" in admission)store.update(task.request_id,{intent_id:admission.intent_id,status:"blocked",blocking_reason:admission.blocking_reason});
   }
   let snapshot:Snapshot;
   try { snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot; }
@@ -180,6 +183,12 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   if((snapshot.run || options.pending) && !deviceConsentPending(snapshot))({task,snapshot}=await waitForRequest(api,store,task,snapshot,120));
   await render(task,snapshot,json);
  }catch(error){
+  if(error instanceof HttpError&&error.code==="continuation_in_progress"){
+   try{const first=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
+    const {task:updated,snapshot}=await waitForRequest(api,store,remember(store,store.get(task.request_id)!,first),first,120);
+    await render(updated,snapshot,json);return;
+   }catch(readError){throw new HubTaskRequestError(readError,store.get(task.request_id)??task)}
+  }
   if(error instanceof HttpError && error.code==="publication_changed"){
    // Server admission rejected before any run, or it closed the unexecuted
    // original intent under its lock. Read that original evidence next.

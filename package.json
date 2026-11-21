@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "0.2.73",
+  "version": "0.2.74",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {
@@ -110,7 +110,7 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@itpay/hub-client": "file:dependencies/itpay-hub-client-0.1.0-integration.27929b1259ec.tgz",
+    "@itpay/hub-client": "file:dependencies/itpay-hub-client-0.1.0-integration.740db6e194c8.tgz",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.7.5",
     "@types/qrcode": "^1.5.5",

@@ -71,3 +71,10 @@ Services沿现有compatibility入口读取minimum_cli、recommended_cli、capabi
 CLI默认始终app.itpay.ai；dev入口复用原profile/launcher配置Services、Hub和issuer。next/latest选同一不可变包，不改变默认地址或现有连接。API命令仍直接用固定Hub SDK，不增加Services健康预检，不拿SDK包号或MCP版本冒充CLI版本。
 
 `api status <原请求> --wait 0..120` 只读轮询原请求，默认0；unknown/reconciling立即返回，绝不提交或接续。Key失效选择页由原账号正常会话决定，浏览器使用既有队列续接；CLI等待不需要用户回话，不替用户选择credit。新call可显式 `--credential-mode platform`，该模式进入本地摘要并随原任务持久化；`--pending` 不接受更改模式、操作或输入。省略模式沿Hub默认Key规则，不自动收费。
+
+
+## Explicit failed-Key continuation (0.2.74 candidate)
+
+Only the fixed Hub SDK’s credential_recovery proof can advance a retained failed-zero physical receipt on the same original request. The CLI verifies the exact intent, operation/publication, ordered retained failed/free-or-released receipts with explicit zero captured/held amounts and monotonic decision/history, then preserves previous IDs in the existing task. Input, request ID, profile, account and credential-mode facts remain unchanged. Unknown/successful/foreign/unproven binding changes are refused; a logical terminal result cannot regress. A continuation_in_progress reply only reads/waits for the original request, never submits another call. Status remains GET-only; the existing call --pending next action performs an explicit continuation after the owner choice. Credit/Key selection remains at the official owner page.
+
+Shelf list/show render the existing price unit: page as credit/页 and call as credit/次. This changes labels only; Hub retains successful-text-page measurement and actual receipt charges.
