@@ -1,6 +1,6 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.74；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
+独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.76；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
 
 ## 唯一发行路径
 
@@ -29,3 +29,5 @@ prepare只读checkout同一main，运行release tests、npm ci和npm run check�
 每阶段REPORT给PR、最终revision审查、实际包/环境、实测、实际diff；某仓净增逐段说明用途。Skill正文和参考由本仓维护，MCP/Hub SDK从独立owner固定包消费，不能手改vendor或删除许可。
 
 0.2.75 next候选随dev统一My API规范/支持认证与已存在的明确reconnect指引；SDK/合同仍固定740/b7，未变更接口或消费算法。须最终审查后以唯一原cd.yml任务发布，实际公开安装与dev入口一致后交真实复测；源码合并本身不算已发布。
+
+0.2.76 corrects the packaged README release drift and documents the existing npm exec entry with explicit dev settings and original profile. No runtime authentication, request or SDK behavior changes. Publish one immutable next package after final review; preserve latest.
