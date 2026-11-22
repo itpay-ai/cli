@@ -123,7 +123,7 @@ function showAPISkill(options: SkillOptions): void {
   writeCommandEnvelope({
     status: "shown",
     result: { skill: "itpay-api", content },
-    instruction: "完整读取 API Skill；API/数据任务直接按 itpay api --help、discover、inspect 继续，不先查 Services 目录；需要认证时由本人完成 api connect，已有任务沿原引用恢复。保持真实宿主、Hub 端点和状态目录。",
+    instruction: "完整读取 API Skill；API/数据任务直接按 itpay api --help、categories、list、show 继续，不先查 Services 目录；需要认证时由本人完成 api connect，已有任务沿原引用恢复。保持真实宿主、Hub 端点和状态目录。",
     next: null,
     recovery: [],
   }, {
