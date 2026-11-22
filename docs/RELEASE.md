@@ -27,3 +27,5 @@ prepare只读checkout同一main，运行release tests、npm ci和npm run check�
 本地npm演练仅产物目录：根/项目有package.json，每条命令显式--prefix并事前核npm prefix在产物内，隔离HOME/npmrc/cache/registry。403、挑战、限流立即停报，不换UA/路径/身份。开发安装、真实宿主、自然任务和发布安装读回分别记录，不由工程检查代签。
 
 每阶段REPORT给PR、最终revision审查、实际包/环境、实测、实际diff；某仓净增逐段说明用途。Skill正文和参考由本仓维护，MCP/Hub SDK从独立owner固定包消费，不能手改vendor或删除许可。
+
+0.2.75 next候选随dev统一My API规范/支持认证与已存在的明确reconnect指引；SDK/合同仍固定740/b7，未变更接口或消费算法。须最终审查后以唯一原cd.yml任务发布，实际公开安装与dev入口一致后交真实复测；源码合并本身不算已发布。
