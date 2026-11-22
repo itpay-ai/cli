@@ -26,6 +26,8 @@ test('next arbitrary reply resumes the task and original request; explicit new i
   attachAgentRequest(selector,'req_original');
   assert.equal(saveAgentTask(root,undefined,undefined,undefined).request_id,'req_original');
   assert.throws(()=>attachAgentRequest(selector,'req_replacement'),/task_conflict/);
+  attachAgentRequest(selector,'foreign_receipt',true);
+  assert.equal(saveAgentTask(root,undefined,undefined,undefined).request_id,'req_original');
   assert.throws(()=>saveAgentTask(root,'different','api',undefined),/task_conflict/);
   const second=saveAgentTask(root,'free earthquake query','api',undefined,true);
   assert.notEqual(second.id,task.id);
