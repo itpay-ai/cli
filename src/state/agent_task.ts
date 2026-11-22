@@ -25,8 +25,9 @@ export function saveAgentTask(root: string, text: string | undefined, surface: s
 }
 
 
-// Attach before network dispatch. Never replace an accepted original request.
-export function attachAgentRequest(selector: string | undefined, requestID: string): void {
+// Attach before dispatch; release only after the caller persists a verified
+// terminal success. The per-request Hub journal retains every original receipt.
+export function attachAgentRequest(selector: string | undefined, requestID: string, completed = false): void {
  if(!selector)return;
  const path=join(dirname(dirname(selector)), 'task.json');
  if(!existsSync(path))return;
@@ -34,8 +35,13 @@ export function attachAgentRequest(selector: string | undefined, requestID: stri
   if(!lstatSync(path).isFile() || (lstatSync(path).mode&0o077)!==0)throw new Error('task state is not private');
   const task=JSON.parse(readFileSync(path,'utf8')) as SavedTask;
   if(task.surface!=='api'||!task.id)return;
-  if(task.request_id && task.request_id!==requestID)throw new Error('task_conflict: original request already saved; status it before a new intent');
-  task.request_id=requestID;
+  if(completed){
+   if(task.request_id!==requestID)return;
+   delete task.request_id;
+  }else{
+   if(task.request_id && task.request_id!==requestID)throw new Error('task_conflict: original request already saved; status it before a new intent');
+   task.request_id=requestID;
+  }
   const tmp=path+'.'+randomUUID();writeFileSync(tmp,JSON.stringify(task)+'\n',{mode:0o600,flag:'wx'});renameSync(tmp,path);
  });
 }

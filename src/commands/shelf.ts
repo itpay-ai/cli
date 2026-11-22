@@ -30,9 +30,13 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  if(snapshot.run){
   if(snapshot.run.operation_id!==task.operation_id || snapshot.run.publication_id!==task.publication_id ||
      !snapshot.credential_recovery && task.run_id && task.run_id!==snapshot.run.run_id)throw new Error("invalid_state: original execution binding changed");
-  return store.update(task.request_id,{run_id:snapshot.run.run_id,
+  const updated=store.update(task.request_id,{run_id:snapshot.run.run_id,
    status:snapshot.run.execution_state==="succeeded"?"succeeded":snapshot.run.execution_state==="failed"?"failed":"dispatched",
    terminal:snapshot.terminal,state_source:"hub",state_stale:false},snapshot)!;
+  if(snapshot.terminal && snapshot.run.execution_state==="succeeded" &&
+     ["free","captured","released","refunded","partially_refunded"].includes(snapshot.run.settlement_state) &&
+     snapshot.run.held_atoms==="0" && !snapshot.credential_recovery)attachAgentRequest(selectedHubInstallationPath(),task.request_id,true);
+  return updated;
  }
  if(snapshot.intent){
   if(task.intent_id && task.intent_id!==snapshot.intent.intent_id)throw new Error("invalid_state: original intent binding changed");

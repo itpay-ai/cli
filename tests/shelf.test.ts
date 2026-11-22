@@ -5,7 +5,8 @@ import {createServer} from "node:http";
 import {spawn} from "node:child_process";
 import {mkdtempSync,rmSync,writeFileSync,readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join,dirname} from "node:path";
+import {saveAgentTask,attachAgentRequest} from "../src/state/agent_task.js";
 import {fileURLToPath} from "node:url";
 
 const root=fileURLToPath(new URL("..",import.meta.url));
@@ -57,6 +58,8 @@ test("six command shelf freezes shown facts and status never redispatches",async
   const setup=await cli(["setup","--api-prefix",join(home,"installation")]);
   const selector=setup.value.result.selector;
   const profile=JSON.parse(readFileSync(selector,"utf8"));
+  const agentRoot=dirname(dirname(selector));
+  saveAgentTask(agentRoot,"query actual and different values","api",undefined);
   importHubKey("itk_synthetic_shelf",env.ITPAY_HUB_URL,{...env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)});
   const prefix=["api","--profile",selector];
   const categories=await cli([...prefix,"categories"]);assert.equal(categories.value.result.items[1].count,0);
@@ -66,6 +69,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   const shown=await cli([...prefix,"show","op-fixture"]);assert.equal(shown.value.status,"shown");assert.equal(shown.value.result.price,"0.01 credit/页");
   const called=await cli([...prefix,"call","op-fixture","--input",'{"q":"actual"}']);
   assert.equal(called.value.status,"succeeded");
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,undefined,"terminal paid receipt releases active pointer");
   assert.equal(called.value.result.captured_atoms,"10000");
   const id=called.value.result.request_id;
   assert.equal(called.value.next,null,"terminal success has no redundant next step");
@@ -75,10 +79,14 @@ test("six command shelf freezes shown facts and status never redispatches",async
   waitingReads=1;
   const waited=await cli([...prefix,"status",id,"--wait","1"]);
   assert.equal(waited.value.status,"succeeded");assert.equal(statusReads,beforeReads+2);
+  attachAgentRequest(selector,id);
   unknownNext=true;
   const beforeUnknown=statusReads,started=Date.now();
   const uncertain=await cli([...prefix,"status",id,"--wait","120"]);
   assert.equal(uncertain.value.status,"pending");assert.ok(uncertain.value.next.command.includes(selector));assert.match(uncertain.value.next.command,new RegExp("status "+id));assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,id);
+  const blocked=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
+  assert.notEqual(blocked.code,0);assert.match(blocked.value.error.message,/task_conflict/);assert.equal(posts.length,1);
   for(const value of ["-1","121","1.5","invalid"]){
    const beforeInvalid=statusReads;
    const invalid=await cli([...prefix,"status",id,"--wait",value]);
@@ -86,6 +94,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   }
   assert.equal(posts.length,1);assert.equal(shows,1);
   assert.deepEqual(posts[0]!.body,{expected_publication_id:"pub-shown",shown_event_id:"123",input:{q:"actual"},max_charge:{currency:"CNY",scale:6,amount_atoms:"10000"}});
+  await cli([...prefix,"status",id]);
   const again=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
   assert.notEqual(again.value.result.request_id,id);assert.equal(posts.length,2);assert.equal(shows,1);
   assert.equal(posts[1]!.body.shown_event_id,"123");assert.notEqual(posts[1]!.key,posts[0]!.key);
