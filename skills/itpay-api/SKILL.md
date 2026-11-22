@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-This package is official CLI 0.2.75. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
+This package is official CLI 0.2.76. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
@@ -74,7 +74,7 @@ When credit is insufficient, report the account state and preserve the returned 
 
 ## Published package and candidate boundary
 
-Release 0.2.75 includes the documented original-wallet refund and payer-currency flags. Read this installed package help and retain its original launcher/profile. minimum_cli and exact blocked_versions require an update; recommended_cli only advises. Missing capabilities affect only the requested new operation. Hash/revision differences alone do not block use. If an old environment has not been upgraded, use the official dev entry for new tasks, without moving an accepted or unknown request.
+Release 0.2.76 includes the documented original-wallet refund and payer-currency flags. Read this installed package help and retain its original launcher/profile. minimum_cli and exact blocked_versions require an update; recommended_cli only advises. Missing capabilities affect only the requested new operation. Hash/revision differences alone do not block use. If an old environment has not been upgraded, use the official dev entry for new tasks, without moving an accepted or unknown request.
 
 ## Private My API / My Key
 
