@@ -6,6 +6,7 @@ import {HubTaskStore,hubTasksDir} from '../state/hub_tasks.js';
 import {withAsyncFileLock} from '../state/file_lock.js';
 import {openInSystemBrowser} from '../render/browser.js';
 import {describeAccount} from './hub.js';
+import {writeWalletRefund} from './wallet_refund.js';
 import {writeCommandEnvelope} from './hub_guidance.js';
 
 type FundingTask={key:string;amount:string;payer_currency?:"CNY"|"USD";buyer_id:string;topup_id?:string;status?:string;payment_status?:string;request_id?:string;renewal_of?:string};
@@ -17,10 +18,21 @@ export async function walletTopup(options:{topup?:string;topupStatus?:string;req
  if(options.payerCurrency&&(!options.topup||options.topupStatus||!['CNY','USD'].includes(options.payerCurrency)))throw Error('invalid_input: --payer-currency CNY|USD requires --topup and cannot change an original status read');
  const currency=(options.payerCurrency??'CNY') as 'CNY'|'USD';
  const cfg=loadHubConfig(),api=new HubClient(cfg),me=await api.me();
- const root=join(hubTasksDir(),'.funding');mkdirSync(root,{recursive:true,mode:0o700});
+ const root=join(hubTasksDir(),'.funding');
  let path:string;
- if(options.topupStatus){const name=readdirSync(root).find(name=>{try{return (JSON.parse(readFileSync(join(root,name),'utf8')) as FundingTask).topup_id===options.topupStatus}catch{return false}});if(!name)throw Error('not_found: original credit purchase is not in this installation');path=join(root,name)}
+ if(options.topupStatus){
+  const name=(existsSync(root)?readdirSync(root):[]).find(name=>{try{return (JSON.parse(readFileSync(join(root,name),'utf8')) as FundingTask).topup_id===options.topupStatus}catch{return false}});
+  if(!name){
+   if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(options.topupStatus))throw Error('invalid_input: original topup ID is invalid');
+   if(cfg.apiKey||!cfg.sessionEnv)throw Error('authorization_required: original-wallet refunds require this installation normal OAuth connection; no credential fallback');
+   const original=await api.walletRefundStatus({topup_id:options.topupStatus});
+   if(original.topup_id!==options.topupStatus)throw Error('original_topup_mismatch: preserve the original purchase and query it again');
+   writeWalletRefund(original,{id:options.topupStatus,preview:false,jsonOutput:options.jsonOutput,readTopup:true});return;
+  }
+  path=join(root,name);
+ }
  else {if(!options.topup||!/^\d+(?:\.\d{1,2})?$/.test(options.topup))throw Error('invalid_input: enter a positive credit quantity with at most two decimal places');path=join(root,encodeURIComponent(options.topup)+(currency==='USD'?'-USD':'')+'.json')}
+ mkdirSync(root,{recursive:true,mode:0o700});
  await withAsyncFileLock(path+'.lock',async()=>{
   let saved:FundingTask|undefined=existsSync(path)?JSON.parse(readFileSync(path,'utf8')) as FundingTask:undefined;
   if(saved&&saved.buyer_id!==me.buyer_id)throw Error('authorization_required: original credit purchase account changed');

@@ -81,3 +81,5 @@ Shelf list/show render the existing price unit: page as credit/页 and call as c
 
 ## Multi-query Agent tasks
 An Agent task may contain several sequential API queries. Persist each original Hub receipt before releasing its active task pointer, and release only on a binding-checked authoritative terminal successful run with final settlement, zero held atoms and no credential recovery. This allows the next query within the same user task; all old request IDs remain in the scoped Hub task journal. Pending, unknown, inconsistent, failed or credential-choice requests keep their original active binding. A late receipt can only release its own matching pointer, never another request.
+
+For an original browser purchase absent from this installation's funding records, `wallet --topup-status <topup_id>` uses the existing account-owner wallet refund reader. It requires the normal OAuth owner connection, does not adopt/cache the order, reconcile a PSP or submit a refund, and preserves Key/restricted-client and foreign-account refusal. Locally recorded funding orders keep their original read and recovery path.

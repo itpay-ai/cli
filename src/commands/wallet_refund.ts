@@ -56,17 +56,20 @@ export async function walletRefund(options:{latest:boolean;request?:string;statu
   }
   if(!saved)throw Error('invalid_state: original refund attempt missing');
   saved.status=result.status;if(result.topup_id)saved.topup_id=result.topup_id;if(result.refund_id)saved.refund_id=result.refund_id;save();
+  writeWalletRefund(result,{id,preview:!saved.sent&&!options.status,jsonOutput:options.jsonOutput});
+ });
+}
+
+export function writeWalletRefund(result:WalletRefund,{id,preview,jsonOutput,readTopup=false}:{id:string;preview:boolean;jsonOutput:boolean;readTopup?:boolean}){
   const status=result.status??'unconfirmed',terminal=['succeeded','failed','rejected','unavailable'].includes(status);
-  const original=`itpay api wallet --refund-status ${id}${options.jsonOutput?' --json':''}`;
-  const preview=!saved.sent&&!options.status;
-  const confirm=`itpay api wallet --refund-latest --refund-request ${id} --confirm${options.jsonOutput?' --json':''}`;
-  const next=status==='preview_changed'?{command:`itpay api wallet --refund-latest${options.jsonOutput?' --json':''}`,reason:'最新原款已变化；只读重新预览，必须取得新的明确同意'}:terminal?null:preview?{command:confirm,reason:'仅在用户明确同意退款后确认；服务端决定原额与原路去向'}:{command:original,reason:'只读核对原退款；unknown/超时不重新提交'};
+  const original=`itpay api wallet ${readTopup?'--topup-status':'--refund-status'} ${id}${jsonOutput?' --json':''}`;
+  const confirm=`itpay api wallet --refund-latest --refund-request ${id} --confirm${jsonOutput?' --json':''}`;
+  const next=status==='preview_changed'?{command:`itpay api wallet --refund-latest${jsonOutput?' --json':''}`,reason:'最新原款已变化；只读重新预览，必须取得新的明确同意'}:terminal?null:preview?{command:confirm,reason:'仅在用户明确同意退款后确认；服务端决定原额与原路去向'}:{command:original,reason:'只读核对原退款；unknown/超时不重新提交'};
   const amount=result.cny_equivalent?result.cny_equivalent.replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''):undefined;
   const cashRaw=String(result.amount_minor_text??result.amount_minor??'');
   const cash=/^\d+$/.test(cashRaw)&&/^[A-Z]{3}$/.test(result.currency??'')?`${result.currency} ${BigInt(cashRaw)/100n}.${(BigInt(cashRaw)%100n).toString().padStart(2,'0')}`:undefined;
   const ownRefundHold=['pending','unknown'].includes(status)&&Boolean(result.refund_id)&&result.reason==='original_credit_occupied'&&result.used_atoms==='0'&&Boolean(result.credit_atoms)&&result.credit_atoms!=='0'&&result.occupied_atoms===result.credit_atoms;
   const condition=ownRefundHold?undefined:refundReason(result.reason);
-  const instruction=(preview?'这是本人最近一笔原款的退款预览，尚未提交。':status==='preview_changed'?'预览后的最新原款已变化，本次未退款或冻结。重新预览并取得新的明确同意，不能自动确认另一笔。':status==='succeeded'?'渠道已确认原路退款，并扣回对应 credit。':status==='requested'?'原申请等待人工复核，申请未冻结资金。':status==='pending'?'原 credit 已冻结，等待原渠道确认退款。':status==='unconfirmed'||status==='unknown'?'原退款结果待确认。只查询已保存的原请求，不换号、不重发。':'读取原退款结果。')+(cash?` 原款 ${cash}，按原支付币种退回。`:'')+(amount?` 对应 ${amount} credit = CNY ${amount}；退款金额以原支付币种回执为准。`:'')+(condition?` 条件：${condition}。`:'')+(result.used_atoms!==undefined&&result.occupied_atoms!==undefined?` 原批已用 ${displayAtoms(result.used_atoms)}，${ownRefundHold?'退款冻结':'占用'} ${displayAtoms(result.occupied_atoms)}。`:'')+` 原渠道 ${result.payment_provider||'未记录'}；ItPay 账号 ${result.account_hint??'未记录'}；原付款账户 ${result.payment_account_hint||'尾号未记录'}，两者不可混用。`;
-  writeCommandEnvelope({status,result:{...result,request_id:id},instruction,next,recovery:[]},{jsonOutput:options.jsonOutput});
- });
+  const instruction=(preview?'这是本人最近一笔原款的退款预览，尚未提交。':status==='preview_changed'?'预览后的最新原款已变化，本次未退款或冻结。重新预览并取得新的明确同意，不能自动确认另一笔。':status==='succeeded'?'渠道已确认原路退款，并扣回对应 credit。':status==='requested'?'原申请等待人工复核，申请未冻结资金。':status==='pending'?'原 credit 已冻结，等待原渠道确认退款。':status==='unconfirmed'||status==='unknown'?'原退款结果待确认。只查询原请求，不换号、不重发。':'读取原退款结果。')+(cash?` 原款 ${cash}，按原支付币种退回。`:'')+(amount?` 对应 ${amount} credit = CNY ${amount}；退款金额以原支付币种回执为准。`:'')+(condition?` 条件：${condition}。`:'')+(result.used_atoms!==undefined&&result.occupied_atoms!==undefined?` 原批已用 ${displayAtoms(result.used_atoms)}，${ownRefundHold?'退款冻结':'占用'} ${displayAtoms(result.occupied_atoms)}。`:'')+` 原渠道 ${result.payment_provider||'未记录'}；ItPay 账号 ${result.account_hint??'未记录'}；原付款账户 ${result.payment_account_hint||'尾号未记录'}，两者不可混用。`;
+  writeCommandEnvelope({status,result:{...result,...readTopup?{}:{request_id:id}},instruction,next,recovery:[]},{jsonOutput:jsonOutput});
 }

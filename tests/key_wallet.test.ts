@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {spawn} from 'node:child_process';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -287,4 +287,34 @@ test('USD credit purchase preserves currency and one key after lost response, sh
   for(const args of [['--payer-currency','USD'],['--topup','10','--payer-currency','EUR'],['--topup-status',retry.value.result.topup_id,'--payer-currency','USD'],['--refund-latest','--payer-currency','USD']])assert.notEqual((await cli(args)).exit,0);
   assert.equal(posts,before);
  }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true})}
+});
+
+
+test('browser original topup reads the existing owner refund route without local adoption, writes or topup reconciliation',async()=>{
+ const state=mkdtempSync(join(tmpdir(),'wallet-owner-original-'));let reads=0,other=0,mode='succeeded';
+ const server=createServer((req,res)=>{
+  res.setHeader('Content-Type','application/json');
+  if(req.url==='/v1/me'){res.end(JSON.stringify({buyer_id:'issuer|buyer_BBBBBB'}));return;}
+  if(req.method==='GET'&&req.url==='/v1/me/wallet/refund?topup_id=top-browser'){
+   reads++;if(mode==='foreign'){res.writeHead(404);res.end(JSON.stringify({error:{code:'not_found',message:'original refund not found'}}));return;}
+   if(mode==='unavailable'){res.writeHead(503);res.end(JSON.stringify({error:{code:'refund_read_unavailable',message:'read original'}}));return;}
+   res.end(JSON.stringify({topup_id:mode==='mismatch'?'top-other':'top-browser',status:mode,refund_id:'refund-browser',amount_minor:100,currency:'CNY',cny_equivalent:'1.000000',account_hint:'…BBBBBB',payment_provider:'alipay'}));return;
+  }
+  other++;res.writeHead(405);res.end('{}');
+ });
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const address=server.address();assert.ok(address&&typeof address!=='string');const base='http://127.0.0.1:'+address.port;
+ const env={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_STATE_DIR:state,ITPAY_HUB_URL:base,ITPAY_HUB_OAUTH_CLIENT:'fixture'};
+ storeHubSession('synthetic-browser-owner',undefined,3600,'issuer|buyer_BBBBBB',base,env,'oauth:fixture:b');
+ const cli=(overrides:Record<string,string>={})=>new Promise<{exit:number|null;value:any}>((resolve,reject)=>{
+  const args=process.env.ITPAY_REFUND_TEST_CLI?[process.env.ITPAY_REFUND_TEST_CLI]:['--import','tsx','src/main.ts'];
+  const p=spawn(process.execPath,[...args,'api','wallet','--topup-status','top-browser','--json'],{cwd:root,env:{...env,...overrides}});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',exit=>{try{resolve({exit,value:JSON.parse(out)})}catch(e){reject(Error(String(e)+' '+out+' '+err))}});
+ });
+ try{
+  const original=await cli();assert.equal(original.exit,0);assert.equal(original.value.status,'succeeded');assert.equal(original.value.result.topup_id,'top-browser');assert.equal(original.value.result.request_id,undefined);assert.match(original.value.instruction,/原路退款/);assert.match(original.value.instruction,/CNY 1.00/);assert.equal(original.value.next,null);
+  mode='unknown';const unknown=await cli();assert.equal(unknown.exit,0);assert.equal(unknown.value.status,'unknown');assert.match(unknown.value.instruction,/只查询原请求/);if(unknown.value.next){assert.match(unknown.value.next.command,/--topup-status top-browser/);assert.doesNotMatch(unknown.value.next.command,/--confirm|--refund-latest/);}
+  for(const rejected of ['foreign','unavailable','mismatch']){mode=rejected;assert.notEqual((await cli()).exit,0);}
+  const before=reads;assert.notEqual((await cli({ITPAY_HUB_KEY:'itk_synthetic_restricted'})).exit,0);assert.equal(reads,before,'Key must not fall back to owner credentials');
+  assert.equal(other,0,'no POST, topup read/reconcile, supplier or refund submission');
+  const {hubTasksDir}=await import('../src/state/hub_tasks.js');assert.equal(existsSync(join(hubTasksDir(env),'.funding')),false);assert.equal(existsSync(join(hubTasksDir(env),'.refunds')),false);
+ }finally{await new Promise<void>(r=>server.close(()=>r()));rmSync(state,{recursive:true,force:true});}
 });
