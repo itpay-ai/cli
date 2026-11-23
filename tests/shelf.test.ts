@@ -15,6 +15,8 @@ test("six command shelf freezes shown facts and status never redispatches",async
  const sentinel=join(home,"services-identity");writeFileSync(sentinel,"unchanged");
  const posts:Array<{path:string;key:string;body:any}>=[];
  let shows=0,requestKey="",waitingReads=0,statusReads=0,unknownNext=false;
+ let runOverride:Record<string,unknown>={},terminalOverride:boolean|undefined,recoveryOverride=false,statusError=false;
+ let beforeRequestReply:(()=>void)|undefined;
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
   current_publication_id:"pub-shown",shown_event_id:"123",price_card:{mode:"per_call",amount_atoms:"10000",unit:"page"},
@@ -35,9 +37,11 @@ test("six command shelf freezes shown facts and status never redispatches",async
   }
   if(path.startsWith("/v1/requests/")){
    statusReads++;
+   if(statusError){res.writeHead(503);res.end(JSON.stringify({error:{code:"read_unavailable",message:"retain original"}}));return;}
+   const hook=beforeRequestReply;beforeRequestReply=undefined;hook?.();
    const unknown=unknownNext;unknownNext=false;
    const pending=waitingReads-->0;
-   res.end(JSON.stringify({request_id:requestKey,run:unknown?{...run,execution_state:"unknown",settlement_state:"reconciling"}:pending?{...run,execution_state:"in_flight",settlement_state:"held"}:run,terminal:!unknown&&!pending,pending_stage:null,next:null}));return;
+   res.end(JSON.stringify({request_id:requestKey,run:unknown?{...run,execution_state:"unknown",settlement_state:"reconciling"}:pending?{...run,execution_state:"in_flight",settlement_state:"held"}:{...run,...runOverride},terminal:terminalOverride??(!unknown&&!pending),...(recoveryOverride?{credential_recovery:{zero_effect_verified:true,intent_id:"intent-recovery"}}:{}),pending_stage:null,next:null}));return;
   }
   if(path==="/v1/me"){res.end(JSON.stringify({buyer_id:"fixture",key_id:"key-fixture",consumer_id:""}));return;}
   if(path==="/v1/me/wallet"){res.end(JSON.stringify({available:{currency:"CNY",scale:6,amount_atoms:"990000"},held:{currency:"CNY",scale:6,amount_atoms:"0"},topup_url:"https://official.invalid/me/wallet"}));return;}
@@ -85,6 +89,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   const uncertain=await cli([...prefix,"status",id,"--wait","120"]);
   assert.equal(uncertain.value.status,"pending");assert.ok(uncertain.value.next.command.includes(selector));assert.match(uncertain.value.next.command,new RegExp("status "+id));assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
   assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,id);
+  runOverride={execution_state:"unknown",settlement_state:"reconciling"};terminalOverride=false;
   const blocked=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
   assert.notEqual(blocked.code,0);assert.match(blocked.value.error.message,/task_conflict/);assert.equal(posts.length,1);assert.equal(blocked.value.error.code,"task_conflict");assert.equal(blocked.value.result.request_id,id);assert.ok(blocked.value.next.command.includes(selector));assert.match(blocked.value.next.command,new RegExp("status "+id));assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,id);
   for(const value of ["-1","121","1.5","invalid"]){
@@ -94,6 +99,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   }
   assert.equal(posts.length,1);assert.equal(shows,1);
   assert.deepEqual(posts[0]!.body,{expected_publication_id:"pub-shown",shown_event_id:"123",input:{q:"actual"},max_charge:{currency:"CNY",scale:6,amount_atoms:"10000"}});
+  runOverride={};terminalOverride=undefined;
   await cli([...prefix,"status",id]);
   const again=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
   assert.notEqual(again.value.result.request_id,id);assert.equal(posts.length,2);assert.equal(shows,1);
@@ -106,6 +112,39 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.notEqual(invalidMode.code,0);assert.equal(posts.length,3);
   assert.equal((await cli([...prefix,"wallet"])).value.result.topup_url,"https://official.invalid/me/wallet");
   assert.equal(readFileSync(sentinel,"utf8"),"unchanged");
+  // Only canonical settled zero-charge failure/cancellation releases an old
+  // pointer. Status stays GET-only, retains the original receipt and cannot
+  // replace a concurrently attached different original.
+  const last=platform.value.result.request_id;
+  for(const state of [
+   {execution_state:"unknown",settlement_state:"reconciling",captured_atoms:"0",held_atoms:"0"},
+   {execution_state:"in_flight",settlement_state:"held",captured_atoms:"0",held_atoms:"10000"},
+   {execution_state:"failed",settlement_state:"captured",captured_atoms:"10000",held_atoms:"0"},
+   {execution_state:"failed",settlement_state:"released",captured_atoms:"1",held_atoms:"0"},
+   {execution_state:"failed",settlement_state:"released",captured_atoms:"0",held_atoms:"1"},
+   {execution_state:"failed",settlement_state:"reserved",captured_atoms:"0",held_atoms:"0"},
+   {execution_state:"failed",settlement_state:"released",captured_atoms:null,held_atoms:"0"},
+   {execution_state:"failed",settlement_state:"released",captured_atoms:"0",held_atoms:null},
+  ]){
+   attachAgentRequest(selector,last);runOverride=state;
+   const before:number=posts.length;await cli([...prefix,"status",last]);assert.equal(posts.length,before);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,last);
+  }
+  runOverride={execution_state:"failed",settlement_state:"released",captured_atoms:"0",held_atoms:"0"};terminalOverride=false;
+  await cli([...prefix,"status",last]);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,last);terminalOverride=undefined;
+  for(const execution of ["failed","cancelled"]){
+   attachAgentRequest(selector,last);runOverride={execution_state:execution,settlement_state:"released",captured_atoms:"0",held_atoms:"0"};
+   const before:number=posts.length;const read=await cli([...prefix,"status",last]);assert.equal(read.code,0);assert.equal(posts.length,before);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,undefined);assert.equal(read.value.result.request_id,last);
+  }
+  // Simulate an older installation that has not re-read its settled failure:
+  // the explicit new call reconciles the original once, never re-posts it.
+  attachAgentRequest(selector,last);
+  const beforeNew:number=posts.length,readsBeforeNew:number=statusReads;const nextQuery=await cli([...prefix,"call","op-fixture","--input",'{"q":"after safe failure"}']);assert.equal(nextQuery.code,0);assert.notEqual(nextQuery.value.result.request_id,last);assert.equal(posts.length,beforeNew+1);assert.notEqual(posts.at(-1)!.key,posts[2]!.key);assert.equal(posts.at(-1)!.body.input.q,"after safe failure");assert.equal(statusReads,readsBeforeNew+2,"one old canonical GET and one new receipt GET");
+  const current=nextQuery.value.result.request_id;attachAgentRequest(selector,current);
+  statusError=true;const beforeUnavailable:number=posts.length,readsBeforeUnavailable:number=statusReads;const unavailable=await cli([...prefix,"call","op-fixture","--input",'{"q":"read unavailable"}']);assert.notEqual(unavailable.code,0);assert.equal(unavailable.value.result.request_id,current);assert.equal(posts.length,beforeUnavailable);assert.equal(statusReads,readsBeforeUnavailable+1);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,current);statusError=false;
+  beforeRequestReply=()=>{attachAgentRequest(selector,current,true);attachAgentRequest(selector,last)};
+  const beforeRace:number=posts.length;const raced=await cli([...prefix,"call","op-fixture","--input",'{"q":"concurrent new pointer"}']);assert.notEqual(raced.code,0);assert.equal(raced.value.error.code,"task_conflict");assert.equal(raced.value.result.request_id,last);assert.equal(posts.length,beforeRace);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,last,"late original read must not clear or replace peer pointer");
+  attachAgentRequest(selector,last,true);attachAgentRequest(selector,current);recoveryOverride=true;
+  await cli([...prefix,"status",current]);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,current);
   for(const old of ["discover","inspect","run","resume","tasks","continue","run-status","original-receipt","usage","transactions","topups","topup","topup-status","recover-connection"]){
    const p=await new Promise<number|null>(resolve=>{const child=spawn(process.execPath,["--import","tsx","src/main.ts",...prefix,old],{cwd:root,env,stdio:"ignore"});child.on("close",resolve)});
    assert.notEqual(p,0,old+" remains registered");

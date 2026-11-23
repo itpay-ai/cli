@@ -29,7 +29,7 @@ export function saveAgentTask(root: string, text: string | undefined, surface: s
 
 
 // Attach before dispatch; release only after the caller persists a verified
-// terminal success. The per-request Hub journal retains every original receipt.
+// terminal settled result. The per-request Hub journal retains every original receipt.
 export function attachAgentRequest(selector: string | undefined, requestID: string, completed = false): void {
  if(!selector)return;
  const path=join(dirname(dirname(selector)), 'task.json');
