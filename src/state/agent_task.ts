@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import {chmodSync,existsSync,lstatSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {withFileLock} from './file_lock.js';
+export class AgentTaskConflict extends Error {
+ constructor(readonly requestID:string){super('task_conflict: original request already saved; status it before a new intent');}
+}
 export type SavedTask = { id: string; text: string; surface: "api" | "services"; request_id?: string; authorization_terminal?: "denied" | "cancelled" };
 
 export function saveAgentTask(root: string, text: string | undefined, surface: string | undefined, request: string | undefined, newTask = false): SavedTask {
@@ -39,7 +42,7 @@ export function attachAgentRequest(selector: string | undefined, requestID: stri
    if(task.request_id!==requestID)return;
    delete task.request_id;
   }else{
-   if(task.request_id && task.request_id!==requestID)throw new Error('task_conflict: original request already saved; status it before a new intent');
+   if(task.request_id && task.request_id!==requestID)throw new AgentTaskConflict(task.request_id);
    task.request_id=requestID;
   }
   const tmp=path+'.'+randomUUID();writeFileSync(tmp,JSON.stringify(task)+'\n',{mode:0o600,flag:'wx'});renameSync(tmp,path);
