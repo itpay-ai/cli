@@ -86,7 +86,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.equal(uncertain.value.status,"pending");assert.ok(uncertain.value.next.command.includes(selector));assert.match(uncertain.value.next.command,new RegExp("status "+id));assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
   assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,id);
   const blocked=await cli([...prefix,"call","op-fixture","--input",'{"q":"different"}']);
-  assert.notEqual(blocked.code,0);assert.match(blocked.value.error.message,/task_conflict/);assert.equal(posts.length,1);
+  assert.notEqual(blocked.code,0);assert.match(blocked.value.error.message,/task_conflict/);assert.equal(posts.length,1);assert.equal(blocked.value.error.code,"task_conflict");assert.equal(blocked.value.result.request_id,id);assert.ok(blocked.value.next.command.includes(selector));assert.match(blocked.value.next.command,new RegExp("status "+id));assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,id);
   for(const value of ["-1","121","1.5","invalid"]){
    const beforeInvalid=statusReads;
    const invalid=await cli([...prefix,"status",id,"--wait",value]);
