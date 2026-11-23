@@ -1,4 +1,4 @@
-import { attachAgentRequest } from "../state/agent_task.js";
+import { AgentTaskConflict, attachAgentRequest } from "../state/agent_task.js";
 import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
 import { selectedHubInstallationPath } from "../state/hub_installation.js";
 import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPriceChange,type RunReceipt,type RequestStatus} from "../client/hub.js";
@@ -31,11 +31,11 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
   if(snapshot.run.operation_id!==task.operation_id || snapshot.run.publication_id!==task.publication_id ||
      !snapshot.credential_recovery && task.run_id && task.run_id!==snapshot.run.run_id)throw new Error("invalid_state: original execution binding changed");
   const updated=store.update(task.request_id,{run_id:snapshot.run.run_id,
-   status:snapshot.run.execution_state==="succeeded"?"succeeded":snapshot.run.execution_state==="failed"?"failed":"dispatched",
+   status:snapshot.run.execution_state==="succeeded"?"succeeded":["failed","cancelled"].includes(snapshot.run.execution_state)?"failed":"dispatched",
    terminal:snapshot.terminal,state_source:"hub",state_stale:false},snapshot)!;
-  if(snapshot.terminal && snapshot.run.execution_state==="succeeded" &&
-     ["free","captured","released","refunded","partially_refunded"].includes(snapshot.run.settlement_state) &&
-     snapshot.run.held_atoms==="0" && !snapshot.credential_recovery)attachAgentRequest(selectedHubInstallationPath(),task.request_id,true);
+  const success=snapshot.run.execution_state==="succeeded" && ["free","captured","released","refunded","partially_refunded"].includes(snapshot.run.settlement_state);
+  const failedFree=["failed","cancelled"].includes(snapshot.run.execution_state) && ["free","released"].includes(snapshot.run.settlement_state) && snapshot.run.captured_atoms==="0";
+  if(snapshot.terminal && (success||failedFree) && snapshot.run.held_atoms==="0" && !snapshot.credential_recovery)attachAgentRequest(selectedHubInstallationPath(),task.request_id,true);
   return updated;
  }
  if(snapshot.intent){
@@ -162,7 +162,14 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   task=store.getOrCreate({operation_id:operation,publication_id:shown.current_publication_id,input,
    max_charge_atoms:shown.price_card.amount_atoms,...(options.credentialMode==="platform"?{credential_mode:"platform" as const}:{}),...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
  }
- attachAgentRequest(selectedHubInstallationPath(),task.request_id);
+ try{attachAgentRequest(selectedHubInstallationPath(),task.request_id)}catch(error){
+  if(!(error instanceof AgentTaskConflict))throw error;
+  const original=store.get(error.requestID);if(!original)throw error;
+  try{remember(store,original,await api.getRequest(store.idempotencyKey(original.request_id)) as Snapshot)}catch(readError){throw new HubTaskRequestError(readError,original)}
+  // Network I/O is outside the file lock; both release and this final attach
+  // compare the current pointer, so another process cannot be overwritten.
+  attachAgentRequest(selectedHubInstallationPath(),task.request_id);
+ }
  try{
   if(!options.pending){
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,

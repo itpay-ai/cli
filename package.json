@@ -1,6 +1,6 @@
 {
   "name": "@itpay/cli",
-  "version": "0.2.79",
+  "version": "0.2.80",
   "description": "The ItPay CLI for services, orders, and human-authorized purchased content.",
   "type": "module",
   "bin": {

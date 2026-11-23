@@ -1,6 +1,6 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.79；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
+独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.80；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
 
 ## 唯一发行路径
 
@@ -37,3 +37,5 @@ prepare只读checkout同一main，运行release tests、npm ci和npm run check�
 0.2.78 carries the reviewed connection-surface and consent-scope Skill wording. Services status is not API authentication status; reconnect/revoke keeps the intended original surface/profile, and consent describes the page’s per-call limit and connection scope. No command, SDK, grant, original-task or financial algorithm changes. Publish once to next only after final review/checks; preserve the immutable77 package and latest.
 
 0.2.79 consolidates the reviewed original API launcher guidance, browser-original wallet refund owner read, and same-profile task-conflict status next. No credential/profile migration, supplier retry, financial write, SDK update or concurrency relaxation. Publish one immutable next package after final review/checks and preserve latest.
+
+0.2.80 carries the reviewed safe terminal-failure task release and one canonical read on a conflicting explicit new call. It preserves original receipts, compare-release/attach, unknown/held/captured-failure/recovery protection and supplier idempotency. Publish once to next after final review/checks; retain79 and latest.
