@@ -290,7 +290,7 @@ test("fresh setup connect uses one account page and finishes without a second co
   const ready=await new Promise<{value:any;code:number|null}>((resolve,reject)=>{
    const child=spawn('/bin/sh',['-c',pending.value.next.command],{cwd:root,env:f.env});let output='';child.stdout.on('data',v=>output+=v);child.on('error',reject);child.on('close',code=>{try{resolve({code,value:JSON.parse(output.split(/\n(?=\{)/).at(-1)!)})}catch(e){reject(e)}});
   });
-  assert.equal(ready.value.status,"connected");assert.match(ready.value.instruction,/当前账号/);
+  assert.equal(ready.value.status,"connected");assert.equal(ready.value.result.connection_status,"connected");assert.match(ready.value.instruction,/当前账号/);assert.match(ready.value.instruction,/已连接。已开通：/);
   assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
  }finally{await f.close()}
 });

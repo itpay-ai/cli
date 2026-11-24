@@ -1,6 +1,6 @@
 import {prepareAgentConnection,connectAgent,bindAgentServices,saveAgentConnection,servicesConnectionRoot} from "../state/agent_connection.js";
 import {hubCredentialsPath,importHubKey} from "../state/hub_credentials.js";
-import {describeAccount,currentAccountLabel,describeHubIdentity} from "./hub.js";
+import {describeAccount,describeHubIdentity} from "./hub.js";
 import {HubClient,loadHubConfig} from "../client/hub.js";
 import {existsSync,readFileSync} from "node:fs";
 import {join,resolve} from "node:path";
@@ -48,15 +48,14 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    if(selected?.apiKey&&(selected.baseURL!==installed.baseURL||task?.request_id&&installed.apiKey!==selected.apiKey))throw new Error("credential_conflict: keep the original request credential");
    if(!process.env.ITPAY_HUB_KEY)importHubKey(selected?.apiKey??installed.apiKey!,installed.baseURL);
    const me=await new HubClient(loadHubConfig()).me();
-   emit("connected",{selector:installation!.selector,identity:describeHubIdentity(me,"api_key")},describeAccount(me)+"\n使用所选 API Key；继续原任务。",apiNext);return;
+   emit("connected",{selector:installation!.selector,identity:describeHubIdentity(me,"api_key"),connection_status:"connected"},describeAccount(me)+"\n使用所选 API Key；继续原任务。",apiNext);return;
   }
-  let summary:Record<string,string>={},initial=false;
+  let summary:Record<string,string>={};
   if(common){
    let view=await connectAgent(root,common,Boolean(options.reconnect),surface);
    if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface);
    const deadline=Date.now()+wait*1000;
    while(view.status==="pending"){
-    initial ||= !common.buyer_id&&view.enabled_surfaces?.length===1&&view.enabled_surfaces.includes(surface);
     const {enabled_surfaces,...authorization}=view;
     emit("pending",{authorization},"展示原官方链接；本人确认后继续原任务。",again);
     if(options.buffered||Date.now()>=deadline)return;
@@ -67,15 +66,21 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    summary=Object.fromEntries(["services","api"].map(item=>[item,view.enabled_surfaces?.includes(item)?"enabled":"consent_required"]));
    if(summary[surface]!=="enabled"){emit("surface_not_enabled",{connection_id:view.connection_id,surfaces:summary},"此项尚未开通；保留原连接，明确需要时在原页补充同意。");return;}
   }
-  const other=surface==="api"?"services":"api",label=other==="api"?"API":"Services";
-  const message=summary[other]==="consent_required"?
-   `${label} 未开通：${initial?"你在确认页取消了勾选。":""}以后用到 ${label} 时，会在这条连接上请你补充确认。`:"Services 和 API 均已开通。继续原任务。";
+  const enabled = (["Services", "API"] as const).filter(label => common ? summary[label.toLowerCase()] === "enabled" : label.toLowerCase() === surface);
+  const message = `已连接。已开通：${enabled.join("、")}。`;
   if(surface==="api"){
    if(common)saveAgentConnection(hubCredentialsPath()+".agent-connection.json",{root,state:common});
+   const verifyAccount = async () => {
+    const me = await new HubClient(loadHubConfig()).me();
+    if (common && me.buyer_id !== new URL(hubOAuthConfig().tokenURL).origin + "|" + common.buyer_id) {
+     throw new Error("original Agent API account changed");
+    }
+    return me;
+   };
    let result=hubDeviceStatus();
+   let account: Awaited<ReturnType<typeof verifyAccount>> | undefined;
    if(result.phase==="connected")try{
-    const me=await new HubClient(loadHubConfig()).me();
-    if(common&&me.buyer_id!==new URL(hubOAuthConfig().tokenURL).origin+"|"+common.buyer_id)throw new Error("original Agent API account changed");
+    account = await verifyAccount();
    }catch(error){if(!(error instanceof Error&&error.message.startsWith("authorization_required:")))throw error;result={phase:"disconnected"};}
    if(result.phase!=="connected"){
     result=await connectHubDevice(undefined,0,task?.request_id);
@@ -86,7 +91,8 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
     }
    }
    if((result.phase==="denied"||result.phase==="cancelled")&&task)recordAgentAuthorization(root,result.phase);
-   emit(String(result.phase),{...result,selector:installation!.selector,...(common?{connection_id:common.connection_id,surfaces:summary}:{})},result.phase==="connected"?(await currentAccountLabel())+"\n"+(common?message:"账号已连接；继续原任务。"):"保留原连接和任务。",result.phase==="connected"?apiNext:result.phase==="pending"?again:null);return;
+   if (result.phase === "connected") account ??= await verifyAccount();
+   emit(String(result.phase),{...result,selector:installation!.selector,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(account?{connection_status:"connected"}:{})},account?describeAccount(account)+"\n"+message:"保留原连接和任务。",account?apiNext:result.phase==="pending"?again:null);return;
   }
   process.env.ITPAY_STATE_DIR=common?(common.services_directory??join(root,"services")):(options.servicesDirectory??join(root,"services"));
   const backend=newBackendClient(loadConfig());
@@ -97,7 +103,10 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{authorization:result},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
   if((result.status==="auth_denied"||result.status==="auth_cancelled")&&task)recordAgentAuthorization(root,result.status==="auth_denied"?"denied":"cancelled");
   const next=common?`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`:(result.next as {command?:string}|null)?.command??null;
-  emit(result.status==="authenticated"?(task?"connected":"authenticated"):String(result.status),{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{})},result.status==="authenticated"?(common?message:String(result.instruction??"账号已连接；继续原任务。")):"保留原登录与任务。",result.status==="authenticated"?next:result.status==="auth_pending"?again:null);
+  const connected = result.status === "authenticated";
+  // Preserve the legacy JSON status for scripts calling auth login directly.
+  const status = connected ? (!task && options.json ? "authenticated" : "connected") : String(result.status);
+  emit(status,{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(connected?{connection_status:"connected"}:{})},connected?message:"保留原登录与任务。",connected?next:result.status==="auth_pending"?again:null);
  }catch(error){
   if((error as {code?:string}).code==="agent_connection_pending"){emit("pending",{},"原连接仍在准备；按原 next 继续。",again);return;}
   throw error;
