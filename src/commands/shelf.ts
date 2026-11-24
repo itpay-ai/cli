@@ -8,6 +8,7 @@ import {loadShown,saveShown,type ShelfDescriptor} from "../state/hub_show_cache.
 import {HubTaskRequestError,readRunInput,TOPUP_INSTRUCTION,CREDIT_GUIDANCE,currentAccountLabel} from "./hub.js";
 import {writeCommandEnvelope,type CommandAction} from "./hub_guidance.js";
 
+type ShelfLayer = {shelf?: "public" | "test"};
 type Facts=RunReceipt&{held_atoms?:string;captured_atoms?:string;result_expires_at?:string};
 type Snapshot=RequestStatus&{price_change?:PublicPriceChange;required_action?:{web_action?:{target?:string};target?:string}};
 const client=()=>new HubClient(loadHubConfig());
@@ -93,17 +94,18 @@ export async function shelfCategories(json:boolean):Promise<void>{
 export async function shelfList(options:{category?:string;query?:string;limit?:string;cursor?:string;json?:boolean}):Promise<void>{
  const q=new URLSearchParams();
  for(const key of ["category","query","limit","cursor"] as const)if(options[key]!==undefined)q.set(key,options[key]!);
- const data=await client().shelfGet<{items:Array<{operation_id:string;display_name:string;summary:string;unit_price?:{mode?:string;amount_atoms?:string;unit?:string}|null}>;next_cursor?:string}>("/v1/catalog/operations?"+q);
+ const data=await client().shelfGet<{items:Array<ShelfLayer&{operation_id:string;display_name:string;summary:string;unit_price?:{mode?:string;amount_atoms?:string;unit?:string}|null}>;next_cursor?:string}>("/v1/catalog/operations?"+q);
  writeCommandEnvelope({status:"listed",result:{items:data.items.map(item=>({id:item.operation_id,name:item.display_name,
-  purpose:item.summary,price:priceLabel({mode:item.unit_price?.mode??(item.unit_price?"per_call":"free"),amount_atoms:item.unit_price?.amount_atoms??"0",unit:item.unit_price?.unit??"call"})})),
+  purpose:item.summary,shelf:item.shelf,price:priceLabel({mode:item.unit_price?.mode??(item.unit_price?"per_call":"free"),amount_atoms:item.unit_price?.amount_atoms??"0",unit:item.unit_price?.unit??"call"})})),
   page:{next_cursor:data.next_cursor||null}},instruction:"选定商品后 show 查看用途、价格、示例和保留时间。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});
 }
 export async function shelfShow(id:string,json:boolean):Promise<void>{
- const d=await client().shelfGet<ShelfDescriptor>("/v1/catalog/operations/"+encodeURIComponent(id));
+ const d=await client().shelfGet<ShelfDescriptor & ShelfLayer>("/v1/catalog/operations/"+encodeURIComponent(id));
  if(d.operation_id!==id || !d.example_input || !d.current_publication_id)throw new Error("invalid_state: incomplete product descriptor");
  saveShown(d);
  writeCommandEnvelope({status:"shown",result:{id:d.operation_id,purpose:d.summary,price:priceLabel(d.price_card),
-  ttl_days:d.result_retention_days,example_input:d.example_input},
+  ttl_days:d.result_retention_days,example_input:d.example_input,shelf:d.shelf,
+  current_publication_id:d.current_publication_id,price_version_id:d.price_card.price_version_id || undefined},
   instruction:"先说明用途、credit 报价与结果保留时间，取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
   next:null,recovery:[]},{jsonOutput:json});
 }
