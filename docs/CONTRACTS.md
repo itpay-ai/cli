@@ -33,7 +33,7 @@ wallet --usage / --transactions 保持六业务命令，复用Hub reader并标�
 
 ## 本批连接、账号与充值（2026-11-09）
 
-首次setup仍不登录；全新auth login/api connect复用现有单页连接并等待，原安装/设备密钥不移动，已存凭据、原句柄与任务不迁移。旧服务器明确404且未受理统一连接时，兼容原Device入口；未知/拒绝不得回退换身份。服务端 enabled_surfaces 记录实际同意，凭据按需保存。产品要求两项默认勾选且可分别取消；dev 0.2.81 复测仍固定请求主项，仅可取消副项，差异由 V4 身份 owner 列入下一轮。
+首次setup仍不登录；全新auth login/api connect复用现有单页连接并等待，原安装/设备密钥不移动，已存凭据、原句柄与任务不迁移。旧服务器明确404且未受理统一连接时，兼容原Device入口；未知/拒绝不得回退换身份。服务端 enabled_surfaces 记录实际同意，凭据按需保存。初始选择由 V4 确认页提供。新版 CLI 核对所选入口的真实认证后，统一连接的两个入口均输出顶层 status=connected 和实际开通项。Services 底层账号状态仍在 authorization.status，旧独立登录与 auth status 沿用原机器状态。已发布 0.2.81 仍使用其原有文案和状态。
 
 api account仅查询当前凭据本人摘要。钱包链接/码标当前账号名字和末6位；余额不足、一次低余额与主动wallet顶层统一两路扫码话术；用户给金额直接wallet --topup，有原request则保留。快捷档不是金额限制，不增加机器资金决策字段。
 
