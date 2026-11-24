@@ -104,8 +104,8 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   if((result.status==="auth_denied"||result.status==="auth_cancelled")&&task)recordAgentAuthorization(root,result.status==="auth_denied"?"denied":"cancelled");
   const next=common?`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`:(result.next as {command?:string}|null)?.command??null;
   const connected = result.status === "authenticated";
-  // Preserve the legacy JSON status for scripts calling auth login directly.
-  const status = connected ? (!task && options.json ? "authenticated" : "connected") : String(result.status);
+  // The legacy account result remains nested and keeps its status contract.
+  const status = connected && (common || task || !options.json) ? "connected" : String(result.status);
   emit(status,{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(connected?{connection_status:"connected"}:{})},connected?message:"保留原登录与任务。",connected?next:result.status==="auth_pending"?again:null);
  }catch(error){
   if((error as {code?:string}).code==="agent_connection_pending"){emit("pending",{},"原连接仍在准备；按原 next 继续。",again);return;}

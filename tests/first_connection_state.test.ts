@@ -192,7 +192,9 @@ for(const scenario of ["services-default","services-unchecked","api-first","lega
      "hub-credentials."+createHashForFixture(base)+".json.agent-connection.json"),"utf8"));
     serviceRoot=broker.root;originalKey=readFileSync(join(serviceRoot,"services/device/device-private.pem"),"utf8");
     const login=await cli(["auth","login","--json"]);
-    assert.equal(login.status,"authenticated");
+    assert.equal(login.status,"connected");
+    assert.equal(login.result.authorization.status,"authenticated");
+    assert.match(login.instruction,/已连接。已开通：Services、API。/);
    }else{
     const setup=await cli(["setup","--json"]);serviceRoot=join(setup.result.state_directory,"..");
     originalTask=saveAgentTask(serviceRoot,"retain this original Services task","services",undefined);
@@ -200,7 +202,7 @@ for(const scenario of ["services-default","services-unchecked","api-first","lega
     assert.equal(done.status,"connected");
     assert.equal(done.result.surfaces.services,"enabled");
     assert.equal(done.result.surfaces.api,scenario==="services-unchecked"?"consent_required":"enabled");
-    if(scenario==="services-unchecked")assert.match(done.instruction,/API 未开通：你在确认页取消了勾选。以后用到 API 时，会在这条连接上请你补充确认。/);
+    if(scenario==="services-unchecked")assert.match(done.instruction,/已连接。已开通：Services。/);
     assert.match(done.next.command,/next --json$/);
     originalKey=readFileSync(join(setup.result.state_directory,"device/device-private.pem"),"utf8");
     const first=await trace();assert.equal(first.submits.length,1);
