@@ -207,6 +207,8 @@ export class HubTaskStore {
     // terminal states (succeeded/failed) cannot regress.
     return withFileLock(`${file}.lock`, () => {
       const existing = this.readTask(file);
+      // A pre-admission rejection cannot replace a receipt a peer has recorded.
+      if (!snapshot && patch.status === "failed" && (existing.run_id || existing.intent_id || existing.credential_recovery)) return existing;
       const proof = snapshot?.credential_recovery;
       if (existing.credential_recovery && !proof && (snapshot || patch.run_id && patch.run_id !== existing.run_id)) {
         throw new Error("invalid_state: missing credential recovery binding");

@@ -47,8 +47,6 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  throw new Error("invalid_state: original request has no receipt");
 }
 function releaseNotAdmitted(store:HubTaskStore,task:HubTask,code:string):void{
- const original=store.get(task.request_id);
- if(!original||original.run_id||original.intent_id||original.credential_recovery)return;
  const failed=store.update(task.request_id,{status:"failed",blocking_reason:code,terminal:true,state_source:"hub",state_stale:false});
  if(failed?.status==="failed"&&!failed.run_id&&!failed.intent_id&&!failed.credential_recovery){
   attachAgentRequest(selectedHubInstallationPath(),task.request_id,true);
