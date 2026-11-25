@@ -5,7 +5,7 @@ description: Find or buy ItPay services, plan or book railway travel, read purch
 
 # ItPay
 
-This package is official CLI 0.2.89. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
+This package is official CLI 0.2.90. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
 
 展示本人登录、办理或付款入口时，只使用工具返回的官方 HTML 卡、由同一 HTML 截图的官方图片和原官方链接。图片失败或宿主不能展示图片时，给出原链接、用途、当前状态、本人需做的动作及原任务 next；不得自行编码、重画、裁剪二维码，也不得换单或重建授权。
 
@@ -27,7 +27,7 @@ Train tickets and other Services are gated until the Owner personally tests and 
 
 Start with the user's requested task, not a separate setup conversation. For a new installation read https://dev.itpay.ai/agent; execute the official `agent --task @<private-task-file> --surface services --json` entry. The Agent supplies its own actual runtime type if detection needs it; the user never chooses a technical identity. A distinct host gets a distinct profile without overwriting old connections. Existing accepted workflows keep their original state directory and returned commands.
 
-The entry saves the task before authorization, presents the official link and waits in the same call. If output is buffered, use `--buffered`, show the link and immediately execute its next wait command. The user need not say "done". A later arbitrary reply resumes `agent` without `--task`; read original pending work before creating anything. Only authenticated/connected means ready, never an exit code or pending. Read result.surfaces: enabled or consent_required. Pending is not approval. Follow the original next.command and launcher/profile; continue permitted work. Obtain missing consent on the same connection only when needed. Preserve original requests.
+The entry saves the task before authorization, presents the official link and waits in the same call. The user need not say "done". A later arbitrary reply resumes `agent` without `--task`; read original pending work before creating anything. Only authenticated/connected means ready, never an exit code or pending. Read result.surfaces: enabled or consent_required. Pending is not approval. Follow the original next.command and launcher/profile; continue permitted work. Obtain missing consent on the same connection only when needed. Preserve original requests.
 
 For Codex and other interactive hosts, show each original approval link once with one short line such as “等你确认”. Keep polling via the original command silently in the background. A pending, timed-out or repeated wait frame is a tool state, not a chat update. After approval, continue the task without a separate approval acknowledgement and return the task result. Report a denial, expiration or a concrete blocker only when it needs the user’s attention.
 
