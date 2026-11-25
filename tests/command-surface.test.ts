@@ -263,6 +263,21 @@ test("fresh natural API task discovers and shows its quote before requesting con
 });
 
 
+test("streamed API consent announces the original link only once across polls",async()=>{
+ const f=await deviceFixture();
+ try{
+  const setup=await f.setup();
+  const approval=setTimeout(()=>f.approve(),3000);
+  try{
+   const connected=await f.cli(["api","--profile",setup.selector,"connect","--wait","8"]);
+   assert.equal(connected.value.status,"connected",connected.output);
+   assert.equal(connected.output.match(/"status": "pending",\s*"result"/g)?.length,1);
+   assert.equal(connected.output.match(/synthetic-link/g)?.length,1);
+   assert.ok(f.calls().commonStarts>=2);
+  }finally{clearTimeout(approval);}
+ }finally{await f.close();}
+});
+
 test("task resume selects its original saved API Key before choosing OAuth",async()=>{
  const key="itk_synthetic_original_key",f=await deviceFixture(200,undefined,undefined,true,false,key);
  try{

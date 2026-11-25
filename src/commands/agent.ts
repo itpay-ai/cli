@@ -59,9 +59,11 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    let view=await connectAgent(root,common,Boolean(options.reconnect),surface,options.quote);
    if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface,options.quote);
    const deadline=Date.now()+wait*1000;
-   while(view.status==="pending"){
+   if(view.status==="pending"){
     const {enabled_surfaces,...authorization}=view;
-    emit("pending",{authorization},"展示原官方链接；本人确认后继续原任务。",again);
+    emit("pending",{authorization},"只展示一次原官方链接，告诉用户等你确认。后台等待，确认后直接继续并给出任务结果。",again);
+   }
+   while(view.status==="pending"){
     if(options.buffered||Date.now()>=deadline)return;
     await sleep(Math.min(2000,deadline-Date.now()));
     view=await connectAgent(root,common,false,surface,options.quote);
@@ -89,14 +91,18 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    if(result.phase!=="connected"){
     result=await connectHubDevice(undefined,0,task?.request_id);
     if(result.phase==="pending"){
-     emit("pending",{...result,...(common&&!result.approval_required?{url:undefined}:{}),selector:installation!.selector},!common||result.approval_required?"展示原官方链接并等待确认。":"连接正在准备；按原 next 继续。",again);
+     const browserAction=!common||result.approval_required;
+     if(browserAction||options.buffered||wait===0){
+      emit("pending",{...result,...(!browserAction?{url:undefined}:{}),selector:installation!.selector},browserAction?"只展示一次原官方链接，告诉用户等你确认。后台等待。":"连接正在准备；按原 next 后台继续。",again);
+     }
      if(options.buffered||wait===0)return;
      result=await connectHubDevice(result.handle as string,wait);
+     if(result.phase==="pending"&&browserAction)return;
     }
    }
    if((result.phase==="denied"||result.phase==="cancelled")&&task)recordAgentAuthorization(root,result.phase);
    if (result.phase === "connected") account ??= await verifyAccount();
-   emit(String(result.phase),{...result,selector:installation!.selector,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(account?{connection_status:"connected"}:{})},account?describeAccount(account)+"\n"+message:"保留原连接和任务。",account?apiNext:result.phase==="pending"?again:null);return;
+   emit(String(result.phase),{...result,...(result.phase==="pending"&&common?{url:undefined}:{}),selector:installation!.selector,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(account?{connection_status:"connected"}:{})},account?describeAccount(account)+"\n"+message:"保留原连接和任务。",account?apiNext:result.phase==="pending"?again:null);return;
   }
   process.env.ITPAY_STATE_DIR=common?(common.services_directory??join(root,"services")):(options.servicesDirectory??join(root,"services"));
   const backend=newBackendClient(loadConfig());
@@ -104,7 +110,14 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   let result=await agentAuth("status",resolveBackendURL(),backend,undefined,undefined,{readOnlyStatus:Boolean(common)}) as Record<string,unknown>;
   if(!common&&["login_required","auth_pending","auth_expired","auth_session_missing"].includes(String(result.status)))result=await agentAuth("login",resolveBackendURL(),backend) as Record<string,unknown>;
   const deadline=Date.now()+wait*1000;
-  while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{authorization:result},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
+  if(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){
+   emit("pending",{authorization:result},"只展示一次原官方登录入口，后台等待。",again);
+   while(result.status==="auth_pending"&&Date.now()<deadline){
+    await sleep(Math.min(2000,deadline-Date.now()));
+    result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;
+   }
+   if(result.status==="auth_pending")return;
+  }
   if((result.status==="auth_denied"||result.status==="auth_cancelled")&&task)recordAgentAuthorization(root,result.status==="auth_denied"?"denied":"cancelled");
   const next=common?`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`:(result.next as {command?:string}|null)?.command??null;
   const connected = result.status === "authenticated";

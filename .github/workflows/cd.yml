@@ -116,7 +116,7 @@ jobs:
       ${{ !cancelled() && github.ref == 'refs/heads/main' &&
           (inputs.action == 'readback' || (inputs.action == 'publish' && needs.publish.result == 'success')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 22
     permissions:
       contents: read
     steps:
@@ -151,11 +151,16 @@ jobs:
           if [[ -f release-artifact/manifest.json ]]; then version=$(jq -er .version release-artifact/manifest.json); fi
           body=$(mktemp)
           trap 'rm -f "$body"' EXIT
-          deadline=$((SECONDS+240))
+          deadline=$((SECONDS+300))
           while (( SECONDS < deadline )); do
-            if status=$(curl --silent --show-error --max-time 10 --output "$body" --write-out '%{http_code}' https://dev.itpay.ai/agent); then
+            remaining=$((deadline-SECONDS))
+            if status=$(curl --silent --show-error --max-time "$((remaining < 10 ? remaining : 10))" --output "$body" --write-out '%{http_code}' https://dev.itpay.ai/agent); then
               case "$status" in
                 403|429) echo "::error::dev Agent read stopped at HTTP $status"; exit 1 ;;
+                404)
+                  if grep -Eqi 'just a moment|verify you are human|challenge-platform' "$body"; then
+                    echo "::error::dev Agent read returned a challenge"; exit 1
+                  fi ;;
                 200)
                   if grep -Eqi 'just a moment|verify you are human|challenge-platform' "$body"; then
                     echo "::error::dev Agent read returned a challenge"; exit 1
@@ -166,7 +171,8 @@ jobs:
                   fi ;;
               esac
             fi
-            sleep 10
+            remaining=$((deadline-SECONDS))
+            if (( remaining > 0 )); then sleep "$((remaining < 15 ? remaining : 15))"; fi
           done
           echo "::error::npm was published, but the public dev Agent entry did not converge to $version"
           exit 1
