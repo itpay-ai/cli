@@ -1,4 +1,5 @@
 import {importHubKey} from "../src/state/hub_credentials.js";
+import {HubTaskStore,hubTasksDir} from "../src/state/hub_tasks.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createServer} from "node:http";
@@ -171,6 +172,15 @@ test("six command shelf freezes shown facts and status never redispatches",async
   const confirmedAbsent=await cli([...prefix,"status",noReceipt.value.result.request_id]);
   assert.equal(confirmedAbsent.value.error.code,"not_found");
   assert.equal(posts.length,beforeMissing);
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,noReceipt.value.result.request_id,"404 cannot clear a possibly in-flight POST");
+  attachAgentRequest(selector,noReceipt.value.result.request_id,true);
+  const journal=new HubTaskStore(hubTasksDir({...env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)}));
+  const unsent=journal.getOrCreate({operation_id:"op-fixture",publication_id:"pub-shown",input:{q:"saved only"}}).task;
+  attachAgentRequest(selector,unsent.request_id);
+  const absent=await cli([...prefix,"status",unsent.request_id]);
+  assert.equal(absent.value.error.code,"not_found");
+  assert.equal(posts.length,beforeMissing);
+  assert.equal(journal.get(unsent.request_id)?.status,"failed");
   assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,undefined);
   statusMissing=false;
   for(const old of ["discover","inspect","run","resume","tasks","continue","run-status","original-receipt","usage","transactions","topups","topup","topup-status","recover-connection"]){

@@ -46,15 +46,21 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  }
  throw new Error("invalid_state: original request has no receipt");
 }
-function releaseNotAdmitted(store:HubTaskStore,task:HubTask,code:string):void{
- const failed=store.update(task.request_id,{status:"failed",blocking_reason:code,terminal:true,state_source:"hub",state_stale:false});
+function releaseNotAdmitted(store:HubTaskStore,task:HubTask,code:string,requireUnsent=false):void{
+ const failed=store.update(task.request_id,{status:"failed",blocking_reason:code,terminal:true,state_source:"hub",state_stale:false},undefined,requireUnsent);
  if(failed?.status==="failed"&&!failed.run_id&&!failed.intent_id&&!failed.credential_recovery){
   attachAgentRequest(selectedHubInstallationPath(),task.request_id,true);
  }
 }
 function originalNotFound(error:unknown,task:HubTask):boolean{
- return error instanceof HttpError&&error.status===404&&error.code==="not_found"&&
-  ["unknown","failed"].includes(task.status)&&!task.intent_id&&!task.run_id&&!task.credential_recovery;
+ if(!(error instanceof HttpError)||error.status!==404||error.code!=="not_found"||task.intent_id||task.run_id||task.credential_recovery)return false;
+ if(task.status==="failed")return true;
+ // Device consent can still create the original intent after a proven absence.
+ return task.admission_attempted===false&&!(task.credential_mode==="platform"&&hubCredentialKind()!=="api_key"&&storedHubProfile()?.device_approval_id);
+}
+function beginAdmission(store:HubTaskStore,task:HubTask):void{
+ const original=store.update(task.request_id,{admission_attempted:true});
+ if(!original||original.terminal||original.status==="failed"||original.status==="succeeded")throw new Error("invalid_state: original task is closed");
 }
 function absentDeviceConsent(error:unknown,task:HubTask,requestKey:string):boolean{
  if(!(error instanceof HttpError)||error.status!==404||task.run_id||task.intent_id||task.terminal||task.credential_mode!=="platform"||hubCredentialKind()==="api_key")return false;
@@ -155,7 +161,7 @@ export async function shelfStatus(id:string,json:boolean,wait=0):Promise<void>{
     next:changed?statusAction(id,json):pendingAction(id,json),recovery:[]},{jsonOutput:json});
    return;
   }
-  if(originalNotFound(error,store.get(id)??task))attachAgentRequest(selectedHubInstallationPath(),id,true);
+  if(originalNotFound(error,store.get(id)??task))releaseNotAdmitted(store,task,"not_found",true);
   throw new HubTaskRequestError(error,store.get(id)??task)
  }
 }
@@ -180,7 +186,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   const original=store.get(error.requestID);if(!original)throw error;
   try{remember(store,original,await api.getRequest(store.idempotencyKey(original.request_id)) as Snapshot)}catch(readError){
    if(!originalNotFound(readError,store.get(original.request_id)??original)||absentDeviceConsent(readError,original,store.idempotencyKey(original.request_id)))throw new HubTaskRequestError(readError,original);
-   attachAgentRequest(selectedHubInstallationPath(),original.request_id,true);
+   releaseNotAdmitted(store,original,"not_found",true);
   }
   // Network I/O is outside the file lock; both operations compare the pointer.
   try{attachAgentRequest(selectedHubInstallationPath(),task.request_id)}catch(conflict){
@@ -191,6 +197,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
  let submittingAdmission=false;
  try{
   if(!options.pending){
+   beginAdmission(store,task);
    submittingAdmission=true;
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
     input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
@@ -202,10 +209,9 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   try { snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot; }
   catch(error) {
    if(!(options.pending && (absentDeviceConsent(error,task,store.idempotencyKey(task.request_id)) || error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required")))throw error;
-   submittingAdmission=true;
+   beginAdmission(store,task);
    await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
     max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
-   submittingAdmission=false;
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   }
   task=remember(store,store.get(task.request_id)!,snapshot);
