@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { releaseTarget, verifyOidcTag, readPublished } from './npm-release.mjs';
+import { releaseTarget, verifyOidcTag, readPublished, waitForPublishedRead } from './npm-release.mjs';
 
 test('manual next publish and same-version promotion reject retired routes and version lines', () => {
   assert.equal(releaseTarget({event:'workflow_dispatch',tag:'next',version:'0.2.70'}).channel,'next');
@@ -41,7 +41,7 @@ test('accepted publication waits only for visibility and never retries a refused
   const target = {channel:'next',version:'0.2.70'}, source = 'reviewed-main';
   const values = [null, {version:'2.1.69'}, {version:'0.2.70',gitHead:source}];
   let reads = 0, pauses = 0;
-  const actual = await readPublished(target, source, async tag => {assert.equal(tag,'next'); reads++; return values.shift();}, async ms => {assert.equal(ms,5000); pauses++;});
+  const actual = await readPublished(target, source, async tag => {assert.equal(tag,'next'); reads++; return values.shift();}, async ms => {assert.equal(ms,15000); pauses++;});
   assert.equal(actual.gitHead,source); assert.equal(reads,3); assert.equal(pauses,2);
   await assert.rejects(readPublished(target, source, async () => ({version:'0.2.70',gitHead:'other'}), async () => assert.fail('must stop')), /source differs/);
   let refused = 0;
@@ -49,6 +49,16 @@ test('accepted publication waits only for visibility and never retries a refused
   assert.equal(refused,1);
   let bounded = 0, clock = 0;
   await assert.rejects(readPublished(target, source, async () => {bounded++; return null;}, async ms => {clock += ms;}, () => clock), /inspect the original publication/);
-  assert.equal(bounded,96);
-  assert.equal(clock,480000);
+  assert.equal(bounded,20);
+  assert.equal(clock,300000);
+});
+
+test('readback can wait for an immutable artifact separately from metadata', async () => {
+  const expected = {status:200};
+  const replies = [null, null, expected];
+  const waits = [];
+  const result = await waitForPublishedRead(async () => replies.shift(), async ms => waits.push(ms));
+  assert.equal(result, expected);
+  assert.deepEqual(waits, [15000, 15000]);
+  await assert.rejects(waitForPublishedRead(async () => { throw Error('HTTP 429'); }, async () => assert.fail('must stop')), /HTTP 429/);
 });

@@ -13,34 +13,54 @@ export function releaseTarget({ event, action = 'publish', tag, version }) {
   return { action, channel: tag, version };
 }
 
+async function missingRegistryRead(response) {
+  if (response.status !== 404) return false;
+  if (/just a moment|verify you are human|challenge-platform/i.test((await response.text()).slice(0, 8192))) {
+    throw new Error('Registry read returned a challenge');
+  }
+  return true;
+}
+
 async function metadata(spec, timeout = 30_000) {
   const response = await fetch(`https://registry.npmjs.org/@itpay%2fcli/${encodeURIComponent(spec)}`, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(timeout) });
-  if (response.status === 404) return null;
+  if (await missingRegistryRead(response)) return null;
   if (!response.ok) throw new Error(`Registry lookup failed: ${response.status}; publication was not attempted`);
   return response.json();
 }
 
-// npm may accept a publish before processing makes its version/tag readable.
-export async function readPublished(target, source, lookup = metadata, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now) {
-  const deadline = now() + 8 * 60_000;
+// Treat only a missing or not-yet-current published artifact as retryable.
+const pauseReadback = ms => new Promise(resolve => setTimeout(resolve, ms));
+export async function waitForPublishedRead(read, pause = pauseReadback, now = Date.now) {
+  const deadline = now() + 300_000;
   do {
-    const actual = await lookup(target.channel, Math.min(30_000, Math.max(1, deadline - now())));
-    if (actual?.version === target.version) {
-      if (actual.gitHead !== source) throw new Error('Registry source differs; inspect before retrying');
-      return actual;
-    }
+    const actual = await read(Math.min(15_000, Math.max(1, deadline - now())));
+    if (actual) return actual;
     const remaining = deadline - now();
     if (remaining <= 0) break;
-    await pause(Math.min(5000, remaining));
+    await pause(Math.min(15_000, remaining));
   } while (now() < deadline);
   throw new Error('Published package is not visible yet; inspect the original publication before retrying');
+}
+
+export async function readPublished(target, source, lookup = metadata, pause = pauseReadback, now = Date.now) {
+  return waitForPublishedRead(async timeout => {
+    const actual = await lookup(target.channel, timeout);
+    if (actual?.version !== target.version) return null;
+    if (actual.gitHead !== source) throw new Error('Registry source differs; inspect before retrying');
+    return actual;
+  }, pause, now);
 }
 
 export async function verifyPublishedArtifact(existing, approved, request = fetch) {
   if (existing.gitHead !== approved.sha || existing.version !== approved.version) throw new Error('Promotion does not match approved source');
   const url = new URL(existing.dist?.tarball || 'https://invalid.example');
   if (url.protocol !== 'https:' || url.hostname !== 'registry.npmjs.org' || url.username || url.password) throw new Error('Unexpected registry artifact origin');
-  const response = await request(url, { redirect:'error', signal:AbortSignal.timeout(30000) });
+  const response = await waitForPublishedRead(async timeout => {
+    const current = await request(url, { redirect:'error', headers:{'Cache-Control':'no-cache'}, signal:AbortSignal.timeout(timeout) });
+    if (await missingRegistryRead(current)) return null;
+    if (!current.ok) throw new Error(`Registry artifact could not be verified: HTTP ${current.status}`);
+    return current;
+  });
   if (!response.ok || Number(response.headers.get('content-length') || 0) > 50 * 1024 * 1024) throw new Error('Registry artifact could not be verified');
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > 50 * 1024 * 1024 || (approved.sha256 && createHash('sha256').update(bytes).digest('hex') !== approved.sha256)) throw new Error('Registry artifact does not match approved hash');
@@ -92,7 +112,7 @@ async function main() {
       throw new Error('Readback manifest does not match the original publish source');
     }
     const target = releaseTarget({ event:process.env.GITHUB_EVENT_NAME, action, tag:process.env.RELEASE_TAG, version:manifest?.version || process.env.RELEASE_VERSION });
-    const selected = manifest ? {gitHead:manifest.source} : await metadata(target.version);
+    const selected = manifest ? {gitHead:manifest.source} : await waitForPublishedRead(timeout => metadata(target.version, timeout));
     if (!/^[a-f0-9]{40}$/.test(selected?.gitHead ?? '')) throw new Error('Exact published version has no trusted source');
     execFileSync('git', ['merge-base','--is-ancestor',selected.gitHead,process.env.GITHUB_SHA]);
     const actual = await readPublished(target, selected.gitHead);
