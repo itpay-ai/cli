@@ -5,7 +5,9 @@ import { releaseTarget, verifyOidcTag, readPublished } from './npm-release.mjs';
 test('manual next publish and same-version promotion reject retired routes and version lines', () => {
   assert.equal(releaseTarget({event:'workflow_dispatch',tag:'next',version:'0.2.70'}).channel,'next');
   assert.equal(releaseTarget({event:'workflow_dispatch',action:'promote',tag:'latest',version:'0.2.70'}).action,'promote');
+  assert.equal(releaseTarget({event:'workflow_dispatch',action:'readback',tag:'next',version:'0.2.85'}).action,'readback');
   for(const input of [
+    {event:'workflow_dispatch',action:'readback',tag:'latest',version:'0.2.85'},
     {event:'push',tag:'next',version:'0.2.70'},
     {event:'workflow_dispatch',action:'stage',tag:'candidate-dev',version:'0.2.70'},
     {event:'workflow_dispatch',tag:'latest',version:'0.2.70'},
@@ -45,7 +47,8 @@ test('accepted publication waits only for visibility and never retries a refused
   let refused = 0;
   await assert.rejects(readPublished(target, source, async () => {refused++; throw Error('HTTP 403');}, async () => assert.fail('must stop')), /HTTP 403/);
   assert.equal(refused,1);
-  let bounded = 0;
-  await assert.rejects(readPublished(target, source, async () => {bounded++; return null;}, async () => {}), /inspect the original publication/);
-  assert.equal(bounded,60);
+  let bounded = 0, clock = 0;
+  await assert.rejects(readPublished(target, source, async () => {bounded++; return null;}, async ms => {clock += ms;}, () => clock), /inspect the original publication/);
+  assert.equal(bounded,96);
+  assert.equal(clock,480000);
 });

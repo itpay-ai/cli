@@ -9,17 +9,17 @@ on:
         required: true
         type: string
       action:
-        description: Publish checked main to next, promote the same package, or verify OIDC
+        description: Publish checked main to next, promote, verify OIDC or do a read-only next check
         type: choice
-        options: [publish, promote, verify]
+        options: [publish, promote, verify, readback]
         default: publish
       tag:
-        description: next for publish; final channel for promote/verify
+        description: next for publish; final channel for promote/verify/readback
         type: choice
         options: [next, latest]
         default: next
       version:
-        description: Exact existing version for promote/verify
+        description: Exact existing version for promote/verify/readback
         type: string
         required: false
 
@@ -110,11 +110,45 @@ jobs:
           RELEASE_ACTION: ${{ inputs.action || 'publish' }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_VERSION: ${{ inputs.version }}
-      - name: Verify public dev Agent entry follows next
+  readback:
+    needs: publish
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' &&
+          (inputs.action == 'readback' || (inputs.action == 'publish' && needs.publish.result == 'success')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout read-only verification policy
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Read original checked artifact metadata
         if: inputs.action == 'publish'
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-release
+          path: release-artifact
+      - name: Verify exact npm next artifact without writes
+        run: node scripts/npm-release.mjs
+        env:
+          RELEASE_ACTION: readback
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_MANIFEST: ${{ inputs.action == 'publish' && 'release-artifact/manifest.json' || '' }}
+      - name: Verify public dev Agent entry follows next
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version=$(jq -er .version release-artifact/manifest.json)
+          version=$RELEASE_VERSION
+          if [[ -f release-artifact/manifest.json ]]; then version=$(jq -er .version release-artifact/manifest.json); fi
           body=$(mktemp)
           trap 'rm -f "$body"' EXIT
           deadline=$((SECONDS+240))
@@ -126,7 +160,10 @@ jobs:
                   if grep -Eqi 'just a moment|verify you are human|challenge-platform' "$body"; then
                     echo "::error::dev Agent read returned a challenge"; exit 1
                   fi
-                  if grep -Fq "**@itpay/cli $version**" "$body"; then exit 0; fi ;;
+                  if grep -Fq "**@itpay/cli $version**" "$body"; then
+                    printf "GET https://dev.itpay.ai/agent: HTTP 200, version=%s\n" "$version"
+                    exit 0
+                  fi ;;
               esac
             fi
             sleep 10

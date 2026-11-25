@@ -12,11 +12,12 @@ CLI内置默认始终app.itpay.ai，tag不选环境。dev官方入口通过已�
 | --- | --- |
 | 发布就绪新版本到next | main合并和独立验收完成后，dispatch `cd.yml`，action=publish，tag=next；填写Owner常设批准引用与本次原因。 |
 | 晋级已发包 | Owner另批后，action=promote，明确next/latest及精确0.2.x版本；核原源码属于main历史，读取同一不可变包。 |
+| 只读复核已发布 next | 明确批准后 action=readback、tag=next、精确版本。仅校验 registry 制品及 dev /agent，不使用 OIDC、不写标签。 |
 | 验证OIDC写权限 | 另有授权时action=verify，只能重申当前tag对应精确版本，不移动tag；这仍是真实写操作。 |
 
 只使用workflow_dispatch，不自动push/PR发布。按当前`.github/workflows/cd.yml`与[费用政策](../.github/ACTIONS_POLICY.md)执行；next常设授权不扩到其他workflow。未知发布结果先只读查原版本、来源与tag，不能重复publish；一个版本一次发行。回退是精确已验包/tag，安装者不会自动跟随回退，不清状态。
 
-npm可能先接受publish再异步处理。发布后仅对原tag最多等待约5分钟读取同一版本和来源，不再publish或改tag；403/限流等读取错误立即停止，来源不同立即停止。超时保留原run并只读核对原发布，不能根据暂未可见就重复发行。
+npm可能先接受publish再异步处理。发布后独立只读任务对原 tag 最多等待8分钟读取同一版本和来源，不再publish或改tag；403/限流等读取错误立即停止，来源不同立即停止。超时保留原run并只读核对原发布，不能根据暂未可见就重复发行。
 
 ## 制品与权限
 

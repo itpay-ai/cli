@@ -7,29 +7,32 @@ import { pathToFileURL } from 'node:url';
 import { releaseSource, checkPackage } from './npm-release-source.mjs';
 
 export function releaseTarget({ event, action = 'publish', tag, version }) {
-  if (event !== 'workflow_dispatch' || !['publish', 'promote', 'verify'].includes(action)) throw new Error('Manual release action required');
-  if (!['next', 'latest'].includes(tag) || (action === 'publish' && tag !== 'next')) throw new Error('Choose an approved release channel');
+  if (event !== 'workflow_dispatch' || !['publish', 'promote', 'verify', 'readback'].includes(action)) throw new Error('Manual release action required');
+  if (!['next', 'latest'].includes(tag) || (['publish', 'readback'].includes(action) && tag !== 'next')) throw new Error('Choose an approved release channel');
   if (!/^0\.2\.\d+$/.test(version)) throw new Error('An exact 0.2.x package version is required');
   return { action, channel: tag, version };
 }
 
-async function metadata(spec) {
-  const response = await fetch(`https://registry.npmjs.org/@itpay%2fcli/${encodeURIComponent(spec)}`, { signal: AbortSignal.timeout(30000) });
+async function metadata(spec, timeout = 30_000) {
+  const response = await fetch(`https://registry.npmjs.org/@itpay%2fcli/${encodeURIComponent(spec)}`, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(timeout) });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Registry lookup failed: ${response.status}; publication was not attempted`);
   return response.json();
 }
 
 // npm may accept a publish before processing makes its version/tag readable.
-export async function readPublished(target, source, lookup = metadata, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const actual = await lookup(target.channel);
+export async function readPublished(target, source, lookup = metadata, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now) {
+  const deadline = now() + 8 * 60_000;
+  do {
+    const actual = await lookup(target.channel, Math.min(30_000, Math.max(1, deadline - now())));
     if (actual?.version === target.version) {
       if (actual.gitHead !== source) throw new Error('Registry source differs; inspect before retrying');
       return actual;
     }
-    if (attempt < 59) await pause(5000);
-  }
+    const remaining = deadline - now();
+    if (remaining <= 0) break;
+    await pause(Math.min(5000, remaining));
+  } while (now() < deadline);
   throw new Error('Published package is not visible yet; inspect the original publication before retrying');
 }
 
@@ -83,6 +86,22 @@ export async function verifyOidcTag(channel, version, request = fetch, env = pro
 
 async function main() {
   const action = process.env.RELEASE_ACTION || 'publish';
+  if (action === 'readback') {
+    const manifest = process.env.RELEASE_MANIFEST ? JSON.parse(readFileSync(process.env.RELEASE_MANIFEST, 'utf8')) : undefined;
+    if (manifest && (manifest.source !== process.env.GITHUB_SHA || manifest.channel !== 'next' || !/^[a-f0-9]{64}$/.test(manifest.sha256))) {
+      throw new Error('Readback manifest does not match the original publish source');
+    }
+    const target = releaseTarget({ event:process.env.GITHUB_EVENT_NAME, action, tag:process.env.RELEASE_TAG, version:manifest?.version || process.env.RELEASE_VERSION });
+    const selected = manifest ? {gitHead:manifest.source} : await metadata(target.version);
+    if (!/^[a-f0-9]{40}$/.test(selected?.gitHead ?? '')) throw new Error('Exact published version has no trusted source');
+    execFileSync('git', ['merge-base','--is-ancestor',selected.gitHead,process.env.GITHUB_SHA]);
+    const actual = await readPublished(target, selected.gitHead);
+    await verifyPublishedArtifact(actual, {version:target.version,sha:selected.gitHead,sha256:manifest?.sha256});
+    const result = `Read-only registry verification: @itpay/cli@${actual.version} → ${target.channel} (${actual.gitHead}).`;
+    console.log(result);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,result+'\n');
+    return;
+  }
   let artifact, publishFile;
   if (action === 'publish') {
     const source = releaseSource({ mainSha: process.env.GITHUB_SHA, tag: process.env.RELEASE_TAG, action });
@@ -101,6 +120,8 @@ async function main() {
   if (action === 'publish') {
     if (existing) throw new Error('Version already exists; inspect the original publication or explicitly promote, never overwrite');
     npm(['publish', publishFile, '--ignore-scripts', '--access', 'public', '--tag', target.channel]);
+    console.log(`npm accepted @itpay/cli@${target.version}; the read-only job will verify registry and dev visibility.`);
+    return;
   } else {
     if (!existing) throw new Error('Selected version does not exist');
     if (action === 'verify') {
@@ -115,8 +136,8 @@ async function main() {
       npm(['dist-tag', 'add', `@itpay/cli@${target.version}`, target.channel]);
     }
   }
-  const actual = action === 'publish' ? await readPublished(target, artifact.source) : await metadata(target.channel);
-  if (actual?.version !== target.version || (artifact && actual.gitHead !== artifact.source)) throw new Error('Registry readback differs; inspect before retrying');
+  const actual = await metadata(target.channel);
+  if (actual?.version !== target.version) throw new Error('Registry readback differs; inspect before retrying');
   const message = `${action}: @itpay/cli@${actual.version} → ${target.channel}; registry verified.`;
   console.log(message);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, message+'\n');
