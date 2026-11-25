@@ -298,7 +298,8 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   const code=error instanceof HttpError?error.code:error instanceof Error&&error.message.startsWith("authorization_required:")?"authorization_required":undefined;
   // Only admission responses with a defined pre-run rejection can release.
   if(submittingAdmission && error instanceof HttpError && error.status>=400 && error.status<500 &&
-    ["invalid_input","not_found","forbidden","not_runnable","authorization_denied","credential_revalidation_required"].includes(error.code)){
+    (["invalid_input","not_found","forbidden","not_runnable","authorization_denied","credential_revalidation_required"].includes(error.code)||
+      (error.status===429&&error.code==="rate_limited"&&hubErrorDetails(error)?.itpay_retry_after_seconds!==undefined))){
    releaseNotAdmitted(store,task,error.code);
   }else if(code==="authorization_required"||code==="unauthenticated"){
    store.update(task.request_id,{blocking_reason:"authorization_required",status:"blocked"});

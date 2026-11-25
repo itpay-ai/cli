@@ -13,7 +13,7 @@ test('metadata failures report actual class while original requests retain their
 });
 
 test("only the explicit ItPay response identifies platform throttling",()=>{
- assert.deepEqual(hubFailureFacts("rate_limited",403,"POST"),{category:"platform_rate_limited",owner:"hub"});
+ assert.deepEqual(hubFailureFacts("rate_limited",429,"POST",17),{category:"platform_rate_limited",owner:"ItPay",retry_after_seconds:17});
  assert.deepEqual(hubFailureFacts("rate_limited",429,"POST"),{category:"challenge_or_limit",owner:"undetermined"});
  assert.deepEqual(hubFailureFacts("forbidden",403,"POST"),{category:"forbidden",owner:"undetermined"});
 });

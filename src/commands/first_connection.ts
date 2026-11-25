@@ -16,7 +16,8 @@ export async function firstConnection(surface:"api"|"services",json:boolean,wait
  const broker=surface==="api"?readConnectionBroker(hubCredentialsPath()+".agent-connection.json"):undefined;
  if(surface==="api"&&!broker?.state.connection_id&&(hubCredentialKind()!=="none"||hubDeviceStatus().phase!=="disconnected"))return false;
  const root=surface==="api"?(broker?.root??dirname(selector!)):servicesConnectionRoot(original,backend,type);
- const quote=operation?loadShown(operation).price_card.amount_atoms:undefined;
+ const shown=operation?loadShown(operation):undefined;
+ const quote=shown?{atoms:shown.price_card.mode==="free"?"0":shown.price_card.amount_atoms,name:shown.display_name}:undefined;
  const saved=existsSync(join(root,"task.json"))?saveAgentTask(root,undefined,undefined,undefined):undefined;
  try{
   await runConnection({root,type,surface,json,wait,quote,prepared:surface==="api",servicesDirectory:surface==="services"?original:undefined,task:saved?.surface===surface?saved:undefined,command:surface==="api"?qualifyHubInstallation("itpay api connect"+(operation?" --operation "+operation:"")+" --json")!:"itpay auth login --json"});

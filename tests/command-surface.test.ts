@@ -35,14 +35,14 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  let exchangeReady=true;
  let denied=false,ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
  let originalConsumer: string | undefined;
- const quotes: Array<string|undefined> = [];
+ const quotes: Array<{atoms?:string;name?:string}> = [];
  const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
   if(req.url==="/v1/agent-connections/start") {
    if(!unified){res.writeHead(404);res.end("{}");return;}
    commonStarts++;
    let raw="";for await(const part of req)raw+=part;
-   const body=JSON.parse(raw);quotes.push(body.per_call_quote_atoms);const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
+   const body=JSON.parse(raw);quotes.push({atoms:body.per_call_quote_atoms,name:body.operation_name});const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
    if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
    const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
    assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
@@ -53,7 +53,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    return;
   }
   if (req.url==="/v1/catalog/operations/op_quote_fixture") {
-   res.end(JSON.stringify({operation_id:"op_quote_fixture",summary:"Find reliable sources",shelf:"public",current_publication_id:"pub_fixture",price_card:{mode:"per_call",amount_atoms:"57000",price_version_id:"pv_fixture"},input_schema:{type:"object"},example_input:{q:"SQLite WAL"}}));
+   res.end(JSON.stringify({operation_id:"op_quote_fixture",display_name:"Research search",summary:"Find reliable sources",shelf:"public",current_publication_id:"pub_fixture",price_card:{mode:"per_call",amount_atoms:"57000",price_version_id:"pv_fixture"},input_schema:{type:"object"},example_input:{q:"SQLite WAL"}}));
    return;
   }
   if(req.url==="/v1/agent-connections/acn_fixture/hub"){
@@ -251,7 +251,7 @@ test("fresh natural API task discovers and shows its quote before requesting con
   });
   assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));
   assert.equal(pending.value.result.task.id,first.value.result.task.id);
-  assert.deepEqual(f.calls().quotes,["57000"]);
+  assert.deepEqual(f.calls().quotes,[{atoms:"57000",name:"Research search"}]);
   assert.equal(f.calls().starts,0);
   f.approve();
   const final=await f.cli([...api,"connect","--operation","op_quote_fixture","--wait","5"]);

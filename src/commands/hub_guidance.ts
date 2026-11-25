@@ -33,13 +33,13 @@ export function writeCommandEnvelope(value: CommandEnvelope, options: {jsonOutpu
  for (const action of value.recovery) out("recovery: " + action.command + "\n  when: " + action.reason + "\n");
 }
 
-export function hubFailureFacts(code:string, httpStatus:number|undefined, method?:string):{category:string;owner:string}|undefined{
+export function hubFailureFacts(code:string, httpStatus:number|undefined, method?:string, itpayRetryAfter?:number):{category:string;owner:string;retry_after_seconds?:number}|undefined{
  if(code==="request_timeout"||code==="request_cancelled")return method==="POST"?{category:"write_wait_timeout",owner:"cli"}:{category:"read_unavailable",owner:"cli"};
  if(["authorization_required","authorization_denied","authorization_revoked","unauthenticated","budget_exceeded","insufficient_balance"].includes(code))return {category:"authorization",owner:"buyer"};
  if(code==="publication_changed")return {category:"quote_changed",owner:"catalog"};
  if(code==="invalid_input")return {category:"invalid_input",owner:"request"};
  if(code==="not_found")return {category:"visibility_or_missing",owner:"hub"};
- if(code==="rate_limited"&&httpStatus===403)return {category:"platform_rate_limited",owner:"hub"};
+ if(code==="rate_limited"&&httpStatus===429&&itpayRetryAfter!==undefined)return {category:"platform_rate_limited",owner:"ItPay",retry_after_seconds:itpayRetryAfter};
  if(httpStatus===429||/challenge|rate_limit/.test(code))return {category:"challenge_or_limit",owner:"undetermined"};
  if(httpStatus===403)return {category:"forbidden",owner:"undetermined"};
  if(httpStatus!==undefined&&httpStatus>=500)return {category:"read_or_service_unavailable",owner:"undetermined"};

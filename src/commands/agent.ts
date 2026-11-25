@@ -28,7 +28,7 @@ export function actualAgentType(env: NodeJS.ProcessEnv = process.env): string {
  throw Object.assign(new AgentTypeRequiredError(),{message:"host_context_required: Agent must supply its own actual --agent-type; do not ask the user to choose an identity"});
 }
 
-type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;discoverFirst?:boolean;quote?:string|undefined;servicesDirectory?:string|undefined};
+type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;discoverFirst?:boolean;quote?:{atoms?:string;name:string}|undefined;servicesDirectory?:string|undefined};
 export async function runConnection(options:ConnectionOptions):Promise<void>{
  const {root,type,surface,wait,task}=options;
  const executable=resolve(process.argv[1]!);process.env.ITPAY_AGENT_EXECUTABLE=executable;
