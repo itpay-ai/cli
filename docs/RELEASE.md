@@ -1,6 +1,6 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.81；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
+独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.82；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
 
 ## 唯一发行路径
 
@@ -41,3 +41,5 @@ prepare只读checkout同一main，运行release tests、npm ci和npm run check�
 0.2.80 carries the reviewed safe terminal-failure task release and one canonical read on a conflicting explicit new call. It preserves original receipts, compare-release/attach, unknown/held/captured-failure/recovery protection and supplier idempotency. Publish once to next after final review/checks; retain79 and latest.
 
 0.2.81 exposes the API shelf in list and show, plus the current publication and price version IDs in show. It packages the updated API Skill and preserves the existing show-to-call freeze.
+
+0.2.82 carries the reviewed unified connection completion output from #208. Publish once to next and preserve latest.
