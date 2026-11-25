@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-This package is official CLI 0.2.86. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
+This package is official CLI 0.2.87. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
@@ -84,7 +84,7 @@ Manage private OpenAPI preparation at /me/apis and supplier My Key at /me/creden
 
 Original-wallet refund flow requires explicit refund intent, saved original preview/request and normal OAuth: preview does not submit, confirmation uses that exact saved ID, and pending/unknown only reads its original status. Never invent refund amount/destination or replace an uncertain request. Read installed help for the exact supported interface.
 
-For a new call, omit credential mode to use the account's applicable My Key (0 Hub credit); use `--credential-mode platform` only for explicitly consented platform supply and its shown price. An unavailable Key never silently falls back. If the original response hands off a Key choice, open its official URL and run `api status <original_request_id> --wait 120`. The account owner chooses credit, updates the Key or stops; the browser resumes via the original intent. Wait again on the same request while pending, without requiring a human reply. Unknown/reconciling only reads the original outcome. `--pending` cannot change the saved credential mode.
+For a new call, omit credential mode to use the account's applicable My Key (0 Hub credit); use `--credential-mode platform` only for explicitly consented platform supply and its shown price. When the source was left implicit, a confirmed unavailable default Key can use the platform quote already within the original request cap and committed Device authorization. When the user chooses My Key only, pass its owner-selected reference via --credential-id, never a raw Key. An explicit My Key never automatically switches supply. If the original response hands off a Key choice, open its official URL and run `api status <original_request_id> --wait 120`. The account owner chooses credit, updates the Key or stops; the browser resumes via the original intent. Wait again on the same request while pending, without requiring a human reply. Unknown/reconciling only reads the original outcome. `--pending` cannot change the saved credential mode.
 
 Device 单次额度不足时保留原请求，按正式 next 的 `api connect --request <原请求>` 在同一连接核对并确认页面展示的每次调用上限及连接授权范围（不是仅批准这一笔消费）；授权后只读 `status --wait 120` 等原单。对已有执行、unknown/reconciling、普通404或无原scope证明的错误，不重新提交。历史明确准入前拒绝仅在服务端确认原scope未受理且同Device额度仍低于冻结平台报价时，按原next准备原intent；不改输入、价格、账号或请求ID。终态无必须继续步骤，仍可按需只读status。 服务端明确提供原请求的 failed-zero 关联证明时，保留旧失败收据，按原 next 等用户选择并接续原请求；不得自行换 Key、改用 credit 或新建替代请求。
 
