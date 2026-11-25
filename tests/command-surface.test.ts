@@ -35,17 +35,26 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  let exchangeReady=true;
  let denied=false,ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
  let originalConsumer: string | undefined;
+ const quotes: Array<string|undefined> = [];
  const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
   if(req.url==="/v1/agent-connections/start") {
    if(!unified){res.writeHead(404);res.end("{}");return;}
    commonStarts++;
    let raw="";for await(const part of req)raw+=part;
-   const body=JSON.parse(raw);const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
+   const body=JSON.parse(raw);quotes.push(body.per_call_quote_atoms);const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
    if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
    const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
    assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
    res.end(JSON.stringify({connection_id:"acn_fixture",agent_type:"muse",enabled_surfaces:ready?["services","api"]:["api"],buyer_id:ready?"fixture-buyer":"",status:denied?"denied":ready?"active":"pending",...((ready||denied)?{}:{url:resource+"/agent/connect/acn_fixture?start_token=synthetic-link"})}));return;
+  }
+  if (req.url==="/v1/catalog/operations" || req.url?.startsWith("/v1/catalog/operations?")) {
+   res.end(JSON.stringify({items:[{operation_id:"op_quote_fixture",display_name:"Research search",summary:"Find reliable sources",shelf:"public",unit_price:{mode:"per_call",amount_atoms:"57000"}}]}));
+   return;
+  }
+  if (req.url==="/v1/catalog/operations/op_quote_fixture") {
+   res.end(JSON.stringify({operation_id:"op_quote_fixture",summary:"Find reliable sources",shelf:"public",current_publication_id:"pub_fixture",price_card:{mode:"per_call",amount_atoms:"57000",price_version_id:"pv_fixture"},input_schema:{type:"object"},example_input:{q:"SQLite WAL"}}));
+   return;
   }
   if(req.url==="/v1/agent-connections/acn_fixture/hub"){
    starts++;assert.ok(ready);binding.buyer_id=resource+"|fixture-buyer";
@@ -92,7 +101,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    res.end(JSON.stringify(identityStatus===200?binding:{}));
    return;
   }
-  res.writeHead(404);res.end("{}");
+  res.writeHead(404);res.end(JSON.stringify({error:{code:"fixture_not_found",message:"unmatched fixture path: "+req.url}}));
  });
  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
  const address=server.address();
@@ -128,7 +137,7 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  }
  return {env,resource,handle,binding,cli,setup,close,approve:()=>{ready=true},deny:()=>{denied=true},
   holdExchange:()=>{exchangeReady=false},releaseExchange:()=>{exchangeReady=true},
-  calls:()=>({starts,exchanges,probes,originalConsumer,commonStarts})};
+  calls:()=>({starts,exchanges,probes,originalConsumer,commonStarts,quotes})};
 }
 
 test("Device connect exchanges only after approval and verifies before saving",async()=>{
@@ -137,7 +146,7 @@ test("Device connect exchanges only after approval and verifies before saving",a
   const {selector,state}=await f.setup();
   const api=["api","--profile",selector,"connect"];
   const pending=await f.cli(api);
-  assert.equal(pending.value.status,"pending");
+  assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));
   assert.match(pending.value.next.command,/--profile.*connect continue --wait 120 --json -- -synthetic-handle-001/);
   assert.doesNotMatch(pending.output,/synthetic-device-code|synthetic-poll-proof/);
   assert.equal((await f.cli([...api,"continue","--wait","0","--",f.handle])).value.status,"pending");
@@ -149,7 +158,7 @@ test("Device connect exchanges only after approval and verifies before saving",a
   assert.doesNotMatch(connected.output,/synthetic-device-access|synthetic-refresh/);
   const credential=hubCredentialsPath({...f.env,ITPAY_STATE_DIR:state});
   assert.equal(JSON.parse(readFileSync(credential,"utf8")).profiles.default.authorization_id,"generation");
-  assert.deepEqual(f.calls(),{starts:1,exchanges:1,probes:1,originalConsumer:undefined,commonStarts:0});
+  assert.deepEqual(f.calls(),{starts:1,exchanges:1,probes:1,originalConsumer:undefined,commonStarts:0,quotes:[]});
  } finally {await f.close()}
 });
 
@@ -162,9 +171,9 @@ test("Device renewal starts with the original consumer and leaves its credential
   const path=hubCredentialsPath(env);
   const before=readFileSync(path);
   const pending=await f.cli(["api","--profile",selector,"connect"]);
-  assert.equal(pending.value.status,"pending");
+  assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));
   assert.deepEqual(readFileSync(path),before);
-  assert.deepEqual(f.calls(),{starts:1,exchanges:0,probes:0,originalConsumer:f.binding.consumer_id,commonStarts:0});
+  assert.deepEqual(f.calls(),{starts:1,exchanges:0,probes:0,originalConsumer:f.binding.consumer_id,commonStarts:0,quotes:[]});
  } finally {await f.close()}
 });
 
@@ -220,21 +229,36 @@ for (const refreshStatus of [400,503]) {
  });
 }
 
-test("task-driven entry emits a link first, reuses pending across turns and connects once",async()=>{
+test("fresh natural API task discovers and shows its quote before requesting consent",async()=>{
  const f=await deviceFixture();
  try{
   const args=["--agent-type","muse","agent"];
-  const first=await f.cli([...args,"--surface","api","--task","find free earthquake data","--buffered"]);
-  assert.equal(first.code,0);assert.equal(first.value.status,"pending");assert.equal(first.value.result.task.text,"find free earthquake data");
-  assert.match(first.value.next.command,/agent --wait 120 --json/);
-  assert.equal(first.value.result.agent_type,"muse");
-  assert.doesNotMatch(first.output,/synthetic-device-code|synthetic-poll-proof/);
-  const paused=await f.cli([...args,"--wait","0"]);assert.equal(paused.value.status,"pending");
-  assert.equal(paused.value.result.task.id,first.value.result.task.id);assert.equal(f.calls().starts,0);assert.equal(f.calls().commonStarts,2);
-  f.approve();const final=await f.cli([...args,"--wait","5"]);
-  assert.equal(final.value.status,"connected",final.output);assert.match(final.value.next.command,/api --profile .* list --json/);
-  const again=await f.cli(args);assert.equal(again.value.status,"connected");
-  assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
+  const first=await f.cli([...args,"--surface","api","--task","Find reliable SQLite WAL sources, at most 0.057 credit","--buffered"]);
+  assert.equal(first.code,0);assert.equal(first.value.status,"api_setup_ready");
+  assert.match(first.value.result.task.text,/SQLite WAL/);
+  assert.match(first.value.next.command,/api --profile .* list --json/);
+  assert.equal(f.calls().commonStarts,0);
+  const api=["api","--profile",first.value.result.selector];
+  const list=await f.cli([...api,"list"]);assert.equal(list.value.status,"listed",list.output);
+  const shown=await f.cli([...api,"show",list.value.result.items[0].id]);
+  assert.match(shown.value.result.price,/^0.057 credit/);
+  assert.match(shown.value.next.command,/connect --operation op_quote_fixture --json/);
+  assert.equal(f.calls().commonStarts,0);
+  const pending=await new Promise<{code:number|null;value:any}>((resolve,reject)=>{
+   const child=spawn("/bin/sh",["-c",shown.value.next.command.replace(/ --json$/, " --wait 0 --json")],{cwd:root,env:f.env});
+   let raw="";child.stdout.on("data",part=>raw+=part);
+   child.on("error",reject);child.on("close",code=>{try{resolve({code,value:JSON.parse(raw)})}catch(error){reject(error)}});
+  });
+  assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));
+  assert.equal(pending.value.result.task.id,first.value.result.task.id);
+  assert.deepEqual(f.calls().quotes,["57000"]);
+  assert.equal(f.calls().starts,0);
+  f.approve();
+  const final=await f.cli([...api,"connect","--operation","op_quote_fixture","--wait","5"]);
+  assert.equal(final.value.status,"connected",final.output);
+  assert.equal(final.value.result.task.id,first.value.result.task.id);
+  assert.equal(f.calls().starts,1);
+  assert.equal(f.calls().exchanges,1);
  }finally{await f.close();}
 });
 
@@ -271,7 +295,9 @@ test("denied unified API connection remains terminal across turns without starti
  try{
   const args=["--agent-type","muse","agent"];
   const first=await f.cli([...args,"--surface","api","--task","read free data","--buffered"]);
-  assert.equal(first.value.status,"pending");f.deny();
+  assert.equal(first.value.status,"api_setup_ready");
+  const pending=await f.cli(["api","--profile",first.value.result.selector,"connect","--wait","0"]);
+  assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));f.deny();
   const denied=await f.cli([...args,"--wait","0"]);assert.equal(denied.value.status,"denied");assert.equal(denied.value.next,null);
   const reads=f.calls().commonStarts;
   const again=await f.cli(args);assert.equal(again.value.status,"denied");assert.equal(again.value.result.task.id,first.value.result.task.id);
@@ -283,7 +309,7 @@ test("fresh setup connect uses one account page and finishes without a second co
  const f=await deviceFixture();try{
   const {selector}=await f.setup();
   const args=["--agent-type","muse","api","--profile",selector,"connect"];
-  const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");
+  const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));
   assert.match(pending.output,/agent\/connect/);assert.equal(f.calls().starts,0);
   assert.ok(pending.value.next.command.includes(selector));
   f.approve();
@@ -299,7 +325,7 @@ test("unified credential preparation continuation retains the same API profile",
  const f=await deviceFixture();try{
   const {selector}=await f.setup();f.approve();f.holdExchange();
   const args=["--agent-type","muse","api","--profile",selector,"connect"];
-  const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending");assert.ok(pending.value.result.handle);assert.ok(pending.value.next.command.includes(selector));
+  const pending=await f.cli([...args,"--wait","0"]);assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));assert.ok(pending.value.result.handle);assert.ok(pending.value.next.command.includes(selector));
   f.releaseExchange();const result=await f.cli([...args,"--wait","5"]);assert.equal(result.value.status,"connected");assert.equal(f.calls().starts,1);assert.equal(f.calls().exchanges,1);
  }finally{await f.close()}
 });
@@ -316,7 +342,7 @@ test("existing canonical task survives an explicit legacy Services state directo
   const task=saveAgentTask(canonical,"original canonical API task","api",undefined);
   const key=readFileSync(join(canonical,"services/device/device-private.pem"));
   const resumed=await f.cli(["agent","--wait","0"]);
-  assert.equal(resumed.value.status,"pending",resumed.output);
+  assert.equal(resumed.value.status,"api_setup_ready",resumed.output);
   assert.equal(resumed.value.result.task.id,task.id);
   assert.deepEqual(readFileSync(join(canonical,"services/device/device-private.pem")),key);
   assert.equal(existsSync(join(f.env.ITPAY_STATE_DIR!,"connections")),false);
@@ -345,7 +371,8 @@ test("approved connection still shows an explicitly required Device approval",as
  const f=await deviceFixture(200,"synthetic-handle-001",undefined,true,true);
  try{
   f.approve();
-  const pending=await f.cli(["agent","--surface","api","--task","continue original consent-bound API task","--buffered"]);
+  const first=await f.cli(["agent","--surface","api","--task","continue original consent-bound API task","--buffered"]);
+  const pending=await f.cli(["api","--profile",first.value.result.selector,"connect","--wait","0"]);
   assert.equal(pending.value.status,"pending",pending.output);
   assert.equal(pending.value.result.url,f.resource+"/verify");
   assert.equal(pending.value.result.approval_required,true);

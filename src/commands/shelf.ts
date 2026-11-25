@@ -1,5 +1,6 @@
+import {readConnectionBroker} from "../state/agent_connection.js";
 import { AgentTaskConflict, attachAgentRequest } from "../state/agent_task.js";
-import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
+import {storedHubProfile,hubCredentialKind,hubCredentialsPath} from "../state/hub_credentials.js";
 import { selectedHubInstallationPath } from "../state/hub_installation.js";
 import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPriceChange,type RunReceipt,type RequestStatus} from "../client/hub.js";
 import {HttpError} from "../client/http.js";
@@ -125,11 +126,15 @@ export async function shelfShow(id:string,json:boolean):Promise<void>{
  const d=await client().shelfGet<ShelfDescriptor & ShelfLayer>("/v1/catalog/operations/"+encodeURIComponent(id));
  if(d.operation_id!==id || !d.example_input || !d.current_publication_id)throw new Error("invalid_state: incomplete product descriptor");
  saveShown(d);
+ const broker=selectedHubInstallationPath()&&hubCredentialKind()==="none"?readConnectionBroker(hubCredentialsPath()+".agent-connection.json"):undefined;
+ const connect=broker&&!broker.state.connection_id&&/^[A-Za-z0-9_-]{1,200}$/.test(d.operation_id)?{
+  command:`itpay api connect --operation ${d.operation_id}${json?" --json":""}`,reason:"用同一安装的已展示报价打开官方确认页",
+ }:null;
  writeCommandEnvelope({status:"shown",result:{id:d.operation_id,purpose:d.summary,price:priceLabel(d.price_card),
   ttl_days:d.result_retention_days,example_input:d.example_input,shelf:d.shelf,
   current_publication_id:d.current_publication_id,price_version_id:d.price_card.price_version_id || undefined},
   instruction:"先说明用途、credit 报价与结果保留时间。若尚未连接，使用 api connect --operation "+d.operation_id+" 在统一确认页带入该报价。取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
-  next:null,recovery:[]},{jsonOutput:json});
+  next:connect,recovery:[]},{jsonOutput:json});
 }
 // Waiting only reads the original request. Unknown outcomes stop polling and
 // retain their original identity; neither status nor this loop submits work.

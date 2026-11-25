@@ -1,5 +1,5 @@
 import {prepareAgentConnection,connectAgent,bindAgentServices,saveAgentConnection,servicesConnectionRoot} from "../state/agent_connection.js";
-import {hubCredentialsPath,importHubKey} from "../state/hub_credentials.js";
+import {hubCredentialsPath,hubCredentialKind,importHubKey} from "../state/hub_credentials.js";
 import {describeAccount,describeHubIdentity} from "./hub.js";
 import {HubClient,loadHubConfig} from "../client/hub.js";
 import {existsSync,readFileSync} from "node:fs";
@@ -28,7 +28,7 @@ export function actualAgentType(env: NodeJS.ProcessEnv = process.env): string {
  throw Object.assign(new AgentTypeRequiredError(),{message:"host_context_required: Agent must supply its own actual --agent-type; do not ask the user to choose an identity"});
 }
 
-type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;quote?:string|undefined;servicesDirectory?:string|undefined};
+type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;discoverFirst?:boolean;quote?:string|undefined;servicesDirectory?:string|undefined};
 export async function runConnection(options:ConnectionOptions):Promise<void>{
  const {root,type,surface,wait,task}=options;
  const executable=resolve(process.argv[1]!);process.env.ITPAY_AGENT_EXECUTABLE=executable;
@@ -49,6 +49,10 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    if(!process.env.ITPAY_HUB_KEY)importHubKey(selected?.apiKey??installed.apiKey!,installed.baseURL);
    const me=await new HubClient(loadHubConfig()).me();
    emit("connected",{selector:installation!.selector,identity:describeHubIdentity(me,"api_key"),connection_status:"connected"},describeAccount(me)+"\n使用所选 API Key；继续原任务。",apiNext);return;
+  }
+  if(surface==="api"&&options.discoverFirst&&task&&!task.request_id&&!options.reconnect&&common&&!common.connection_id&&hubCredentialKind()==="none"&&hubDeviceStatus().phase==="disconnected"){
+   emit("api_setup_ready",{selector:installation!.selector},"已保存原任务。先按 next 只读发现商品，然后 show 核对真实报价，再从该商品进入官方确认页。",apiNext);
+   return;
   }
   let summary:Record<string,string>={};
   if(common){
@@ -138,7 +142,7 @@ export function registerAgentCommand(program:Command):void{
    const wait=Number(options.wait);if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("wait must be 0..120");
    const text=options.task?.startsWith("@")?readFileSync(options.task.slice(1),"utf8"):options.task;
    const task=saveAgentTask(root,text,options.surface,options.request,Boolean(options.newTask));
-   await runConnection({root,type,surface:task.surface,task,wait,json:Boolean(options.json),buffered:options.buffered,reconnect:options.reconnect,servicesDirectory:root===canonical?join(root,"services"):original});
+   await runConnection({root,type,surface:task.surface,task,wait,json:Boolean(options.json),discoverFirst:true,buffered:options.buffered,reconnect:options.reconnect,servicesDirectory:root===canonical?join(root,"services"):original});
   }catch(error){writeCommandEnvelope({status:"error",error:{code:"agent_prepare_failed",message:error instanceof Error?error.message:"Agent preparation failed"},instruction:"保留原任务、凭据与连接，不换身份或重发业务。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});process.exitCode=1;}
  });
 }

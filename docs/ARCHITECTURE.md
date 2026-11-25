@@ -74,7 +74,9 @@ flowchart LR
 ```mermaid
 flowchart TD
  T[CLI保存原任务与宿主独立profile] --> K[本地原Ed25519公钥 / 不调用Services]
- K --> C[V4 Agent连接：账号+本Agent公钥+原消费规则]
+ K --> D[全新 API 安装只读发现与展示真实报价]
+ D --> C[V4 Agent连接：账号+本Agent公钥+原消费规则]
+ K -->|Services 或原连接| C
  C --> P[一个官方同意页 / 人确认一次]
  P --> S[持久化本人同意 / 活跃与撤销门禁]
  S --> API[需要API：同一连接证明启动原Device OAuth]

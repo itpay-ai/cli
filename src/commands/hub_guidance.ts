@@ -39,6 +39,7 @@ export function hubFailureFacts(code:string, httpStatus:number|undefined, method
  if(code==="publication_changed")return {category:"quote_changed",owner:"catalog"};
  if(code==="invalid_input")return {category:"invalid_input",owner:"request"};
  if(code==="not_found")return {category:"visibility_or_missing",owner:"hub"};
+ if(code==="platform_rate_limited")return {category:"platform_rate_limited",owner:"hub"};
  if(httpStatus===429||/challenge|rate_limit/.test(code))return {category:"challenge_or_limit",owner:"undetermined"};
  if(httpStatus===403)return {category:"forbidden",owner:"undetermined"};
  if(httpStatus!==undefined&&httpStatus>=500)return {category:"read_or_service_unavailable",owner:"undetermined"};
