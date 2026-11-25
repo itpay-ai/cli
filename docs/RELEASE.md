@@ -1,6 +1,6 @@
 # CLI 发布与制品
 
-独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.85；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
+独立CLI仓是唯一发布源码家。正式发布1.0前只发0.2.x，当前候选0.2.86；不再发2.x。普通就绪next发布已获Owner常设批准，不需逐版重新批准；生产部署、数据迁移、latest切换与deprecate各自另批。代码经小PR、最后revision取得明确Codex Review结论后正常合并，不能把本地通过当发布完成。
 
 ## 唯一发行路径
 
@@ -50,3 +50,5 @@ prepare只读checkout同一main，运行release tests、npm ci和npm run check�
 0.2.84 displays the masked current Services account after the existing signed binding and account-status checks complete.
 
 0.2.85 observes the original paid request after a write timeout, and continues the original intent after explicit Device consent. The next publish checks the public dev installer guide without deploying it.
+
+0.2.86 prepares a fresh API task before connecting. The shown public quote then enters the existing signed confirmation from the same profile.

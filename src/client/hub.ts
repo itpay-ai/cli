@@ -184,7 +184,7 @@ export class HubClient {
         throw new HttpError(err.status, {
           code: err.envelope.error.code,
           message: err.envelope.error.message,
-          ...safeDetailsPayload(err.envelope.error.details),
+          ...safeDetailsPayload(err.envelope.error.details, err.status === 429 && err.code === "rate_limited" ? err.envelope.error.retry_after_seconds : undefined),
         }, `hub request failed`);
       }
       throw err;
@@ -203,7 +203,7 @@ export function safePriceChange(raw:unknown):PublicPriceChange|undefined {
  if(d.captured_atoms==="0" && d.held_atoms==="0"){out.captured_atoms="0";out.held_atoms="0"}
  return Object.keys(out).length?out:undefined;
 }
-export interface SafeHubErrorDetails { request_admission?:"not_admitted"; request_id?:string; device_approval_id?:string; device_consent_limit_atoms?:string; price_change?:PublicPriceChange; stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
+export interface SafeHubErrorDetails { itpay_retry_after_seconds?: number; request_admission?:"not_admitted"; request_id?:string; device_approval_id?:string; device_consent_limit_atoms?:string; price_change?:PublicPriceChange; stage?: "metadata" | "status" | "action"; method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"; path?: string }
 
 // SDK diagnostics are useful, but neither arbitrary detail fields nor raw path
 // parameters/query strings belong in an agent-visible error.
@@ -211,6 +211,7 @@ export function safeHubErrorDetails(raw: unknown): SafeHubErrorDetails | undefin
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const d = raw as Record<string, unknown>;
   const out: SafeHubErrorDetails = {};
+  if (typeof d.itpay_retry_after_seconds === "number" && Number.isInteger(d.itpay_retry_after_seconds) && d.itpay_retry_after_seconds >= 1 && d.itpay_retry_after_seconds <= 60) out.itpay_retry_after_seconds = d.itpay_retry_after_seconds;
   if(d.request_admission==="not_admitted"&&typeof d.request_id==="string"&&/^cli-req-req_[a-f0-9]{32}$/.test(d.request_id)&&typeof d.device_approval_id==="string"&&/^[A-Za-z0-9_-]{1,200}$/.test(d.device_approval_id)&&typeof d.device_consent_limit_atoms==="string"&&/^(0|[1-9]\d{0,18})$/.test(d.device_consent_limit_atoms)){
     out.request_admission="not_admitted";out.request_id=d.request_id;out.device_approval_id=d.device_approval_id;out.device_consent_limit_atoms=d.device_consent_limit_atoms;
   }
@@ -232,8 +233,12 @@ export function safeHubErrorDetails(raw: unknown): SafeHubErrorDetails | undefin
   }
   return Object.keys(out).length ? out : undefined;
 }
-function safeDetailsPayload(raw: unknown): {details?: SafeHubErrorDetails} {
+function safeDetailsPayload(raw: unknown, retryAfter?: number): {details?: SafeHubErrorDetails} {
   const details = safeHubErrorDetails(raw);
+  if (details) delete details.itpay_retry_after_seconds;
+  if (raw && typeof raw === "object" && "owner" in raw && raw.owner === "ItPay" && retryAfter !== undefined && Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 60) {
+    return {details:{...details,itpay_retry_after_seconds:retryAfter}};
+  }
   return details ? {details} : {};
 }
 export function hubErrorDetails(error: unknown): SafeHubErrorDetails | undefined {

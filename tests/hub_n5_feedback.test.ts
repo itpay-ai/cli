@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpError} from '../src/client/http.js';
-import {hubFailureInstruction,writeCommandEnvelope} from '../src/commands/hub_guidance.js';
+import {hubFailureFacts,hubFailureInstruction,writeCommandEnvelope} from '../src/commands/hub_guidance.js';
 
 test('metadata failures report actual class while original requests retain their reader',()=>{
  assert.match(hubFailureInstruction(new HttpError(0,{code:'request_timeout',message:'timeout'},''),'fallback'),/读取超时/);
@@ -10,4 +10,10 @@ test('metadata failures report actual class while original requests retain their
  assert.match(hubFailureInstruction(new HttpError(0,{code:'request_timeout',message:'Request outcome is unknown'},''),'fallback'),/提交结果未知/);
  let output='';writeCommandEnvelope({status:'unknown',result:{request_id:'original'},instruction:'保留原请求',next:{command:'itpay api status original',reason:'read original'},recovery:[]},{jsonOutput:true,output:s=>output+=s});
  const frame=JSON.parse(output);assert.match(frame.instruction,/不换路重发/);assert.equal(frame.next,null);
+});
+
+test("only the explicit ItPay response identifies platform throttling",()=>{
+ assert.deepEqual(hubFailureFacts("rate_limited",429,"POST",17),{category:"platform_rate_limited",owner:"ItPay",retry_after_seconds:17});
+ assert.deepEqual(hubFailureFacts("rate_limited",429,"POST"),{category:"challenge_or_limit",owner:"undetermined"});
+ assert.deepEqual(hubFailureFacts("forbidden",403,"POST"),{category:"forbidden",owner:"undetermined"});
 });
