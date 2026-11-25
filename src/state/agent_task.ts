@@ -3,7 +3,7 @@ import {chmodSync,existsSync,lstatSync,mkdirSync,readFileSync,renameSync,writeFi
 import {join,dirname} from 'node:path';
 import {withFileLock} from './file_lock.js';
 export class AgentTaskConflict extends Error {
- constructor(readonly requestID:string){super('task_conflict: original request already saved; status it before a new intent');}
+ constructor(readonly requestID:string,readonly operationID?:string){super(`task_conflict: request ${requestID}${operationID?` for ${operationID}`:""} is still active; read its status first`);}
 }
 export type SavedTask = { id: string; text: string; surface: "api" | "services"; request_id?: string; authorization_terminal?: "denied" | "cancelled" };
 

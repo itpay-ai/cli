@@ -46,6 +46,18 @@ function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  }
  throw new Error("invalid_state: original request has no receipt");
 }
+function releaseNotAdmitted(store:HubTaskStore,task:HubTask,code:string):void{
+ const original=store.get(task.request_id);
+ if(!original||original.run_id||original.intent_id||original.credential_recovery)return;
+ const failed=store.update(task.request_id,{status:"failed",blocking_reason:code,terminal:true,state_source:"hub",state_stale:false});
+ if(failed?.status==="failed"&&!failed.run_id&&!failed.intent_id&&!failed.credential_recovery){
+  attachAgentRequest(selectedHubInstallationPath(),task.request_id,true);
+ }
+}
+function originalNotFound(error:unknown,task:HubTask):boolean{
+ return error instanceof HttpError&&error.status===404&&error.code==="not_found"&&
+  ["unknown","failed"].includes(task.status)&&!task.intent_id&&!task.run_id&&!task.credential_recovery;
+}
 function absentDeviceConsent(error:unknown,task:HubTask,requestKey:string):boolean{
  if(!(error instanceof HttpError)||error.status!==404||task.run_id||task.intent_id||task.terminal||task.credential_mode!=="platform"||hubCredentialKind()==="api_key")return false;
  const detail=hubErrorDetails(error),profile=storedHubProfile();
@@ -145,6 +157,7 @@ export async function shelfStatus(id:string,json:boolean,wait=0):Promise<void>{
     next:changed?statusAction(id,json):pendingAction(id,json),recovery:[]},{jsonOutput:json});
    return;
   }
+  if(originalNotFound(error,store.get(id)??task))attachAgentRequest(selectedHubInstallationPath(),id,true);
   throw new HubTaskRequestError(error,store.get(id)??task)
  }
 }
@@ -167,15 +180,23 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
  try{attachAgentRequest(selectedHubInstallationPath(),task.request_id)}catch(error){
   if(!(error instanceof AgentTaskConflict))throw error;
   const original=store.get(error.requestID);if(!original)throw error;
-  try{remember(store,original,await api.getRequest(store.idempotencyKey(original.request_id)) as Snapshot)}catch(readError){throw new HubTaskRequestError(readError,original)}
-  // Network I/O is outside the file lock; both release and this final attach
-  // compare the current pointer, so another process cannot be overwritten.
-  attachAgentRequest(selectedHubInstallationPath(),task.request_id);
+  try{remember(store,original,await api.getRequest(store.idempotencyKey(original.request_id)) as Snapshot)}catch(readError){
+   if(!originalNotFound(readError,store.get(original.request_id)??original)||absentDeviceConsent(readError,original,store.idempotencyKey(original.request_id)))throw new HubTaskRequestError(readError,original);
+   attachAgentRequest(selectedHubInstallationPath(),original.request_id,true);
+  }
+  // Network I/O is outside the file lock; both operations compare the pointer.
+  try{attachAgentRequest(selectedHubInstallationPath(),task.request_id)}catch(conflict){
+   if(conflict instanceof AgentTaskConflict)throw new AgentTaskConflict(conflict.requestID,store.get(conflict.requestID)?.operation_id);
+   throw conflict;
+  }
  }
+ let submittingAdmission=false;
  try{
   if(!options.pending){
+   submittingAdmission=true;
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
     input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
+   submittingAdmission=false;
    if("run_id" in admission)store.update(task.request_id,{run_id:admission.run_id,status:"dispatched"});
    else if("intent_id" in admission && "blocking_reason" in admission)store.update(task.request_id,{intent_id:admission.intent_id,status:"blocked",blocking_reason:admission.blocking_reason});
   }
@@ -183,8 +204,10 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   try { snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot; }
   catch(error) {
    if(!(options.pending && (absentDeviceConsent(error,task,store.idempotencyKey(task.request_id)) || error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required")))throw error;
+   submittingAdmission=true;
    await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
     max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
+   submittingAdmission=false;
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   }
   task=remember(store,store.get(task.request_id)!,snapshot);
@@ -212,14 +235,20 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    }catch(readError){
     const price=hubErrorDetails(error)?.price_change;
     if(readError instanceof HttpError && readError.status===404 && price){
+     if(submittingAdmission&&price.captured_atoms==="0"&&price.held_atoms==="0")releaseNotAdmitted(store,task,"publication_changed");
      await render(task,{request_id:store.idempotencyKey(task.request_id),terminal:true,pending_stage:null,next:null,intent:{intent_id:task.intent_id??"",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:price} as Snapshot,json);
     }else throw new HubTaskRequestError(readError,store.get(task.request_id)??task);
    }
    return;
   }
   const code=error instanceof HttpError?error.code:error instanceof Error&&error.message.startsWith("authorization_required:")?"authorization_required":undefined;
-  if(code==="authorization_required"||code==="unauthenticated")store.update(task.request_id,{blocking_reason:"authorization_required",status:"blocked"});
-  else store.update(task.request_id,{status:"unknown"});
+  // Only admission responses with a defined pre-run rejection can release.
+  if(submittingAdmission && error instanceof HttpError && error.status>=400 && error.status<500 &&
+    ["invalid_input","not_found","forbidden","not_runnable","authorization_denied","credential_revalidation_required"].includes(error.code)){
+   releaseNotAdmitted(store,task,error.code);
+  }else if(code==="authorization_required"||code==="unauthenticated"){
+   store.update(task.request_id,{blocking_reason:"authorization_required",status:"blocked"});
+  }else store.update(task.request_id,{status:"unknown"});
   throw new HubTaskRequestError(error,store.get(task.request_id)??task);
  }
 }
