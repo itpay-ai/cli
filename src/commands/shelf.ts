@@ -131,7 +131,7 @@ export async function shelfShow(id:string,json:boolean):Promise<void>{
   command:`itpay api connect --operation ${d.operation_id}${json?" --json":""}`,reason:"用同一安装的已展示报价打开官方确认页",
  }:null;
  writeCommandEnvelope({status:"shown",result:{id:d.operation_id,purpose:d.summary,price:priceLabel(d.price_card),
-  ttl_days:d.result_retention_days,example_input:d.example_input,shelf:d.shelf,
+  ttl_days:d.result_retention_days,example_input:d.example_input,...(json?{input_schema:d.input_schema}:{}),shelf:d.shelf,
   current_publication_id:d.current_publication_id,price_version_id:d.price_card.price_version_id || undefined},
   instruction:"先说明用途、credit 报价与结果保留时间。若尚未连接，使用 api connect --operation "+d.operation_id+" 在统一确认页带入该报价。取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
   next:connect,recovery:[]},{jsonOutput:json});
