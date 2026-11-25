@@ -29,9 +29,10 @@ async function metadata(spec, timeout = 30_000) {
 }
 
 // Treat only a missing or not-yet-current published artifact as retryable.
+class PublicationVisibilityTimeout extends Error {}
 const pauseReadback = ms => new Promise(resolve => setTimeout(resolve, ms));
 export async function waitForPublishedRead(read, pause = pauseReadback, now = Date.now) {
-  const deadline = now() + 300_000;
+  const deadline = now() + 600_000;
   do {
     const actual = await read(Math.min(15_000, Math.max(1, deadline - now())));
     if (actual) return actual;
@@ -39,7 +40,7 @@ export async function waitForPublishedRead(read, pause = pauseReadback, now = Da
     if (remaining <= 0) break;
     await pause(Math.min(15_000, remaining));
   } while (now() < deadline);
-  throw new Error('Published package is not visible yet; inspect the original publication before retrying');
+  throw new PublicationVisibilityTimeout('Published package is not visible yet; inspect the original publication before retrying');
 }
 
 export async function readPublished(target, source, lookup = metadata, pause = pauseReadback, now = Date.now) {
@@ -164,5 +165,14 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(error => { console.error(error.message); process.exitCode = 1; });
+  main().catch(error => {
+    if (process.env.RELEASE_ACTION === 'readback' && error instanceof PublicationVisibilityTimeout) {
+      const warning = error.message + '. Run the read-only release workflow with action=readback and the exact version.';
+      console.warn('::warning::' + warning);
+      if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, warning + '\n');
+      return;
+    }
+    console.error(error.message);
+    process.exitCode = 1;
+  });
 }

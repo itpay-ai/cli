@@ -49,8 +49,8 @@ test('accepted publication waits only for visibility and never retries a refused
   assert.equal(refused,1);
   let bounded = 0, clock = 0;
   await assert.rejects(readPublished(target, source, async () => {bounded++; return null;}, async ms => {clock += ms;}, () => clock), /inspect the original publication/);
-  assert.equal(bounded,20);
-  assert.equal(clock,300000);
+  assert.equal(bounded,40);
+  assert.equal(clock,600000);
 });
 
 test('readback can wait for an immutable artifact separately from metadata', async () => {

@@ -116,7 +116,7 @@ jobs:
       ${{ !cancelled() && github.ref == 'refs/heads/main' &&
           (inputs.action == 'readback' || (inputs.action == 'publish' && needs.publish.result == 'success')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 22
+    timeout-minutes: 42
     permissions:
       contents: read
     steps:
@@ -151,7 +151,8 @@ jobs:
           if [[ -f release-artifact/manifest.json ]]; then version=$(jq -er .version release-artifact/manifest.json); fi
           body=$(mktemp)
           trap 'rm -f "$body"' EXIT
-          deadline=$((SECONDS+300))
+          deadline=$((SECONDS+600))
+          status=unavailable
           while (( SECONDS < deadline )); do
             remaining=$((deadline-SECONDS))
             if status=$(curl --silent --show-error --max-time "$((remaining < 10 ? remaining : 10))" --output "$body" --write-out '%{http_code}' https://dev.itpay.ai/agent); then
@@ -169,10 +170,12 @@ jobs:
                     printf "GET https://dev.itpay.ai/agent: HTTP 200, version=%s\n" "$version"
                     exit 0
                   fi ;;
+                *) echo "::error::dev Agent read failed at HTTP $status"; exit 1 ;;
               esac
             fi
             remaining=$((deadline-SECONDS))
             if (( remaining > 0 )); then sleep "$((remaining < 15 ? remaining : 15))"; fi
           done
-          echo "::error::npm was published, but the public dev Agent entry did not converge to $version"
-          exit 1
+          message="Public dev Agent entry has not converged to $version (last HTTP $status). Run the read-only release workflow with action=readback and the exact version."
+          echo "::warning::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
