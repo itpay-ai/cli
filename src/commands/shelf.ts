@@ -201,12 +201,13 @@ export async function shelfStatus(id:string,json:boolean,wait=0):Promise<void>{
   throw new HubTaskRequestError(error,store.get(id)??task)
  }
 }
-export async function shelfCall(operation:string|undefined,options:{input?:string;pending?:string;credentialMode?:string;json?:boolean}):Promise<void>{
+export async function shelfCall(operation:string|undefined,options:{input?:string;pending?:string;credentialMode?:string;credentialId?:string;json?:boolean}):Promise<void>{
  if(options.credentialMode!==undefined&&options.credentialMode!=="platform")throw new Error("invalid_input: credential mode must be platform");
+ if(options.credentialId!==undefined&&(options.credentialMode!==undefined||!/^uck_[a-f0-9]{32}$/.test(options.credentialId)))throw new Error("invalid_input: select a My Key reference or platform supply");
  const json=Boolean(options.json), store=new HubTaskStore(), api=client();
  let task:HubTask;
  if(options.pending){
-  if(operation||options.input!==undefined||options.credentialMode!==undefined)throw new Error("invalid_input: --pending preserves the original input and operation");
+  if(operation||options.input!==undefined||options.credentialMode!==undefined||options.credentialId!==undefined)throw new Error("invalid_input: --pending preserves the original input and operation");
   const original=store.get(options.pending);
   if(!original)throw new Error("not_found: original request is not in this installation");
   task=original;
@@ -215,7 +216,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   const shown=loadShown(operation);
   const input=await readRunInput(options.input);
   task=store.getOrCreate({operation_id:operation,publication_id:shown.current_publication_id,input,
-   max_charge_atoms:shown.price_card.amount_atoms,...(options.credentialMode==="platform"?{credential_mode:"platform" as const}:{}),...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
+   max_charge_atoms:shown.price_card.amount_atoms,...(options.credentialMode==="platform"?{credential_mode:"platform" as const}:{}),...(options.credentialId?{credential_id:options.credentialId}:{}),...(shown.shown_event_id?{shown_event_id:shown.shown_event_id}:{})}).task;
  }
  try{attachAgentRequest(selectedHubInstallationPath(),task.request_id)}catch(error){
   if(!(error instanceof AgentTaskConflict))throw error;
