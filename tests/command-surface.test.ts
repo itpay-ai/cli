@@ -52,6 +52,10 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
    res.end(JSON.stringify({items:[{operation_id:"op_quote_fixture",display_name:"Research search",summary:"Find reliable sources",shelf:"public",unit_price:{mode:"per_call",amount_atoms:"57000"}}]}));
    return;
   }
+  if (req.url==="/v1/catalog/operations/op_region_fixture") {
+   res.end(JSON.stringify({operation_id:"op_region_fixture",display_name:"Event search",summary:"Search events",shelf:"public",current_publication_id:"pub_region",price_card:{mode:"free"},input_schema:{type:"object",required:["query_starttime"],properties:{query_starttime:{type:"string"},query_minlatitude:{type:"number",minimum:-90,maximum:90}}},example_input:{query_starttime:"2026-01-01T08:00:00Z"}}));
+   return;
+  }
   if (req.url==="/v1/catalog/operations/op_quote_fixture") {
    res.end(JSON.stringify({operation_id:"op_quote_fixture",display_name:"Research search",summary:"Find reliable sources",shelf:"public",current_publication_id:"pub_fixture",price_card:{mode:"per_call",amount_atoms:"57000",price_version_id:"pv_fixture"},input_schema:{type:"object"},example_input:{q:"SQLite WAL"}}));
    return;
@@ -262,6 +266,20 @@ test("fresh natural API task discovers and shows its quote before requesting con
  }finally{await f.close();}
 });
 
+
+test("show JSON keeps optional query constraints alongside the original example",async()=>{
+ const f=await deviceFixture();
+ try{
+  const {selector}=await f.setup();
+  const region=await f.cli(["api","--profile",selector,"show","op_region_fixture"]);
+  assert.equal(region.value.status,"shown",region.output);
+  assert.deepEqual(region.value.result.input_schema,{type:"object",required:["query_starttime"],properties:{query_starttime:{type:"string"},query_minlatitude:{type:"number",minimum:-90,maximum:90}}});
+  assert.deepEqual(region.value.result.example_input,{query_starttime:"2026-01-01T08:00:00Z"});
+  const existing=await f.cli(["api","--profile",selector,"show","op_quote_fixture"]);
+  assert.deepEqual(existing.value.result.input_schema,{type:"object"});
+  assert.deepEqual(existing.value.result.example_input,{q:"SQLite WAL"});
+ }finally{await f.close();}
+});
 
 test("streamed API consent announces the original link only once across polls",async()=>{
  const f=await deviceFixture();
