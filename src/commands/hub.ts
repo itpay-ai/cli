@@ -39,10 +39,12 @@ export class HubTaskRequestError extends Error {
  readonly requestID:string;
  readonly references:{request_id:string;operation_id:string;run_id?:string;intent_id?:string};
  readonly code:string;
+ readonly httpStatus:number|undefined;
  readonly details: ReturnType<typeof hubErrorDetails>;
  constructor(error:unknown,task:HubTask) {
   super(error instanceof Error?error.message:"original Hub request did not return a receipt");
   this.requestID=task.request_id;
+  this.httpStatus=error instanceof HttpError?error.status:undefined;
   this.details=hubErrorDetails(error);
   this.references={request_id:task.request_id,operation_id:task.operation_id,...(task.run_id?{run_id:task.run_id}:{}),...(task.intent_id?{intent_id:task.intent_id}:{})};
   this.code=error instanceof HttpError?error.code:["authorization_required","connection_verification_pending","credential_persistence_failed","idempotency_conflict","invalid_state"].find(code=>this.message.startsWith(code+":"))??"hub_request_unknown";

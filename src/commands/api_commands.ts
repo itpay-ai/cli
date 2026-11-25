@@ -12,7 +12,7 @@ import { Command } from "commander";
 import { HttpError } from "../client/http.js";
 import {hubErrorDetails} from "../client/hub.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
-import { hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
+import { hubFailureFacts, hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
 
 function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
  if(error instanceof AgentTaskConflict){
@@ -33,10 +33,13 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
   const keysURL=base.origin+"/me/keys";
   writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:"API Key request failed"},result:{credential_kind:"api_key",keys_url:keysURL,...(error instanceof HubTaskRequestError?error.references:{})},instruction:auth?"当前 API Key 无效或已撤销；到返回的本人密钥页检查，使用安全 stdin 重新导入所选 Key，不发起 OAuth 或退回其他身份。":"当前 Key 的范围、预算或原请求受限；核对具体错误及本人密钥页。保留原凭据和原单，不切换 OAuth 绕过。",next:null,recovery:[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});process.exitCode=1;return;
  }
+ const details=hubErrorDetails(error);
+ const facts=hubFailureFacts(code,error instanceof HubTaskRequestError?error.httpStatus:error instanceof HttpError?error.status:undefined,details?.method);
+ const stop=facts?.category==="challenge_or_limit";
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
  const recover=taskID?{command:qualifyItPayCommand(`itpay api status ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"只读核对同一原请求"}:null;
- writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references?{result:references}:{}),instruction:code==="connection_recovery_conflict"?"已有其他active连接；保留原连接、任务与私有候选，交owner裁决，不替换或撤销其他连接。":code==="connection_recovery_denied"?"原连接恢复未通过；保留原profile、任务及私有恢复材料，不新建connect、不重发业务。":code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth&&original?(installed?"原连接失效，请按原安装重新授权并核对原请求。":"原连接失效；按原配置 connect 核对原授权。"):auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或购买 credit。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${installed&&taskID?` --request ${taskID}`:""}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
+ writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references||facts?{result:{...references,...facts}}:{}),instruction:stop?"遇到挑战或限流，停止此项并保留原请求。":facts?.category==="read_unavailable"?"当前原单状态读取超时。只读核对原请求，不重复提交。":code==="connection_recovery_conflict"?"已有其他active连接；保留原连接、任务与私有候选，交owner裁决，不替换或撤销其他连接。":code==="connection_recovery_denied"?"原连接恢复未通过；保留原profile、任务及私有恢复材料，不新建connect、不重发业务。":code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth&&original?(installed?"原连接失效，请按原安装重新授权并核对原请求。":"原连接失效；按原配置 connect 核对原授权。"):auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或购买 credit。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:stop?null:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${installed&&taskID?` --request ${taskID}`:""}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
  process.exitCode=1;
 }
 
@@ -59,6 +62,7 @@ hubCmd
   .description("New connections use one unified confirmation page; existing requests keep original recovery")
   .addHelpText("after","\nExample: itpay api --profile /absolute/host/api-profile.json connect --json\nA fresh connection shows one unified page and waits. Pending keeps the same profile/next; connected resumes the original task. Existing request recovery uses its returned --request/continue action.\n")
   .option("--request <id>", "continue the original local API request after authorization")
+  .option("--operation <id>", "prefill a shown operation quote on a new connection")
   .option("--wait <seconds>", "wait for the same authorization, up to 120 seconds", "120")
   .option("--json", "output JSON")
   .action(async (action: string | undefined, handle: string | undefined, options) => {
@@ -75,8 +79,14 @@ hubCmd
       }
       const wait = Number(options.wait);
       if (!Number.isInteger(wait) || wait < 0 || wait > 120) throw new Error("Device wait must be between 0 and 120 seconds");
-      if(action===undefined&&!options.request&&await firstConnection("api",Boolean(options.json),wait))return;
+      if(options.operation&&(!/^[A-Za-z0-9_-]{1,200}$/.test(options.operation)||options.request||action!==undefined))throw new Error("invalid_input: a shown operation can prefill only a new connection");
+      if(action===undefined&&!options.request&&await firstConnection("api",Boolean(options.json),wait,options.operation))return;
+      if(options.operation)throw new Error("invalid_state: use the existing connection for this quote");
       const result = action === "restart" ? await restartHubDevice() : await connectHubDevice(handle, wait, options.request);
+      if(result.phase==="connected"&&result.approved_request===true&&result.request_id){
+        await shelfCall(undefined,{pending:result.request_id,json:Boolean(options.json)});
+        return;
+      }
       const next = result.phase === "pending" ? {
         command: `itpay api connect continue --wait 120${options.json ? " --json" : ""} -- ${result.handle}`,
         reason: "等待原授权完成",

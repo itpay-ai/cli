@@ -23,8 +23,8 @@ This package includes original-wallet refund and payer-currency documented in th
 Use the current exact version from the official dev installation guide; npm exec runs that same official package without a global installation. For example, for this release:
 
 ```sh
-npm --prefix /absolute/permitted/empty-prefix exec --yes --package=@itpay/cli@0.2.84 -- itpay --version
-ITPAY_BACKEND_URL=https://dev.itpay.ai ITPAY_HUB_URL=https://dev.itpay.ai ITPAY_HUB_OAUTH_ISSUER=https://auth-v4-dev.itpay.ai ITPAY_AGENT_HOME=/absolute/permitted/dev-agent-state npm --prefix /absolute/permitted/empty-prefix exec --yes --package=@itpay/cli@0.2.84 -- itpay --agent-type codex-desktop setup --api-prefix /absolute/permitted/dev-api --json
+npm --prefix /absolute/permitted/empty-prefix exec --yes --package=@itpay/cli@0.2.85 -- itpay --version
+ITPAY_BACKEND_URL=https://dev.itpay.ai ITPAY_HUB_URL=https://dev.itpay.ai ITPAY_HUB_OAUTH_ISSUER=https://auth-v4-dev.itpay.ai ITPAY_AGENT_HOME=/absolute/permitted/dev-agent-state npm --prefix /absolute/permitted/empty-prefix exec --yes --package=@itpay/cli@0.2.85 -- itpay --agent-type codex-desktop setup --api-prefix /absolute/permitted/dev-api --json
 ```
 
 Use an already permitted empty npm prefix with its own package.json, cache and private state. The second example explicitly chooses dev through the existing public settings; it starts normal setup/connection, so run it only for the real user task. Supply the host's actual Agent Type. Keep the returned selector and original next action. Subsequent API commands use the same dev settings and `api --profile /absolute/permitted/dev-api/api-profile.json`; accepted or unknown requests never move to a new installation. The persistent dev launcher in the official guide remains the normal repeat-use entry.

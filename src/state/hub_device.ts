@@ -25,7 +25,7 @@ type Pending = { start_key: string; request_id?: string; intent_id?: string; ori
 
 export type DeviceResult =
   | { phase: "pending"; handle: string; url: string; approval_required?: true }
-  | { phase: "connected"; binding: Binding; request_id?: string }
+  | { phase: "connected"; binding: Binding; request_id?: string; approved_request?: true }
   | { phase: "denied" | "cancelled" | "exchange_unknown" };
 
 const pendingPath = () => hubCredentialsPath() + ".device.json";
@@ -256,7 +256,7 @@ export async function connectHubDevice(handle: string | undefined, waitSeconds: 
           await acknowledgeDeviceSave(cfg, flow);
           unlinkSync(path);
           return { result: { phase: "connected", binding: { buyer_id: status.buyer_id, consumer_id: status.consumer_id },
-            ...(state.request_id ? { request_id: state.request_id } : {}) } };
+            ...(state.request_id ? { request_id: state.request_id } : {}),...(state.intent_id ? {approved_request:true as const}: {}) } };
         }
         return { result: { phase: "exchange_unknown" } };
       }
@@ -287,7 +287,7 @@ export async function connectHubDevice(handle: string | undefined, waitSeconds: 
       if (connected === "exchange_unknown") return { result: { phase: "exchange_unknown" } };
       await acknowledgeDeviceSave(cfg, flow);
       unlinkSync(path);
-      return { result: { phase: "connected", binding, ...(state.request_id ? { request_id: state.request_id } : {}) } };
+      return { result: { phase: "connected", binding, ...(state.request_id ? { request_id: state.request_id } : {}),...(state.intent_id ? {approved_request:true as const}: {}) } };
     });
     if (result.result.phase !== "pending" || result.result.handle !== handle ||
       !result.wait || Date.now() + result.wait >= deadline) return result.result;

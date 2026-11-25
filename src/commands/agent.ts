@@ -28,7 +28,7 @@ export function actualAgentType(env: NodeJS.ProcessEnv = process.env): string {
  throw Object.assign(new AgentTypeRequiredError(),{message:"host_context_required: Agent must supply its own actual --agent-type; do not ask the user to choose an identity"});
 }
 
-type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;servicesDirectory?:string|undefined};
+type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;quote?:string|undefined;servicesDirectory?:string|undefined};
 export async function runConnection(options:ConnectionOptions):Promise<void>{
  const {root,type,surface,wait,task}=options;
  const executable=resolve(process.argv[1]!);process.env.ITPAY_AGENT_EXECUTABLE=executable;
@@ -52,15 +52,15 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   }
   let summary:Record<string,string>={};
   if(common){
-   let view=await connectAgent(root,common,Boolean(options.reconnect),surface);
-   if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface);
+   let view=await connectAgent(root,common,Boolean(options.reconnect),surface,options.quote);
+   if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface,options.quote);
    const deadline=Date.now()+wait*1000;
    while(view.status==="pending"){
     const {enabled_surfaces,...authorization}=view;
     emit("pending",{authorization},"展示原官方链接；本人确认后继续原任务。",again);
     if(options.buffered||Date.now()>=deadline)return;
     await sleep(Math.min(2000,deadline-Date.now()));
-    view=await connectAgent(root,common,false,surface);
+    view=await connectAgent(root,common,false,surface,options.quote);
    }
    if(view.status!=="active"){if(view.status==="denied"&&task)recordAgentAuthorization(root,"denied");emit(view.status,{authorization:{status:view.status}},"保留原任务和连接；拒绝或撤销后停止。");return;}
    summary=Object.fromEntries(["services","api"].map(item=>[item,view.enabled_surfaces?.includes(item)?"enabled":"consent_required"]));
