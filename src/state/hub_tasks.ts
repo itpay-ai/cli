@@ -29,6 +29,7 @@ export interface HubTask extends HubCredentialSelection {
   input: unknown;
   input_digest: string;
   max_charge_atoms?: string;
+  admission_attempted?: boolean;
   run_id?: string;
   credential_recovery?: NonNullable<RequestStatus["credential_recovery"]>;
   intent_id?: string;
@@ -183,7 +184,7 @@ export class HubTaskStore {
         ...(seed.credential_id ? { credential_id: seed.credential_id } : {}),
         ...(seed.source_credentials ? { source_credentials: seed.source_credentials } : {}),
         ...this.scopeFields,
-        status: "pending", created_at: now, updated_at: now,
+        status: "pending", admission_attempted: false, created_at: now, updated_at: now,
       };
       this.writeTask(file, task);
       return { task, created: true };
@@ -200,13 +201,16 @@ export class HubTaskStore {
     return createTask();
   }
 
-  update(requestID: string, patch: Partial<HubTask>, snapshot?: RequestStatus): HubTask | undefined {
+  update(requestID: string, patch: Partial<HubTask>, snapshot?: RequestStatus, requireUnsent = false): HubTask | undefined {
     const file = join(this.dir, taskFileName(requestID));
     if (!existsSync(file)) return undefined;
     // Per-task lock: two processes updating the same task serialize here;
     // terminal states (succeeded/failed) cannot regress.
     return withFileLock(`${file}.lock`, () => {
       const existing = this.readTask(file);
+      if (requireUnsent && existing.admission_attempted !== false) return existing;
+      // A pre-admission rejection cannot replace a receipt a peer has recorded.
+      if (!snapshot && patch.status === "failed" && (existing.run_id || existing.intent_id || existing.credential_recovery)) return existing;
       const proof = snapshot?.credential_recovery;
       if (existing.credential_recovery && !proof && (snapshot || patch.run_id && patch.run_id !== existing.run_id)) {
         throw new Error("invalid_state: missing credential recovery binding");

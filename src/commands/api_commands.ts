@@ -16,7 +16,7 @@ import { hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
 
 function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
  if(error instanceof AgentTaskConflict){
-  writeCommandEnvelope({status:"error",error:{code:"task_conflict",message:error.message},result:{request_id:error.requestID},instruction:"同一宿主已有原请求；先只读核对其状态，保留原身份与请求，不并发创建替代调用。",next:{command:`itpay api status ${error.requestID}${contract?.jsonOutput?' --json':''}`,reason:"只读核对当前profile的原请求"},recovery:[]},{jsonOutput:Boolean(contract?.jsonOutput)});process.exitCode=1;return;
+  writeCommandEnvelope({status:"error",error:{code:"task_conflict",message:error.message},result:{request_id:error.requestID,operation_id:error.operationID},instruction:"同一宿主已有原请求；先只读核对其状态，保留原身份与请求，不并发创建替代调用。",next:{command:`itpay api status ${error.requestID}${contract?.jsonOutput?' --json':''}`,reason:"只读核对当前profile的原请求"},recovery:[]},{jsonOutput:Boolean(contract?.jsonOutput)});process.exitCode=1;return;
  }
  const code=error instanceof HubTaskRequestError?error.code:error instanceof HttpError?error.code:error instanceof Error&&["credential_conflict","show_required","connection_recovery_conflict","connection_recovery_denied","authorization_required","connection_not_saved","connection_verification_pending","credential_persistence_failed"].some(code=>error.message.startsWith(code+":"))?error.message.split(":",1)[0]!:contract?.code??"command_failed";
  let original=false;

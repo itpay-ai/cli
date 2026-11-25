@@ -1,4 +1,5 @@
 import {importHubKey} from "../src/state/hub_credentials.js";
+import {HubTaskStore,hubTasksDir} from "../src/state/hub_tasks.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createServer} from "node:http";
@@ -16,6 +17,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
  const posts:Array<{path:string;key:string;body:any}>=[];
  let shows=0,requestKey="",waitingReads=0,statusReads=0,unknownNext=false;
  let runOverride:Record<string,unknown>={},terminalOverride:boolean|undefined,recoveryOverride=false,statusError=false;
+ let rejectAdmission=false,admissionUnavailable=false,statusMissing=false;
  let beforeRequestReply:(()=>void)|undefined;
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
@@ -34,10 +36,13 @@ test("six command shelf freezes shown facts and status never redispatches",async
    let raw="";for await(const part of req)raw+=part;
    requestKey=String(req.headers["idempotency-key"]);
    posts.push({path,key:requestKey,body:JSON.parse(raw)});
+   if(admissionUnavailable){res.writeHead(503);res.end(JSON.stringify({error:{code:"admission_unavailable",message:"outcome not yet known"}}));return;}
+   if(rejectAdmission){res.writeHead(400);res.end(JSON.stringify({error:{code:"invalid_input",message:"rejected before admission"}}));return;}
    res.end(JSON.stringify(run));return;
   }
   if(path.startsWith("/v1/requests/")){
    statusReads++;
+   if(statusMissing){res.writeHead(404);res.end(JSON.stringify({error:{code:"not_found",message:"unknown request"}}));return;}
    if(statusError){res.writeHead(503);res.end(JSON.stringify({error:{code:"read_unavailable",message:"retain original"}}));return;}
    const hook=beforeRequestReply;beforeRequestReply=undefined;hook?.();
    const unknown=unknownNext;unknownNext=false;
@@ -151,9 +156,33 @@ test("six command shelf freezes shown facts and status never redispatches",async
   const current=nextQuery.value.result.request_id;attachAgentRequest(selector,current);
   statusError=true;const beforeUnavailable:number=posts.length,readsBeforeUnavailable:number=statusReads;const unavailable=await cli([...prefix,"call","op-fixture","--input",'{"q":"read unavailable"}']);assert.notEqual(unavailable.code,0);assert.equal(unavailable.value.result.request_id,current);assert.equal(posts.length,beforeUnavailable);assert.equal(statusReads,readsBeforeUnavailable+1);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,current);statusError=false;
   beforeRequestReply=()=>{attachAgentRequest(selector,current,true);attachAgentRequest(selector,last)};
-  const beforeRace:number=posts.length;const raced=await cli([...prefix,"call","op-fixture","--input",'{"q":"concurrent new pointer"}']);assert.notEqual(raced.code,0);assert.equal(raced.value.error.code,"task_conflict");assert.equal(raced.value.result.request_id,last);assert.equal(posts.length,beforeRace);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,last,"late original read must not clear or replace peer pointer");
+  const beforeRace:number=posts.length;const raced=await cli([...prefix,"call","op-fixture","--input",'{"q":"concurrent new pointer"}']);assert.notEqual(raced.code,0);assert.equal(raced.value.error.code,"task_conflict");assert.equal(raced.value.result.request_id,last);assert.equal(raced.value.result.operation_id,"op-fixture");assert.equal(posts.length,beforeRace);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,last,"late original read must not clear or replace peer pointer");
   attachAgentRequest(selector,last,true);attachAgentRequest(selector,current);recoveryOverride=true;
   await cli([...prefix,"status",current]);assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,current);
+  attachAgentRequest(selector,current,true);recoveryOverride=false;
+  rejectAdmission=true;
+  const rejected=await cli([...prefix,"call","op-fixture","--input",'{"q":"rejected"}']);
+  assert.equal(rejected.value.error.code,"invalid_input");assert.equal(rejected.value.result.operation_id,"op-fixture");
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,undefined);
+  rejectAdmission=false;admissionUnavailable=true;
+  const noReceipt=await cli([...prefix,"call","op-fixture","--input",'{"q":"unknown before receipt"}']);
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,noReceipt.value.result.request_id);
+  admissionUnavailable=false;statusMissing=true;
+  const beforeMissing=posts.length;
+  const confirmedAbsent=await cli([...prefix,"status",noReceipt.value.result.request_id]);
+  assert.equal(confirmedAbsent.value.error.code,"not_found");
+  assert.equal(posts.length,beforeMissing);
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,noReceipt.value.result.request_id,"404 cannot clear a possibly in-flight POST");
+  attachAgentRequest(selector,noReceipt.value.result.request_id,true);
+  const journal=new HubTaskStore(hubTasksDir({...env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)}));
+  const unsent=journal.getOrCreate({operation_id:"op-fixture",publication_id:"pub-shown",input:{q:"saved only"}}).task;
+  attachAgentRequest(selector,unsent.request_id);
+  const absent=await cli([...prefix,"status",unsent.request_id]);
+  assert.equal(absent.value.error.code,"not_found");
+  assert.equal(posts.length,beforeMissing);
+  assert.equal(journal.get(unsent.request_id)?.status,"failed");
+  assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,undefined);
+  statusMissing=false;
   for(const old of ["discover","inspect","run","resume","tasks","continue","run-status","original-receipt","usage","transactions","topups","topup","topup-status","recover-connection"]){
    const p=await new Promise<number|null>(resolve=>{const child=spawn(process.execPath,["--import","tsx","src/main.ts",...prefix,old],{cwd:root,env,stdio:"ignore"});child.on("close",resolve)});
    assert.notEqual(p,0,old+" remains registered");
