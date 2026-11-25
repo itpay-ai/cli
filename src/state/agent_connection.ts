@@ -53,9 +53,9 @@ export async function agentConnectionRequest(root:string,state:AgentConnectionSt
  const message=['itpay-agent-connection/v1',method,path,createHash('sha256').update(raw).digest('hex'),timestamp,nonce].join('\n');
  return fetch(state.backend+path,{method,redirect:'error',signal:AbortSignal.timeout(30_000),headers:{'X-ItPay-CLI-Version':CLI_VERSION,...extra,'Content-Type':'application/json','X-ItPay-Connection-Time':timestamp,'X-ItPay-Connection-Nonce':nonce,'X-ItPay-Connection-Proof':sign(null,Buffer.from(message),key).toString('base64url')},...(body===undefined?{}:{body:raw})});
 }
-export async function connectAgent(root:string,state:AgentConnectionState,restart=false,surface=state.surface):Promise<AgentConnectionView> {
+export async function connectAgent(root:string,state:AgentConnectionState,restart=false,surface=state.surface, quote?:string):Promise<AgentConnectionView> {
  const key=createDeviceKey(join(state.services_directory??join(root,'services'),'device','device-private.pem'),true);
- const response=await agentConnectionRequest(root,state,'/v1/agent-connections/start',{public_key:createPublicKey(key).export({format:'jwk'}).x!,agent_type:state.agent_type,start_key:state.start_key,...(surface?{surface}:{}),...(restart?{restart:true}:{})});
+ const response=await agentConnectionRequest(root,state,'/v1/agent-connections/start',{public_key:createPublicKey(key).export({format:'jwk'}).x!,agent_type:state.agent_type,start_key:state.start_key,...(surface?{surface}:{}),...(quote&&/^[1-9][0-9]{0,17}$/.test(quote)?{per_call_quote_atoms:quote}:{}),...(restart?{restart:true}:{})});
  if(!response.ok)throw Object.assign(new Error(`original Agent connection unavailable (${response.status}); keep its task and key`),{http_status:response.status,code:response.status===503?"agent_connection_pending":"agent_connection_failed"});
  const view=await response.json() as AgentConnectionView;
  if(!/^acn_[A-Za-z0-9_-]+$/.test(view.connection_id)||view.agent_type!==state.agent_type||!['pending','active','expired','denied','revoked'].includes(view.status))throw new Error('invalid Agent connection response');

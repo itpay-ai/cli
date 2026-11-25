@@ -17,7 +17,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
  const posts:Array<{path:string;key:string;body:any}>=[];
  let shows=0,requestKey="",waitingReads=0,statusReads=0,unknownNext=false;
  let runOverride:Record<string,unknown>={},terminalOverride:boolean|undefined,recoveryOverride=false,statusError=false;
- let rejectAdmission=false,admissionUnavailable=false,statusMissing=false;
+ let expireWrite=false,rejectAdmission=false,admissionUnavailable=false,statusMissing=false;
  let beforeRequestReply:(()=>void)|undefined;
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
@@ -37,6 +37,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
    requestKey=String(req.headers["idempotency-key"]);
    posts.push({path,key:requestKey,body:JSON.parse(raw)});
    if(admissionUnavailable){res.writeHead(503);res.end(JSON.stringify({error:{code:"admission_unavailable",message:"outcome not yet known"}}));return;}
+   if(expireWrite){res.writeHead(408);res.end(JSON.stringify({error:{code:"request_timeout",message:"write wait expired"}}));return;}
    if(rejectAdmission){res.writeHead(400);res.end(JSON.stringify({error:{code:"invalid_input",message:"rejected before admission"}}));return;}
    res.end(JSON.stringify(run));return;
   }
@@ -183,6 +184,13 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.equal(journal.get(unsent.request_id)?.status,"failed");
   assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,undefined);
   statusMissing=false;
+  expireWrite=true;runOverride={};
+  const writesBeforeTimeout=posts.length;
+  const recovered=await cli([...prefix,"call","op-fixture","--input",'{"q":"slow paid result"}']);
+  assert.equal(recovered.value.status,"succeeded");
+  assert.equal(recovered.value.result.captured_atoms,"10000");
+  assert.equal(posts.length,writesBeforeTimeout+1,"only the original paid POST is sent");
+  expireWrite=false;
   for(const old of ["discover","inspect","run","resume","tasks","continue","run-status","original-receipt","usage","transactions","topups","topup","topup-status","recover-connection"]){
    const p=await new Promise<number|null>(resolve=>{const child=spawn(process.execPath,["--import","tsx","src/main.ts",...prefix,old],{cwd:root,env,stdio:"ignore"});child.on("close",resolve)});
    assert.notEqual(p,0,old+" remains registered");

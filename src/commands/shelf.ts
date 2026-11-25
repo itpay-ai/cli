@@ -75,14 +75,20 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
  const run=snapshot.run as Facts|undefined;
  if(run){
   const zero=run.captured_atoms==="0" && run.held_atoms==="0";
+  const uncertain=run.execution_state==="unknown"||run.settlement_state==="reconciling";
+  const upstream=typeof run.error==="object"&&run.error&&"code" in run.error&&String(run.error.code).startsWith("upstream_");
+  const outcome=uncertain?"原上游结果或结算待核，保留原引用并继续只读查询。":
+   !snapshot.terminal?"已受理、处理中。继续读取原请求。":
+   run.execution_state==="failed" ? (upstream?"供应商调用失败，按原执行及结算事实处理。":"执行失败，按原回执处理。")+(zero?"本次未扣 credit。":"") :
+   "按原结果与 credit 费用回执回答。captured_atoms/held_atoms 保留原字段，按 scale=6 读取为 credit；未知数值不可当零。";
   const balanceNotice=(run as typeof run & {low_balance?:unknown}).low_balance;
   const firstNotice=Boolean(balanceNotice&&!task.low_balance_notified);
   if(firstNotice)new HubTaskStore().update(task.request_id,{low_balance_notified:true});
   writeCommandEnvelope({status:run.execution_state==="succeeded"?"succeeded":snapshot.terminal?"failed":"pending",
    result:{request_id:task.request_id,...(snapshot.previous_runs?{previous_runs:snapshot.previous_runs}:{}),run_id:run.run_id,execution_state:run.execution_state,
-    settlement_state:run.settlement_state,delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
+    settlement_state:run.settlement_state,...(uncertain?{category:"outcome_unknown",owner:"hub"}:!snapshot.terminal?{category:"running",owner:"hub"}:run.execution_state==="failed"?{category:"execution_failed",owner:upstream?"supplier":"undetermined"}:{}),delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
     held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),result:run.result??null,result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
-   instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:run.execution_state==="failed"&&zero?"本次未扣 credit。":snapshot.terminal?"按原结果与 credit 费用回执回答。captured_atoms/held_atoms 保留原字段，按 scale=6 读取为 credit；未知数值不可当零。":"结果待核对，继续读取原请求。",
+   instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:outcome,
    next:snapshot.terminal?null:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
   return;
  }
@@ -96,7 +102,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean):Promise<void>
  const zero=changed && price?.captured_atoms==="0" && price.held_atoms==="0";
  const label=price?.current_price?priceLabel({mode:"per_call",amount_atoms:price.current_price.amount_atoms}):"暂不可读取";
  writeCommandEnvelope({status:stopped?"stopped":changed?"price_changed":reason,
-  result:{request_id:task.request_id,...(snapshot.previous_runs?{previous_runs:snapshot.previous_runs}:{}),intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
+  result:{request_id:task.request_id,...(changed?{category:"quote_changed",owner:"catalog"}:deviceConsent||uncharged?{category:"authorization",owner:"buyer"}:{}),...(snapshot.previous_runs?{previous_runs:snapshot.previous_runs}:{}),intent_id:task.intent_id,account:snapshot.account_hint,captured_atoms:zero||uncharged?"0":null,held_atoms:zero||uncharged?"0":null,...(price?{price_change:price}:{}),...(price?.current_price?{current_price:price.current_price}:{})},
   ...(target&&!changed&&!deviceConsent?{handoff:{type:"open_url",url:target,label:"打开官方页面"}}:{}),
   instruction:stopped?(uncharged?"已停止这次请求，未扣 credit。":"已停止这次请求，费用以原回执为准。"):changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
    readyToContinue(snapshot)?"原请求已可接续，按返回操作继续；尚未执行。":deviceConsent?"请在原安装为同一请求确认消费额度；保留原账号、输入与价格，不只修改钱包或网页预算。":reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
@@ -122,7 +128,7 @@ export async function shelfShow(id:string,json:boolean):Promise<void>{
  writeCommandEnvelope({status:"shown",result:{id:d.operation_id,purpose:d.summary,price:priceLabel(d.price_card),
   ttl_days:d.result_retention_days,example_input:d.example_input,shelf:d.shelf,
   current_publication_id:d.current_publication_id,price_version_id:d.price_card.price_version_id || undefined},
-  instruction:"先说明用途、credit 报价与结果保留时间，取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
+  instruction:"先说明用途、credit 报价与结果保留时间。若尚未连接，使用 api connect --operation "+d.operation_id+" 在统一确认页带入该报价。取得用户同意后 call。"+CREDIT_GUIDANCE+"UTC时间查询请按当前UTC替换示例起止时间。",
   next:null,recovery:[]},{jsonOutput:json});
 }
 // Waiting only reads the original request. Unknown outcomes stop polling and
@@ -138,6 +144,31 @@ async function waitForRequest(api:HubClient,store:HubTaskStore,task:HubTask,snap
   task=remember(store,task,snapshot);
  }
  return {task,snapshot};
+}
+async function recoverTimedOutWrite(api:HubClient,store:HubTaskStore,task:HubTask,json:boolean):Promise<void>{
+ const key=store.idempotencyKey(task.request_id), deadline=Date.now()+120_000;
+ let snapshot:Snapshot|undefined;
+ while(Date.now()<deadline){
+  try{
+   snapshot=await api.getRequest(key) as Snapshot;
+   task=remember(store,task,snapshot);
+   const remaining=Math.max(0,Math.floor((deadline-Date.now())/1000));
+   const outcome=await waitForRequest(api,store,task,snapshot,remaining);
+   if(!outcome.snapshot.run&&!outcome.snapshot.terminal){
+    // A successful read alone cannot confirm an interrupted write finished.
+    break;
+   }
+   await render(outcome.task,outcome.snapshot,json);
+   return;
+  }catch(error){
+   if(!(error instanceof HttpError)||![0,404,502,503,504].includes(error.status))throw new HubTaskRequestError(error,task);
+   if(error.status!==404||error.code!=="not_found")break;
+   const delay=Math.min(2000,deadline-Date.now());
+   if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay));
+  }
+ }
+ if(!snapshot?.run)store.update(task.request_id,{status:"unknown"});
+ writeCommandEnvelope({status:task.run_id?"pending":"unknown",result:{request_id:task.request_id,operation_id:task.operation_id,...(task.run_id?{run_id:task.run_id}:{}),category:task.run_id?"running":"write_wait_timeout",owner:task.run_id?"hub":"cli"},instruction:task.run_id?"已受理、处理中。稍后只读核对原请求。":"CLI 等待提交回执超时，继续只读核对原请求。",next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
 }
 export async function shelfStatus(id:string,json:boolean,wait=0):Promise<void>{
  if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("invalid_input: wait must be between 0 and 120 seconds");
@@ -194,14 +225,14 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
    throw conflict;
   }
  }
- let submittingAdmission=false;
+ let submittingAdmission=false,submittingWrite=false;
  try{
   if(!options.pending){
    beginAdmission(store,task);
-   submittingAdmission=true;
+   submittingAdmission=submittingWrite=true;
    const admission=await api.run(task.operation_id,{expected_publication_id:task.publication_id,
     input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
-   submittingAdmission=false;
+   submittingAdmission=submittingWrite=false;
    if("run_id" in admission)store.update(task.request_id,{run_id:admission.run_id,status:"dispatched"});
    else if("intent_id" in admission && "blocking_reason" in admission)store.update(task.request_id,{intent_id:admission.intent_id,status:"blocked",blocking_reason:admission.blocking_reason});
   }
@@ -210,19 +241,33 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   catch(error) {
    if(!(options.pending && (absentDeviceConsent(error,task,store.idempotencyKey(task.request_id)) || error instanceof HttpError && error.status===404 && !task.run_id && !task.intent_id && task.blocking_reason==="authorization_required")))throw error;
    beginAdmission(store,task);
+   submittingWrite=true;
    await api.run(task.operation_id,{expected_publication_id:task.publication_id,input:task.input as Record<string,unknown>,...(task.shown_event_id?{shown_event_id:task.shown_event_id}:{}),...(task.credential_mode?{credential_mode:task.credential_mode}:{}),...(task.credential_id?{credential_id:task.credential_id}:{}),...(task.source_credentials?{source_credentials:task.source_credentials}:{}),
     max_charge:{currency:"CNY",scale:6,amount_atoms:task.max_charge_atoms!}},store.idempotencyKey(task.request_id));
+   submittingWrite=false;
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
   }
   task=remember(store,store.get(task.request_id)!,snapshot);
   if(options.pending && !snapshot.run && snapshot.intent?.status==="open" && !snapshot.terminal && !deviceConsentPending(snapshot)){
+   submittingWrite=true;
    await api.continueIntent(snapshot.intent.intent_id,"cli-continue-"+task.request_id);
+   submittingWrite=false;
+   submittingWrite=false;
    snapshot=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
    task=remember(store,task,snapshot);
   }
   if((snapshot.run || options.pending) && !deviceConsentPending(snapshot))({task,snapshot}=await waitForRequest(api,store,task,snapshot,120));
   await render(task,snapshot,json);
  }catch(error){
+  if(submittingWrite&&task.max_charge_atoms&&BigInt(task.max_charge_atoms)>0n&&error instanceof HttpError&&error.code==="request_timeout"){
+   await recoverTimedOutWrite(api,store,task,json);
+   return;
+  }
+  const known=store.get(task.request_id);
+  if(!submittingWrite&&known?.run_id&&!known.terminal&&error instanceof HttpError&&error.code==="request_timeout"){
+   writeCommandEnvelope({status:"pending",result:{request_id:known.request_id,operation_id:known.operation_id,run_id:known.run_id,category:"running",owner:"hub"},instruction:"已受理、处理中。CLI 暂未读到最新状态，稍后只读核对原请求。",next:statusAction(known.request_id,json),recovery:[]},{jsonOutput:json});
+   return;
+  }
   if(error instanceof HttpError&&error.code==="continuation_in_progress"){
    try{const first=await api.getRequest(store.idempotencyKey(task.request_id)) as Snapshot;
     const {task:updated,snapshot}=await waitForRequest(api,store,remember(store,store.get(task.request_id)!,first),first,120);

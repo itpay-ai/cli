@@ -33,6 +33,16 @@ export function writeCommandEnvelope(value: CommandEnvelope, options: {jsonOutpu
  for (const action of value.recovery) out("recovery: " + action.command + "\n  when: " + action.reason + "\n");
 }
 
+export function hubFailureFacts(code:string, httpStatus:number|undefined, method?:string):{category:string;owner:string}|undefined{
+ if(code==="request_timeout"||code==="request_cancelled")return method==="POST"?{category:"write_wait_timeout",owner:"cli"}:{category:"read_unavailable",owner:"cli"};
+ if(["authorization_required","authorization_denied","authorization_revoked","unauthenticated","budget_exceeded","insufficient_balance"].includes(code))return {category:"authorization",owner:"buyer"};
+ if(code==="publication_changed")return {category:"quote_changed",owner:"catalog"};
+ if(code==="invalid_input")return {category:"invalid_input",owner:"request"};
+ if(code==="not_found")return {category:"visibility_or_missing",owner:"hub"};
+ if(httpStatus===429||/challenge|rate_limit/.test(code))return {category:"challenge_or_limit",owner:"undetermined"};
+ if(httpStatus===403)return {category:"forbidden",owner:"undetermined"};
+ if(httpStatus!==undefined&&httpStatus>=500)return {category:"read_or_service_unavailable",owner:"undetermined"};
+}
 export function hubFailureInstruction(error: unknown, fallback: string): string {
  if(!(error instanceof HttpError)) return fallback;
  if((error.code === "request_timeout" || error.code === "request_cancelled") && error.message.includes("outcome is unknown")) return "提交结果未知；保留原身份、入口、幂等键及请求引用，先读取原任务，不换路重发或重新付款。";
