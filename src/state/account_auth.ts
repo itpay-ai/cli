@@ -142,11 +142,11 @@ async function accountAuth(action: 'login' | 'status', baseURL: string, env: Nod
             const current = await backend.agentAccountStatus();
             if (current.status !== 'authenticated' && current.status !== 'login_required')
                 throw new Error('Unexpected account binding status');
-            // Preparation must not poll, bind or consume a saved browser authorization.
-            if (readOnlyStatus)
-                return { status: current.status, result: { bound: current.status === 'authenticated' }, instruction: '设备账号状态已读取。', next: null, recovery: [] };
             if (current.status === 'authenticated')
                 return authenticatedEnvelope(env, current.phone_verified === true,current.account_information);
+            // A binding-only check never consumes a saved browser authorization.
+            if (readOnlyStatus)
+                return { status: current.status, result: { bound: false }, instruction: '设备账号状态已读取。', next: null, recovery: [] };
         }
         catch (error) {
             if (error instanceof AuthRequestError || error instanceof AgentTypeRequiredError)

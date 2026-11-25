@@ -82,7 +82,8 @@ flowchart TD
  AS --> H[原Hub批准回执 / 预算 / 原consumer和代次]
  H --> HT[换取Hub OAuth / 新鲜me核验 / 原请求先status]
  S --> SV[需要Services：原设备登记和会话 / 同一公钥证明]
- SV --> SB[绑定同一账号 / 原签名及原单ACL]
+ SV --> SB[绑定并核对同一 buyer 与 connection / 原签名及原单ACL]
+ SB --> SA[读取已绑定账号状态并显示脱敏账号 / CLI 已连接]
  X[本人撤销Agent连接] --> S
  X -->|立即拒绝已关联凭据| HT
  X -->|立即拒绝已关联凭据| SB

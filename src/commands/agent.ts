@@ -97,16 +97,23 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
   process.env.ITPAY_STATE_DIR=common?(common.services_directory??join(root,"services")):(options.servicesDirectory??join(root,"services"));
   const backend=newBackendClient(loadConfig());
   if(common)await bindAgentServices(root,common);
-  let result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;
-  if(["login_required","auth_pending","auth_expired","auth_session_missing"].includes(String(result.status)))result=await agentAuth("login",resolveBackendURL(),backend) as Record<string,unknown>;
+  let result=await agentAuth("status",resolveBackendURL(),backend,undefined,undefined,{readOnlyStatus:Boolean(common)}) as Record<string,unknown>;
+  if(!common&&["login_required","auth_pending","auth_expired","auth_session_missing"].includes(String(result.status)))result=await agentAuth("login",resolveBackendURL(),backend) as Record<string,unknown>;
   const deadline=Date.now()+wait*1000;
   while(result.status==="auth_pending"&&!options.buffered&&Date.now()<deadline){emit("pending",{authorization:result},"展示原官方登录入口并继续等待。",again);await sleep(Math.min(2000,deadline-Date.now()));result=await agentAuth("status",resolveBackendURL(),backend) as Record<string,unknown>;}
   if((result.status==="auth_denied"||result.status==="auth_cancelled")&&task)recordAgentAuthorization(root,result.status==="auth_denied"?"denied":"cancelled");
   const next=common?`${publicEnv}ITPAY_STATE_DIR=${shellQuote(process.env.ITPAY_STATE_DIR)} ${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} next --json`:(result.next as {command?:string}|null)?.command??null;
   const connected = result.status === "authenticated";
+  let instruction=connected?message:"保留原登录与任务。";
+  if(connected&&common){
+   const account=(result.result as {account_information?:{display_name?:string;account_hint?:string}}|undefined)?.account_information;
+   const hint="…"+common.buyer_id!.split("|").at(-1)!.slice(-6);
+   if(account?.account_hint&&account.account_hint!==hint)throw new Error("original Services account changed");
+   instruction=`当前账号：${account ? account.display_name||"名称未设置" : "名称暂不可读取"} · ${hint}\n${message}`;
+  }
   // The legacy account result remains nested and keeps its status contract.
   const status = connected && (common || task || !options.json) ? "connected" : String(result.status);
-  emit(status,{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(connected?{connection_status:"connected"}:{})},connected?message:"保留原登录与任务。",connected?next:result.status==="auth_pending"?again:null);
+  emit(status,{authorization:result,state_directory:process.env.ITPAY_STATE_DIR,...(common?{connection_id:common.connection_id,surfaces:summary}:{}),...(connected?{connection_status:"connected"}:{})},instruction,connected?next:result.status==="auth_pending"?again:null);
  }catch(error){
   if((error as {code?:string}).code==="agent_connection_pending"){emit("pending",{},"原连接仍在准备；按原 next 继续。",again);return;}
   throw error;
