@@ -28,14 +28,14 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
  } catch { original=true; }
  const auth=code==="authorization_required"||code==="unauthenticated";
  let key=false;try{key=hubCredentialKind()==="api_key"}catch{/* conflict remains an error */}
- if(key&&code!=="platform_rate_limited"){
+ const details=hubErrorDetails(error);
+ const facts=hubFailureFacts(code,error instanceof HubTaskRequestError?error.httpStatus:error instanceof HttpError?error.status:undefined,details?.method);
+ const platformRateLimited=facts?.category==="platform_rate_limited";
+ if(key&&!platformRateLimited){
   const base=new URL(process.env.ITPAY_HUB_URL??"http://localhost:18090");
   const keysURL=base.origin+"/me/keys";
   writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:"API Key request failed"},result:{credential_kind:"api_key",keys_url:keysURL,...(error instanceof HubTaskRequestError?error.references:{})},instruction:auth?"当前 API Key 无效或已撤销；到返回的本人密钥页检查，使用安全 stdin 重新导入所选 Key，不发起 OAuth 或退回其他身份。":"当前 Key 的范围、预算或原请求受限；核对具体错误及本人密钥页。保留原凭据和原单，不切换 OAuth 绕过。",next:null,recovery:[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});process.exitCode=1;return;
  }
- const details=hubErrorDetails(error);
- const facts=hubFailureFacts(code,error instanceof HubTaskRequestError?error.httpStatus:error instanceof HttpError?error.status:undefined,details?.method);
- const platformRateLimited=facts?.category==="platform_rate_limited";
  const stop=platformRateLimited||facts?.category==="challenge_or_limit";
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
