@@ -77,7 +77,11 @@ export async function bindAgentServices(root:string,state:AgentConnectionState):
  for(let attempt=0;attempt<2;attempt++){
   const headers=await authority.authorizationHeaders({method:'POST',path,body:'{}'});
   const response=await agentConnectionRequest(root,state,path,{},headers);
-  if(response.ok)return;
+  if(response.ok){
+   const binding=await response.json() as {status?:string;buyer_id?:string;connection_id?:string};
+   if(binding.status!=='authenticated'||binding.buyer_id!==state.buyer_id||binding.connection_id!==state.connection_id)throw new Error('original Services binding identity changed');
+   return;
+  }
   if(attempt===0&&response.status===401){
    const error=await response.json() as {code?:string};
    if(error.code==='agent_device_session_required'){await authority.recoverAuthorization();continue;}

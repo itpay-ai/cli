@@ -57,7 +57,10 @@ export interface MockBackendHandle {
   close: () => Promise<void>;
 }
 
-export async function startMockBackend(): Promise<MockBackendHandle> {
+export async function startMockBackend(servicesConnection?: {
+  bindingBuyer?: string;
+  account: () => Promise<{status: string; account_information?: {display_name: string; account_hint: string}}>;
+}): Promise<MockBackendHandle> {
   const requests: RecordedRequest[] = [];
 
   // Mutable state simulating a tiny slice of the V3 backend.
@@ -207,8 +210,17 @@ export async function startMockBackend(): Promise<MockBackendHandle> {
       respond(res, status, body);
       return;
     }
+    if (servicesConnection && method === "POST" && path === "/v1/agent-connections/start") {
+      respond(res, 200, {connection_id: "acn_services_fixture", status: "active", agent_type: requests.at(-1)?.body?.agent_type, buyer_id: "buyer_services123456", enabled_surfaces: ["services"]});
+      return;
+    }
+    if (servicesConnection && method === "POST" && path === "/v1/agent-connections/acn_services_fixture/services") {
+      respond(res, 200, {connection_id: "acn_services_fixture", status: "authenticated", buyer_id: servicesConnection.bindingBuyer ?? "buyer_services123456"});
+      return;
+    }
     if (method === "GET" && path === "/v1/agent-device-account-bindings") {
-      respond(res, 200, agentBinding);
+      if (servicesConnection) void servicesConnection.account().then(binding => respond(res, 200, binding));
+      else respond(res, 200, agentBinding);
       return;
     }
     if (method === "POST" && path === "/v1/agent-device-account-bindings") {

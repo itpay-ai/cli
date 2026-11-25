@@ -92,6 +92,52 @@ test("legacy accepted task without a key cannot create a substitute connection",
 
 // Installed-package acceptance against the isolated matching Backend fixture.
 // Without that explicit fixture, the normal unit suite makes no network calls.
+test("Services-only completion waits for the authoritative account and checks the binding", {timeout:15000}, async()=>{
+ const {spawn}=await import("node:child_process");
+ const {startMockBackend}=await import("./mock_backend.js");
+ for(const scenario of ["ready","different-buyer","unbound"]){
+  const home=mkdtempSync(join(tmpdir(),"itpay-services-account-"));
+  let reached!:()=>void,release!:()=>void,raw="";
+  const reachedAccount=new Promise<void>(resolve=>{reached=resolve});
+  const waitAccount=new Promise<void>(resolve=>{release=resolve});
+  const mock=await startMockBackend({
+   ...(scenario==="different-buyer"?{bindingBuyer:"buyer_different"}:{}),
+   account:async()=>{reached();await waitAccount;return scenario==="unbound"?{status:"login_required"}:{status:"authenticated",account_information:{display_name:"Services fixture",account_hint:"…123456"}}},
+  });
+  const env={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),
+   HOME:home,ITPAY_AGENT_HOME:home,ITPAY_CLI_DEV:"1",ITPAY_BACKEND_URL:mock.url,ITPAY_HUB_URL:mock.url,ITPAY_HUB_OAUTH_ISSUER:mock.url};
+  const child=spawn(process.execPath,["--import","tsx","src/main.ts","--agent-type","muse","agent","--surface","services","--task","Read Services","--json"],{env});
+  child.stdout.on("data",chunk=>raw+=String(chunk));
+  const exited=new Promise<number|null>((resolve,reject)=>{child.on("error",reject);child.on("close",resolve)});
+  try{
+   if(scenario==="different-buyer"){
+    assert.notEqual(await exited,0);
+    assert.doesNotMatch(raw,/"status"\s*:\s*"connected"/);
+    assert.ok(!mock.requests.some(r=>r.path==="/v1/agent-device-account-bindings"));
+   }else{
+    await Promise.race([reachedAccount,exited.then(()=>{throw new Error("CLI exited before account read: "+raw)})]);
+    assert.doesNotMatch(raw,/已连接|当前账号/);
+    release();
+    assert.equal(await exited,0);
+    const done=JSON.parse(raw);
+    if(scenario==="unbound"){
+     assert.equal(done.status,"login_required");
+     assert.doesNotMatch(done.instruction,/已连接|当前账号/);
+     assert.ok(!mock.requests.some(r=>r.path.startsWith("/v1/dashboard/auth-sessions")));
+     continue;
+    }
+    assert.equal(done.status,"connected");
+    assert.deepEqual(done.result.surfaces,{services:"enabled",api:"consent_required"});
+    assert.match(done.instruction,/^当前账号：Services fixture · …123456\n已连接。已开通：Services。$/);
+    const binding=mock.requests.findIndex(r=>r.path==="/v1/agent-connections/acn_services_fixture/services");
+    const account=mock.requests.findIndex(r=>r.method==="GET"&&r.path==="/v1/agent-device-account-bindings");
+    assert.ok(binding>=0&&account>binding);
+    assert.ok(!mock.requests.some(r=>r.path==="/v1/me"));
+   }
+  }finally{release();if(child.exitCode===null)child.kill();await exited;await mock.close();rmSync(home,{recursive:true,force:true});}
+ }
+});
+
 for(const scenario of ["services-default","services-unchecked","api-first","legacy-services","old-canonical-services"]){
  test("installed Muse native consent: "+scenario,{skip:!process.env.ITPAY_MUSE_FIXTURE_URL},async()=>{
   const {spawn}=await import("node:child_process");
