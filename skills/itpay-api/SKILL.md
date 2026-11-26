@@ -5,7 +5,7 @@ description: Browse the shared API market, call a shown product with consent, an
 
 # ItPay API
 
-This package is official CLI 0.2.91. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
+This package is official CLI 0.2.92. Development npm next uses the official dev installation entry and its persistent dev launcher. The package default remains app.itpay.ai; tags never move an existing profile. Install/upgrade in the original permitted prefix and keep the original account, device key and requests. Production latest is approved separately.
 
 Use the official pinned CLI when this host permits execution. API calls and structured data use this Skill. Services, purchased delivery and aftercare use the separate Services Skill. Keep this installation's original launcher, profile, endpoint and real Agent Type across chats. A new chat keeps its existing identity.
 
@@ -95,3 +95,5 @@ For connection management, keep the API surface of the existing API/data task. F
 For an exact operation ID already supplied by the user or a trusted catalog, use `itpay agent --surface api --operation <id> --task ... --json` or `itpay api connect --operation <id> --json`. The signed-in confirmation page verifies visibility and price. With no exact ID, continue the normal discovery flow.
 
 For an operation expected to return a large result, use `itpay api call ... --result-file <new-private-absolute-path> --json`. Read the private local file in slices after the terminal receipt. If the original result already exists, `itpay api status <original_request_id> --result-file <new-private-absolute-path> --json` reads that request without sending a new call.
+
+If a keyword search has no matches while disconnected, connect the same CLI installation using `itpay api connect`, then repeat the original search with the same filters.

@@ -19,6 +19,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
  let runOverride:Record<string,unknown>={},terminalOverride:boolean|undefined,recoveryOverride=false,statusError=false;
  let expireWrite=false,rejectAdmission=false,admissionUnavailable=false,statusMissing=false;
  let beforeRequestReply:(()=>void)|undefined;
+ let statusDelayMs=0;
  const descriptor={operation_id:"op-fixture",api_id:"api-fixture",kind:"metered_api",display_name:"Fixture",
   summary:"Read a synthetic fixture",effect_class:"read_only",status:"published",execution_ready:true,
   shelf:"test",current_publication_id:"pub-shown",shown_event_id:"123",price_card:{price_version_id:"pv-shown",mode:"per_call",amount_atoms:"10000",unit:"page"},
@@ -29,6 +30,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   res.setHeader("Content-Type","application/json");
   const path=(req.url??"").split("?")[0]!;
   if(path==="/v1/catalog/categories"){res.end(JSON.stringify({items:[{id:"data",slug:"Data",name:"数据",count:1},{id:"empty",slug:"Other",name:"其他",count:0}]}));return;}
+  if(path==="/v1/catalog/operations" && (req.url??"").includes("query=missing")){res.end(JSON.stringify({items:[]}));return;}
   if(path==="/v1/catalog/operations"){res.end(JSON.stringify({items:[{operation_id:"op-fixture",display_name:"Fixture",summary:"Read a synthetic fixture",shelf:"test",unit_price:{mode:"per_call",amount_atoms:"10000",unit:"page"}},{operation_id:"op-public",display_name:"Public",summary:"Published product",shelf:"public"},{operation_id:"op-legacy",display_name:"Legacy",summary:"Older response"}],next_cursor:""}));return;}
   if(path==="/v1/catalog/operations/op-legacy"){res.end(JSON.stringify({...descriptor,operation_id:"op-legacy",shelf:undefined,current_publication_id:"pub-legacy",price_card:{mode:"free"}}));return;}
   if(path==="/v1/catalog/operations/op-fixture"){shows++;res.end(JSON.stringify(descriptor));return;}
@@ -43,6 +45,7 @@ test("six command shelf freezes shown facts and status never redispatches",async
   }
   if(path.startsWith("/v1/requests/")){
    statusReads++;
+   if(statusDelayMs)await new Promise(resolve=>setTimeout(resolve,statusDelayMs));
    if(statusMissing){res.writeHead(404);res.end(JSON.stringify({error:{code:"not_found",message:"unknown request"}}));return;}
    if(statusError){res.writeHead(503);res.end(JSON.stringify({error:{code:"read_unavailable",message:"retain original"}}));return;}
    const hook=beforeRequestReply;beforeRequestReply=undefined;hook?.();
@@ -58,9 +61,9 @@ test("six command shelf freezes shown facts and status never redispatches",async
  const address=server.address();assert.ok(address&&typeof address!=="string");
  const env={...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("ITPAY_"))),HOME:home,
   ITPAY_HUB_URL:"http://127.0.0.1:"+address.port,ITPAY_HUB_KEY:"itk_synthetic_shelf"};
- async function cli(args:string[]){
+ async function cli(args:string[], commandEnv=env){
   return await new Promise<{code:number|null;value:any;err:string}>((resolve,reject)=>{
-   const child=spawn(process.execPath,["--import","tsx","src/main.ts",...args,"--json"],{cwd:root,env});
+   const child=spawn(process.execPath,["--import","tsx","src/main.ts",...args,"--json"],{cwd:root,env:commandEnv});
    let raw="",err="";child.stdout.on("data",p=>raw+=p);child.stderr.on("data",p=>err+=p);
    child.on("error",reject);child.on("close",code=>{try{resolve({code,value:JSON.parse(raw),err})}catch(e){reject(e)}});
   });
@@ -71,8 +74,14 @@ test("six command shelf freezes shown facts and status never redispatches",async
   const profile=JSON.parse(readFileSync(selector,"utf8"));
   const agentRoot=dirname(dirname(selector));
   saveAgentTask(agentRoot,"query actual and different values","api",undefined);
-  importHubKey("itk_synthetic_shelf",env.ITPAY_HUB_URL,{...env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)});
   const prefix=["api","--profile",selector];
+  const anonymousEnv={...env,ITPAY_HUB_KEY:""};
+  const anonymousEmpty=await cli([...prefix,"list","--query","missing"],anonymousEnv);
+  assert.match(anonymousEmpty.value.next.command,/^itpay api --profile .+ connect/);
+  assert.deepEqual(anonymousEmpty.value.result.items,[]);
+  assert.equal((await cli([...prefix,"list","--query","public"],anonymousEnv)).value.next,null);
+  importHubKey("itk_synthetic_shelf",env.ITPAY_HUB_URL,{...env,ITPAY_STATE_DIR:join(profile.state_root,"hub-profiles",profile.profile_id)});
+  assert.equal((await cli([...prefix,"list","--query","missing"])).value.next,null);
   const categories=await cli([...prefix,"categories"]);assert.equal(categories.value.result.items[1].count,0);
   const list=await cli([...prefix,"list","--category","Data"]);assert.equal(list.value.result.items[0].price,"0.01 credit/页");assert.equal(list.value.result.items[0].shelf,"test");assert.equal(list.value.result.items[1].shelf,"public");assert.ok(!("shelf" in list.value.result.items[2]));
   const missing=await cli([...prefix,"call","op-fixture","--input",'{"q":"actual"}']);
@@ -92,7 +101,13 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.equal(called.value.result.captured_atoms,"10000");
   const id=called.value.result.request_id;
   assert.equal(called.value.next,null,"terminal success has no redundant next step");
-  await cli([...prefix,"status",id]);await cli([...prefix,"status",id]);
+  const priorReads=statusReads;
+  statusDelayMs=5200;
+  const delayed=await cli([...prefix,"status",id]);
+  statusDelayMs=0;
+  assert.equal(delayed.value.status,"succeeded");
+  assert.equal(statusReads,priorReads+1);
+  await cli([...prefix,"status",id]);
   const resultPath=join(home,"private-original.json");
   const payload={rows:Array.from({length:10},()=>({caption:"x".repeat(85000)}))};
   runOverride={result:payload};
