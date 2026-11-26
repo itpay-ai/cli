@@ -95,4 +95,4 @@ For an original browser purchase absent from this installation's funding records
 
 release only on a binding-checked authoritative terminal run with zero held atoms and no credential recovery: either the existing successful final settlement, or a failed/cancelled run explicitly settled free/released with captured_atoms=0. A conflicting explicit new call reads its same-profile original once, persists that receipt through the existing reader, and compares the pointer again before attaching; it never executes/continues the old run or loops. This allows the next query within the same user task while retaining all original receipts. Pending, unknown, inconsistent, held, captured failures, missing amount fields, credential recovery and cancellations without a run keep their active binding.
 
-Use `--result-file <absolute-path>` on `api call` or `api status` to save a terminal result with private permissions and keep stdout compact. Use a new output path.
+Use `--result-file <absolute-path>` on `api call`, `api status` or the original-request `api connect --request` to save a terminal result with private permissions and keep stdout compact. Use a new output path.

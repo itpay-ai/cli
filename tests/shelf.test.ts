@@ -115,7 +115,10 @@ test("six command shelf freezes shown facts and status never redispatches",async
   attachAgentRequest(selector,id);
   unknownNext=true;
   const beforeUnknown=statusReads,started=Date.now();
-  const uncertain=await cli([...prefix,"status",id,"--wait","120"]);
+  const pendingResultPath=join(home,"new pending result.json");
+  const uncertain=await cli([...prefix,"status",id,"--wait","120","--result-file",pendingResultPath]);
+  assert.ok(uncertain.value.next.command.includes(pendingResultPath));
+  assert.match(uncertain.value.next.command,/--result-file/);
   assert.equal(uncertain.value.status,"pending");assert.ok(uncertain.value.next.command.includes(selector));assert.match(uncertain.value.next.command,new RegExp("status "+id));assert.equal(statusReads,beforeUnknown+1);assert.ok(Date.now()-started<10000);
   assert.equal(JSON.parse(readFileSync(join(agentRoot,"task.json"),"utf8")).request_id,id);
   runOverride={execution_state:"unknown",settlement_state:"reconciling"};terminalOverride=false;

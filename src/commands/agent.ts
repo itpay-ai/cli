@@ -33,7 +33,7 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
  const {root,type,surface,wait,task}=options;
  const executable=resolve(process.argv[1]!);process.env.ITPAY_AGENT_EXECUTABLE=executable;
  const publicEnv=`ITPAY_AGENT_EXECUTABLE=${shellQuote(executable)} ITPAY_HUB_OAUTH_ISSUER=${shellQuote(new URL(hubOAuthConfig().tokenURL).origin)} ITPAY_BACKEND_URL=${shellQuote(resolveBackendURL())} ITPAY_HUB_URL=${shellQuote(hubOAuthConfig().resource)} ${process.env.ITPAY_AGENT_HOME?'ITPAY_AGENT_HOME='+shellQuote(process.env.ITPAY_AGENT_HOME)+' ':''}`;
- const again=options.command??`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} agent${options.operation?" --operation "+shellQuote(options.operation):""} --wait 120 --json`;
+ const again=options.command??`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} agent${options.operation?" --surface api --operation "+shellQuote(options.operation):""} --wait 120 --json`;
  const emit=(status:string,result:Record<string,unknown>,instruction:string,next:string|null=null)=>writeCommandEnvelope({status,result:{...result,...(task?{task}:{}),agent_type:type},instruction,next:next?{command:next,reason:status==="pending"?"立即等待原连接，无需用户回复":"继续原任务"}:null,recovery:[]},{jsonOutput:options.json});
  try{
   if(task?.authorization_terminal&&!options.reconnect){emit(task.authorization_terminal,{},"本人已拒绝或取消；只有明确重连才重新发起。");return;}

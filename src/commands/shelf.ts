@@ -3,7 +3,7 @@ import {isAbsolute} from "node:path";
 import {readConnectionBroker} from "../state/agent_connection.js";
 import { AgentTaskConflict, attachAgentRequest } from "../state/agent_task.js";
 import {storedHubProfile,hubCredentialKind,hubCredentialsPath} from "../state/hub_credentials.js";
-import { selectedHubInstallationPath } from "../state/hub_installation.js";
+import { selectedHubInstallationPath, shellQuote } from "../state/hub_installation.js";
 import {HubClient,loadHubConfig,hubErrorDetails,safePriceChange,type PublicPriceChange,type RunReceipt,type RequestStatus} from "../client/hub.js";
 import {HttpError} from "../client/http.js";
 import {HubTaskStore,type HubTask} from "../state/hub_tasks.js";
@@ -21,11 +21,14 @@ export function priceLabel(price:{mode:string;amount_atoms?:string;unit?:string}
  const fraction=(atoms%1000000n).toString().padStart(6,"0").replace(/0+$/,"");
  return ""+atoms/1000000n+(fraction?"."+fraction:"")+" credit/"+(price.unit==="page"?"页":price.unit==="call"||!price.unit?"次":price.unit);
 }
-function statusAction(id:string,json:boolean):CommandAction{
- return {command:`itpay api status ${id}${json?" --json":""}`,reason:"只读核对原请求"};
+export function resultFileOption(path?:string):string{
+ return path?" --result-file "+shellQuote(path):"";
 }
-function pendingAction(id:string,json:boolean):CommandAction{
- return {command:`itpay api call --pending ${id}${json?" --json":""}`,reason:"等待并接续同一原请求"};
+function statusAction(id:string,json:boolean,resultFile?:string):CommandAction{
+ return {command:`itpay api status ${id}${resultFileOption(resultFile)}${json?" --json":""}`,reason:"只读核对原请求"};
+}
+function pendingAction(id:string,json:boolean,resultFile?:string):CommandAction{
+ return {command:`itpay api call --pending ${id}${resultFileOption(resultFile)}${json?" --json":""}`,reason:"等待并接续同一原请求"};
 }
 function remember(store:HubTaskStore,task:HubTask,snapshot:Snapshot):HubTask{
  if(snapshot.request_id!==store.idempotencyKey(task.request_id))throw new Error("invalid_state: original request binding changed");
@@ -97,7 +100,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean,resultFile?:st
     settlement_state:run.settlement_state,...(uncertain?{category:"outcome_unknown",owner:"hub"}:!snapshot.terminal?{category:"running",owner:"hub"}:run.execution_state==="failed"?{category:"execution_failed",owner:upstream?"supplier":"undetermined"}:{}),delivery_state:run.delivery_state,captured_atoms:run.captured_atoms??null,
     held_atoms:run.held_atoms??null,...(firstNotice?{low_balance:balanceNotice}:{}),...(resultSaved?{result_file:resultFile}:{result:run.result??null}),result_expires_at:run.result_expires_at??null,error:run.error??null,first_error:run.first_error??null},
    instruction:firstNotice?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:outcome,
-   next:snapshot.terminal?null:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+   next:snapshot.terminal?null:statusAction(task.request_id,json,resultFile),recovery:[]},{jsonOutput:json});
   return;
  }
  const reason=snapshot.intent?.blocking_reason??(readyToContinue(snapshot)?"pending":"unknown");
@@ -115,7 +118,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean,resultFile?:st
   instruction:stopped?(uncharged?"已停止这次请求，未扣 credit。":"已停止这次请求，费用以原回执为准。"):changed?`当前价格 ${label}。${zero?"原请求已结束，扣费0 credit、冻结0 credit，本次未扣 credit。先 show 核对当前商品，说明新价并取得明确同意后再用新 call。":"原请求费用仍须核对。先 status 原请求，未确认零扣费和零冻结前不要新 call。"}`:
    readyToContinue(snapshot)?"原请求已可接续，按返回操作继续；尚未执行。":deviceConsent?"请在原安装为同一请求确认消费额度；保留原账号、输入与价格，不只修改钱包或网页预算。":reason==="insufficient_balance"?(await currentAccountLabel(snapshot.account_hint))+"\n"+TOPUP_INSTRUCTION:reason==="credential_unavailable"?"请打开官方页面，选择改用 credit、更新 Key 或停止。保留原请求，等待原选择完成；不自动改用 credit。":"保留原请求，按官方操作完成授权或核对。",
   next:changed&&zero?{command:`itpay api show ${task.operation_id}${json?" --json":""}`,reason:"查看当前用途与价格"}:
-   changed?statusAction(task.request_id,json):snapshot.terminal?null:deviceConsent?{command:`itpay api connect --request ${task.request_id}${json?" --json":""}`,reason:"为原请求确认设备消费额度"}:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+   changed?statusAction(task.request_id,json,resultFile):snapshot.terminal?null:deviceConsent?{command:`itpay api connect --request ${task.request_id}${resultFileOption(resultFile)}${json?" --json":""}`,reason:"为原请求确认设备消费额度"}:reason==="credential_unavailable"?{command:`itpay api status ${task.request_id} --wait 120${resultFileOption(resultFile)}${json?" --json":""}`,reason:"只读等待原 Key 选择"}:pendingAction(task.request_id,json,resultFile),recovery:[]},{jsonOutput:json});
 }
 export async function shelfCategories(json:boolean):Promise<void>{
  const result=await client().shelfGet<{items:unknown[]}>("/v1/catalog/categories");
@@ -180,7 +183,7 @@ async function recoverTimedOutWrite(api:HubClient,store:HubTaskStore,task:HubTas
   }
  }
  if(!snapshot?.run)store.update(task.request_id,{status:"unknown"});
- writeCommandEnvelope({status:task.run_id?"pending":"unknown",result:{request_id:task.request_id,operation_id:task.operation_id,...(task.run_id?{run_id:task.run_id}:{}),category:task.run_id?"running":"write_wait_timeout",owner:task.run_id?"hub":"cli"},instruction:task.run_id?"已受理、处理中。稍后只读核对原请求。":"CLI 等待提交回执超时，继续只读核对原请求。",next:statusAction(task.request_id,json),recovery:[]},{jsonOutput:json});
+ writeCommandEnvelope({status:task.run_id?"pending":"unknown",result:{request_id:task.request_id,operation_id:task.operation_id,...(task.run_id?{run_id:task.run_id}:{}),category:task.run_id?"running":"write_wait_timeout",owner:task.run_id?"hub":"cli"},instruction:task.run_id?"已受理、处理中。稍后只读核对原请求。":"CLI 等待提交回执超时，继续只读核对原请求。",next:statusAction(task.request_id,json,resultFile),recovery:[]},{jsonOutput:json});
 }
 export async function shelfStatus(id:string,json:boolean,wait=0,resultFile?:string):Promise<void>{
  if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("invalid_input: wait must be between 0 and 120 seconds");
@@ -195,14 +198,14 @@ export async function shelfStatus(id:string,json:boolean,wait=0,resultFile?:stri
   await render(updated,snapshot,json,resultFile);
  }catch(error){
   if(absentDeviceConsent(error,task,store.idempotencyKey(id))){
-   writeCommandEnvelope({status:"not_admitted",result:{request_id:id,captured_atoms:"0",held_atoms:"0"},instruction:"原连接的权威记录确认这笔请求尚未受理，且原设备额度小于冻结报价。按原保存请求准备同意，不换身份或参数。",next:pendingAction(id,json),recovery:[]},{jsonOutput:json});return;
+   writeCommandEnvelope({status:"not_admitted",result:{request_id:id,captured_atoms:"0",held_atoms:"0"},instruction:"原连接的权威记录确认这笔请求尚未受理，且原设备额度小于冻结报价。按原保存请求准备同意，不换身份或参数。",next:pendingAction(id,json,resultFile),recovery:[]},{jsonOutput:json});return;
   }
   if(error instanceof HttpError && error.status===404 && !task.intent_id && !task.run_id &&
     ["publication_changed","authorization_required"].includes(task.blocking_reason??"")){
    const changed=task.blocking_reason==="publication_changed";
    writeCommandEnvelope({status:changed?"price_changed":"not_admitted",result:{request_id:id,captured_atoms:changed?null:"0",held_atoms:changed?null:"0"},
     instruction:changed?"原提交已被拒；当前价格和费用回执暂不可读。先核对原请求，未核实前不要新 call。":"原请求尚未准入，按原保存输入继续。",
-    next:changed?statusAction(id,json):pendingAction(id,json),recovery:[]},{jsonOutput:json});
+    next:changed?statusAction(id,json,resultFile):pendingAction(id,json,resultFile),recovery:[]},{jsonOutput:json});
    return;
   }
   if(originalNotFound(error,store.get(id)??task))releaseNotAdmitted(store,task,"not_found",true);
@@ -281,7 +284,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
   }
   const known=store.get(task.request_id);
   if(!submittingWrite&&known?.run_id&&!known.terminal&&error instanceof HttpError&&error.code==="request_timeout"){
-   writeCommandEnvelope({status:"pending",result:{request_id:known.request_id,operation_id:known.operation_id,run_id:known.run_id,category:"running",owner:"hub"},instruction:"已受理、处理中。CLI 暂未读到最新状态，稍后只读核对原请求。",next:statusAction(known.request_id,json),recovery:[]},{jsonOutput:json});
+   writeCommandEnvelope({status:"pending",result:{request_id:known.request_id,operation_id:known.operation_id,run_id:known.run_id,category:"running",owner:"hub"},instruction:"已受理、处理中。CLI 暂未读到最新状态，稍后只读核对原请求。",next:statusAction(known.request_id,json,resultFile),recovery:[]},{jsonOutput:json});
    return;
   }
   if(error instanceof HttpError&&error.code==="continuation_in_progress"){
@@ -301,7 +304,7 @@ export async function shelfCall(operation:string|undefined,options:{input?:strin
     const price=hubErrorDetails(error)?.price_change;
     if(readError instanceof HttpError && readError.status===404 && price){
      if(submittingAdmission&&price.captured_atoms==="0"&&price.held_atoms==="0")releaseNotAdmitted(store,task,"publication_changed");
-     await render(task,{request_id:store.idempotencyKey(task.request_id),terminal:true,pending_stage:null,next:null,intent:{intent_id:task.intent_id??"",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:price} as Snapshot,json);
+     await render(task,{request_id:store.idempotencyKey(task.request_id),terminal:true,pending_stage:null,next:null,intent:{intent_id:task.intent_id??"",kind:"api_run",status:"cancelled",blocking_reason:"publication_changed"},price_change:price} as Snapshot,json,resultFile);
     }else throw new HubTaskRequestError(readError,store.get(task.request_id)??task);
    }
    return;

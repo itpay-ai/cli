@@ -272,7 +272,7 @@ test("exact API target goes directly to the connection without public discovery"
  try{
   const first=await f.cli(["--agent-type","muse","agent","--surface","api","--task","Read the intended product","--operation","op_restricted_fixture","--wait","0"]);
   assert.equal(first.value.status,"pending",first.output);
-  assert.match(first.value.next.command,/--operation .*op_restricted_fixture/);
+  assert.match(first.value.next.command,/--surface api --operation .*op_restricted_fixture/);
   assert.deepEqual(f.calls().quotes,[{atoms:undefined,name:undefined,operation:"op_restricted_fixture"}]);
   assert.equal(f.calls().starts,0);
  }finally{await f.close();}
