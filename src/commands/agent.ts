@@ -28,12 +28,12 @@ export function actualAgentType(env: NodeJS.ProcessEnv = process.env): string {
  throw Object.assign(new AgentTypeRequiredError(),{message:"host_context_required: Agent must supply its own actual --agent-type; do not ask the user to choose an identity"});
 }
 
-type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;discoverFirst?:boolean;quote?:{atoms?:string;name:string}|undefined;servicesDirectory?:string|undefined};
+type ConnectionOptions={root:string;type:string;surface:"api"|"services";wait:number;json:boolean;buffered?:boolean;reconnect?:boolean;task?:SavedTask|undefined;command?:string;prepared?:boolean;discoverFirst?:boolean;operation?:string|undefined;servicesDirectory?:string|undefined};
 export async function runConnection(options:ConnectionOptions):Promise<void>{
  const {root,type,surface,wait,task}=options;
  const executable=resolve(process.argv[1]!);process.env.ITPAY_AGENT_EXECUTABLE=executable;
  const publicEnv=`ITPAY_AGENT_EXECUTABLE=${shellQuote(executable)} ITPAY_HUB_OAUTH_ISSUER=${shellQuote(new URL(hubOAuthConfig().tokenURL).origin)} ITPAY_BACKEND_URL=${shellQuote(resolveBackendURL())} ITPAY_HUB_URL=${shellQuote(hubOAuthConfig().resource)} ${process.env.ITPAY_AGENT_HOME?'ITPAY_AGENT_HOME='+shellQuote(process.env.ITPAY_AGENT_HOME)+' ':''}`;
- const again=options.command??`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} agent --wait 120 --json`;
+ const again=options.command??`${publicEnv}${shellQuote(process.execPath)} ${shellQuote(executable)} --agent-type ${type} agent${options.operation?" --surface api --operation "+shellQuote(options.operation):""} --wait 120 --json`;
  const emit=(status:string,result:Record<string,unknown>,instruction:string,next:string|null=null)=>writeCommandEnvelope({status,result:{...result,...(task?{task}:{}),agent_type:type},instruction,next:next?{command:next,reason:status==="pending"?"立即等待原连接，无需用户回复":"继续原任务"}:null,recovery:[]},{jsonOutput:options.json});
  try{
   if(task?.authorization_terminal&&!options.reconnect){emit(task.authorization_terminal,{},"本人已拒绝或取消；只有明确重连才重新发起。");return;}
@@ -50,14 +50,14 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    const me=await new HubClient(loadHubConfig()).me();
    emit("connected",{selector:installation!.selector,identity:describeHubIdentity(me,"api_key"),connection_status:"connected"},describeAccount(me)+"\n使用所选 API Key；继续原任务。",apiNext);return;
   }
-  if(surface==="api"&&options.discoverFirst&&task&&!task.request_id&&!options.reconnect&&common&&!common.connection_id&&hubCredentialKind()==="none"&&hubDeviceStatus().phase==="disconnected"){
+  if(surface==="api"&&options.discoverFirst&&!options.operation&&task&&!task.request_id&&!options.reconnect&&common&&!common.connection_id&&hubCredentialKind()==="none"&&hubDeviceStatus().phase==="disconnected"){
    emit("api_setup_ready",{selector:installation!.selector},"已保存原任务。先按 next 只读发现商品，然后 show 核对真实报价，再从该商品进入官方确认页。",apiNext);
    return;
   }
   let summary:Record<string,string>={};
   if(common){
-   let view=await connectAgent(root,common,Boolean(options.reconnect),surface,options.quote);
-   if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface,options.quote);
+   let view=await connectAgent(root,common,Boolean(options.reconnect),surface,options.operation);
+   if(view.status==="active"&&view.enabled_surfaces&&!view.enabled_surfaces.includes(surface))view=await connectAgent(root,common,true,surface,options.operation);
    const deadline=Date.now()+wait*1000;
    if(view.status==="pending"){
     const {enabled_surfaces,...authorization}=view;
@@ -66,7 +66,7 @@ export async function runConnection(options:ConnectionOptions):Promise<void>{
    while(view.status==="pending"){
     if(options.buffered||Date.now()>=deadline)return;
     await sleep(Math.min(2000,deadline-Date.now()));
-    view=await connectAgent(root,common,false,surface,options.quote);
+    view=await connectAgent(root,common,false,surface,options.operation);
    }
    if(view.status!=="active"){if(view.status==="denied"&&task)recordAgentAuthorization(root,"denied");emit(view.status,{authorization:{status:view.status}},"保留原任务和连接；拒绝或撤销后停止。");return;}
    summary=Object.fromEntries(["services","api"].map(item=>[item,view.enabled_surfaces?.includes(item)?"enabled":"consent_required"]));
@@ -144,6 +144,7 @@ export function registerAgentCommand(program:Command):void{
  .option("--reconnect","explicit request to reconnect")
  .option("--new-task","explicitly new intent")
  .option("--request <id>","original API request")
+ .option("--operation <id>","exact API operation for a new connection")
  .option("--wait <seconds>","wait 0..120 seconds","120")
  .option("--buffered","return link before waiting")
  .option("--json","JSON progress and final status")
@@ -154,8 +155,9 @@ export function registerAgentCommand(program:Command):void{
    const root=(existsSync(join(canonical,"connection.json"))||existsSync(join(canonical,"task.json")))?canonical:servicesConnectionRoot(original,resolveBackendURL(),type);
    const wait=Number(options.wait);if(!Number.isInteger(wait)||wait<0||wait>120)throw new Error("wait must be 0..120");
    const text=options.task?.startsWith("@")?readFileSync(options.task.slice(1),"utf8"):options.task;
+   if(options.operation&&(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.operation)||options.surface!=="api"||options.request||options.reconnect))throw new Error("operation requires a new API connection");
    const task=saveAgentTask(root,text,options.surface,options.request,Boolean(options.newTask));
-   await runConnection({root,type,surface:task.surface,task,wait,json:Boolean(options.json),discoverFirst:true,buffered:options.buffered,reconnect:options.reconnect,servicesDirectory:root===canonical?join(root,"services"):original});
+   await runConnection({root,type,surface:task.surface,task,wait,json:Boolean(options.json),discoverFirst:true,operation:options.operation,buffered:options.buffered,reconnect:options.reconnect,servicesDirectory:root===canonical?join(root,"services"):original});
   }catch(error){writeCommandEnvelope({status:"error",error:{code:"agent_prepare_failed",message:error instanceof Error?error.message:"Agent preparation failed"},instruction:"保留原任务、凭据与连接，不换身份或重发业务。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});process.exitCode=1;}
  });
 }

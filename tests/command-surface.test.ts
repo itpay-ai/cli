@@ -35,14 +35,14 @@ async function deviceFixture(identityStatus = 200, handle = "synthetic-handle-00
  let exchangeReady=true;
  let denied=false,ready=false,resource="",starts=0,exchanges=0,probes=0,commonStarts=0;let commonKey:ReturnType<typeof createPublicKey>|undefined;
  let originalConsumer: string | undefined;
- const quotes: Array<{atoms?:string;name?:string}> = [];
+ const quotes: Array<{atoms?:string;name?:string;operation?:string}> = [];
  const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
   if(req.url==="/v1/agent-connections/start") {
    if(!unified){res.writeHead(404);res.end("{}");return;}
    commonStarts++;
    let raw="";for await(const part of req)raw+=part;
-   const body=JSON.parse(raw);quotes.push({atoms:body.per_call_quote_atoms,name:body.operation_name});const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
+   const body=JSON.parse(raw);quotes.push({atoms:body.per_call_quote_atoms,name:body.operation_name,operation:body.operation_id});const key=createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:body.public_key},format:"jwk"});
    if(commonKey)assert.deepEqual(key.export({format:"jwk"}),commonKey.export({format:"jwk"}));commonKey=key;
    const message=["itpay-agent-connection/v1","POST",req.url,createHash("sha256").update(raw).digest("hex"),req.headers["x-itpay-connection-time"],req.headers["x-itpay-connection-nonce"]].join("\n");
    assert.ok(verify(null,Buffer.from(message),key,Buffer.from(String(req.headers["x-itpay-connection-proof"]),"base64url")));
@@ -255,7 +255,7 @@ test("fresh natural API task discovers and shows its quote before requesting con
   });
   assert.equal(pending.value.status,"pending",JSON.stringify(pending.value));
   assert.equal(pending.value.result.task.id,first.value.result.task.id);
-  assert.deepEqual(f.calls().quotes,[{atoms:"57000",name:"Research search"}]);
+  assert.deepEqual(f.calls().quotes,[{atoms:undefined,name:undefined,operation:"op_quote_fixture"}]);
   assert.equal(f.calls().starts,0);
   f.approve();
   const final=await f.cli([...api,"connect","--operation","op_quote_fixture","--wait","5"]);
@@ -266,6 +266,17 @@ test("fresh natural API task discovers and shows its quote before requesting con
  }finally{await f.close();}
 });
 
+
+test("exact API target goes directly to the connection without public discovery",async()=>{
+ const f=await deviceFixture();
+ try{
+  const first=await f.cli(["--agent-type","muse","agent","--surface","api","--task","Read the intended product","--operation","op_restricted_fixture","--wait","0"]);
+  assert.equal(first.value.status,"pending",first.output);
+  assert.match(first.value.next.command,/--surface api --operation .*op_restricted_fixture/);
+  assert.deepEqual(f.calls().quotes,[{atoms:undefined,name:undefined,operation:"op_restricted_fixture"}]);
+  assert.equal(f.calls().starts,0);
+ }finally{await f.close();}
+});
 
 test("show JSON keeps optional query constraints alongside the original example",async()=>{
  const f=await deviceFixture();

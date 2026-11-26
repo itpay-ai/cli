@@ -2,7 +2,7 @@ import {AgentTaskConflict} from "../state/agent_task.js";
 import {walletRefund} from "./wallet_refund.js";
 import {firstConnection} from './first_connection.js';
 import {walletTopup} from "./wallet_topup.js";
-import {shelfCategories,shelfList,shelfShow,shelfCall,shelfStatus} from "./shelf.js";
+import {shelfCategories,shelfList,shelfShow,shelfCall,shelfStatus,resultFileOption} from "./shelf.js";
 import { connectHubDevice, hubDeviceStatus, restartHubDevice } from "../state/hub_device.js";
 import { hasHubInstallation, selectHubInstallation } from "../state/hub_installation.js";
 import {storedHubProfile,hubCredentialKind} from "../state/hub_credentials.js";
@@ -14,9 +14,9 @@ import {hubErrorDetails} from "../client/hub.js";
 import {declaredAgentType,qualifyItPayCommand} from "../state/agent_type.js";
 import { hubFailureFacts, hubFailureInstruction, writeCommandEnvelope } from "./hub_guidance.js";
 
-function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
+function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; resultFile?: string; code: string; instruction: string; recovery: Array<{command: string; reason: string}>}): void {
  if(error instanceof AgentTaskConflict){
-  writeCommandEnvelope({status:"error",error:{code:"task_conflict",message:error.message},result:{request_id:error.requestID,operation_id:error.operationID},instruction:"同一宿主已有原请求；先只读核对其状态，保留原身份与请求，不并发创建替代调用。",next:{command:`itpay api status ${error.requestID}${contract?.jsonOutput?' --json':''}`,reason:"只读核对当前profile的原请求"},recovery:[]},{jsonOutput:Boolean(contract?.jsonOutput)});process.exitCode=1;return;
+  writeCommandEnvelope({status:"error",error:{code:"task_conflict",message:error.message},result:{request_id:error.requestID,operation_id:error.operationID},instruction:"同一宿主已有原请求；先只读核对其状态，保留原身份与请求，不并发创建替代调用。",next:{command:`itpay api status ${error.requestID}${resultFileOption(contract?.resultFile)}${contract?.jsonOutput?' --json':''}`,reason:"只读核对当前profile的原请求"},recovery:[]},{jsonOutput:Boolean(contract?.jsonOutput)});process.exitCode=1;return;
  }
  const code=error instanceof HubTaskRequestError?error.code:error instanceof HttpError?error.code:error instanceof Error&&["credential_conflict","show_required","connection_recovery_conflict","connection_recovery_denied","authorization_required","connection_not_saved","connection_verification_pending","credential_persistence_failed"].some(code=>error.message.startsWith(code+":"))?error.message.split(":",1)[0]!:contract?.code??"command_failed";
  let original=false;
@@ -39,8 +39,8 @@ function reportCLIError(error: unknown, contract?: {jsonOutput?: boolean; code: 
  const stop=platformRateLimited||facts?.category==="challenge_or_limit";
  const taskID=error instanceof HubTaskRequestError?error.requestID:undefined;
  const references=error instanceof HubTaskRequestError?error.references:undefined;
- const recover=taskID?{command:qualifyItPayCommand(`itpay api status ${taskID}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"只读核对同一原请求"}:null;
- writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references||facts?{result:{...references,...facts}}:{}),instruction:platformRateLimited?`ItPay 请求限流，请保留原请求，等待 ${facts.retry_after_seconds} 秒后再按原任务重试。`:stop?"遇到挑战或限流，停止此项并保留原请求。":facts?.category==="read_unavailable"?"当前原单状态读取超时。只读核对原请求，不重复提交。":code==="connection_recovery_conflict"?"已有其他active连接；保留原连接、任务与私有候选，交owner裁决，不替换或撤销其他连接。":code==="connection_recovery_denied"?"原连接恢复未通过；保留原profile、任务及私有恢复材料，不新建connect、不重发业务。":code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth&&original?(installed?"原连接失效，请按原安装重新授权并核对原请求。":"原连接失效；按原配置 connect 核对原授权。"):auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或购买 credit。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:stop?null:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${installed&&taskID?` --request ${taskID}`:""}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:stop?[]:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
+ const recover=taskID?{command:qualifyItPayCommand(`itpay api status ${taskID}${resultFileOption(contract?.resultFile)}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:"只读核对同一原请求"}:null;
+ writeCommandEnvelope({status:"error",error:{code,message:error instanceof Error?error.message:String(error),...(hubErrorDetails(error)?{details:hubErrorDetails(error)}:{})},...(references||facts?{result:{...references,...facts}}:{}),instruction:platformRateLimited?`ItPay 请求限流，请保留原请求，等待 ${facts.retry_after_seconds} 秒后再按原任务重试。`:stop?"遇到挑战或限流，停止此项并保留原请求。":facts?.category==="read_unavailable"?"当前原单状态读取超时。只读核对原请求，不重复提交。":code==="connection_recovery_conflict"?"已有其他active连接；保留原连接、任务与私有候选，交owner裁决，不替换或撤销其他连接。":code==="connection_recovery_denied"?"原连接恢复未通过；保留原profile、任务及私有恢复材料，不新建connect、不重发业务。":code==="connection_not_saved"?"本次连接校验暂未完成，尚未保存；原有连接未替换。服务恢复后按原配置正常 connect，保留原身份和任务，不重发业务。":code==="connection_verification_pending"?"原连接校验暂未完成；保留原身份和引用，不重新授权、不重发业务。稍后只读核对原任务。":code==="credential_persistence_failed"?"原连接未能安全落盘；停止重试并核对私有存储，不清状态或换身份。":auth&&original?(installed?"原连接失效，请按原安装重新授权并核对原请求。":"原连接失效；按原配置 connect 核对原授权。"):auth?"先完成 ItPay API 正常连接；保留原身份和任务，不要创建替代请求。":["idempotency_conflict","invalid_state"].includes(code)?"原任务记录不一致；保留记录核对，不能修改冻结参数继续发送。":taskID?"原请求尚未取得可用回执；这不代表未到达服务器。保留原请求恢复，不重新调用或购买 credit。":hubFailureInstruction(error,contract?.instruction??"Check the command and current Hub connection; preserve original tasks."),next:stop?null:auth||code==="connection_not_saved"?{command:qualifyItPayCommand(`itpay api connect${installed&&taskID?` --request ${taskID}${resultFileOption(contract?.resultFile)}`:""}${contract?.jsonOutput?" --json":""}`,declaredAgentType()),reason:code==="connection_not_saved"?"本次连接未保存；按原配置完成正常连接":"正常授权后继续原任务"}:["idempotency_conflict","invalid_state","forbidden","publication_changed","credential_revalidation_required","credential_persistence_failed"].includes(code)?null:recover,recovery:stop?[]:auth&&recover?[recover]:contract?.recovery??[]},{jsonOutput:contract?.jsonOutput??process.argv.includes("--json")});
  process.exitCode=1;
 }
 
@@ -63,7 +63,8 @@ hubCmd
   .description("New connections use one unified confirmation page; existing requests keep original recovery")
   .addHelpText("after","\nExample: itpay api --profile /absolute/host/api-profile.json connect --json\nA fresh connection shows one unified page and waits. Pending keeps the same profile/next; connected resumes the original task. Existing request recovery uses its returned --request/continue action.\n")
   .option("--request <id>", "continue the original local API request after authorization")
-  .option("--operation <id>", "prefill a shown operation quote on a new connection")
+  .option("--result-file <path>", "save the original request result to a new private absolute file")
+  .option("--operation <id>", "look up the buyer-visible quote for an exact operation on a new connection")
   .option("--wait <seconds>", "wait for the same authorization, up to 120 seconds", "120")
   .option("--json", "output JSON")
   .action(async (action: string | undefined, handle: string | undefined, options) => {
@@ -80,19 +81,20 @@ hubCmd
       }
       const wait = Number(options.wait);
       if (!Number.isInteger(wait) || wait < 0 || wait > 120) throw new Error("Device wait must be between 0 and 120 seconds");
-      if(options.operation&&(!/^[A-Za-z0-9_-]{1,200}$/.test(options.operation)||options.request||action!==undefined))throw new Error("invalid_input: a shown operation can prefill only a new connection");
+      if(options.operation&&(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.operation)||options.request||action!==undefined))throw new Error("invalid_input: an exact operation can prefill only a new connection");
+      if(options.resultFile&&!(options.request||action==="continue"))throw new Error("invalid_input: result file requires an original request");
       if(action===undefined&&!options.request&&await firstConnection("api",Boolean(options.json),wait,options.operation))return;
       if(options.operation)throw new Error("invalid_state: use the existing connection for this quote");
       const result = action === "restart" ? await restartHubDevice() : await connectHubDevice(handle, wait, options.request);
       if(result.phase==="connected"&&result.approved_request===true&&result.request_id){
-        await shelfCall(undefined,{pending:result.request_id,json:Boolean(options.json)});
+        await shelfCall(undefined,{pending:result.request_id,json:Boolean(options.json),resultFile:options.resultFile});
         return;
       }
       const next = result.phase === "pending" ? {
-        command: `itpay api connect continue --wait 120${options.json ? " --json" : ""} -- ${result.handle}`,
+        command: `itpay api connect continue --wait 120${resultFileOption(options.resultFile)}${options.json ? " --json" : ""} -- ${result.handle}`,
         reason: "等待原授权完成",
       } : result.phase === "connected" && result.request_id ? {
-        command: `itpay api status ${result.request_id} --wait 120${options.json ? " --json" : ""}`,
+        command: `itpay api status ${result.request_id} --wait 120${resultFileOption(options.resultFile)}${options.json ? " --json" : ""}`,
         reason: "只读核对同一原请求",
       } : null;
       writeCommandEnvelope({
@@ -118,10 +120,10 @@ hubCmd.command("list").description("List products from the shared market").optio
 hubCmd.command("show <operation_id>").description("Show purpose, credit price, example and result retention").option("--json","output JSON")
  .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfShow(id,Boolean(options.json));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"show_failed",instruction:"使用 list 返回的商品编号。",recovery:[]});}});
 hubCmd.command("call [operation_id]").description("Call a shown product or continue the original pending request")
- .option("--credential-mode <mode>","explicit platform supply for a new request").option("--credential-id <id>","explicit My Key reference for a new request; never supply a raw key").option("--input <input>","JSON object, @file or - for stdin").option("--pending <request_id>","continue this installation's original request").option("--json","output JSON")
- .action(async(id:string|undefined,options)=>{try{if(id&&!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfCall(id,options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"call_failed",instruction:"保留原请求。先 show 查看用途和价格。",recovery:[]});}});
-hubCmd.command("status <request_id>").description("Read only the original request, result and credit charge").option("--wait <seconds>","read-only wait for the original request, up to 120 seconds","0").option("--json","output JSON")
- .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("invalid_input: invalid request ID");await shelfStatus(id,Boolean(options.json),Number(options.wait));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"status_failed",instruction:"保留原请求与安装身份，稍后读取。",recovery:[]});}});
+ .option("--credential-mode <mode>","explicit platform supply for a new request").option("--credential-id <id>","explicit My Key reference for a new request; never supply a raw key").option("--input <input>","JSON object, @file or - for stdin").option("--pending <request_id>","continue this installation's original request").option("--result-file <path>","save a terminal result to a new private absolute file").option("--json","output JSON")
+ .action(async(id:string|undefined,options)=>{try{if(id&&!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfCall(id,options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),resultFile:options.resultFile,code:"call_failed",instruction:"保留原请求。先 show 查看用途和价格。",recovery:[]});}});
+hubCmd.command("status <request_id>").description("Read only the original request, result and credit charge").option("--wait <seconds>","read-only wait for the original request, up to 120 seconds","0").option("--result-file <path>","save a terminal result to a new private absolute file").option("--json","output JSON")
+ .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("invalid_input: invalid request ID");await shelfStatus(id,Boolean(options.json),Number(options.wait),options.resultFile);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),resultFile:options.resultFile,code:"status_failed",instruction:"保留原请求与安装身份，稍后读取。",recovery:[]});}});
 hubCmd.command("credentials").description("Developer credential management")
  .command("import").description("Import a scoped key from stdin").option("--json","output JSON")
  .action(async options=>{try{await runHubCredentialsImport({jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error);}});

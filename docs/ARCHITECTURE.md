@@ -48,6 +48,8 @@ Services设备状态与Hub OAuth/Key、task ledger分别按当前端点保存。
 <a id="agent-connection-architecture"></a>
 ## Agent 连接与授权代次
 
+未绑定买家的首连可携带显式 operation_id。连接确认页从 Hub 按已登录买家取得正式价格。无明确标识时仍先只读发现，未登录目录不披露受限商品。
+
 ```mermaid
 flowchart LR
  P[每安装固定profile / 每进程同锁] --> O[Device / V4同一Buyer的逻辑connection]

@@ -53,14 +53,19 @@ export async function agentConnectionRequest(root:string,state:AgentConnectionSt
  const message=['itpay-agent-connection/v1',method,path,createHash('sha256').update(raw).digest('hex'),timestamp,nonce].join('\n');
  return fetch(state.backend+path,{method,redirect:'error',signal:AbortSignal.timeout(30_000),headers:{'X-ItPay-CLI-Version':CLI_VERSION,...extra,'Content-Type':'application/json','X-ItPay-Connection-Time':timestamp,'X-ItPay-Connection-Nonce':nonce,'X-ItPay-Connection-Proof':sign(null,Buffer.from(message),key).toString('base64url')},...(body===undefined?{}:{body:raw})});
 }
-export async function connectAgent(root:string,state:AgentConnectionState,restart=false,surface=state.surface, quote?:{atoms?:string;name:string}):Promise<AgentConnectionView> {
+export async function connectAgent(root:string,state:AgentConnectionState,restart=false,surface=state.surface, operation?:string):Promise<AgentConnectionView> {
  const key=createDeviceKey(join(state.services_directory??join(root,'services'),'device','device-private.pem'),true);
- const namedQuote=quote?.name?.trim();
- const supportsName=state.backend==='https://dev.itpay.ai'||(process.env.ITPAY_CLI_DEV==='1'&&/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(state.backend));
- const validName=supportsName&&namedQuote&&Buffer.byteLength(namedQuote)<=600?namedQuote:undefined;
- const atoms=quote?.atoms;
- const quoted=atoms&&(/^[1-9][0-9]{0,17}$/.test(atoms)||(atoms==="0"&&validName));
- const response=await agentConnectionRequest(root,state,'/v1/agent-connections/start',{public_key:createPublicKey(key).export({format:'jwk'}).x!,agent_type:state.agent_type,start_key:state.start_key,...(surface?{surface}:{}),...(quoted?{per_call_quote_atoms:atoms,...(validName?{operation_name:validName}:{})}:{}),...(restart?{restart:true}:{})});
+ const supportsOperation=state.backend==='https://dev.itpay.ai'||(process.env.ITPAY_CLI_DEV==='1'&&/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(state.backend));
+ const body={public_key:createPublicKey(key).export({format:'jwk'}).x!,agent_type:state.agent_type,start_key:state.start_key,...(surface?{surface}:{}),...(restart?{restart:true}:{})};
+ const path='/v1/agent-connections/start';
+ const withOperation=Boolean(operation&&supportsOperation&&surface==="api");
+ let response=await agentConnectionRequest(root,state,path,{...body,...(withOperation?{operation_id:operation}:{})});
+ if(withOperation&&response.status===400){
+  const rejected=await response.clone().json().catch(()=>undefined) as {code?:string;message?:string}|undefined;
+  // Older backends reject unknown fields before mutating the connection.
+  if(rejected?.code==="invalid_input"&&rejected.message==="original connection start required")
+   response=await agentConnectionRequest(root,state,path,body);
+ }
  if(!response.ok)throw Object.assign(new Error(`original Agent connection unavailable (${response.status}); keep its task and key`),{http_status:response.status,code:response.status===503?"agent_connection_pending":"agent_connection_failed"});
  const view=await response.json() as AgentConnectionView;
  if(!/^acn_[A-Za-z0-9_-]+$/.test(view.connection_id)||view.agent_type!==state.agent_type||!['pending','active','expired','denied','revoked'].includes(view.status))throw new Error('invalid Agent connection response');
