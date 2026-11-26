@@ -128,9 +128,10 @@ export async function shelfList(options:{category?:string;query?:string;limit?:s
  const q=new URLSearchParams();
  for(const key of ["category","query","limit","cursor"] as const)if(options[key]!==undefined)q.set(key,options[key]!);
  const data=await client().shelfGet<{items:Array<ShelfLayer&{operation_id:string;display_name:string;summary:string;unit_price?:{mode?:string;amount_atoms?:string;unit?:string}|null}>;next_cursor?:string}>("/v1/catalog/operations?"+q);
+ const connectToSearch=data.items.length===0 && Boolean(options.query?.trim()) && hubCredentialKind()==="none";
  writeCommandEnvelope({status:"listed",result:{items:data.items.map(item=>({id:item.operation_id,name:item.display_name,
   purpose:item.summary,shelf:item.shelf,price:priceLabel({mode:item.unit_price?.mode??(item.unit_price?"per_call":"free"),amount_atoms:item.unit_price?.amount_atoms??"0",unit:item.unit_price?.unit??"call"})})),
-  page:{next_cursor:data.next_cursor||null}},instruction:"选定商品后 show 查看用途、价格、示例和保留时间。",next:null,recovery:[]},{jsonOutput:Boolean(options.json)});
+  page:{next_cursor:data.next_cursor||null}},instruction:connectToSearch?"当前匿名查询无匹配。用同一安装完成 API 连接后，保留筛选并重新搜索原关键词。":"选定商品后 show 查看用途、价格、示例和保留时间。",next:connectToSearch?{command:`itpay api connect${options.json?" --json":""}`,reason:"连接后重新搜索原关键词"}:null,recovery:[]},{jsonOutput:Boolean(options.json)});
 }
 export async function shelfShow(id:string,json:boolean):Promise<void>{
  const d=await client().shelfGet<ShelfDescriptor & ShelfLayer>("/v1/catalog/operations/"+encodeURIComponent(id));
@@ -193,7 +194,7 @@ export async function shelfStatus(id:string,json:boolean,wait=0,resultFile?:stri
  if(!task)throw new Error("not_found: original request is not in this installation");
  try{
   const api=client();
-  const first=await api.getRequest(store.idempotencyKey(id),Boolean(resultFile)) as Snapshot;
+  const first=await api.getRequest(store.idempotencyKey(id),true) as Snapshot;
   const {task:updated,snapshot}=await waitForRequest(api,store,remember(store,task,first),first,wait,Boolean(resultFile));
   await render(updated,snapshot,json,resultFile);
  }catch(error){
