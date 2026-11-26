@@ -85,8 +85,8 @@ function toSdkConfig(cfg: HubConfig): { baseUrl: string; resource: string; token
 export class HubClient {
   private sdk: SdkHubClient;
 
-  constructor(private readonly cfg: HubConfig) {
-    this.sdk = new SdkHubClient(toSdkConfig(cfg));
+  constructor(private readonly cfg: HubConfig, private readonly statusBudgetMs?: number) {
+    this.sdk = new SdkHubClient({ ...toSdkConfig(cfg), ...(statusBudgetMs ? { requestBudgetsMs: { status: statusBudgetMs } } : {}) });
   }
 
   shelfGet<T>(path: string): Promise<T> {
@@ -126,7 +126,8 @@ export class HubClient {
   runStatus(runID: string): Promise<RunReceipt> {
     return this.wrap(() => this.sdk.getRun(runID));
   }
-  getRequest(requestID: string): Promise<RequestStatus> {
+  getRequest(requestID: string, largeResult = false): Promise<RequestStatus> {
+    if (largeResult) return new HubClient(this.cfg, 20_000).getRequest(requestID);
     return this.wrap(() => this.sdk.getRequest(requestID));
   }
   continueIntent(intentID: string, idempotencyKey: string): Promise<ContinueIntentResponse> {
@@ -168,7 +169,7 @@ export class HubClient {
       let token: string | undefined;
       if (this.cfg.sessionEnv) {
         token = await connectedHubToken(this.cfg.sessionEnv);
-        this.sdk = new SdkHubClient(toSdkConfig({ ...this.cfg, bearerToken: token }));
+        this.sdk = new SdkHubClient({ ...toSdkConfig({ ...this.cfg, bearerToken: token }), ...(this.statusBudgetMs ? { requestBudgetsMs: { status: this.statusBudgetMs } } : {}) });
       }
       try { return await fn(); }
       catch (err) {
@@ -176,7 +177,7 @@ export class HubClient {
         // Authentication failed before admission. Keep the same SDK call,
         // body and idempotency key; never retry transport or unknown outcomes.
         const refreshed = await connectedHubToken(this.cfg.sessionEnv, token);
-        this.sdk = new SdkHubClient(toSdkConfig({ ...this.cfg, bearerToken: refreshed }));
+        this.sdk = new SdkHubClient({ ...toSdkConfig({ ...this.cfg, bearerToken: refreshed }), ...(this.statusBudgetMs ? { requestBudgetsMs: { status: this.statusBudgetMs } } : {}) });
         return await fn();
       }
     } catch (err) {

@@ -6,7 +6,6 @@ import {stateDir,resolveBackendURL} from "../state/config.js";
 import {selectedHubInstallationPath,qualifyHubInstallation} from "../state/hub_installation.js";
 import {hubCredentialKind,hubCredentialsPath} from "../state/hub_credentials.js";
 import {hubDeviceStatus} from "../state/hub_device.js";
-import {loadShown} from "../state/hub_show_cache.js";
 import {saveAgentTask} from "../state/agent_task.js";
 
 // Compatibility entry points share the agent lifecycle; old accepted work stays put.
@@ -16,11 +15,9 @@ export async function firstConnection(surface:"api"|"services",json:boolean,wait
  const broker=surface==="api"?readConnectionBroker(hubCredentialsPath()+".agent-connection.json"):undefined;
  if(surface==="api"&&!broker?.state.connection_id&&(hubCredentialKind()!=="none"||hubDeviceStatus().phase!=="disconnected"))return false;
  const root=surface==="api"?(broker?.root??dirname(selector!)):servicesConnectionRoot(original,backend,type);
- const shown=operation?loadShown(operation):undefined;
- const quote=shown?{atoms:shown.price_card.mode==="free"?"0":shown.price_card.amount_atoms,name:shown.display_name}:undefined;
  const saved=existsSync(join(root,"task.json"))?saveAgentTask(root,undefined,undefined,undefined):undefined;
  try{
-  await runConnection({root,type,surface,json,wait,quote,prepared:surface==="api",servicesDirectory:surface==="services"?original:undefined,task:saved?.surface===surface?saved:undefined,command:surface==="api"?qualifyHubInstallation("itpay api connect"+(operation?" --operation "+operation:"")+" --json")!:"itpay auth login --json"});
+  await runConnection({root,type,surface,json,wait,operation,prepared:surface==="api",servicesDirectory:surface==="services"?original:undefined,task:saved?.surface===surface?saved:undefined,command:surface==="api"?qualifyHubInstallation("itpay api connect"+(operation?" --operation "+operation:"")+" --json")!:"itpay auth login --json"});
  }catch(error){
   if((error as {http_status?:number}).http_status===404&&!prepareAgentConnection(root,backend,type)?.connection_id)return false;
   throw error;

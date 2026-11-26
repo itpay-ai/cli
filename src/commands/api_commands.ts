@@ -63,7 +63,7 @@ hubCmd
   .description("New connections use one unified confirmation page; existing requests keep original recovery")
   .addHelpText("after","\nExample: itpay api --profile /absolute/host/api-profile.json connect --json\nA fresh connection shows one unified page and waits. Pending keeps the same profile/next; connected resumes the original task. Existing request recovery uses its returned --request/continue action.\n")
   .option("--request <id>", "continue the original local API request after authorization")
-  .option("--operation <id>", "prefill a shown operation quote on a new connection")
+  .option("--operation <id>", "look up the buyer-visible quote for an exact operation on a new connection")
   .option("--wait <seconds>", "wait for the same authorization, up to 120 seconds", "120")
   .option("--json", "output JSON")
   .action(async (action: string | undefined, handle: string | undefined, options) => {
@@ -80,7 +80,7 @@ hubCmd
       }
       const wait = Number(options.wait);
       if (!Number.isInteger(wait) || wait < 0 || wait > 120) throw new Error("Device wait must be between 0 and 120 seconds");
-      if(options.operation&&(!/^[A-Za-z0-9_-]{1,200}$/.test(options.operation)||options.request||action!==undefined))throw new Error("invalid_input: a shown operation can prefill only a new connection");
+      if(options.operation&&(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.operation)||options.request||action!==undefined))throw new Error("invalid_input: an exact operation can prefill only a new connection");
       if(action===undefined&&!options.request&&await firstConnection("api",Boolean(options.json),wait,options.operation))return;
       if(options.operation)throw new Error("invalid_state: use the existing connection for this quote");
       const result = action === "restart" ? await restartHubDevice() : await connectHubDevice(handle, wait, options.request);
@@ -118,10 +118,10 @@ hubCmd.command("list").description("List products from the shared market").optio
 hubCmd.command("show <operation_id>").description("Show purpose, credit price, example and result retention").option("--json","output JSON")
  .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfShow(id,Boolean(options.json));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"show_failed",instruction:"使用 list 返回的商品编号。",recovery:[]});}});
 hubCmd.command("call [operation_id]").description("Call a shown product or continue the original pending request")
- .option("--credential-mode <mode>","explicit platform supply for a new request").option("--credential-id <id>","explicit My Key reference for a new request; never supply a raw key").option("--input <input>","JSON object, @file or - for stdin").option("--pending <request_id>","continue this installation's original request").option("--json","output JSON")
+ .option("--credential-mode <mode>","explicit platform supply for a new request").option("--credential-id <id>","explicit My Key reference for a new request; never supply a raw key").option("--input <input>","JSON object, @file or - for stdin").option("--pending <request_id>","continue this installation's original request").option("--result-file <path>","save a terminal result to a new private absolute file").option("--json","output JSON")
  .action(async(id:string|undefined,options)=>{try{if(id&&!/^[A-Za-z0-9_-]{1,200}$/.test(id))throw new Error("invalid_input: invalid operation ID");await shelfCall(id,options);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"call_failed",instruction:"保留原请求。先 show 查看用途和价格。",recovery:[]});}});
-hubCmd.command("status <request_id>").description("Read only the original request, result and credit charge").option("--wait <seconds>","read-only wait for the original request, up to 120 seconds","0").option("--json","output JSON")
- .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("invalid_input: invalid request ID");await shelfStatus(id,Boolean(options.json),Number(options.wait));}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"status_failed",instruction:"保留原请求与安装身份，稍后读取。",recovery:[]});}});
+hubCmd.command("status <request_id>").description("Read only the original request, result and credit charge").option("--wait <seconds>","read-only wait for the original request, up to 120 seconds","0").option("--result-file <path>","save a terminal result to a new private absolute file").option("--json","output JSON")
+ .action(async(id:string,options)=>{try{if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("invalid_input: invalid request ID");await shelfStatus(id,Boolean(options.json),Number(options.wait),options.resultFile);}catch(error){reportCLIError(error,{jsonOutput:Boolean(options.json),code:"status_failed",instruction:"保留原请求与安装身份，稍后读取。",recovery:[]});}});
 hubCmd.command("credentials").description("Developer credential management")
  .command("import").description("Import a scoped key from stdin").option("--json","output JSON")
  .action(async options=>{try{await runHubCredentialsImport({jsonOutput:Boolean(options.json)});}catch(error){reportCLIError(error);}});
