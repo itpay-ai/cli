@@ -105,6 +105,12 @@ test("six command shelf freezes shown facts and status never redispatches",async
   assert.equal(posts.length,1);
   const repeated=await cli([...prefix,"status",id,"--result-file",resultPath]);
   assert.notEqual(repeated.code,0);assert.equal(posts.length,1);
+  runOverride={result:null};
+  const nullPath=join(home,"original-null.json");
+  const savedNull=await cli([...prefix,"status",id,"--result-file",nullPath]);
+  assert.equal(savedNull.value.result.result_file,nullPath);
+  assert.equal(readFileSync(nullPath,"utf8"),"null\n");
+  assert.equal(posts.length,1);
   runOverride={};
 
   await cli([...prefix,"call","--pending",id]);

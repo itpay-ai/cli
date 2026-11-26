@@ -91,7 +91,7 @@ async function render(task:HubTask,snapshot:Snapshot,json:boolean,resultFile?:st
   const firstNotice=Boolean(balanceNotice&&!task.low_balance_notified);
   if(firstNotice)new HubTaskStore().update(task.request_id,{low_balance_notified:true});
   let resultSaved=false;
-  if(resultFile&&snapshot.terminal&&run.result!==null&&run.result!==undefined){
+  if(resultFile&&snapshot.terminal&&run.result!==undefined){
    writeFileSync(resultFile,JSON.stringify(run.result)+"\n",{flag:"wx",mode:0o600});
    resultSaved=true;
   }
