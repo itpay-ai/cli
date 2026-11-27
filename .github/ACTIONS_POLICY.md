@@ -2,7 +2,7 @@
 
 Effective 2026-10-21 by explicit owner instruction.
 
-- Commits, pull requests, releases, schedules and completion of another workflow must not automatically start CI/CD. Entry workflows use only `workflow_dispatch`. Reusable `workflow_call` workflows may run only as part of a user-approved manual entry.
+面向 main 的 pull_request 仅运行 ci.yml 中的完整测试，固定门禁名为 CLI full PR CI。其余 CI/CD 保留手动触发及现行逐次或明确批次批准；PR 测试授权不包含发布、部署、计划任务或 pull_request_target。完整测试需成功后合并，取消、失败或必要测试跳过均不可代签。
 - Before each GitHub Actions run, rerun, deployment, publication or cross-repository batch, explain why it is needed, the exact repository/workflow/ref, affected environment/channel and any downstream runs. Wait for the user's explicit approval of that run or enumerated batch. General coding, testing or past release permission is not approval to consume Actions minutes.
 - Record the approval and reason in the run request. Never dispatch or rerun just to obtain a green check. Prefer appropriate local checks and reuse valid evidence. Do not report unrun checks as passed.
 - CI approval does not approve CD, npm publication or another repository's workflow. A reusable job inside the explicitly approved run is part of that run; additional dispatches require their own approval or an explicitly enumerated approved batch.
