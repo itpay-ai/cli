@@ -23,8 +23,9 @@ function Read-Descriptor([string] $path) {
 
 function Assert-Access([string] $path, [bool] $private) {
   $descriptor = Read-Descriptor $path
+  $kind = if ($private) { 'managed path' } else { 'ancestor' }
   if ($descriptor.Owner.Value -notin $trusted) {
-    throw 'untrusted owner'
+    throw "untrusted $kind owner"
   }
   $currentAllowed = $false
   foreach ($ace in $descriptor.DiscretionaryAcl) {
@@ -40,7 +41,7 @@ function Assert-Access([string] $path, [bool] $private) {
     }
     if ($ace.SecurityIdentifier.Value -notin $trusted -and
         ($private -or ($ace.AccessMask -band $deleteOrReown))) {
-      throw 'untrusted access entry'
+      throw "untrusted $kind access"
     }
   }
   if ($private -and -not $currentAllowed) { throw 'user access missing' }
@@ -89,9 +90,19 @@ export function assertWindowsProfileACL(root: string, paths: string[], create = 
     "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64"),
   ], {
     env: { SystemRoot: systemRoot, ITPAY_MANAGED_PROFILE_ACL: JSON.stringify({ root, paths, create }) },
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
+    encoding: "utf8",
     timeout: 10_000,
     windowsHide: true,
   });
-  if (result.status !== 0) throw new Error("API profile requires private Windows ownership and access permissions");
+  if (result.status !== 0) {
+    const message = "API profile requires private Windows ownership and access permissions";
+    for (const reason of [
+      "reparse point", "missing DACL", "untrusted managed path owner", "untrusted ancestor owner",
+      "unsupported access entry", "untrusted managed path access", "untrusted ancestor access", "user access missing",
+    ]) {
+      if (result.stderr?.includes(reason)) throw new Error(`${message} (${reason})`);
+    }
+    throw new Error(message);
+  }
 }
