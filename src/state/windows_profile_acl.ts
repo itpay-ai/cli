@@ -4,7 +4,6 @@ import { win32 } from "node:path";
 const aclScript = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::Error.WriteLine('ACL_PHASE_start')
-$inputData = ConvertFrom-Json -InputObject $env:ITPAY_MANAGED_PROFILE_ACL
 $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $trusted = @($current.Value, 'S-1-5-18', 'S-1-5-32-544')
 # Windows servicing may own and maintain the system volume and its directories.
@@ -57,7 +56,7 @@ function Assert-Access([string] $path, [bool] $private) {
 }
 
 [Console]::Error.WriteLine('ACL_PHASE_ancestors')
-$root = $inputData.root
+$root = $env:ITPAY_MANAGED_PROFILE_ROOT
 $parent = [System.IO.Directory]::GetParent($root)
 if ($null -eq $parent) { throw 'volume root' }
 # Walking the ancestry prevents replacement of a trusted directory through DeleteChild.
@@ -66,7 +65,7 @@ for ($ancestor = $parent; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
 }
 
 [Console]::Error.WriteLine('ACL_PHASE_create')
-if ($inputData.create -and -not [System.IO.Directory]::Exists($root)) {
+if ($env:ITPAY_MANAGED_PROFILE_CREATE -eq '1' -and -not [System.IO.Directory]::Exists($root)) {
   $acl = [System.Security.AccessControl.DirectorySecurity]::new()
   $acl.SetOwner($current)
   $acl.SetAccessRuleProtection($true, $false)
@@ -84,7 +83,8 @@ if ($inputData.create -and -not [System.IO.Directory]::Exists($root)) {
 }
 [Console]::Error.WriteLine('ACL_PHASE_verify')
 Assert-Access $root $true
-foreach ($path in $inputData.paths) {
+foreach ($path in $env:ITPAY_MANAGED_PROFILE_PATHS -split [char]10) {
+  if ([string]::IsNullOrEmpty($path)) { continue }
   try { Assert-Access $path $true }
   catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] { continue }
 }
@@ -106,7 +106,9 @@ ${aclScript}
 /** Windows file mode bits do not represent the NTFS owner or DACL. */
 export function assertWindowsProfileACL(root: string, paths: string[], create = false): void {
   const systemRoot = process.env.SystemRoot;
-  if (!systemRoot || !/^[a-z]:\\/i.test(root)) throw new Error("API profile requires a private local Windows directory");
+  if (!systemRoot || [root, ...paths].some(path => !/^[a-z]:\\/i.test(path) || /[\r\n]/.test(path))) {
+    throw new Error("API profile requires a private local Windows directory");
+  }
   const executable = win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const runtimeEnvironment: NodeJS.ProcessEnv = { SystemRoot: systemRoot };
   for (const name of ["WINDIR", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "ProgramData", "ProgramFiles", "TEMP", "TMP"]) {
@@ -116,7 +118,12 @@ export function assertWindowsProfileACL(root: string, paths: string[], create = 
   const result = spawnSync(executable, [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64"),
   ], {
-    env: { ...runtimeEnvironment, ITPAY_MANAGED_PROFILE_ACL: JSON.stringify({ root, paths, create }) },
+    env: {
+      ...runtimeEnvironment,
+      ITPAY_MANAGED_PROFILE_ROOT: root,
+      ITPAY_MANAGED_PROFILE_PATHS: paths.join("\n"),
+      ITPAY_MANAGED_PROFILE_CREATE: create ? "1" : "0",
+    },
     stdio: ["ignore", "ignore", "pipe"],
     encoding: "utf8",
     timeout: 30_000,
