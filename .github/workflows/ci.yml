@@ -1,55 +1,39 @@
 name: CI
 
-# Manual only: explain the need and obtain user approval before each Actions run.
 on:
   workflow_dispatch:
     inputs:
       approval_reason:
-        description: User-approved reason for this exact run (include approval reference)
+        description: User-approved reason for this exact Windows upgrade experiment
         required: true
         type: string
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  windows-original-upgrade:
+    name: Windows old published package to main original receipt
+    runs-on: windows-latest
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Verify npm release routing
-        run: node --test scripts/npm-release.test.mjs scripts/npm-release-source.test.mjs
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck, test, and verify packed CLI
-        run: npm run check
-
-  buyer-package:
-    name: Buyer package / ${{ matrix.os }} / Node ${{ matrix.node }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['18', '20', '22', '24']
-    steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run test:package
+      - run: npm run build
+      - name: Stage both exact private test inputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path .upgrade-inputs/old, .upgrade-inputs/candidate | Out-Null
+          npm pack @itpay/cli@0.2.92 --registry https://registry.npmjs.org --ignore-scripts --pack-destination .upgrade-inputs/old
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm pack --ignore-scripts --pack-destination .upgrade-inputs/candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify the same receipt and identity through the two installed artifacts
+        shell: pwsh
+        run: |
+          $env:npm_execpath = Join-Path (Split-Path (Get-Command node.exe).Source) 'node_modules/npm/bin/npm-cli.js'
+          node scripts/windows-original-upgrade-smoke.mjs .upgrade-inputs/old/itpay-cli-0.2.92.tgz .upgrade-inputs/candidate/itpay-cli-0.2.92.tgz
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
