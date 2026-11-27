@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {spawn,spawnSync} from 'node:child_process';
-import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
-import {join} from 'node:path';
+import {mkdirSync,readFileSync,writeFileSync,existsSync,symlinkSync} from 'node:fs';
+import {dirname,join} from 'node:path';
 
 export async function verifyHubRecoveryPackaged(packageRoot,scratch){
  const state=join(scratch,'hub-recovery-state');mkdirSync(state,{recursive:true,mode:0o700});
@@ -59,6 +59,42 @@ export async function verifyHubConnectionRecoveryPackaged(packageRoot,scratch){
  try{
   const first=await invoke();assert.equal(first.code,1);assert.ok(first.out.trim(), first.err.includes('API profile must be a private regular file') ? 'recovery rejected the installed selector permission check' : 'recovery must return its structured error on stdout');assert.equal(JSON.parse(first.out).error.code,'connection_recovery_conflict');assert.deepEqual(readFileSync(profilePath),before);assert.ok(existsSync(profilePath+'.recovery.json'));assert.equal(calls.oauth,1);
   conflict=false;const second=await invoke();assert.equal(second.code,0,second.err);assert.equal(JSON.parse(second.out).status,'connected');assert.equal(calls.oauth,1);assert.equal(calls.business,0);assert.equal(calls.recovery,2);assert.equal(calls.identity,1);assert.equal(existsSync(profilePath+'.recovery.json'),false);assert.equal(JSON.parse(readFileSync(profilePath,'utf8')).profiles.default.consumer_id,profile.consumer_id);assert.deepEqual(readFileSync(task),taskBefore);assert.ok(!JSON.stringify([first,second]).includes('synthetic-rotated'));
-  return {boundary:'installed package, loopback synthetic OAuth and connection owner only',calls,original_tasks_unchanged:true,conflict_preserved_profile:true,rotated_candidate_reused:true,new_runs:0,dispatches:0,reservations:0,charges:0};
+	  if (process.platform === 'win32') {
+	    const root = dirname(selector);
+	    const junction = join(scratch, 'redirected-api-install');
+	    symlinkSync(root, junction, 'junction');
+	    const runAgainst = selected => spawnSync(process.execPath, [
+	      join(packageRoot, 'bin/itp.mjs'), 'api', '--profile', selected, 'connect', '--json',
+	    ], { env, encoding: 'utf8' });
+	    const linked = runAgainst(join(junction, 'api-profile.json'));
+	    assert.equal(linked.status, 1);
+	    assert.match(linked.stderr, /private Windows ownership and access permissions/);
+	    const grantRead = String.raw`$ErrorActionPreference = 'Stop'
+$acl = Get-Acl -LiteralPath $env:ITPAY_FIXTURE_PATH
+$world = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($world, 'Read', 'Allow'))
+Set-Acl -LiteralPath $env:ITPAY_FIXTURE_PATH -AclObject $acl`;
+	    const systemRoot = process.env.SystemRoot;
+	    const addFixtureRead = path => {
+	      const changed = spawnSync(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
+	        '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(grantRead, 'utf16le').toString('base64'),
+	      ], { env: { SystemRoot: systemRoot, ITPAY_FIXTURE_PATH: path }, stdio: 'ignore', timeout: 10_000 });
+	      assert.equal(changed.status, 0, 'Windows fixture can make its own synthetic path nonprivate');
+	    };
+	    addFixtureRead(selector);
+	    const untrusted = runAgainst(selector);
+	    assert.equal(untrusted.status, 1);
+	    assert.match(untrusted.stderr, /private Windows ownership and access permissions/);
+	    addFixtureRead(root);
+	    const existing = spawnSync(process.execPath, [
+	      join(packageRoot, 'bin/itp.mjs'), 'setup', '--api-prefix', root, '--json',
+	    ], { env: setupEnv, encoding: 'utf8' });
+	    assert.equal(existing.status, 1);
+	    assert.match(JSON.parse(existing.stdout).error.message, /private Windows ownership and access permissions/);
+	    assert.match(runAgainst(selector).stderr, /private Windows ownership and access permissions/);
+	    assert.deepEqual(calls, { oauth: 1, recovery: 2, identity: 1, business: 0 });
+	    assert.deepEqual(readFileSync(task), taskBefore);
+	  }
+	  return {boundary:'installed package, loopback synthetic OAuth and connection owner only',calls,original_tasks_unchanged:true,conflict_preserved_profile:true,rotated_candidate_reused:true,new_runs:0,dispatches:0,reservations:0,charges:0};
  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 }

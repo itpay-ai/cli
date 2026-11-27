@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { hubOAuthConfig } from "./hub_oauth.js";
 import { withFileLock } from "./file_lock.js";
 import { API_CONTRACT_REVISION, CLI_VERSION } from "./release_identity.js";
+import { assertWindowsProfileACL } from "./windows_profile_acl.js";
 
 interface HubInstallation {
   profile_id: string;
@@ -42,7 +43,10 @@ function origin(value: unknown): value is string {
 
 function readProfile(path: string): HubInstallation {
   const stat = lstatSync(path);
-  if (!stat.isFile() || (stat.mode & 0o077) !== 0) throw new Error("API profile must be a private regular file");
+  if (!stat.isFile() || (process.platform !== "win32" && (stat.mode & 0o077) !== 0)) {
+    throw new Error("API profile must be a private regular file");
+  }
+  if (process.platform === "win32") assertWindowsProfileACL(dirname(path), [path]);
   const profile = JSON.parse(readFileSync(path, "utf8")) as HubInstallation;
   if (!profile || typeof profile.profile_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(profile.profile_id)
     || typeof profile.state_root !== "string" || profile.state_root !== join(dirname(path), "state")
@@ -53,6 +57,18 @@ function readProfile(path: string): HubInstallation {
     throw new Error("invalid API installation profile");
   }
   return profile;
+}
+
+function profileStateDirectory(profile: HubInstallation): string {
+  const profiles = join(profile.state_root, "hub-profiles");
+  const state = join(profiles, profile.profile_id);
+  if (process.platform === "win32") {
+    const credentials = join(state, `hub-credentials.${createHash("sha256").update(profile.hub).digest("hex").slice(0, 12)}.json`);
+    assertWindowsProfileACL(dirname(profile.state_root), [
+      profile.state_root, profiles, state, credentials, `${credentials}.recovery.json`, `${credentials}.agent-connection.json`,
+    ]);
+  }
+  return state;
 }
 
 function atomicWrite(path: string, content: string, mode: number): void {
@@ -90,6 +106,9 @@ export function prepareHubInstallation(prefix: string, executable = process.argv
   if (!executable) throw new Error("API launcher requires an installed CLI entry point");
   const selector = join(root, "api-profile.json");
   const launcher = join(root, "bin", "itpay");
+  if (process.platform === "win32") {
+    assertWindowsProfileACL(root, [selector, dirname(launcher), launcher], true);
+  }
   return withFileLock(selector + ".lock", () => {
     const legacy = `#!/bin/sh\ncase "$1" in api|hub) shift ;; esac\nfor arg do\n  case "$arg" in --profile|--profile=*) exit 2 ;; esac\ndone\nexec ${shellQuote(process.execPath)} ${shellQuote(absolute(executable))} api --profile ${shellQuote(selector)} "$@"\n`;
     const forward = `const {spawnSync}=require('node:child_process');const [exe,selector,...input]=process.argv.slice(1);const global=[];while(input[0]?.startsWith('--agent-type')){const v=input.shift();global.push(v);if(v==='--agent-type')global.push(input.shift());}if(['api','hub'].includes(input[0]))input.shift();const args=[];for(let i=0;i<input.length;i++){let v;if(input[i]==='--profile')v=input[++i];else if(input[i].startsWith('--profile='))v=input[i].slice(10);else {args.push(input[i]);continue;}if(v!==selector){process.stderr.write('profile_mismatch: this launcher belongs to '+selector+'\\n');process.exit(2);}}const r=spawnSync(process.execPath,[exe,...global,'api','--profile',selector,...args],{stdio:'inherit'});if(r.error){process.stderr.write(r.error.message+'\\n');process.exit(1);}process.exit(r.status??1);`;
@@ -112,7 +131,7 @@ export function prepareHubInstallation(prefix: string, executable = process.argv
     if(fresh&&type&&connection!==null&&!process.env.ITPAY_HUB_KEY&&!process.env.ITPAY_HUB_TOKEN){
       const original=stateDir(),backend=resolveBackendURL(),connectionRoot=connection?.root??servicesConnectionRoot(original,backend,type);
       const state=connection?.state??prepareAgentConnection(connectionRoot,backend,type,{surface:"api",services_directory:original});
-      if(state)saveAgentConnection(join(profile.state_root,"hub-profiles",profile.profile_id,`hub-credentials.${createHash("sha256").update(profile.hub).digest("hex").slice(0,12)}.json.agent-connection.json`),{root:connectionRoot,state});
+      if(state)saveAgentConnection(join(profileStateDirectory(profile),`hub-credentials.${createHash("sha256").update(profile.hub).digest("hex").slice(0,12)}.json.agent-connection.json`),{root:connectionRoot,state});
     }
     return { selector, launcher, profile_id: profile.profile_id };
   });
@@ -122,7 +141,7 @@ export function selectHubInstallation(selector: string): void {
   const path = absolute(selector);
   const profile = readProfile(path);
   // One API command per process. Services state remains independent.
-  process.env.ITPAY_STATE_DIR = join(profile.state_root, "hub-profiles", profile.profile_id);
+  process.env.ITPAY_STATE_DIR = profileStateDirectory(profile);
   process.env.ITPAY_HUB_URL = profile.hub;
   process.env.ITPAY_HUB_OAUTH_ISSUER = profile.issuer;
   process.env.ITPAY_HUB_OAUTH_CLIENT = profile.client_id;

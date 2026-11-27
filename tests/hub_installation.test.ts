@@ -5,6 +5,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { prepareHubInstallation, qualifyHubInstallation, selectHubInstallation, shellQuote } from "../src/state/hub_installation.js";
+import { assertWindowsProfileACL } from "../src/state/windows_profile_acl.js";
+
+test("Windows profile ACL checks reject relative and network roots before dispatch", () => {
+  const original = process.env.SystemRoot;
+  process.env.SystemRoot = "C:\\Windows";
+  try {
+    assert.throws(() => assertWindowsProfileACL("relative\\profile", []), /private local Windows directory/);
+    assert.throws(() => assertWindowsProfileACL("\\\\fixture\\share\\profile", []), /private local Windows directory/);
+  } finally {
+    if (original === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = original;
+  }
+});
 
 test("host installs have stable independent private selectors and a fixed launcher", () => {
   const directory = mkdtempSync(join(tmpdir(), "itpay-api-installation-"));
