@@ -7,7 +7,9 @@ import { join } from "node:path";
 import type { Order, RefundRequest } from "../src/client/types.js";
 import { formatMoney, renderOrder, renderRefund } from "../src/render/output.js";
 import { renderPlainChat, renderPlainChatInteraction } from "../src/render/plain_chat.js";
-import type { RenderPlan } from "../src/render/plan.js";
+import { renderInteractionMarkdown } from "../src/render/markdown.js";
+import { dispatchInteractionRequest } from "../src/render/interaction.js";
+import type { RenderInteractionRequest, RenderPlan } from "../src/render/plan.js";
 import {
   CHECKOUT_STATUS_HINTS,
   ORDER_STATUS_HINTS,
@@ -127,6 +129,39 @@ test("plain-chat renders complete plans and both interaction kinds", () => {
   }, { output: (line) => interaction.push(line) });
   assert.match(interaction.join(""), /field email: Email \(email, required\)/);
   assert.match(interaction.join(""), /reply_json:/);
+});
+
+test("markdown preserves input templates and selector values", () => {
+  const input = renderInteractionMarkdown({
+    kind: "input", id: "contact", title: "Contact", prompt: "Enter delivery details",
+    fields: [{ id: "email", label: "Email", inputType: "email", required: true }],
+  });
+  assert.match(input, /"email": "<email>"/);
+  assert.match(input, /必填/);
+
+  const selector = renderInteractionMarkdown({
+    kind: "selector", id: "delivery", title: "Delivery", prompt: "Choose one",
+    options: [{ id: "download", label: "Download", value: "download", description: "Download the file" }],
+  });
+  assert.match(selector, /单选/);
+  assert.match(selector, /Download -> `download`/);
+  assert.match(selector, /Download the file/);
+});
+
+test("interaction routing preserves the selected value and requires messaging targets", async () => {
+  const selector: RenderInteractionRequest = {
+    kind: "selector", id: "delivery", title: "Delivery", prompt: "Choose one",
+    options: [{ id: "download", label: "Download", value: "download" }],
+  };
+  for (const host of ["telegram", "feishu", "lark"] as const) {
+    await assert.rejects(dispatchInteractionRequest(host, selector), /--target is required/);
+    const output: string[] = [];
+    await dispatchInteractionRequest(host, selector, {
+      target: "fixture-recipient", output: (line) => output.push(line),
+    });
+    assert.match(output.join(""), /fixture-recipient/);
+    assert.match(output.join(""), /download/);
+  }
 });
 
 test("inline terminal images are gated and safely encoded", () => {
