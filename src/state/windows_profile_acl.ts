@@ -12,11 +12,11 @@ $deleteOrReown = 0x500D0040
 
 function Read-Descriptor([string] $path) {
   $attributes = [System.IO.File]::GetAttributes($path)
-  if ($attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+  if ($attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
     throw 'reparse point'
   }
   $sections = [System.Security.AccessControl.AccessControlSections]'Access, Owner'
-  $acl = if ($attributes -band [System.IO.FileAttributes]::Directory) {
+  $acl = if ($attributes.HasFlag([System.IO.FileAttributes]::Directory)) {
     [System.IO.Directory]::GetAccessControl($path, $sections)
   } else {
     [System.IO.File]::GetAccessControl($path, $sections)
@@ -42,7 +42,7 @@ function Assert-Access([string] $path, [bool] $private) {
       throw 'unsupported access entry'
     }
     if ($ace.AceQualifier -ne [System.Security.AccessControl.AceQualifier]::AccessAllowed) { continue }
-    $inheritOnly = $ace.AceFlags -band [System.Security.AccessControl.AceFlags]::InheritOnly
+    $inheritOnly = $ace.AceFlags.HasFlag([System.Security.AccessControl.AceFlags]::InheritOnly)
     if ($inheritOnly -and -not $private) { continue }
     if ($ace.SecurityIdentifier.Value -eq $current.Value -and -not $inheritOnly) {
       $currentAllowed = $true
@@ -59,10 +59,8 @@ $root = $inputData.root
 $parent = [System.IO.Directory]::GetParent($root)
 if ($null -eq $parent) { throw 'volume root' }
 # Walking the ancestry prevents replacement of a trusted directory through DeleteChild.
-$ancestor = $parent
-while ($null -ne $ancestor) {
+for ($ancestor = $parent; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
   if ($ancestor.Exists) { Assert-Access $ancestor.FullName $false }
-  $ancestor = $ancestor.Parent
 }
 
 if ($inputData.create -and -not [System.IO.Directory]::Exists($root)) {
