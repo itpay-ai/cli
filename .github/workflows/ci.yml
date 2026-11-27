@@ -1,7 +1,9 @@
 name: CI
 
-# Manual only: explain the need and obtain user approval before each Actions run.
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       approval_reason:
@@ -53,3 +55,16 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run test:package
+
+  full-pr-ci:
+    name: CLI full PR CI
+    runs-on: ubuntu-latest
+    permissions: {}
+    if: always()
+    needs: [check, buyer-package]
+    steps:
+      - name: Require the complete test suite and package matrix
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+          PACKAGE_RESULT: ${{ needs.buyer-package.result }}
+        run: test "$CHECK_RESULT" = success && test "$PACKAGE_RESULT" = success
