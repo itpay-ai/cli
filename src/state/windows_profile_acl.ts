@@ -6,6 +6,8 @@ $ErrorActionPreference = 'Stop'
 $inputData = ConvertFrom-Json -InputObject $env:ITPAY_MANAGED_PROFILE_ACL
 $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $trusted = @($current.Value, 'S-1-5-18', 'S-1-5-32-544')
+# Windows servicing may own and maintain the system volume and its directories.
+$trustedAncestors = $trusted + 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
 $deleteOrReown = 0x500D0040
 
 function Read-Descriptor([string] $path) {
@@ -24,7 +26,8 @@ function Read-Descriptor([string] $path) {
 function Assert-Access([string] $path, [bool] $private) {
   $descriptor = Read-Descriptor $path
   $kind = if ($private) { 'managed path' } else { 'ancestor' }
-  if ($descriptor.Owner.Value -notin $trusted) {
+  $allowedSids = if ($private) { $trusted } else { $trustedAncestors }
+  if ($descriptor.Owner.Value -notin $allowedSids) {
     throw "untrusted $kind owner"
   }
   $currentAllowed = $false
@@ -39,7 +42,7 @@ function Assert-Access([string] $path, [bool] $private) {
     if ($ace.SecurityIdentifier.Value -eq $current.Value -and -not $inheritOnly) {
       $currentAllowed = $true
     }
-    if ($ace.SecurityIdentifier.Value -notin $trusted -and
+    if ($ace.SecurityIdentifier.Value -notin $allowedSids -and
         ($private -or ($ace.AccessMask -band $deleteOrReown))) {
       throw "untrusted $kind access"
     }
