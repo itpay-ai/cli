@@ -164,6 +164,25 @@ test("interaction routing preserves the selected value and requires messaging ta
   }
 });
 
+test("default output carries the reply template across terminal and chat hosts", async (t) => {
+  const input: RenderInteractionRequest = {
+    kind: "input", id: "contact", title: "Contact", prompt: "Enter delivery details",
+    fields: [{ id: "email", label: "Email", inputType: "email", required: true }],
+  };
+  const stdout = t.mock.method(process.stdout, "write", () => true);
+  try {
+    for (const host of ["terminal", "codex", "plain-chat"] as const) {
+      stdout.mock.resetCalls();
+      await dispatchInteractionRequest(host, input, { isTTY: false });
+      const rendered = stdout.mock.calls.map((call) => call.arguments[0]).join("");
+      assert.match(rendered, /Enter delivery details/);
+      assert.match(rendered, /"email":\s*"<email>"/);
+    }
+  } finally {
+    stdout.mock.restore();
+  }
+});
+
 test("inline terminal images are gated and safely encoded", () => {
   const originalIterm = process.env.ITERM_SESSION_ID;
   const originalTermProgram = process.env.TERM_PROGRAM;

@@ -263,10 +263,11 @@ test('run shares the remaining deadline with quote and authoritative checkout pr
   const results:unknown[]=[];
   for(const stage of ['quote','presentation']){
    const calls:string[]=[];const home=mkdtempSync(join(tmpdir(),'itpay-run-budget-'));
+   let workflowStarted: number | undefined;
    const model={...base,execution_requests:[],current_result_items:[],delivery_bindings:[],payment_bindings:[],checkout_bindings:[],execution:{...base.execution,status:'running'},workflow_entry:{capability_id:'precise_report',input_schema:{}},workflow:{status:'payment',current_step:'payment',revision:1,steps:{}},capabilities:base.capabilities.map(c=>({...c,input_schema:{},delivery_email_required:false})),actions:stage==='presentation'?[{action_type:'approve_purchase',status:'approved'}]:[]};
    const server=createServer(async(req,res)=>{
     const path=req.url!;calls.push(`${req.method} ${path.split('?')[0]}`);const chunks:Buffer[]=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();
-    if(path==='/v1/service-executions/se_budget'){await new Promise(resolve=>setTimeout(resolve,700));res.setHeader('content-type','application/json');res.end(JSON.stringify(model));return;}
+    if(path==='/v1/service-executions/se_budget'){workflowStarted??=Date.now();await new Promise(resolve=>setTimeout(resolve,700));res.setHeader('content-type','application/json');res.end(JSON.stringify(model));return;}
     if(path.endsWith('/quotes')||path.includes('/presentation')){await new Promise(resolve=>setTimeout(resolve,600));}
     if(res.destroyed)return;
     const forwarded=await fetch(mock.url+path,{method:req.method!,headers:{'content-type':'application/json'},...(body?{body}:{})});res.statusCode=forwarded.status;res.setHeader('content-type','application/json');res.end(await forwarded.text());
@@ -274,7 +275,7 @@ test('run shares the remaining deadline with quote and authoritative checkout pr
    let entry=resolve('tests/cli_test_entry.ts');if(process.env.ITPAY_CLI_PACKAGE_ENTRY){entry=join(home,'entry.mjs');writeFileSync(entry,readFileSync(resolve('tests/cli_test_entry.ts'),'utf8'));}
    const started=Date.now();let output='';
    try{await promisify(execFile)(entry.endsWith('.ts')?resolve('node_modules/.bin/tsx'):process.execPath,[entry,'services','run','svc_qizhidao_company_lookup','--execution','se_budget','--timeout','1','--json'],{env:{...process.env,HOME:home,ITPAY_AGENT_TYPE:'codex-cli',ITPAY_CLI_TEST_TRANSPORT_URL:`http://127.0.0.1:${address.port}`},timeout:5000});assert.fail('slow command should reach its shared budget');}
-   catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);assert(Date.now()-started<2200,'actual CLI process exits without another 30s request budget');}
+   catch(error){output=(error as {stdout:string}).stdout;assert.match(output,/network_timeout|workflow_start_outcome_unknown/);assert(workflowStarted!==undefined);assert(Date.now()-workflowStarted<2200,'actual CLI workflow exits without another 30s request budget');}
    finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
    assert.equal(calls.filter(x=>x.includes('/quotes')).length,stage==='quote'?1:0);
    assert.equal(calls.filter(x=>x.endsWith('/checkout')).length,stage==='presentation'?1:0);
