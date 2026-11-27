@@ -21,6 +21,8 @@ Use real `dot` or `muse` in those hosts; never impersonate codex-desktop. A new 
 
 ## Task-driven preparation
 
+If a Codex native MCP connection reports that sign-in is required, run `codex mcp login <服务名>` in the original Codex configuration. Use the configured server name shown by `codex mcp list`. After approval, check the account through that server. For an existing ItPay CLI task, follow its saved recovery command instead.
+
 For connection management, first identify the intended surface from the existing task and installation. Recent API/data calls use the API Skill and its original API-specific launcher or returned `api --profile` selector. The general dev/Services launcher does not select that API profile; missing authentication there is not proof that the original API connection was revoked. If the original entry is unknown, inspect the current installation configuration or clarify the missing context before login. If “disconnect ItPay” is ambiguous, ask whether the user means API, Services or both before opening a new login. `auth status` reports Services only; it cannot establish API connection status. Do not create a Services connection to manage an API-only installation.
 
 Train tickets and other Services are gated until the Owner personally tests and signs off on Hub. A Services choice on the connection page is only a connection permission. Do not promote or start those purchases before opening.
