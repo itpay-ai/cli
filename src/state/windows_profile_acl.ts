@@ -92,6 +92,7 @@ foreach ($path in $inputData.paths) {
 
 const command = `try {
 ${aclScript}
+  exit 0
 } catch {
   if ($_.Exception.Message -in @('reparse point', 'missing DACL', 'untrusted managed path owner',
     'untrusted ancestor owner', 'unsupported access entry', 'untrusted managed path access',

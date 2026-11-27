@@ -76,15 +76,18 @@ export async function verifyHubConnectionRecoveryPackaged(packageRoot,scratch){
 	    assert.equal(linked.status, 1);
 	    assert.match(linked.stderr, /private Windows ownership and access permissions/);
 	    const grantRead = String.raw`$ErrorActionPreference = 'Stop'
-$acl = Get-Acl -LiteralPath $env:ITPAY_FIXTURE_PATH
+$path = $env:ITPAY_FIXTURE_PATH
+$isDirectory = [System.IO.Directory]::Exists($path)
+$acl = if ($isDirectory) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
 $world = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
 $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($world, 'Read', 'Allow'))
-Set-Acl -LiteralPath $env:ITPAY_FIXTURE_PATH -AclObject $acl`;
+if ($isDirectory) { [System.IO.Directory]::SetAccessControl($path, $acl) } else { [System.IO.File]::SetAccessControl($path, $acl) }
+exit 0`;
 	    const systemRoot = process.env.SystemRoot;
 	    const addFixtureRead = path => {
 	      const changed = spawnSync(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
 	        '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(grantRead, 'utf16le').toString('base64'),
-	      ], { env: { SystemRoot: systemRoot, ITPAY_FIXTURE_PATH: path }, stdio: 'ignore', timeout: 10_000 });
+	      ], { env: { ...process.env, ITPAY_FIXTURE_PATH: path }, stdio: 'ignore', timeout: 30_000 });
 	      assert.equal(changed.status, 0, 'Windows fixture can make its own synthetic path nonprivate');
 	    };
 	    addFixtureRead(selector);
