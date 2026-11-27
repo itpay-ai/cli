@@ -85,7 +85,9 @@ syncBuiltinESMExports();
     const value = JSON.parse(readSkill(name));
     assert.equal(value.status, "shown"); assert.equal(value.result.skill, name);
     assert.equal(value.result.content, canonical); assert.equal(value.next, null);
-    assert.ok(readSkill(name, false).includes(canonical.trimEnd()));
+    // The human-readable renderer joins lines using LF even on CRLF checkouts.
+    const normalizedCanonical = canonical.replace(/\r\n/g, "\n").trimEnd();
+    assert.ok(readSkill(name, false).replace(/\r\n/g, "\n").includes(normalizedCanonical));
   }
   assert.equal(JSON.parse(readSkill("itpay-buyer")).result.skill, "itpay");
   assert.equal(JSON.parse(readSkill("itpay-api", true, true)).result.skill, "itpay-api");
