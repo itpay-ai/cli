@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SELL_OPERATIONS, sellRequest } from '../src/sell/contract.js';
+import { Command } from 'commander';
+import { registerSell } from '../src/sell/commands.js';
 import { localAction } from '../src/sell/local.js';
 test('Sell operations cannot select arbitrary endpoints or silently add request fields', () => {
     const op = SELL_OPERATIONS.find(o => o.command === 'submission submit')!;
@@ -56,4 +58,20 @@ test('Live checkout commands bind a saved revision and Agent without accepting p
  assert.throws(()=>sellRequest(start,{merchant_id:'m',draft_id:'d'},{expected_revision:3}),/agent_instance_id/);
  assert.throws(()=>sellRequest(accept,{merchant_id:'m',draft_id:'d',execution_id:'e'},{paid:true}),/Unsupported field/);
  assert.equal(sellRequest(accept,{merchant_id:'m',draft_id:'d',execution_id:'e'}).path,'/v1/seller/organizations/m/service-drafts/d/live-checkout-tests/e/accept');
+});
+
+
+test('Seller registration exposes reviewed commands and local tools', () => {
+    const root = new Command();
+    const sell = registerSell(root);
+    const subcommand = (path: string[]) => path.reduce((command, name) => {
+        const next = command.commands.find(child => child.name() === name);
+        assert.ok(next, path.join(' '));
+        return next;
+    }, sell);
+    const submit = subcommand(['submission', 'submit']);
+    assert.ok(submit.options.some(option => option.long === '--confirm'));
+    assert.ok(submit.options.some(option => option.long === '--merchant-id'));
+    assert.ok(subcommand(['workflow', 'preview']).options.some(option => option.long === '--project'));
+    assert.ok(subcommand(['mcp']).options.some(option => option.long === '--stdio' && option.mandatory));
 });

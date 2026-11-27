@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = mkdtempSync(join(tmpdir(), "itpay-cli-package-"));
@@ -78,7 +78,7 @@ syncBuiltinESMExports();
     ITPAY_BACKEND_URL: "https://sandbox.itpay.ai", ITPAY_HUB_URL: "http://127.0.0.1:1" };
   delete skillEnv.ITPAY_AGENT_TYPE;
   const readSkill = (name, json = true, override = false) => execFileSync(process.execPath,
-    ["--import", networkGuard, entry, "--agent-type", "workbuddy", "skill", "show", name, ...(json ? ["--json"] : [])],
+    ["--import", pathToFileURL(networkGuard).href, entry, "--agent-type", "workbuddy", "skill", "show", name, ...(json ? ["--json"] : [])],
     { env: override ? skillEnv : { ...skillEnv, ITPAY_CLI_SKILLS_DIR: join(packageRoot, "skills") }, encoding: "utf8", stdio: "pipe" });
   for (const name of ["itpay", "itpay-api"]) {
     const canonical = readFileSync(join(packageRoot, "skills", name, "SKILL.md"), "utf8");

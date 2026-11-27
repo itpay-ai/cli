@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +14,8 @@ import {
   REFUND_STATUS_HINTS,
   hintFor,
 } from "../src/render/status.js";
+import { isPresentableURL, openInSystemBrowser } from "../src/render/browser.js";
+import { renderTerminalQR, writeLocalPNG } from "../src/render/qr.js";
 import { renderInlineTerminalImage, supportsInlineTerminalImages } from "../src/render/terminal_image.js";
 
 test("order and refund terminal summaries cover optional details", () => {
@@ -156,5 +158,31 @@ test("inline terminal images are gated and safely encoded", () => {
     else process.env.ITERM_SESSION_ID = originalIterm;
     if (originalTermProgram === undefined) delete process.env.TERM_PROGRAM;
     else process.env.TERM_PROGRAM = originalTermProgram;
+  }
+});
+
+
+test("official links reject alternate origins and userinfo before invoking a browser", async () => {
+  assert.equal(isPresentableURL("https://dev.itpay.ai/agent", undefined, {}), true);
+  assert.equal(isPresentableURL("https://dev.itpay.ai.invalid/agent", undefined, {}), false);
+  assert.equal(isPresentableURL("http://127.0.0.1:8080/agent", undefined, {}), false);
+  assert.equal(isPresentableURL("http://127.0.0.1:8080/agent", undefined, { ITPAY_CLI_DEV: "1" }), true);
+  assert.deepEqual(await openInSystemBrowser("https://someone@dev.itpay.ai/agent", undefined, {}), {
+    status: "failed", reason: "url_rejected",
+  });
+});
+
+test("local authorization QR encodes a link as terminal art and a PNG", async () => {
+  const url = "https://dev.itpay.ai/agent";
+  const terminal = await renderTerminalQR(url, "unicode");
+  assert.match(terminal, /[█▀▄]/);
+  assert.doesNotMatch(terminal, /https:/);
+  assert.match(await renderTerminalQR(url, "ansi"), /\u001b\[/);
+  const { filePath, mimeType } = await writeLocalPNG(url);
+  try {
+    assert.equal(mimeType, "image/png");
+    assert.deepEqual(readFileSync(filePath).subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  } finally {
+    rmSync(filePath);
   }
 });
