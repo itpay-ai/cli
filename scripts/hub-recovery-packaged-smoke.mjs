@@ -48,7 +48,13 @@ export async function verifyHubConnectionRecoveryPackaged(packageRoot,scratch){
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;
  const setupEnv={...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('ITPAY_'))),ITPAY_HUB_URL:base,ITPAY_HUB_OAUTH_ISSUER:base,ITPAY_HUB_OAUTH_CLIENT:'fixture-cli'};
- const setup=spawnSync(process.execPath,[join(packageRoot,'bin/itp.mjs'),'setup','--api-prefix',join(scratch,'legacy-api-install'),'--json'],{env:setupEnv,encoding:'utf8'});assert.equal(setup.status,0,setup.stderr);
+ const setup=spawnSync(process.execPath,[join(packageRoot,'bin/itp.mjs'),'setup','--api-prefix',join(scratch,'legacy-api-install'),'--json'],{env:setupEnv,encoding:'utf8'});
+ if (setup.status !== 0) {
+  let message = '';
+  try { message = JSON.parse(setup.stdout).error?.message ?? ''; } catch {}
+  const category = /private Windows ownership and access permissions(?: \((?:reparse point|missing DACL|untrusted managed path owner|untrusted ancestor owner|unsupported access entry|untrusted managed path access|untrusted ancestor access|user access missing)\))?/.exec(message)?.[0];
+  assert.fail(category ?? 'package setup failed before returning its selector');
+ }
  const selector=JSON.parse(setup.stdout).result.selector;const installation=JSON.parse(readFileSync(selector,'utf8'));state=join(installation.state_root,'hub-profiles',installation.profile_id);mkdirSync(state,{recursive:true,mode:0o700});
  const profilePath=join(state,'hub-credentials.'+createHash('sha256').update(base).digest('hex').slice(0,12)+'.json');
  const profile={base_url:base,subject:'original-buyer',consumer_id:'oauth:fixture-cli:original',client_id:'fixture-cli',token_url:base+'/oauth2/token',access_token:'synthetic-expired',refresh_token:'synthetic-original-refresh',expires_at:new Date(0).toISOString(),created_at:new Date().toISOString()};
