@@ -52,7 +52,7 @@ export async function verifyHubConnectionRecoveryPackaged(packageRoot,scratch){
  if (setup.status !== 0) {
   let message = '';
   try { message = JSON.parse(setup.stdout).error?.message ?? ''; } catch {}
-  const category = /private Windows ownership and access permissions(?: \((?:reparse point|missing DACL|untrusted managed path owner|untrusted ancestor owner|unsupported access entry|untrusted managed path access|untrusted ancestor access|user access missing)\))?/.exec(message)?.[0];
+  const category = /private Windows ownership and access permissions(?: \((?:reparse point|missing DACL|untrusted managed path owner|untrusted ancestor owner|unsupported access entry|untrusted managed path access|untrusted ancestor access|user access missing|ACL line [0-9]{1,3}|ACL timeout|ACL helper unavailable|ACL helper failed)\))?/.exec(message)?.[0];
   assert.fail(category ?? 'package setup failed before returning its selector');
  }
  const selector=JSON.parse(setup.stdout).result.selector;const installation=JSON.parse(readFileSync(selector,'utf8'));state=join(installation.state_root,'hub-profiles',installation.profile_id);mkdirSync(state,{recursive:true,mode:0o700});

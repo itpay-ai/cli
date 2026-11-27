@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { win32 } from "node:path";
 
-const command = String.raw`
+const aclScript = String.raw`
 $ErrorActionPreference = 'Stop'
 $inputData = ConvertFrom-Json -InputObject $env:ITPAY_MANAGED_PROFILE_ACL
 $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -84,6 +84,18 @@ foreach ($path in $inputData.paths) {
 }
 `;
 
+const command = `try {
+${aclScript}
+} catch {
+  if ($_.Exception.Message -in @('reparse point', 'missing DACL', 'untrusted managed path owner',
+    'untrusted ancestor owner', 'unsupported access entry', 'untrusted managed path access',
+    'untrusted ancestor access', 'user access missing')) {
+    [Console]::Error.WriteLine($_.Exception.Message)
+  }
+  [Console]::Error.WriteLine('ACL_LINE_' + $_.InvocationInfo.ScriptLineNumber)
+  exit 1
+}`;
+
 /** Windows file mode bits do not represent the NTFS owner or DACL. */
 export function assertWindowsProfileACL(root: string, paths: string[], create = false): void {
   const systemRoot = process.env.SystemRoot;
@@ -106,6 +118,10 @@ export function assertWindowsProfileACL(root: string, paths: string[], create = 
     ]) {
       if (result.stderr?.includes(reason)) throw new Error(`${message} (${reason})`);
     }
-    throw new Error(message);
+    const line = /ACL_LINE_([0-9]{1,3})\b/.exec(result.stderr ?? "")?.[1];
+    if (line) throw new Error(`${message} (ACL line ${line})`);
+    if (result.error && "code" in result.error && result.error.code === "ETIMEDOUT") throw new Error(`${message} (ACL timeout)`);
+    if (result.error) throw new Error(`${message} (ACL helper unavailable)`);
+    throw new Error(`${message} (ACL helper failed)`);
   }
 }
