@@ -11,11 +11,16 @@ $trustedAncestors = $trusted + 'S-1-5-80-956008885-3418522649-1831038044-1853292
 $deleteOrReown = 0x500D0040
 
 function Read-Descriptor([string] $path) {
-  $item = Get-Item -LiteralPath $path -Force
-  if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+  $attributes = [System.IO.File]::GetAttributes($path)
+  if ($attributes -band [System.IO.FileAttributes]::ReparsePoint) {
     throw 'reparse point'
   }
-  $acl = Get-Acl -LiteralPath $path
+  $sections = [System.Security.AccessControl.AccessControlSections]'Access, Owner'
+  $acl = if ($attributes -band [System.IO.FileAttributes]::Directory) {
+    [System.IO.Directory]::GetAccessControl($path, $sections)
+  } else {
+    [System.IO.File]::GetAccessControl($path, $sections)
+  }
   $descriptor = [System.Security.AccessControl.RawSecurityDescriptor]::new(
     $acl.GetSecurityDescriptorBinaryForm(), 0
   )
@@ -78,9 +83,8 @@ if ($inputData.create -and -not [System.IO.Directory]::Exists($root)) {
 }
 Assert-Access $root $true
 foreach ($path in $inputData.paths) {
-  try { $null = Get-Item -LiteralPath $path -Force }
-  catch [System.Management.Automation.ItemNotFoundException] { continue }
-  Assert-Access $path $true
+  try { Assert-Access $path $true }
+  catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] { continue }
 }
 `;
 
@@ -107,7 +111,7 @@ export function assertWindowsProfileACL(root: string, paths: string[], create = 
     env: { SystemRoot: systemRoot, ITPAY_MANAGED_PROFILE_ACL: JSON.stringify({ root, paths, create }) },
     stdio: ["ignore", "ignore", "pipe"],
     encoding: "utf8",
-    timeout: 10_000,
+    timeout: 30_000,
     windowsHide: true,
   });
   if (result.status !== 0) {
