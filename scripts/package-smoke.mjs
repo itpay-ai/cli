@@ -192,7 +192,7 @@ syncBuiltinESMExports();
   const developmentEnv = {
     ...env,
     HOME: join(scratch, "production-home"),
-    ITPAY_STATE_DIR: join(scratch, "sandbox-state"),
+    ITPAY_STATE_DIR: join(scratch, "sandbox state"),
     ITPAY_AGENT_TYPE: "codex-cli",
     ITPAY_BACKEND_URL: "https://sandbox.itpay.ai",
   };
@@ -201,7 +201,8 @@ syncBuiltinESMExports();
     entry, "--agent-type", "codex-cli", "device", "recover", "--confirm-backend-reset", "--json",
   ], { env: developmentEnv, encoding: "utf8" }));
   assert.equal(backendProof.result.backend, "https://sandbox.itpay.ai");
-  assert(backendProof.next.command.startsWith(`ITPAY_STATE_DIR=${developmentEnv.ITPAY_STATE_DIR} `));
+  const quotedStateDir = `'${developmentEnv.ITPAY_STATE_DIR.replaceAll("'", `'"'"'`)}'`;
+  assert(backendProof.next.command.startsWith(`ITPAY_STATE_DIR=${quotedStateDir} `));
   assert.match(backendProof.next.command, / ITPAY_BACKEND_URL=https:\/\/sandbox\.itpay\.ai /);
   const skillHelp = JSON.parse(execFileSync(process.execPath, [
     entry, "--agent-type", "codex-cli", "skill", "show", "itpay", "--json",
