@@ -3,6 +3,7 @@ import { win32 } from "node:path";
 
 const aclScript = String.raw`
 $ErrorActionPreference = 'Stop'
+[Console]::Error.WriteLine('ACL_PHASE_start')
 $inputData = ConvertFrom-Json -InputObject $env:ITPAY_MANAGED_PROFILE_ACL
 $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $trusted = @($current.Value, 'S-1-5-18', 'S-1-5-32-544')
@@ -55,6 +56,7 @@ function Assert-Access([string] $path, [bool] $private) {
   if ($private -and -not $currentAllowed) { throw 'user access missing' }
 }
 
+[Console]::Error.WriteLine('ACL_PHASE_ancestors')
 $root = $inputData.root
 $parent = [System.IO.Directory]::GetParent($root)
 if ($null -eq $parent) { throw 'volume root' }
@@ -63,6 +65,7 @@ for ($ancestor = $parent; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
   if ($ancestor.Exists) { Assert-Access $ancestor.FullName $false }
 }
 
+[Console]::Error.WriteLine('ACL_PHASE_create')
 if ($inputData.create -and -not [System.IO.Directory]::Exists($root)) {
   $acl = [System.Security.AccessControl.DirectorySecurity]::new()
   $acl.SetOwner($current)
@@ -79,6 +82,7 @@ if ($inputData.create -and -not [System.IO.Directory]::Exists($root)) {
   }
   [System.IO.Directory]::CreateDirectory($root, $acl) | Out-Null
 }
+[Console]::Error.WriteLine('ACL_PHASE_verify')
 Assert-Access $root $true
 foreach ($path in $inputData.paths) {
   try { Assert-Access $path $true }
@@ -103,10 +107,15 @@ export function assertWindowsProfileACL(root: string, paths: string[], create = 
   const systemRoot = process.env.SystemRoot;
   if (!systemRoot || !/^[a-z]:\\/i.test(root)) throw new Error("API profile requires a private local Windows directory");
   const executable = win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const runtimeEnvironment: NodeJS.ProcessEnv = { SystemRoot: systemRoot };
+  for (const name of ["WINDIR", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "ProgramData", "ProgramFiles", "TEMP", "TMP"]) {
+    const value = process.env[name];
+    if (value) runtimeEnvironment[name] = value;
+  }
   const result = spawnSync(executable, [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64"),
   ], {
-    env: { SystemRoot: systemRoot, ITPAY_MANAGED_PROFILE_ACL: JSON.stringify({ root, paths, create }) },
+    env: { ...runtimeEnvironment, ITPAY_MANAGED_PROFILE_ACL: JSON.stringify({ root, paths, create }) },
     stdio: ["ignore", "ignore", "pipe"],
     encoding: "utf8",
     timeout: 30_000,
@@ -122,8 +131,12 @@ export function assertWindowsProfileACL(root: string, paths: string[], create = 
     }
     const line = /ACL_LINE_([0-9]{1,3})\b/.exec(result.stderr ?? "")?.[1];
     if (line) throw new Error(`${message} (ACL line ${line})`);
-    if (result.error && "code" in result.error && result.error.code === "ETIMEDOUT") throw new Error(`${message} (ACL timeout)`);
+    const phases = [...(result.stderr ?? "").matchAll(/ACL_PHASE_(start|ancestors|create|verify)\b/g)];
+    const phase = phases.at(-1)?.[1] ?? "startup";
+    if (result.error && "code" in result.error && result.error.code === "ETIMEDOUT") {
+      throw new Error(`${message} (ACL timeout: ${phase})`);
+    }
     if (result.error) throw new Error(`${message} (ACL helper unavailable)`);
-    throw new Error(`${message} (ACL helper failed)`);
+    throw new Error(`${message} (ACL helper failed: ${phase})`);
   }
 }
