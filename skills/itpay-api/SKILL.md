@@ -33,6 +33,8 @@ status <request_id> [--wait 0..120] only reads the original result, receipt and 
 
 call --pending <request_id> is the returned continuation form for this installation's original request. It preserves the stored operation, input, publication and idempotency key. It first reads the original request, reads an existing run, and only continues an eligible original intent. It waits in rounds of at most 120 seconds. Follow its next command while the human completes the original official action. A terminal result or null next ends waiting. Do not invent a continuation for an unknown write.
 
+For a native MCP sign-in that has ended, reconnect the original application in ChatGPT or the original connector in WorkBuddy. In Codex, run `codex mcp login <服务名>` in the original configuration, using the server name from `codex mcp list`. Ask to check your ItPay account after login. A temporary service failure or a missing tool alone does not require a new login.
+
 If refresh is explicitly rejected, follow the returned connect --request command for the same profile. Immediately run the returned connect continue waiting command while the human approves the original official link. Keep -- before an opaque handle. Wrong-account approval stops. Once credentials are freshly verified and saved, the next command is status of the original request. Follow its call --pending only when continuation is actually required. Network-unknown refresh preserves the original state and does not authorize another login or business request.
 
 ## Wallet and payment
